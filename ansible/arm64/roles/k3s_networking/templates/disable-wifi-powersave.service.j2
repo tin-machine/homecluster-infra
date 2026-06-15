@@ -1,0 +1,13 @@
+[Unit]
+Description=Disable Wi-Fi power save on {{ k3s_wifi_iface_resolved }}
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/sys/class/net/{{ k3s_wifi_iface_resolved }}
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/disable-wifi-powersave.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

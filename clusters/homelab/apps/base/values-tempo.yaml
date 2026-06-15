@@ -1,0 +1,28 @@
+tempo:
+  server:
+    log_level: info
+  storage:
+    trace:
+      backend: local
+      local:
+        path: /var/tempo/traces
+      wal:
+        path: /var/tempo/wal
+persistence:
+  enabled: true
+  storageClassName: nfs-client
+  accessModes:
+    - ReadWriteOnce
+  size: 50Gi
+serviceAccount:
+  create: true
+podLabels:
+  app.kubernetes.io/name: tempo
+  app.kubernetes.io/instance: tempo
+  app.kubernetes.io/component: traces
+  app.kubernetes.io/part-of: observability
+service:
+  labels:
+    app.kubernetes.io/name: tempo
+    app.kubernetes.io/instance: tempo
+    app.kubernetes.io/component: traces

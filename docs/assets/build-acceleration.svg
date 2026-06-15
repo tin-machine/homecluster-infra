@@ -1,0 +1,124 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="620" viewBox="0 0 1200 620" role="img" aria-labelledby="title desc">
+  <title id="title">Portage / binpkg / distcc build acceleration</title>
+  <desc id="desc">Public-safe build acceleration diagram for PXE Gentoo. It shows private inventory input, OpenWrt NFS caches, Portage build clients, Gentoo upstream binary packages, Gentoo source mirrors, and distccd workers.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#334155" />
+    </marker>
+    <marker id="arrow-blue" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#2563eb" />
+    </marker>
+    <marker id="arrow-green" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#15803d" />
+    </marker>
+    <marker id="arrow-orange" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#c2410c" />
+    </marker>
+    <marker id="arrow-purple" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#7c3aed" />
+    </marker>
+    <style>
+      .bg { fill: #f8fafc; }
+      .title { fill: #0f172a; font: 700 28px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .zone { fill: #ffffff; stroke: #cbd5e1; stroke-width: 1.5; }
+      .input-zone { fill: #f8fafc; stroke: #94a3b8; }
+      .upstream-zone { fill: #ecfeff; stroke: #0891b2; }
+      .cache-zone { fill: #f0fdf4; stroke: #16a34a; }
+      .client-zone { fill: #fff7ed; stroke: #f97316; }
+      .worker-zone { fill: #f5f3ff; stroke: #7c3aed; }
+      .box { fill: #ffffff; stroke: #64748b; stroke-width: 1.4; }
+      .label { fill: #0f172a; font: 700 15px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .small { fill: #475569; font: 500 12px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .tiny { fill: #64748b; font: 500 11px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .line { fill: none; stroke: #334155; stroke-width: 2; marker-end: url(#arrow); }
+      .line-blue { fill: none; stroke: #2563eb; stroke-width: 2.2; marker-end: url(#arrow-blue); }
+      .line-green { fill: none; stroke: #15803d; stroke-width: 2.2; marker-end: url(#arrow-green); }
+      .line-orange { fill: none; stroke: #c2410c; stroke-width: 2.2; marker-end: url(#arrow-orange); }
+      .line-purple { fill: none; stroke: #7c3aed; stroke-width: 2.2; marker-end: url(#arrow-purple); }
+      .line-purple-return { fill: none; stroke: #7c3aed; stroke-width: 2.2; stroke-dasharray: 7 6; marker-end: url(#arrow-purple); }
+    </style>
+  </defs>
+
+  <rect class="bg" width="1200" height="620" />
+  <text class="title" x="48" y="52">Portage / binpkg / distcc build acceleration</text>
+
+  <rect class="zone input-zone" x="48" y="96" width="250" height="210" rx="8" />
+  <text class="label" x="74" y="128">外部入力</text>
+  <text class="small" x="74" y="154">private inventory / site input</text>
+
+  <rect class="box" x="74" y="178" width="198" height="40" rx="8" />
+  <text class="small" x="173" y="203" text-anchor="middle">distcc allowlist</text>
+
+  <rect class="box" x="74" y="232" width="198" height="40" rx="8" />
+  <text class="small" x="173" y="257" text-anchor="middle">NFS binpkg export</text>
+
+  <rect class="box" x="74" y="286" width="198" height="40" rx="8" />
+  <text class="small" x="173" y="311" text-anchor="middle">official binhost opt-in</text>
+
+  <rect class="zone upstream-zone" x="350" y="96" width="360" height="150" rx="8" />
+  <text class="label" x="376" y="128">Gentoo upstream</text>
+
+  <rect class="box" x="376" y="154" width="140" height="58" rx="8" />
+  <text class="label" x="446" y="179" text-anchor="middle">公式 binhost</text>
+  <text class="tiny" x="446" y="198" text-anchor="middle">getbinpkgonly</text>
+
+  <rect class="box" x="544" y="154" width="140" height="58" rx="8" />
+  <text class="label" x="614" y="179" text-anchor="middle">source mirror</text>
+  <text class="tiny" x="614" y="198" text-anchor="middle">distfiles / ebuilds</text>
+
+  <rect class="zone cache-zone" x="770" y="96" width="370" height="150" rx="8" />
+  <text class="label" x="796" y="128">OpenWrt NFS cache</text>
+
+  <rect class="box" x="796" y="154" width="150" height="58" rx="8" />
+  <text class="label" x="871" y="179" text-anchor="middle">binpkg cache</text>
+  <text class="tiny" x="871" y="198" text-anchor="middle">CPU key 付き PKGDIR</text>
+
+  <rect class="box" x="968" y="154" width="146" height="58" rx="8" />
+  <text class="label" x="1041" y="179" text-anchor="middle">distfiles</text>
+  <text class="tiny" x="1041" y="198" text-anchor="middle">source artifact</text>
+
+  <rect class="zone client-zone" x="210" y="350" width="560" height="230" rx="8" />
+  <text class="label" x="236" y="382">Portage build clients</text>
+  <text class="small" x="236" y="404">source build はここで計画され、binary があれば先に再利用します。</text>
+
+  <rect class="box" x="244" y="434" width="220" height="58" rx="8" />
+  <text class="label" x="354" y="459" text-anchor="middle">OpenWrt rootfs chroot</text>
+  <text class="tiny" x="354" y="478" text-anchor="middle">lower rootfs package build</text>
+
+  <rect class="box" x="500" y="434" width="220" height="58" rx="8" />
+  <text class="label" x="610" y="459" text-anchor="middle">PXE Gentoo node</text>
+  <text class="tiny" x="610" y="478" text-anchor="middle">ansible-pull / Terraform package</text>
+
+  <rect class="box" x="330" y="520" width="320" height="42" rx="8" />
+  <text class="label" x="490" y="546" text-anchor="middle">Portage emerge</text>
+
+  <rect class="zone worker-zone" x="835" y="350" width="305" height="230" rx="8" />
+  <text class="label" x="861" y="382">distcc worker pool</text>
+  <text class="small" x="861" y="404">compile job だけを分散します。</text>
+
+  <rect class="box" x="866" y="434" width="110" height="58" rx="8" />
+  <text class="label" x="921" y="459" text-anchor="middle">rpi4</text>
+  <text class="tiny" x="921" y="478" text-anchor="middle">distccd</text>
+
+  <rect class="box" x="1000" y="434" width="110" height="58" rx="8" />
+  <text class="label" x="1055" y="459" text-anchor="middle">rpi5</text>
+  <text class="tiny" x="1055" y="478" text-anchor="middle">distccd</text>
+
+  <rect class="box" x="900" y="520" width="180" height="42" rx="8" />
+  <text class="label" x="990" y="546" text-anchor="middle">TCP 3632</text>
+
+  <path class="line" d="M272 198 C330 198 326 462 244 462" />
+  <path class="line" d="M272 252 C392 266 644 248 846 154" />
+  <path class="line" d="M272 306 C326 306 340 176 376 176" />
+
+  <path class="line-blue" d="M446 212 C436 286 460 356 490 520" />
+  <path class="line-orange" d="M614 212 C620 290 600 358 490 520" />
+  <path class="line-green" d="M871 212 C820 308 690 420 650 520" />
+  <path class="line-green" d="M490 520 C572 450 740 282 846 212" />
+  <path class="line-orange" d="M1041 212 C976 304 790 430 650 520" />
+
+  <path class="line-purple" d="M650 542 C750 530 820 522 900 541" />
+  <path class="line-purple-return" d="M900 562 C790 604 610 604 490 562" />
+  <path class="line-purple" d="M990 520 C974 496 950 488 921 492" />
+  <path class="line-purple" d="M990 520 C1006 496 1030 488 1055 492" />
+</svg>

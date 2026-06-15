@@ -1,0 +1,31 @@
+---
+- name: journald drop-in directory を作成
+  become: true
+  ansible.builtin.file:
+    path: /etc/systemd/journald.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: k3s/PXE 向け journald 上限を設定
+  become: true
+  ansible.builtin.copy:
+    dest: /etc/systemd/journald.conf.d/20-k3s-log-limits.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [Journal]
+      Storage={{ k3s_journald_storage }}
+      RuntimeMaxUse={{ k3s_journald_runtime_max_use }}
+      RuntimeMaxFileSize={{ k3s_journald_runtime_max_file_size }}
+      RuntimeMaxFiles={{ k3s_journald_runtime_max_files }}
+  register: k3s_log_limits_journald_conf
+
+- name: journald 設定を反映
+  become: true
+  ansible.builtin.systemd:
+    name: systemd-journald
+    state: restarted
+  when: k3s_log_limits_journald_conf.changed

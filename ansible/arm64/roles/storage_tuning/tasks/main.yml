@@ -1,0 +1,203 @@
+---
+- name: 揮発領域を tmpfs 化
+  vars:
+    storage_tuning_tmpfs_mounts:
+      - path: /var/log
+        size: 256m
+        mode: "0755"
+      - path: /tmp
+        size: 512m
+        mode: "1777"
+      - path: /var/tmp
+        size: 2g
+        mode: "1777"
+  ansible.builtin.mount:
+    src: none
+    path: "{{ item.path }}"
+    opts: "rw,size={{ item.size }},mode={{ item.mode }}"
+    state: mounted
+    fstype: tmpfs
+  loop: "{{ storage_tuning_tmpfs_mounts }}"
+  loop_control:
+    label: "{{ item.path }}"
+
+- name: journald を揮発設定にする
+  become: true
+  ansible.builtin.file:
+    path: /etc/systemd/journald.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: journald を揮発設定にする
+  become: true
+  ansible.builtin.copy:
+    dest: /etc/systemd/journald.conf.d/00-storage-tuning.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [Journal]
+      Storage=volatile
+      RuntimeMaxUse=100M
+  register: storage_tuning_journald_conf
+
+- name: journald 設定を反映
+  become: true
+  ansible.builtin.systemd:
+    name: systemd-journald
+    state: restarted
+  when: storage_tuning_journald_conf.changed
+
+- name: sysctl チューニングを適用
+  become: true
+  ansible.builtin.sysctl:
+    name: "{{ item.name }}"
+    value: "{{ item.value }}"
+    sysctl_file: /etc/sysctl.d/99-storage-tuning.conf
+    reload: true
+  loop:
+    - { name: "vm.swappiness", value: "10" }
+    - { name: "vm.vfs_cache_pressure", value: "50" }
+    - { name: "vm.dirty_background_ratio", value: "5" }
+    - { name: "vm.dirty_ratio", value: "20" }
+    - { name: "vm.dirty_expire_centisecs", value: "6000" }
+
+- name: ルートファイルシステムの fstab 情報を取得
+  ansible.builtin.command:
+    cmd: findmnt -no SOURCE,FSTYPE,OPTIONS --target / --fstab
+  register: storage_tuning_root_fstab
+  changed_when: false
+  tags: storage_tuning_fstab
+
+- name: ルートファイルシステムのデバイスを取得
+  ansible.builtin.command:
+    cmd: findmnt -no SOURCE --target /
+  register: storage_tuning_root_source
+  changed_when: false
+  tags: storage_tuning_fstab
+
+- name: ルートファイルシステムの実デバイスを取得
+  ansible.builtin.command:
+    cmd: readlink -f "{{ storage_tuning_root_source.stdout }}"
+  register: storage_tuning_root_device_resolved
+  changed_when: false
+  tags: storage_tuning_fstab
+
+- name: ルートデバイスの親ブロックデバイスを取得
+  ansible.builtin.command:
+    cmd: lsblk -no PKNAME "{{ storage_tuning_root_device_resolved.stdout }}"
+  register: storage_tuning_root_parent_device
+  changed_when: false
+  tags: storage_tuning_fstab
+
+- name: discard 対応有無を判定
+  ansible.builtin.command:
+    cmd: lsblk -ndo DISC-GRAN "{{ storage_tuning_root_block_device }}"
+  register: storage_tuning_root_discard_gran
+  changed_when: false
+  failed_when: false
+  vars:
+    storage_tuning_root_block_device: >-
+      {{ ((storage_tuning_root_parent_device.stdout | length | int) > 0)
+        | ternary('/dev/' + storage_tuning_root_parent_device.stdout,
+                  storage_tuning_root_device_resolved.stdout) }}
+  tags: storage_tuning_fstab
+
+- name: ルートファイルシステムの fstab 形式を確認
+  ansible.builtin.assert:
+    that:
+      - storage_tuning_root_fstab.stdout is match('^\\S+\\s+\\S+\\s+\\S+$')
+    fail_msg: "ルートファイルシステムの fstab エントリが見つかりません。/etc/fstab を確認してください。"
+  tags: storage_tuning_fstab
+
+- name: ルートファイルシステムの fstab 解析結果を分割
+  ansible.builtin.set_fact:
+    storage_tuning_root_fstab_fields: "{{ storage_tuning_root_fstab.stdout.split() }}"
+    storage_tuning_root_discard_supported: >-
+      {{ (storage_tuning_root_discard_gran.stdout | regex_replace('[^0-9]', '') | int) > 0 }}
+  tags: storage_tuning_fstab
+
+- name: ルートファイルシステムの fstab 解析結果を確認
+  ansible.builtin.assert:
+    that:
+      - storage_tuning_root_fstab_fields | length >= 3
+    fail_msg: "ルートファイルシステムの fstab 解析に失敗しました。/etc/fstab を確認してください。"
+  tags: storage_tuning_fstab
+
+- name: ルートファイルシステムのマウント情報を抽出
+  ansible.builtin.set_fact:
+    storage_tuning_root_fstab_source: "{{ storage_tuning_root_fstab_fields[0] }}"
+    storage_tuning_root_fstab_fstype: "{{ storage_tuning_root_fstab_fields[1] }}"
+    storage_tuning_root_fstab_opts: "{{ storage_tuning_root_fstab_fields[2] }}"
+  tags: storage_tuning_fstab
+
+- name: ルートファイルシステムのマウントオプションを生成
+  ansible.builtin.set_fact:
+    storage_tuning_root_opts_list: >-
+      {{
+        (
+          storage_tuning_root_fstab_opts.split(',')
+          | reject('equalto', 'relatime')
+          | reject('equalto', 'atime')
+          | list
+        )
+        + ['noatime', 'nodiratime', 'commit=600']
+        + (storage_tuning_root_discard_supported | ternary(['discard'], []))
+      }}
+  tags: storage_tuning_fstab
+
+- name: ルートファイルシステムのマウントオプションを文字列化
+  ansible.builtin.set_fact:
+    storage_tuning_root_opts_final: "{{ storage_tuning_root_opts_list | unique | join(',') }}"
+  tags: storage_tuning_fstab
+
+- name: ルートファイルシステムの fstab オプションを更新
+  become: true
+  ansible.builtin.mount:
+    path: /
+    src: "{{ storage_tuning_root_fstab_source }}"
+    fstype: "{{ storage_tuning_root_fstab_fstype }}"
+    opts: "{{ storage_tuning_root_opts_final }}"
+    state: present
+  tags: storage_tuning_fstab
+
+- name: kiosk ユーザーのキャッシュを var/tmp に移す
+  block:
+    - name: kiosk ホームが存在するか確認
+      ansible.builtin.stat:
+        path: /home/kiosk
+      register: storage_tuning_kiosk_home
+
+    - name: tmpfiles に kiosk キャッシュを定義
+      become: true
+      ansible.builtin.copy:
+        dest: /etc/tmpfiles.d/kiosk-cache.conf
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          d /var/tmp/kiosk-cache 0750 kiosk kiosk -
+      when: storage_tuning_kiosk_home.stat.exists
+
+    - name: kiosk の environment.d を用意
+      become: true
+      ansible.builtin.file:
+        path: /home/kiosk/.config/environment.d
+        state: directory
+        owner: kiosk
+        group: kiosk
+        mode: "0750"
+      when: storage_tuning_kiosk_home.stat.exists
+
+    - name: kiosk のキャッシュディレクトリを指定
+      become: true
+      ansible.builtin.copy:
+        dest: /home/kiosk/.config/environment.d/cache.conf
+        owner: kiosk
+        group: kiosk
+        mode: "0640"
+        content: |
+          XDG_CACHE_HOME=/var/tmp/kiosk-cache
+      when: storage_tuning_kiosk_home.stat.exists

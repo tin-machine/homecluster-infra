@@ -1,0 +1,48 @@
+mode: daemonset
+image:
+  repository: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib
+  tag: 0.102.1
+  pullPolicy: IfNotPresent
+serviceAccount:
+  create: true
+service:
+  enabled: true
+  type: ClusterIP
+  annotations: {}
+
+podLabels:
+  app.kubernetes.io/part-of: observability
+
+additionalLabels:
+  app.kubernetes.io/part-of: observability
+
+extraVolumes:
+  - name: varlog
+    hostPath:
+      path: /var/log
+      type: Directory
+  - name: host-proc
+    hostPath:
+      path: /proc
+      type: Directory
+  - name: host-sys
+    hostPath:
+      path: /sys
+      type: Directory
+  - name: host-run
+    hostPath:
+      path: /run
+      type: Directory
+extraVolumeMounts:
+  - name: varlog
+    mountPath: /var/log
+    readOnly: true
+  - name: host-proc
+    mountPath: /host/proc
+    readOnly: true
+  - name: host-sys
+    mountPath: /host/sys
+    readOnly: true
+  - name: host-run
+    mountPath: /host/run
+    readOnly: true

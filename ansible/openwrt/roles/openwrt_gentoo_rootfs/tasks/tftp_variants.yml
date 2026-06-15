@@ -1,0 +1,69 @@
+---
+- name: TFTP variant ディレクトリを作成
+  ansible.builtin.file:
+    path: "{{ openwrt_gentoo_tftp_dir }}/{{ item.name }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop: "{{ openwrt_gentoo_tftp_variants | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - (openwrt_gentoo_tftp_variants | default([]) | length) > 0
+
+- name: TFTP variant 向けシンボリックリンクを作成
+  ansible.builtin.file:
+    src: "{{ link.target }}"
+    dest: "{{ openwrt_gentoo_tftp_dir }}/{{ variant.name }}/{{ link.name }}"
+    state: link
+    force: true
+    follow: false
+  loop: "{{ (openwrt_gentoo_tftp_variants | default([])) | subelements('symlinks', skip_missing=True) }}"
+  loop_control:
+    label: "{{ item.0.name }}/{{ item.1.name }}"
+  vars:
+    variant: "{{ item.0 }}"
+    link: "{{ item.1 }}"
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - (openwrt_gentoo_tftp_variants | default([]) | length) > 0
+
+- name: TFTP variant config.txt を配置
+  ansible.builtin.template:
+    src: config.txt.j2
+    dest: "{{ openwrt_gentoo_tftp_dir }}/{{ item.name }}/config.txt"
+    owner: root
+    group: root
+    mode: '0644'
+  loop: "{{ openwrt_gentoo_tftp_variants | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_tftp_config_enabled | bool
+    - (openwrt_gentoo_tftp_variants | default([]) | length) > 0
+
+- name: TFTP variant cmdline.txt を配置
+  ansible.builtin.template:
+    src: cmdline.txt.j2
+    dest: "{{ openwrt_gentoo_tftp_dir }}/{{ item.name }}/cmdline.txt"
+    owner: root
+    group: root
+    mode: '0644'
+  vars:
+    openwrt_gentoo_cmdline_root_arg: "{{ item.cmdline_root_arg | default(openwrt_gentoo_tftp_cmdline_defaults.root_arg, true) }}"
+    openwrt_gentoo_cmdline_ip: "{{ item.cmdline_ip | default(openwrt_gentoo_tftp_cmdline_defaults.ip, true) }}"
+    openwrt_gentoo_cmdline_extra_args: "{{ item.cmdline_extra_args | default(openwrt_gentoo_tftp_cmdline_defaults.extra_args, true) }}"
+  loop: "{{ openwrt_gentoo_tftp_variants | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_tftp_cmdline_enabled | bool
+    - (openwrt_gentoo_tftp_variants | default([]) | length) > 0

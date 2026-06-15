@@ -1,0 +1,79 @@
+---
+- name: Check required Raspberry Pi firmware files
+  ansible.builtin.stat:
+    path: "{{ rpi_firmware_src_dir }}/{{ item }}"
+    follow: true
+  loop: "{{ rpi_required_firmware_files }}"
+  register: rpi_firmware_file_stats
+
+- name: Assert required Raspberry Pi firmware files exist
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+      - item.stat.isreg
+    fail_msg: "Required firmware file is missing: {{ item.stat.path }}"
+  loop: "{{ rpi_firmware_file_stats.results }}"
+
+- name: Copy Raspberry Pi firmware files
+  ansible.builtin.copy:
+    src: "{{ rpi_firmware_src_dir }}/{{ item }}"
+    dest: "{{ rpi_boot_dir }}/{{ item }}"
+    mode: "0644"
+    remote_src: true
+    local_follow: true
+  loop: "{{ rpi_required_firmware_files }}"
+
+- name: Check required Raspberry Pi DTB files
+  ansible.builtin.stat:
+    path: "{{ rpi_dtb_src_dir }}/{{ item }}"
+    follow: true
+  loop: "{{ rpi_required_dtb_files_resolved }}"
+  register: rpi_dtb_file_stats
+
+- name: Assert required Raspberry Pi DTB files exist
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+      - item.stat.isreg
+    fail_msg: "Required DTB file is missing: {{ item.stat.path }}"
+  loop: "{{ rpi_dtb_file_stats.results }}"
+
+- name: Copy Raspberry Pi DTB files
+  ansible.builtin.copy:
+    src: "{{ rpi_dtb_src_dir }}/{{ item }}"
+    dest: "{{ rpi_boot_dir }}/{{ item }}"
+    mode: "0644"
+    remote_src: true
+    local_follow: true
+  loop: "{{ rpi_required_dtb_files_resolved }}"
+
+- name: Check overlays directory
+  ansible.builtin.stat:
+    path: "{{ rpi_overlays_src_dir }}"
+  register: rpi_overlays_dir_stat
+
+- name: Assert overlays directory exists
+  ansible.builtin.assert:
+    that:
+      - rpi_overlays_dir_stat.stat.exists
+      - rpi_overlays_dir_stat.stat.isdir
+    fail_msg: "Required overlays directory is missing: {{ rpi_overlays_src_dir }}"
+  when: rpi_overlays_required | bool
+
+- name: Create overlays destination directory
+  ansible.builtin.file:
+    path: "{{ rpi_boot_dir }}/overlays"
+    state: directory
+    mode: "0755"
+  when: rpi_overlays_dir_stat.stat.exists
+
+- name: Copy overlays directory
+  ansible.builtin.command:
+    argv:
+      - rsync
+      - -a
+      - --delete
+      - "{{ rpi_overlays_src_dir }}/"
+      - "{{ rpi_boot_dir }}/overlays/"
+  changed_when: true
+  when: rpi_overlays_dir_stat.stat.exists

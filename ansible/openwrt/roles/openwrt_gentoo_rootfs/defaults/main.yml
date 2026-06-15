@@ -1,0 +1,488 @@
+---
+# Gentoo PXE rootfs preparation defaults
+
+openwrt_gentoo_enabled: true
+
+# Gentoo stage3 archive URL (mandatory when role is enabled)
+openwrt_gentoo_stage3_url: null
+openwrt_gentoo_stage3_sha256: null
+openwrt_gentoo_stage3_sha512: null
+openwrt_gentoo_stage3_auto: false
+openwrt_gentoo_stage3_autobuilds_base_url: "https://distfiles.gentoo.org/releases/arm64/autobuilds"
+openwrt_gentoo_stage3_latest_filename: "latest-stage3-arm64-systemd.txt"
+openwrt_gentoo_stage3_checksum_algo: sha256
+
+# Release identifier (e.g. 20251026). Used as directory name under /srv/gentoo.
+# 必要に応じて inventory で明示指定してください。
+openwrt_gentoo_release: null
+
+# PXE release bundle / paired clean generation.
+# 有効化時は bundle 日付から Pi 世代別 release を導出し、
+# host の tftp_release / rootfs_release が同じ世代へ揃っていることを検証する。
+openwrt_gentoo_release_bundle_enabled: false
+openwrt_gentoo_release_bundle_date: ""
+openwrt_gentoo_release_bundle_stage_dates: {}
+openwrt_gentoo_release_bundle_policy: paired_clean
+openwrt_gentoo_release_bundle_strict_hosts: true
+openwrt_gentoo_release_bundle_require_artifacts: true
+openwrt_gentoo_release_bundle_manifest_enabled: true
+openwrt_gentoo_release_bundle_manifest_dir: /srv/gentoo/releases
+openwrt_gentoo_release_bundle_marker_enabled: true
+openwrt_gentoo_release_bundle_rootfs_marker_name: ".release_bundle_rootfs"
+openwrt_gentoo_release_bundle_tftp_marker_name: ".release_bundle_tftp"
+openwrt_gentoo_release_bundle_target_hosts: []
+openwrt_gentoo_release_bundle_target_stages:
+  - stg
+openwrt_gentoo_release_bundle_generations:
+  - name: rpi4
+    release_suffix: rpi4
+    host_name_regex: "^rpi4-"
+  - name: rpi5
+    release_suffix: rpi5
+    host_name_regex: "^rpi5-"
+
+# Routine lower-rootfs edits use stage-date active releases when a bundle stage
+# map exists. Bundle build/promote playbooks explicitly opt back into the base
+# candidate because they are constructing a new release.
+openwrt_gentoo_rootfs_target_stages: []
+openwrt_gentoo_rootfs_include_base_candidate: "{{ ((openwrt_gentoo_release_bundle_stage_dates | default({}, true)) | length) == 0 }}"
+openwrt_gentoo_rootfs_candidate_fallback_to_base: "{{ openwrt_gentoo_rootfs_include_base_candidate | default(true) }}"
+
+# 既存 rootfs release から canary 用 rootfs release を作る。
+# 明示 tag pxe_rootfs_clone でだけ実行し、通常の rootfs build には混ぜない。
+openwrt_gentoo_rootfs_clone_enabled: false
+openwrt_gentoo_rootfs_clones: []
+openwrt_gentoo_rootfs_clone_marker_name: ".rootfs_clone_source"
+
+# 既存 rootfs release の prune 候補を列挙する。
+# 明示 tag pxe_rootfs_prune でだけ実行し、既定では dry-run のみ行う。
+openwrt_gentoo_rootfs_prune_enabled: true
+openwrt_gentoo_rootfs_prune_apply: false
+openwrt_gentoo_rootfs_prune_confirm: ""
+openwrt_gentoo_rootfs_prune_confirm_value: "delete-pruned-rootfs"
+openwrt_gentoo_rootfs_prune_keep_generations: 5
+openwrt_gentoo_rootfs_prune_min_release_age_days: 30
+openwrt_gentoo_rootfs_prune_protected_releases: []
+
+# Base directories
+openwrt_gentoo_download_dir: /tmp
+openwrt_gentoo_overlay_export_path: /nfs/overlay
+openwrt_gentoo_logs_export_path: /nfs/ansible-logs
+openwrt_gentoo_overlay_remote_enabled: false
+
+# Extraction behaviour
+openwrt_gentoo_force_reextract: false
+
+# 必須パッケージ
+openwrt_gentoo_packages:
+  - xz
+  - tar
+  - bsdtar  # cpio パッケージが配布されない環境向けに、cpio互換の一覧取得用
+  - zstd
+
+# Raspberry Pi firmware / カーネルモジュール同期
+openwrt_gentoo_copy_rpi_modules: true
+openwrt_gentoo_rpi_firmware_repo: "https://github.com/raspberrypi/firmware.git"
+openwrt_gentoo_rpi_firmware_version: master
+openwrt_gentoo_rpi_firmware_dirname: firmware-src
+openwrt_gentoo_rpi_firmware_depth: 1
+openwrt_gentoo_rpi_firmware_force: false
+openwrt_gentoo_rpi_firmware_packages:
+  - git
+  - git-http
+  - ca-bundle
+  - rsync
+openwrt_gentoo_rpi_modules_delete_extra: true
+
+# Overlay/NFS クライアント定義（各要素に id を必須とします）
+openwrt_gentoo_overlay_clients: []
+
+# PXE ansible-pull 完了 Slack 通知。
+# default token/channel を指定すると、overlay client 全体へ slack.env を配る。
+# openwrt_pxe_slack_clients は個別 override 用に残す。
+openwrt_pxe_slack_enabled: false
+openwrt_pxe_slack_auto_overlay_clients: true
+openwrt_pxe_slack_auto_overlay_client_ids: []
+openwrt_pxe_slack_default_bot_token: ""
+openwrt_pxe_slack_default_channel_id: ""
+openwrt_pxe_slack_clients: []
+
+openwrt_gentoo_server_host: ""
+openwrt_gentoo_root_password_hash: null
+
+# PXE client boot early time sync.
+# ansible-pull / GitHub / DNSSEC / TLS より前に、名前解決へ依存しない時刻同期経路を用意する。
+openwrt_gentoo_timesyncd_enabled: true
+openwrt_gentoo_timesyncd_unit: systemd-timesyncd.service
+openwrt_gentoo_time_wait_sync_unit: systemd-time-wait-sync.service
+openwrt_gentoo_time_wait_sync_timeout: 120s
+openwrt_gentoo_timesyncd_ntp_servers:
+  - "{{ openwrt_gentoo_server_host }}"
+openwrt_gentoo_timesyncd_fallback_ntp_servers:
+  - 133.243.238.163
+  - 133.243.238.164
+  - 133.243.238.243
+  - 133.243.238.244
+
+# 役割検出（DHCP Option 224）
+openwrt_gentoo_role_output_path: /run/dhcp/role
+openwrt_gentoo_role_env_output_path: /run/dhcp/role.env
+openwrt_gentoo_stage_label: ""
+
+# binpkg / distfiles キャッシュ設定
+openwrt_gentoo_binpkg_enabled: true
+# Pi4B 用にアーキ/CHOST/プロファイルを固定（binpkg再利用のため）
+openwrt_gentoo_arch: aarch64
+openwrt_gentoo_chost: aarch64-unknown-linux-gnu
+openwrt_gentoo_profile_name: default/linux/arm64/23.0/systemd
+openwrt_gentoo_binpkg_dir: "/srv/gentoo/binpkgs/{{ openwrt_gentoo_arch }}/{{ openwrt_gentoo_chost }}/{{ openwrt_gentoo_profile_name }}"
+openwrt_gentoo_distfiles_dir: /srv/gentoo/distfiles
+openwrt_gentoo_binhost: "file://{{ openwrt_gentoo_binpkg_dir }}"
+
+# Official Gentoo binhost opt-in for packages that are too expensive or
+# undesirable to source-build in the PXE rootfs path. Keep this fail-closed:
+# only explicitly listed packages use --getbinpkgonly, so normal Portage runs
+# do not start fetching remote binpkgs implicitly.
+openwrt_gentoo_official_binhost_enabled: false
+openwrt_gentoo_official_binhost_name: gentoo
+openwrt_gentoo_official_binhost_uri: https://distfiles.gentoo.org/releases/arm64/binpackages/23.0/arm64
+openwrt_gentoo_official_binhost_location: /var/cache/binhost/gentoo
+openwrt_gentoo_official_binhost_verify_signature: true
+openwrt_gentoo_official_binhost_emerge_args:
+  - --getbinpkgonly
+  - --binpkg-respect-use=y
+  - --changed-use
+  - --quiet-build=y
+openwrt_gentoo_official_binhost_packages: []
+
+# ansible-pull 自動実行設定
+openwrt_gentoo_ansible_pull_enabled: true
+openwrt_gentoo_ansible_pull_emerge_args: "--oneshot --quiet-build=y"
+openwrt_gentoo_ansible_pull_marker: "{{ openwrt_gentoo_rootfs_dir }}/.ansible_pull_installed"
+openwrt_gentoo_ansible_pull_roles: []
+openwrt_gentoo_ansible_pull_role_dependencies: {}
+openwrt_gentoo_ansible_pull_env_group: env_prd
+openwrt_gentoo_ansible_pull_netrc_entries: []
+
+# PXE k3s staging の base role で毎 boot 導入していた共通 userland。
+# lower rootfs へ事前導入し、boot 後の tmpfs overlay 消費と ansible-pull@base 時間を抑える。
+# Rust など大きい package は source build へ落ちると rootfs 作成時間が大きく伸びるため、
+# k3s base baseline の前に local binpkg cache からだけ導入する。
+# `dev-lang/rust` ではなく upstream binary artifact を使う `dev-lang/rust-bin` に寄せる。
+openwrt_gentoo_heavy_prebuilt_enabled: true
+openwrt_gentoo_heavy_prebuilt_emerge_args: "--usepkgonly --binpkg-respect-use=y --changed-use --quiet-build=y"
+openwrt_gentoo_heavy_prebuilt_packages:
+  - dev-lang/rust-bin
+  - dev-lang/go
+  - app-shells/fish
+  - app-editors/neovim
+  - net-libs/nodejs
+
+openwrt_gentoo_k3s_base_baseline_enabled: true
+openwrt_gentoo_k3s_base_baseline_emerge_args: "--usepkg --changed-use --quiet-build=y"
+openwrt_gentoo_k3s_base_baseline_terraform_enabled: true
+openwrt_gentoo_k3s_base_baseline_terraform_package_atom: =app-admin/terraform-1.14.8
+openwrt_gentoo_k3s_base_baseline_terraform_package_accept_keywords:
+  - =app-admin/terraform-1.14.8 ~arm64
+openwrt_gentoo_k3s_base_baseline_terraform_package_license:
+  - app-admin/terraform BUSL-1.1
+openwrt_gentoo_k3s_base_baseline_terraform_env_name: k3s-stg-terraform
+openwrt_gentoo_k3s_base_baseline_terraform_package_env:
+  - 'MAKEOPTS="-j1"'
+  - 'GOFLAGS="-p=1"'
+  - 'GOMAXPROCS="1"'
+
+# Gentoo profile の Python target default が変わった場合、既存 rootfs の
+# installed package metadata が古い python_targets_* を保持していると
+# slot conflict になり得る。make.conf では固定しない。profile default を
+# source of truth とし、package 固有の例外が必要な場合だけ
+# /etc/portage/package.use/python-targets に閉じる。
+# 既存 installed USE/IUSE と profile default の差分から rebuild 対象を動的に選ぶ。
+openwrt_gentoo_python_target_migration_enabled: true
+openwrt_gentoo_python_target_portage_bootstrap_emerge_args: "--oneshot --changed-use --newuse --jobs=1 --quiet-build=y"
+openwrt_gentoo_python_target_migration_emerge_args: "--oneshot --usepkg --changed-use --newuse --backtrack=100 --quiet-build=y"
+
+# k3s staging 自動 join 補助。
+# server 側は短命 agent join token を NFS logs 配下へ発行し、
+# agent 側の ansible-pull wrapper は token を読んで k3s_control_token として渡す。
+openwrt_gentoo_k3s_stg_auto_join_enabled: false
+openwrt_gentoo_k3s_stg_token_ttl: 2h
+openwrt_gentoo_k3s_stg_token_refresh_on_boot_sec: 5min
+openwrt_gentoo_k3s_stg_token_refresh_interval: 30min
+openwrt_gentoo_k3s_stg_token_wait_seconds: 1800
+openwrt_gentoo_k3s_stg_agent_token_wait_seconds: 1800
+openwrt_gentoo_k3s_stg_agent_token_max_age_seconds: 6600
+openwrt_gentoo_k3s_stg_agent_token_retry_seconds: 10
+openwrt_gentoo_k3s_stg_server_api_host: "{{ (openwrt_gentoo_ansible_pull_group_vars_effective | default(openwrt_gentoo_ansible_pull_group_vars | default({}))).get('role_k3s_stg_agent', {}).get('k3s_registration_address', '') }}"
+openwrt_gentoo_k3s_stg_server_api_port: 6443
+openwrt_gentoo_k3s_stg_server_api_url: "{{ '' if (openwrt_gentoo_k3s_stg_server_api_host | default('') | length) == 0 else 'https://' ~ openwrt_gentoo_k3s_stg_server_api_host ~ ':' ~ openwrt_gentoo_k3s_stg_server_api_port }}"
+
+# Gentoo chroot / nfs-utils 導入
+openwrt_gentoo_nfs_utils_marker: "{{ openwrt_gentoo_rootfs_dir }}/.nfs_utils_installed"
+openwrt_gentoo_chroot_shell: /bin/bash
+openwrt_gentoo_chroot_bind_mounts:
+  - source: /dev
+    target: dev
+  - source: /proc
+    target: proc
+  - source: /sys
+    target: sys
+  - source: /dev/pts
+    target: dev/pts
+  - source: /srv/gentoo/binpkgs
+    target: srv/gentoo/binpkgs
+  - source: /srv/gentoo/distfiles
+    target: srv/gentoo/distfiles
+
+# distcc クライアント設定（openwrt chroot 用）
+openwrt_gentoo_distcc_enabled: false
+openwrt_gentoo_distcc_hosts: ""
+openwrt_gentoo_distcc_auto: true
+openwrt_gentoo_distcc_default_slots: 5
+openwrt_gentoo_makeopts: ""
+openwrt_gentoo_emerge_default_opts: ""
+
+# PXE クライアントユーザー (rootfs へ事前配備)
+# home / create_home / authorized_keys_file を指定すると、NFS home 未 mount でも
+# /etc/ssh/authorized_keys/<user> 経由で復旧用 SSH login を維持できる。
+openwrt_gentoo_pxe_users: []
+openwrt_gentoo_legacy_nfs_fstab_regexp: '^192\.0\.2\.10:[^\s]+\s+'
+openwrt_gentoo_home_autofs_enabled: false
+openwrt_gentoo_home_autofs_server: "{{ openwrt_gentoo_server_host | default('', true) }}"
+openwrt_gentoo_home_autofs_export: /shared-data/homes
+openwrt_gentoo_home_autofs_mount_root: /net
+
+# ansible ユーザ (rootfs へ事前配備)
+openwrt_gentoo_ansible_user_enabled: true
+openwrt_gentoo_ansible_user_name: ansible
+openwrt_gentoo_ansible_user_uid: 2000
+openwrt_gentoo_ansible_user_gid: 2000
+openwrt_gentoo_ansible_user_shell: /bin/bash
+openwrt_gentoo_ansible_user_authorized_keys_from_controller: true
+openwrt_gentoo_ansible_user_authorized_keys_file: "{{ lookup('ansible.builtin.env', 'HOME') }}/.ssh/authorized_keys"
+
+# sudo 導入
+openwrt_gentoo_sudo_marker: "{{ openwrt_gentoo_rootfs_dir }}/.sudo_installed"
+openwrt_gentoo_sudo_packages:
+  - app-admin/sudo
+openwrt_gentoo_sudo_emerge_args: "--oneshot --quiet-build=y"
+openwrt_gentoo_sudo_use_flags: "-sendmail"
+
+# k3s kube-proxy requires a working iptables backend. Raspberry Pi firmware
+# modules currently provide nf_tables but not legacy ip_tables.
+openwrt_gentoo_iptables_nft_enabled: true
+openwrt_gentoo_iptables_nft_marker: "{{ openwrt_gentoo_rootfs_dir }}/.iptables_nft_backend_configured"
+
+# Raspberry Pi Wi-Fi / Bluetooth runtime support.
+# SD-assisted Wi-Fi NFS root boot の前段として、まず有線 PXE boot 済み rootfs 上で
+# firmware load と bluetoothctl / wpa_supplicant の成立を確認する。
+openwrt_gentoo_rpi_wireless_enabled: true
+openwrt_gentoo_rpi_wireless_packages:
+  - sys-firmware/raspberrypi-wifi-ucode
+  - sys-firmware/bluez-firmware
+  - net-wireless/bluez
+  - net-wireless/wpa_supplicant
+  - net-wireless/iw
+openwrt_gentoo_rpi_wireless_obsolete_world_packages:
+  - net-wireless/rfkill
+openwrt_gentoo_rpi_wireless_bluetooth_service_enabled: true
+openwrt_gentoo_rpi_wireless_emerge_args: "--usepkg --changed-use --quiet-build=y"
+openwrt_gentoo_rpi_wireless_package_use:
+  - "net-wireless/bluez systemd udev readline -cups -mesh -obex -midi -man -doc -test -test-programs -experimental -extra-tools"
+  - "net-wireless/wpa_supplicant dbus -gui -eap-sim -smartcard"
+openwrt_gentoo_rpi_wireless_package_accept_keywords:
+  - "net-wireless/wpa_supplicant ~arm64"
+openwrt_gentoo_rpi_wireless_package_license:
+  - "sys-firmware/raspberrypi-wifi-ucode Broadcom"
+  - "sys-firmware/bluez-firmware bluez-firmware"
+
+# Raspberry Pi EEPROM bootloader update / boot order.
+# PXE network boot では tmpfs overlay 上の後追い install を避けるため、
+# rpi-eeprom は pi4 / pi5 USE が exactly-one-of のため、共有 rootfs では無効にする。
+# Pi 世代ごとに rootfs release を分ける場合だけ有効化する。
+openwrt_gentoo_rpi_eeprom_enabled: false
+openwrt_gentoo_rpi_eeprom_packages:
+  - dev-embedded/rpi-eeprom
+openwrt_gentoo_rpi_eeprom_package_use_flags: "pi4"
+openwrt_gentoo_rpi_eeprom_boot_order: "0xf421"
+openwrt_gentoo_rpi_eeprom_board_family: auto
+openwrt_gentoo_rpi_eeprom_config_common:
+  - key: BOOT_UART
+    value: "1"
+  - key: NET_INSTALL_AT_POWER_ON
+    value: "1"
+openwrt_gentoo_rpi_eeprom_config_pi4:
+  - key: WAKE_ON_GPIO
+    value: "1"
+  - key: POWER_OFF_ON_HALT
+    value: "0"
+openwrt_gentoo_rpi_eeprom_config_pi5:
+  - key: POWER_OFF_ON_HALT
+    value: "1"
+  - key: PSU_MAX_CURRENT
+    value: "5000"
+openwrt_gentoo_rpi_eeprom_config_extra: []
+openwrt_gentoo_rpi_eeprom_env_path: /etc/rpi-eeprom/boot-order.env
+openwrt_gentoo_rpi_eeprom_script_path: /usr/local/sbin/rpi-eeprom-boot-order-apply.sh
+openwrt_gentoo_rpi_eeprom_service_name: rpi-eeprom-boot-order.service
+openwrt_gentoo_rpi_eeprom_service_enabled: true
+openwrt_gentoo_rpi_eeprom_manage_boot_order: true
+openwrt_gentoo_rpi_eeprom_manage_config: true
+openwrt_gentoo_rpi_eeprom_apply_latest_update: false
+openwrt_gentoo_rpi_eeprom_bootfs_auto: true
+openwrt_gentoo_rpi_eeprom_bootfs_server: "{{ openwrt_gentoo_server_host }}"
+openwrt_gentoo_rpi_eeprom_bootfs_export_base: /gentoo/tftp-root
+openwrt_gentoo_rpi_eeprom_bootfs_mountpoint: /run/rpi-eeprom-bootfs
+openwrt_gentoo_rpi_eeprom_bootfs_mount_options: vers=4.2,proto=tcp,rw,hard,timeo=600,retrans=2
+openwrt_gentoo_rpi_eeprom_update_script_path: /usr/local/sbin/rpi-eeprom-auto-update.sh
+openwrt_gentoo_rpi_eeprom_update_service_name: rpi-eeprom-auto-update.service
+openwrt_gentoo_rpi_eeprom_update_timer_name: rpi-eeprom-auto-update.timer
+openwrt_gentoo_rpi_eeprom_update_timer_enabled: true
+openwrt_gentoo_rpi_eeprom_update_on_boot_sec: 45min
+openwrt_gentoo_rpi_eeprom_update_on_calendar: "Sun *-*-* 04:00:00"
+openwrt_gentoo_rpi_eeprom_update_randomized_delay_sec: 6h
+openwrt_gentoo_rpi_eeprom_update_persistent: true
+openwrt_gentoo_rpi_eeprom_update_max_load_1min: "4.00"
+
+# systemd-networkd / DHCP 役割検出フック
+openwrt_gentoo_networkd_lease_dir: /run/systemd/netif/leases
+openwrt_gentoo_networkd_unit: systemd-networkd.service
+openwrt_gentoo_resolved_unit: systemd-resolved.service
+openwrt_gentoo_network_unit_name: 10-wired-dhcp.network
+openwrt_gentoo_network_unit_path: "/etc/systemd/network/{{ openwrt_gentoo_network_unit_name }}"
+openwrt_gentoo_resolv_conf_target: /run/systemd/resolve/stub-resolv.conf
+openwrt_gentoo_chroot_resolv_conf_content: |
+  nameserver 8.8.8.8
+  nameserver 1.1.1.1
+openwrt_gentoo_networkd_role_script: /usr/local/sbin/pxe-write-role.sh
+openwrt_gentoo_networkd_role_service: pxe-write-role.service
+openwrt_gentoo_networkd_role_path_unit: pxe-write-role.path
+
+# OpenSSH (デバッグ用 SSH) 設定
+openwrt_gentoo_ssh_marker: "{{ openwrt_gentoo_rootfs_dir }}/.openssh_installed"
+openwrt_gentoo_ssh_packages:
+  - net-misc/openssh
+openwrt_gentoo_ssh_emerge_args: "--oneshot --quiet-build=y"
+openwrt_gentoo_ssh_service: sshd.service
+openwrt_gentoo_ssh_config_path: /etc/ssh/sshd_config
+openwrt_gentoo_ssh_allow_root_login: false
+openwrt_gentoo_ssh_allow_password_auth: false
+openwrt_gentoo_ssh_host_keys_enabled: true
+openwrt_gentoo_ssh_host_keys_store_dir: /srv/nfs/ansible-logs/ssh-host-keys
+openwrt_gentoo_ssh_host_keys_store_root: "{{ openwrt_gentoo_bootstrap_logs_mountpoint }}/ssh-host-keys"
+openwrt_gentoo_ssh_host_keys_local_dir: /etc/ssh
+openwrt_gentoo_ssh_host_keys_types:
+  - ed25519
+openwrt_gentoo_ssh_host_keys_config_path: /etc/pxe-ssh-host-keys.conf
+openwrt_gentoo_ssh_host_keys_script_path: /usr/local/sbin/pxe-ssh-host-keys.sh
+openwrt_gentoo_ssh_host_keys_service: pxe-ssh-host-keys.service
+openwrt_gentoo_ssh_host_certificates_enabled: true
+openwrt_gentoo_ssh_host_certificates_config_path: /etc/ssh/sshd_config.d/20-pxe-host-certificates.conf
+
+# Portage 初期化
+openwrt_gentoo_portage_init: true
+openwrt_gentoo_portage_repo_path: /var/db/repos/gentoo
+openwrt_gentoo_portage_profile: /var/db/repos/gentoo/profiles/default/linux/arm64/23.0/systemd
+openwrt_gentoo_portage_sync_args: "--quiet"
+openwrt_gentoo_portage_sync_marker: "{{ openwrt_gentoo_rootfs_dir }}/var/db/repos/.portage_synced"
+openwrt_gentoo_portage_init_force: false
+openwrt_gentoo_portage_binpkg_keys:
+  - 2C44695DB9F6043D
+openwrt_gentoo_portage_gpg_owner: portage
+openwrt_gentoo_portage_gpg_group: portage
+openwrt_gentoo_locale: ja_JP.UTF-8
+openwrt_gentoo_locale_gen_entries:
+  - "ja_JP.UTF-8 UTF-8"
+  - "en_US.UTF-8 UTF-8"
+openwrt_gentoo_global_use: "bindist -checkboot systemd -elogind"
+openwrt_gentoo_common_flags: "-mcpu=cortex-a72+crc -mtune=cortex-a72 -ftree-vectorize -O2 -pipe"
+openwrt_gentoo_portage_tmpdir: /usr/local/tmp/portage
+
+# overlayfs fstab テンプレート用パス
+openwrt_gentoo_overlay_token: "__OVERLAY_ID__"
+openwrt_gentoo_overlay_lowerdir: "/run/rootfsbase"
+openwrt_gentoo_overlay_upperdir: "/run/overlayfs"
+openwrt_gentoo_overlay_workdir: "/run/ovlwork"
+openwrt_gentoo_logs_dir_template: "/run/pxe-bootstrap/logs/__OVERLAY_ID__"
+
+# TFTP へ配置する追加ファイル（辞書形式 path => content）
+openwrt_gentoo_tftp_files: {}
+openwrt_gentoo_tftp_firmware_dir: firmware
+openwrt_gentoo_tftp_fetch_firmware: true
+openwrt_gentoo_tftp_firmware_base_url: "https://raw.githubusercontent.com/raspberrypi/firmware/master/boot"
+openwrt_gentoo_tftp_get_url_timeout: 30
+openwrt_gentoo_tftp_get_url_retries: 3
+openwrt_gentoo_tftp_get_url_delay: 2
+openwrt_gentoo_tftp_board_hashes: []
+openwrt_gentoo_tftp_config_enabled: true
+openwrt_gentoo_tftp_cmdline_enabled: true
+openwrt_gentoo_tftp_strip_dtb_cgroup_disable_memory: true
+openwrt_gentoo_cmdline_ip: dhcp
+openwrt_gentoo_cmdline_nfs_options: "vers=4.2,proto=tcp"
+openwrt_gentoo_cmdline_root_arg: "root=nfs4:{{ openwrt_gentoo_server_host }}:/gentoo/{{ openwrt_gentoo_release }}/nfs,{{ openwrt_gentoo_cmdline_nfs_options }}"
+openwrt_gentoo_cmdline_extra_args: "rd.neednet=1 rd.net.timeout.carrier=30 rootwait cgroup_enable=cpuset cgroup_enable=memory cgroup_memory=1"
+openwrt_gentoo_rpi_arm64: true
+openwrt_gentoo_rpi_enable_uart: true
+openwrt_gentoo_rpi_bootcode_delay: 2
+openwrt_gentoo_rpi_model_filter_config: true
+openwrt_gentoo_rpi_kernel_image: kernel8.img
+openwrt_gentoo_rpi_initramfs: ""
+openwrt_gentoo_rpi_device_tree: bcm2711-rpi-4-b.dtb
+openwrt_gentoo_rpi4_kernel_image: kernel8.img
+openwrt_gentoo_rpi4_initramfs: ""
+openwrt_gentoo_rpi4_device_tree: bcm2711-rpi-4-b.dtb
+openwrt_gentoo_rpi5_kernel_image: kernel_2712.img
+openwrt_gentoo_rpi5_initramfs: ""
+openwrt_gentoo_rpi5_device_tree: bcm2712-rpi-5-b.dtb
+openwrt_gentoo_rpi_extra_config: |
+  # 追加設定を行う場合は inventory で openwrt_gentoo_rpi_extra_config を上書きしてください。
+openwrt_gentoo_tftp_variants:
+  - name: rpi4
+    symlinks:
+      - name: start4.elf
+        target: ../firmware/start4.elf
+      - name: fixup4.dat
+        target: ../firmware/fixup4.dat
+  - name: rpi5
+    symlinks:
+      - name: start4.elf
+        target: ../firmware/start4.elf
+      - name: fixup4.dat
+        target: ../firmware/fixup4.dat
+
+# initramfs (dracut) 生成
+openwrt_gentoo_initramfs_enabled: false
+openwrt_gentoo_initramfs_emerge_args: "--oneshot --quiet-build=y"
+openwrt_gentoo_initramfs_force_packages: false
+openwrt_gentoo_initramfs_marker: "{{ openwrt_gentoo_rootfs_dir }}/.initramfs_packages_installed"
+openwrt_gentoo_initramfs_overlayfs_module_enabled: true  # dracut 標準 overlayfs モジュールを常時有効化
+openwrt_gentoo_initramfs_output_path: "/boot/initramfs-pxe.img"
+openwrt_gentoo_initramfs_tftp_path: "initramfs-pxe.img"
+openwrt_gentoo_initramfs_tftp_paths:
+  - "{{ openwrt_gentoo_initramfs_tftp_path }}"
+openwrt_gentoo_initramfs_builds:
+  - name: default-v8
+    output_path: "{{ openwrt_gentoo_initramfs_output_path }}"
+    tftp_path: "{{ openwrt_gentoo_initramfs_tftp_path }}"
+    kernel_version_glob: "*-v8+"
+    kernel_version_exclude_glob: "*-rt+"
+openwrt_gentoo_initramfs_copy_to_tftp: true
+openwrt_gentoo_initramfs_extra_args: "--add-drivers overlay"
+openwrt_gentoo_initramfs_force_build: false
+openwrt_gentoo_initramfs_overlay_hook_enabled: false
+
+# Gentoo ブート後処理（overlayfs マウント）設定
+openwrt_gentoo_bootstrap_enabled: true
+openwrt_gentoo_bootstrap_run_dir: /run/pxe-bootstrap
+openwrt_gentoo_bootstrap_root_prefix: ""
+openwrt_gentoo_bootstrap_root_lower_mountpoint: /run/rootfsbase
+openwrt_gentoo_bootstrap_root_mountpoint: /run/rootfsbase
+openwrt_gentoo_bootstrap_overlay_mountpoint: /run/pxe-bootstrap/overlay
+openwrt_gentoo_bootstrap_logs_mountpoint: /run/pxe-bootstrap/logs
+openwrt_gentoo_bootstrap_overlay_mount_options: "vers=4.2,hard,timeo=600,retrans=2,nodev,nosuid,noatime,rsize=1048576,wsize=1048576"
+openwrt_gentoo_bootstrap_logs_mount_options: "vers=4.2,hard,timeo=600,retrans=2,nodev,nosuid,noatime,rsize=1048576,wsize=1048576"
+openwrt_gentoo_bootstrap_log_file_template: "/run/pxe-bootstrap/logs/__OVERLAY_ID__/bootstrap.log"
+openwrt_gentoo_default_role: default
+openwrt_gentoo_option_overlay_key: overlay_id
+openwrt_gentoo_option_role_key: role
+openwrt_gentoo_option_separator: ","

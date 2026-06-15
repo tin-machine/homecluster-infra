@@ -1,0 +1,67 @@
+# CPUの種類
+# - [Embedded systems/ARM hardware list - Gentoo Wiki](https://wiki.gentoo.org/wiki/Embedded_systems/ARM_hardware_list)
+# - [Raspberry Pi Install Guide - Gentoo Wiki](https://wiki.gentoo.org/wiki/Raspberry_Pi_Install_Guide)
+#   - > COMMON_FLAGS="-march=native ... should be avoided on arm and arm64 systems.
+#     - -marchは避けて、-mcpuを使う
+#   - -mtuneは何か?
+#     1. app-misc/resolve-march-native をインストール
+#     2. resolve-march-native を実行すると -mcpuのオプションが得られる
+#     3. > Set -mtune=<CPU without the optional extras>
+#       - mtuneには-mcpuのうち、extraオプションを除いたものを追加すると良いようだ、サンプルとして下記がある
+#       - > e.g. COMMON_FLAGS="-mcpu=cortex-a76+crc+crypto -mtune=cortex-a76 -O2 -pipe" for a Pi5.
+#         - -mcpuの+以降を削ったものを -mtune とすると良いらしい
+# ラズパイ4:
+#   COMMON_FLAGS="${CFLAGS} -march=armv8-a+crc -mtune=cortex-a72 -ftree-vectorize -O2 -pipe"
+# ラズパイ5:
+#   COMMON_FLAGS="${CFLAGS} -mcpu=cortex-a76+crc+crypto -mtune=cortex-a76 -O2 -pipe"
+COMMON_FLAGS="${CFLAGS} {{ common_flags_value }} -ftree-vectorize -O2 -pipe"
+CFLAGS="${COMMON_FLAGS}"
+CXXFLAGS="${COMMON_FLAGS}"
+FCFLAGS="${COMMON_FLAGS}"
+FFLAGS="${COMMON_FLAGS}"
+
+MAKEOPTS="-j{{ cpu_num.stdout }} -l4"
+
+EMERGE_DEFAULT_OPTS="--usepkg=y --jobs 2 --load-average {{ cpu_num.stdout }}"
+
+# Python target は Gentoo profile default に従う。
+# package 固有の例外が必要な場合だけ /etc/portage/package.use/python-targets へ書く。
+
+PORTAGE_TMPDIR="/usr/local/tmp/portage"
+
+USE="bindist -checkboot systemd -elogind"
+# FEATURES="buildpkg -binpkg-request-signature -strict -usersync -sign getbinpkg binpkg-multi-instance clean-logs compress-build-logs parallel-fetch parallel-install -distcc -userpriv -usersandbox -network-sandbox -pid-sandbox "
+# FEATURES="buildpkg getbinpkg binpkg-multi-instance clean-logs compress-build-logs parallel-fetch parallel-install -distcc -userpriv -usersandbox -network-sandbox -pid-sandbox "
+# FEATURES="buildpkg distcc -getbinpkg binpkg-multi-instance clean-logs compress-build-logs parallel-fetch parallel-install -userpriv -usersandbox -network-sandbox -pid-sandbox "
+FEATURES="buildpkg distcc -getbinpkg binpkg-multi-instance clean-logs compress-build-logs parallel-fetch userpriv usersandbox -network-sandbox -pid-sandbox "
+
+VIDEO_CARDS="vc4 v3d fbdev"
+INPUT_DEVICES="libinput"
+BINPKG_FORMAT="gpkg"
+BINPKG_COMPRESS="zstd"
+BINPKG_COMPRESS_FLAGS="-15"
+PORTAGE_COMPRESS="zstd"
+PORTAGE_COMPRESS_FLAGS="-15"
+PORTAGE_NICENESS="20"
+
+# [CHOSTの変更 - Gentoo Wiki](https://wiki.gentoo.org/wiki/Changing_the_CHOST_variable/ja)
+CHOST="{{ gentoo_chost }}"
+{% if gentoo_operating_mode != 'standalone' or gentoo_binpkg_nfs_enabled | bool %}
+PROFILE_NAME="{{ gentoo_profile_name }}"
+{% if gentoo_binpkg_include_cpu_key | bool %}
+PKGDIR="{{ gentoo_binpkg_base }}/${ARCH}/${CHOST}/${PROFILE_NAME}/{{ gentoo_binpkg_cpu_key_effective }}"
+{% else %}
+PKGDIR="{{ gentoo_binpkg_base }}/${ARCH}/${CHOST}/${PROFILE_NAME}"
+{% endif %}
+{% endif %}
+
+# [地域化/ガイド - Gentoo Wiki](https://wiki.gentoo.org/wiki/Localization/Guide/ja)
+# > LC_ALLを設定するのは、(LANGを除く)他の全ての LC_*変数の設定を上書きしてしまうので、特に避けるべきです。
+# > つまり、LC_ALLをリセットしない限りは他の手段による変更が有効にならないということです。
+LC_MESSAGES=ja_JP.UTF-8
+# > LINGUAS に何もセットされていないのと、LINGUAS が空の値であることには大きな違いがあることに注意してください。
+# > LINGUAS に何もセットされていないのは、利用可能な言語をすべてインストールするという意味です。
+LINGUAS="ja"
+# > どの追加ローカライゼーションサポートがインストールされるかを決定します。
+# > これは一般に、パッケージによる追加の言語パックのインストールに使用されます。
+L10N="ja"

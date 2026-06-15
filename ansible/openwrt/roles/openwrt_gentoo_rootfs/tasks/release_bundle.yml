@@ -1,0 +1,432 @@
+---
+- name: PXE release bundle の基本設定を検証
+  ansible.builtin.assert:
+    that:
+      - openwrt_gentoo_release_bundle_policy in ['paired_clean', 'shared_tftp']
+      - (openwrt_gentoo_release_bundle_date | string | trim) is match('^[0-9]{8}$')
+      - openwrt_gentoo_release_bundle_generations is iterable
+      - (openwrt_gentoo_release_bundle_generations | length) > 0
+    fail_msg: >-
+      openwrt_gentoo_release_bundle_enabled=true の場合、
+      openwrt_gentoo_release_bundle_date=YYYYMMDD と
+      openwrt_gentoo_release_bundle_policy=paired_clean を指定してください。
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_release_bundle_enabled | bool
+  tags:
+    - pxe_release_bundle
+    - pxe_release_bundle_build
+
+- name: shared_tftp policy は未実装として停止
+  ansible.builtin.fail:
+    msg: >-
+      openwrt_gentoo_release_bundle_policy=shared_tftp は
+      docs/system/pxe-release-bundle-design.md の不採用案3として記録しています。
+      現時点の実装対象は paired_clean です。
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_release_bundle_enabled | bool
+    - openwrt_gentoo_release_bundle_policy == 'shared_tftp'
+  tags:
+    - pxe_release_bundle
+    - pxe_release_bundle_build
+
+- name: PXE release bundle の世代別 release map を作成
+  ansible.builtin.set_fact:
+    openwrt_gentoo_release_bundle_releases: >-
+      {%- set result = {} -%}
+      {%- for item in openwrt_gentoo_release_bundle_generations -%}
+        {%- set name = item.name | string | trim -%}
+        {%- set suffix = item.release_suffix | default(name, true) | string | trim -%}
+        {%- set _ = result.update({name: (openwrt_gentoo_release_bundle_date | string | trim) ~ '-' ~ suffix}) -%}
+      {%- endfor -%}
+      {{ result }}
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_release_bundle_enabled | bool
+    - openwrt_gentoo_release_bundle_policy == 'paired_clean'
+  tags:
+    - pxe_release_bundle
+    - pxe_release_bundle_build
+
+- name: PXE release bundle 世代定義を検証
+  ansible.builtin.assert:
+    that:
+      - item.name is defined
+      - (item.name | string | trim | length) > 0
+      - item.host_name_regex is defined
+      - (item.host_name_regex | string | trim | length) > 0
+      - openwrt_gentoo_release_bundle_releases[item.name | string | trim] is defined
+    fail_msg: "openwrt_gentoo_release_bundle_generations の各要素には name / host_name_regex が必要です。"
+  loop: "{{ openwrt_gentoo_release_bundle_generations }}"
+  loop_control:
+    label: "{{ item.name | default('generation') }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_release_bundle_enabled | bool
+    - openwrt_gentoo_release_bundle_policy == 'paired_clean'
+  tags:
+    - pxe_release_bundle
+    - pxe_release_bundle_build
+
+- name: PXE release bundle host catalog を整形
+  ansible.builtin.set_fact:
+    openwrt_gentoo_release_bundle_host_entries: >-
+      {%- set result = [] -%}
+      {%- for host in openwrt_pxe_hosts_effective | default(openwrt_pxe_hosts | default([])) -%}
+        {%- set name = host.name | default(host.board_hash | default('host')) | string | trim -%}
+        {%- set stage = host.tftp_stage | default(host.stage | default(''), true) | string | trim -%}
+        {%- set tftp_release = host.tftp_release | default('', true) | string | trim -%}
+        {%- set rootfs_release = host.rootfs_release | default(tftp_release, true) | string | trim -%}
+        {%- set _ = result.append({
+          'name': name,
+          'stage': stage,
+          'tftp_release': tftp_release,
+          'rootfs_release': rootfs_release
+        }) -%}
+      {%- endfor -%}
+      {{ result }}
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_release_bundle_enabled | bool
+    - openwrt_gentoo_release_bundle_policy == 'paired_clean'
+  tags:
+    - pxe_release_bundle
+    - pxe_release_bundle_build
+
+- name: PXE release bundle host release を検証
+  ansible.builtin.assert:
+    that:
+      - (openwrt_gentoo_release_bundle_host_tftp_release | length) > 0
+      - openwrt_gentoo_release_bundle_host_tftp_release == openwrt_gentoo_release_bundle_expected_release
+      - openwrt_gentoo_release_bundle_host_rootfs_release == openwrt_gentoo_release_bundle_expected_release
+    fail_msg: >-
+      {{ openwrt_gentoo_release_bundle_host_name }} は release bundle
+      {{ openwrt_gentoo_release_bundle_date }} の
+      {{ openwrt_gentoo_release_bundle_generation_name }} として扱われますが、
+      tftp_release={{ openwrt_gentoo_release_bundle_host_tftp_release | default('(unset)', true) }}、
+      rootfs_release={{ openwrt_gentoo_release_bundle_host_rootfs_release | default('(unset)', true) }}、
+      expected={{ openwrt_gentoo_release_bundle_expected_release }} です。
+  vars:
+    openwrt_gentoo_release_bundle_host_name: "{{ item.0.name }}"
+    openwrt_gentoo_release_bundle_generation_name: "{{ item.1.name | string | trim }}"
+    openwrt_gentoo_release_bundle_expected_release: "{{ openwrt_gentoo_release_bundle_releases[openwrt_gentoo_release_bundle_generation_name] }}"
+    openwrt_gentoo_release_bundle_host_tftp_release: "{{ item.0.tftp_release }}"
+    openwrt_gentoo_release_bundle_host_rootfs_release: "{{ item.0.rootfs_release }}"
+  loop: "{{ (openwrt_gentoo_release_bundle_host_entries | default([])) | product(openwrt_gentoo_release_bundle_generations) | list }}"
+  loop_control:
+    label: "{{ item.0.name }} / {{ item.1.name | default('generation') }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_release_bundle_enabled | bool
+    - openwrt_gentoo_release_bundle_policy == 'paired_clean'
+    - openwrt_gentoo_release_bundle_strict_hosts | bool
+    - >
+      (openwrt_gentoo_release_bundle_target_hosts | default([]) | length) == 0
+      or item.0.name in (openwrt_gentoo_release_bundle_target_hosts | default([]))
+    - >
+      (openwrt_gentoo_release_bundle_target_stages | default([]) | length) == 0
+      or item.0.stage in (openwrt_gentoo_release_bundle_target_stages | default([]))
+    - ((item.0.name | string) | regex_search(item.1.host_name_regex | string)) is not none
+  tags:
+    - pxe_release_bundle
+    - pxe_release_bundle_build
+
+- name: PXE release bundle rootfs path を確認
+  ansible.builtin.stat:
+    path: "/srv/gentoo/{{ item.value }}/nfs"
+    get_attributes: false
+    get_checksum: false
+    get_mime: false
+  loop: "{{ openwrt_gentoo_release_bundle_releases | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}={{ item.value }}"
+  register: openwrt_gentoo_release_bundle_rootfs_stats
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_release_bundle_enabled | bool
+    - openwrt_gentoo_release_bundle_policy == 'paired_clean'
+    - openwrt_gentoo_release_bundle_require_artifacts | bool
+  tags:
+    - pxe_release_bundle
+
+- name: PXE release bundle rootfs path を検証
+  ansible.builtin.assert:
+    that:
+      - item.stat.isdir | default(false)
+    fail_msg: "/srv/gentoo/{{ item.item.value }}/nfs が存在しません。release bundle promote 前に rootfs を作成してください。"
+  loop: "{{ openwrt_gentoo_release_bundle_rootfs_stats.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item.key }}={{ item.item.value }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_release_bundle_enabled | bool
+    - openwrt_gentoo_release_bundle_policy == 'paired_clean'
+    - openwrt_gentoo_release_bundle_require_artifacts | bool
+  tags:
+    - pxe_release_bundle
+
+- name: PXE release bundle TFTP path 一覧を作成
+  ansible.builtin.set_fact:
+    openwrt_gentoo_release_bundle_tftp_paths: >-
+      {%- set result = [] -%}
+      {%- for generation in openwrt_gentoo_release_bundle_generations -%}
+        {%- set name = generation.name | string | trim -%}
+        {%- set release = openwrt_gentoo_release_bundle_releases[name] -%}
+        {%- set required_paths = generation.required_tftp_paths | default([]) -%}
+        {%- if (required_paths | length) == 0 and name == 'rpi4' -%}
+          {%- set required_paths = [
+            openwrt_gentoo_rpi4_kernel_image | default(openwrt_gentoo_rpi_kernel_image | default('kernel8.img'), true),
+            'bcm2711-rpi-4-b.dtb',
+            openwrt_gentoo_rpi4_initramfs | default(openwrt_gentoo_initramfs_tftp_path | default('initramfs-pxe.img'), true),
+            'overlays'
+          ] -%}
+        {%- elif (required_paths | length) == 0 and name == 'rpi5' -%}
+          {%- set required_paths = [
+            openwrt_gentoo_rpi5_kernel_image | default(openwrt_gentoo_rpi_kernel_image | default('kernel8.img'), true),
+            'bcm2712-rpi-5-b.dtb',
+            openwrt_gentoo_rpi5_initramfs | default(openwrt_gentoo_initramfs_tftp_path | default('initramfs-pxe.img'), true),
+            'overlays'
+          ] -%}
+        {%- endif -%}
+        {%- for path in required_paths -%}
+          {%- set normalized_path = path | string | trim -%}
+          {%- if normalized_path -%}
+            {%- set _ = result.append({
+              'generation': name,
+              'release': release,
+              'path': normalized_path
+            }) -%}
+          {%- endif -%}
+        {%- endfor -%}
+      {%- endfor -%}
+      {{ result }}
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_release_bundle_enabled | bool
+    - openwrt_gentoo_release_bundle_policy == 'paired_clean'
+  tags:
+    - pxe_release_bundle
+    - pxe_release_bundle_build
+
+- name: PXE release bundle TFTP artifact path を確認
+  ansible.builtin.stat:
+    path: "/srv/gentoo/tftp-root/dates/{{ item.release }}/{{ item.path }}"
+    get_attributes: false
+    get_checksum: false
+    get_mime: false
+  loop: "{{ openwrt_gentoo_release_bundle_tftp_paths | default([]) }}"
+  loop_control:
+    label: "{{ item.release }}/{{ item.path }}"
+  register: openwrt_gentoo_release_bundle_tftp_path_stats
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_release_bundle_enabled | bool
+    - openwrt_gentoo_release_bundle_policy == 'paired_clean'
+    - openwrt_gentoo_release_bundle_require_artifacts | bool
+  tags:
+    - pxe_release_bundle
+
+- name: PXE release bundle TFTP artifact path を検証
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists | default(false)
+    fail_msg: >-
+      /srv/gentoo/tftp-root/dates/{{ item.item.release }}/{{ item.item.path }}
+      が存在しません。release bundle promote 前に TFTP artifact を作成してください。
+  loop: "{{ openwrt_gentoo_release_bundle_tftp_path_stats.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item.release }}/{{ item.item.path }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_release_bundle_enabled | bool
+    - openwrt_gentoo_release_bundle_policy == 'paired_clean'
+    - openwrt_gentoo_release_bundle_require_artifacts | bool
+  tags:
+    - pxe_release_bundle
+
+- name: PXE release bundle marker 一覧を作成
+  ansible.builtin.set_fact:
+    openwrt_gentoo_release_bundle_marker_entries: >-
+      {%- set result = [] -%}
+      {%- for generation in openwrt_gentoo_release_bundle_generations -%}
+        {%- set name = generation.name | string | trim -%}
+        {%- set release = openwrt_gentoo_release_bundle_releases[name] -%}
+        {%- set _ = result.append({
+          'artifact_type': 'rootfs',
+          'generation': name,
+          'release': release,
+          'marker_path': '/srv/gentoo/' ~ release ~ '/' ~ openwrt_gentoo_release_bundle_rootfs_marker_name
+        }) -%}
+        {%- set _ = result.append({
+          'artifact_type': 'tftp',
+          'generation': name,
+          'release': release,
+          'marker_path': '/srv/gentoo/tftp-root/dates/' ~ release ~ '/' ~ openwrt_gentoo_release_bundle_tftp_marker_name
+        }) -%}
+      {%- endfor -%}
+      {{ result }}
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_release_bundle_enabled | bool
+    - openwrt_gentoo_release_bundle_policy == 'paired_clean'
+    - openwrt_gentoo_release_bundle_require_artifacts | bool
+    - openwrt_gentoo_release_bundle_marker_enabled | bool
+  tags:
+    - pxe_release_bundle
+
+- name: PXE release bundle marker を作成
+  ansible.builtin.copy:
+    dest: "{{ item.marker_path }}"
+    owner: root
+    group: root
+    mode: '0644'
+    force: false
+    content: |
+      schema=1
+      artifact_type={{ item.artifact_type }}
+      policy={{ openwrt_gentoo_release_bundle_policy }}
+      bundle_date={{ openwrt_gentoo_release_bundle_date | string | trim }}
+      generation={{ item.generation }}
+      release={{ item.release }}
+  loop: "{{ openwrt_gentoo_release_bundle_marker_entries | default([]) }}"
+  loop_control:
+    label: "{{ item.release }}/{{ item.artifact_type }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_release_bundle_enabled | bool
+    - openwrt_gentoo_release_bundle_policy == 'paired_clean'
+    - openwrt_gentoo_release_bundle_require_artifacts | bool
+    - openwrt_gentoo_release_bundle_marker_enabled | bool
+    - not ansible_check_mode
+  tags:
+    - pxe_release_bundle
+
+- name: PXE release bundle marker を再確認
+  ansible.builtin.stat:
+    path: "{{ item.marker_path }}"
+    get_attributes: false
+    get_checksum: false
+    get_mime: false
+  loop: "{{ openwrt_gentoo_release_bundle_marker_entries | default([]) }}"
+  loop_control:
+    label: "{{ item.release }}/{{ item.artifact_type }}"
+  register: openwrt_gentoo_release_bundle_marker_final_stats
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_release_bundle_enabled | bool
+    - openwrt_gentoo_release_bundle_policy == 'paired_clean'
+    - openwrt_gentoo_release_bundle_require_artifacts | bool
+    - openwrt_gentoo_release_bundle_marker_enabled | bool
+  tags:
+    - pxe_release_bundle
+
+- name: PXE release bundle marker の存在を検証
+  ansible.builtin.assert:
+    that:
+      - ansible_check_mode or (item.stat.exists | default(false))
+    fail_msg: "{{ item.item.marker_path }} が存在しません。check mode でなければ release bundle guard が marker を作成します。"
+  loop: "{{ openwrt_gentoo_release_bundle_marker_final_stats.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item.release }}/{{ item.item.artifact_type }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_release_bundle_enabled | bool
+    - openwrt_gentoo_release_bundle_policy == 'paired_clean'
+    - openwrt_gentoo_release_bundle_require_artifacts | bool
+    - openwrt_gentoo_release_bundle_marker_enabled | bool
+  tags:
+    - pxe_release_bundle
+
+- name: PXE release bundle marker を読み込む
+  ansible.builtin.slurp:
+    src: "{{ item.item.marker_path }}"
+  loop: "{{ openwrt_gentoo_release_bundle_marker_final_stats.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item.release }}/{{ item.item.artifact_type }}"
+  register: openwrt_gentoo_release_bundle_marker_contents
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_release_bundle_enabled | bool
+    - openwrt_gentoo_release_bundle_policy == 'paired_clean'
+    - openwrt_gentoo_release_bundle_require_artifacts | bool
+    - openwrt_gentoo_release_bundle_marker_enabled | bool
+    - item.stat.exists | default(false)
+  tags:
+    - pxe_release_bundle
+
+- name: PXE release bundle marker 内容を検証
+  ansible.builtin.assert:
+    that:
+      - "'artifact_type=' ~ item.item.item.artifact_type in openwrt_gentoo_release_bundle_marker_text"
+      - "'policy=' ~ openwrt_gentoo_release_bundle_policy in openwrt_gentoo_release_bundle_marker_text"
+      - "'bundle_date=' ~ (openwrt_gentoo_release_bundle_date | string | trim) in openwrt_gentoo_release_bundle_marker_text"
+      - "'generation=' ~ item.item.item.generation in openwrt_gentoo_release_bundle_marker_text"
+      - "'release=' ~ item.item.item.release in openwrt_gentoo_release_bundle_marker_text"
+    fail_msg: "{{ item.item.item.marker_path }} の marker 内容が release bundle と一致しません。"
+  vars:
+    openwrt_gentoo_release_bundle_marker_text: "{{ item.content | b64decode }}"
+  loop: "{{ openwrt_gentoo_release_bundle_marker_contents.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item.item.release }}/{{ item.item.item.artifact_type }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_release_bundle_enabled | bool
+    - openwrt_gentoo_release_bundle_policy == 'paired_clean'
+    - openwrt_gentoo_release_bundle_require_artifacts | bool
+    - openwrt_gentoo_release_bundle_marker_enabled | bool
+    - item.content is defined
+  tags:
+    - pxe_release_bundle
+
+- name: PXE release bundle manifest ディレクトリを作成
+  ansible.builtin.file:
+    path: "{{ openwrt_gentoo_release_bundle_manifest_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_release_bundle_enabled | bool
+    - openwrt_gentoo_release_bundle_policy == 'paired_clean'
+    - openwrt_gentoo_release_bundle_require_artifacts | bool
+    - openwrt_gentoo_release_bundle_manifest_enabled | bool
+  tags:
+    - pxe_release_bundle
+
+- name: PXE release bundle manifest 内容を作成
+  ansible.builtin.set_fact:
+    openwrt_gentoo_release_bundle_manifest:
+      schema: 1
+      policy: "{{ openwrt_gentoo_release_bundle_policy }}"
+      bundle_date: "{{ openwrt_gentoo_release_bundle_date | string | trim }}"
+      releases: "{{ openwrt_gentoo_release_bundle_releases }}"
+      target_hosts: "{{ openwrt_gentoo_release_bundle_target_hosts | default([]) }}"
+      target_stages: "{{ openwrt_gentoo_release_bundle_target_stages | default([]) }}"
+      required_tftp_paths: "{{ openwrt_gentoo_release_bundle_tftp_paths | default([]) }}"
+      markers: "{{ openwrt_gentoo_release_bundle_marker_entries | default([]) }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_release_bundle_enabled | bool
+    - openwrt_gentoo_release_bundle_policy == 'paired_clean'
+    - openwrt_gentoo_release_bundle_require_artifacts | bool
+    - openwrt_gentoo_release_bundle_manifest_enabled | bool
+  tags:
+    - pxe_release_bundle
+
+- name: PXE release bundle manifest を配置
+  ansible.builtin.copy:
+    dest: "{{ openwrt_gentoo_release_bundle_manifest_dir }}/{{ openwrt_gentoo_release_bundle_date | string | trim }}.json"
+    owner: root
+    group: root
+    mode: '0644'
+    content: "{{ openwrt_gentoo_release_bundle_manifest | to_nice_json }}\n"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_release_bundle_enabled | bool
+    - openwrt_gentoo_release_bundle_policy == 'paired_clean'
+    - openwrt_gentoo_release_bundle_require_artifacts | bool
+    - openwrt_gentoo_release_bundle_manifest_enabled | bool
+  tags:
+    - pxe_release_bundle

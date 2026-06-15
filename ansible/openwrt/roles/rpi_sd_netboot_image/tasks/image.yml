@@ -1,0 +1,132 @@
+---
+- name: Create empty image file
+  ansible.builtin.command:
+    argv:
+      - dd
+      - if=/dev/zero
+      - "of={{ rpi_image_output }}"
+      - bs=1M
+      - "count={{ rpi_image_size_mb }}"
+      - status=none
+  args:
+    creates: "{{ rpi_image_output }}"
+
+- name: Create partition table and boot partition
+  ansible.builtin.command:
+    argv:
+      - parted
+      - -s
+      - "{{ rpi_image_output }}"
+      - mklabel
+      - msdos
+      - mkpart
+      - primary
+      - fat32
+      - 1MiB
+      - 100%
+      - set
+      - "1"
+      - boot
+      - "on"
+  become: "{{ rpi_image_become }}"
+  changed_when: true
+
+- name: Attach image to loop device
+  ansible.builtin.command:
+    argv:
+      - losetup
+      - --find
+      - --show
+      - --partscan
+      - "{{ rpi_image_output }}"
+  become: "{{ rpi_image_become }}"
+  register: rpi_loop_device_cmd
+  changed_when: true
+
+- name: Remember loop device paths
+  ansible.builtin.set_fact:
+    rpi_loop_device: "{{ rpi_loop_device_cmd.stdout | trim }}"
+    rpi_loop_partition: "{{ (rpi_loop_device_cmd.stdout | trim) ~ 'p1' }}"
+
+- name: Wait for loop partition device
+  ansible.builtin.stat:
+    path: "{{ rpi_loop_partition }}"
+  become: "{{ rpi_image_become }}"
+  register: rpi_loop_partition_stat
+  until: rpi_loop_partition_stat.stat.exists
+  retries: 10
+  delay: 1
+
+- name: Populate FAT boot partition
+  become: "{{ rpi_image_become }}"
+  block:
+    - name: Format boot partition
+      ansible.builtin.command:
+        argv:
+          - mkfs.vfat
+          - -F
+          - "32"
+          - -n
+          - "{{ rpi_image_label }}"
+          - "{{ rpi_loop_partition }}"
+      changed_when: true
+
+    - name: Mount boot partition
+      ansible.builtin.command:
+        argv:
+          - mount
+          - "{{ rpi_loop_partition }}"
+          - "{{ rpi_boot_mount_dir }}"
+      changed_when: true
+
+    - name: Copy boot staging directory into image
+      ansible.builtin.command:
+        argv:
+          - rsync
+          - -a
+          - --no-owner
+          - --no-group
+          - --no-perms
+          - --delete
+          - "{{ rpi_boot_dir }}/"
+          - "{{ rpi_boot_mount_dir }}/"
+      changed_when: true
+
+    - name: Sync image writes
+      ansible.builtin.command:
+        argv:
+          - sync
+      changed_when: false
+  always:
+    - name: Unmount boot partition
+      ansible.builtin.command:
+        argv:
+          - umount
+          - "{{ rpi_boot_mount_dir }}"
+      become: "{{ rpi_image_become }}"
+      register: rpi_umount_result
+      failed_when:
+        - rpi_umount_result.rc != 0
+        - "'not mounted' not in (rpi_umount_result.stderr | lower)"
+      changed_when: rpi_umount_result.rc == 0
+      when: rpi_loop_device is defined
+      tags:
+        - rpi_sd_netboot_image
+        - rpi_sd_netboot_build
+
+    - name: Detach loop device
+      ansible.builtin.command:
+        argv:
+          - losetup
+          - -d
+          - "{{ rpi_loop_device }}"
+      become: "{{ rpi_image_become }}"
+      register: rpi_losetup_detach_result
+      failed_when:
+        - rpi_losetup_detach_result.rc != 0
+        - "'no such device' not in (rpi_losetup_detach_result.stderr | lower)"
+      changed_when: rpi_losetup_detach_result.rc == 0
+      when: rpi_loop_device is defined
+      tags:
+        - rpi_sd_netboot_image
+        - rpi_sd_netboot_build

@@ -1,0 +1,341 @@
+---
+- name: 判定用変数を準備
+  ansible.builtin.set_fact:
+    k3s_wifi_backend_resolved: "{{ k3s_wifi_backend | default('networkmanager', true) | string | trim }}"
+    k3s_wifi_connection_name_resolved: "{{ k3s_wifi_connection_name | default('', true) | string | trim }}"
+    k3s_wifi_ssid_resolved: "{{ k3s_wifi_ssid | default('', true) | string | trim }}"
+    k3s_wifi_psk_resolved: "{{ k3s_wifi_psk | default('', true) | string | trim }}"
+    k3s_service_name_explicit: "{{ k3s_service_name | default('', true) | trim }}"
+    k3s_service_name: >-
+      {{
+        (k3s_service_name | default('', true) | trim)
+        if (k3s_service_name | default('', true) | trim | length) > 0
+        else ((k3s_control_node | default(false) | bool) | ternary('k3s', 'k3s-agent'))
+      }}
+    k3s_flannel_iface_resolved: "{{ k3s_flannel_iface | default(ansible_facts.get('default_ipv4', {}).get('interface', ''), true) | string | trim }}"
+    k3s_wifi_iface_resolved: "{{ k3s_wifi_interface | default((k3s_flannel_iface | default(ansible_facts.get('default_ipv4', {}).get('interface', ''), true)), true) | string | trim }}"
+
+- name: systemd サービス情報を取得
+  become: true
+  ansible.builtin.service_facts:
+
+- name: 実在する k3s サービス名を決定
+  ansible.builtin.set_fact:
+    k3s_service_name: k3s
+  when:
+    - (k3s_service_name_explicit | default('') | trim | length) == 0
+    - not (k3s_control_node | default(false) | bool)
+    - ansible_facts.services is defined
+    - "'k3s-agent.service' not in ansible_facts.services"
+    - "'k3s.service' in ansible_facts.services"
+
+- name: NetworkManager を用いた Wi-Fi 接続 MTU を永続化
+  when:
+    - k3s_wifi_manage | bool
+    - k3s_wifi_backend_resolved == "networkmanager"
+    - (k3s_wifi_connection_name_resolved | length) > 0
+    - (k3s_wifi_ssid_resolved | length) > 0
+  block:
+    - name: Wi-Fi 接続プロファイルの MTU を更新
+      become: true
+      ansible.builtin.command:
+        cmd: nmcli connection modify "{{ k3s_wifi_connection_name_resolved }}" 802-11-wireless.mtu "{{ k3s_wifi_connection_mtu }}"
+      register: k3s_nmcli_profile
+
+    - name: Wi-Fi 接続を反映する
+      become: true
+      ansible.builtin.shell: |
+        nmcli connection down "{{ k3s_wifi_connection_name_resolved }}" || true
+        nmcli connection up   "{{ k3s_wifi_connection_name_resolved }}" ifname "{{ k3s_wifi_iface_resolved }}"
+      register: k3s_nmcli_up
+      when: k3s_nmcli_profile.changed
+
+    - name: Wi-Fi インターフェースの MTU を確認（/sys 版）
+      ansible.builtin.command: "cat /sys/class/net/{{ k3s_wifi_iface_resolved }}/mtu"
+      register: k3s_mtu_reader
+      changed_when: false
+
+    - name: Debug expected vs actual MTU
+      ansible.builtin.debug:
+        msg:
+          sysfs_mtu: "{{ k3s_mtu_reader.stdout | default('N/A') }}"
+          wifi_conn_mtu_var: "{{ k3s_wifi_connection_mtu | default('unset') }}"
+          flannel_mtu_var: "{{ k3s_flannel_mtu | default('unset') }}"
+
+    - name: Wi-Fi インターフェースの MTU を確認（/sys 版）
+      ansible.builtin.command: "cat /sys/class/net/{{ k3s_wifi_iface_resolved }}/mtu"
+      register: k3s_mtu_read
+      changed_when: false
+      retries: 10
+      delay: 2
+      until: (k3s_mtu_read.stdout | int) == (k3s_wifi_connection_mtu | int)
+
+- name: systemd-networkd + wpa_supplicant で Wi-Fi を管理
+  when:
+    - k3s_wifi_manage | bool
+    - k3s_wifi_backend_resolved == "systemd-networkd"
+  block:
+    - name: Wi-Fi ネットワーク定義を初期化
+      ansible.builtin.set_fact:
+        k3s_wifi_networks_effective: "{{ k3s_wifi_networks | default([]) }}"
+      no_log: true
+
+    - name: 単一ネットワーク定義を互換形式へ変換
+      ansible.builtin.set_fact:
+        k3s_wifi_networks_effective:
+          - ssid: "{{ k3s_wifi_ssid_resolved }}"
+            psk: "{{ k3s_wifi_psk_resolved }}"
+      when:
+        - (k3s_wifi_networks_effective | length) == 0
+        - (k3s_wifi_ssid_resolved | length) > 0
+        - (k3s_wifi_psk_resolved | length) > 0
+      no_log: true
+
+    - name: Wi-Fi ネットワークが定義されているか確認
+      ansible.builtin.assert:
+        that:
+          - (k3s_wifi_networks_effective | length) > 0
+        fail_msg: "k3s_wifi_networks もしくは k3s_wifi_ssid/k3s_wifi_psk を inventory で指定してください"
+
+    - name: 各 Wi-Fi ネットワーク定義を検証
+      ansible.builtin.assert:
+        that:
+          - (item.ssid | default('') | string) | length > 0
+          - (item.psk | default('') | string) | length > 0
+        fail_msg: "Wi-Fi ネットワーク定義に ssid または psk が不足しています"
+      loop: "{{ k3s_wifi_networks_effective }}"
+      loop_control:
+        label: "{{ item.ssid | default('SSID undefined') }}"
+      no_log: true
+
+    - name: NetworkManager の Wi-Fi 管理を無効化
+      when:
+        - ansible_facts.services is defined
+        - "'NetworkManager.service' in ansible_facts.services"
+      block:
+        - name: NetworkManager 設定ディレクトリを確保
+          become: true
+          ansible.builtin.file:
+            path: /etc/NetworkManager/conf.d
+            state: directory
+            owner: root
+            group: root
+            mode: '0755'
+
+        - name: Wi-Fi インターフェースを NetworkManager の管理対象から外す
+          become: true
+          ansible.builtin.template:
+            src: networkmanager-unmanaged.conf.j2
+            dest: /etc/NetworkManager/conf.d/90-k3s-wlan-unmanaged.conf
+            owner: root
+            group: root
+            mode: '0644'
+          notify: Restart NetworkManager
+
+    - name: wpa_supplicant 設定ディレクトリを作成
+      become: true
+      ansible.builtin.file:
+        path: /etc/wpa_supplicant
+        state: directory
+        owner: root
+        group: root
+        mode: '0750'
+
+    - name: wpa_supplicant 設定を配置
+      become: true
+      ansible.builtin.template:
+        src: wpa_supplicant-wlan0.conf.j2
+        dest: "/etc/wpa_supplicant/wpa_supplicant-{{ k3s_wifi_iface_resolved }}.conf"
+        owner: root
+        group: root
+        mode: '0600'
+      vars:
+        wifi_country: "{{ k3s_wifi_country }}"
+        wifi_networks: "{{ k3s_wifi_networks_effective }}"
+      no_log: true
+      notify: Restart wpa_supplicant
+
+    - name: systemd-networkd 用の Wi-Fi 設定を配置
+      become: true
+      ansible.builtin.template:
+        src: 25-wlan0.network.j2
+        dest: "/etc/systemd/network/25-{{ k3s_wifi_iface_resolved }}.network"
+        owner: root
+        group: root
+        mode: '0644'
+      notify: Restart systemd-networkd
+
+    - name: systemd-networkd ドロップインディレクトリを作成
+      become: true
+      ansible.builtin.file:
+        path: /etc/systemd/networkd.conf.d
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: machine-id を初期化
+      become: true
+      ansible.builtin.command:
+        cmd: systemd-machine-id-setup
+      args:
+        creates: /etc/machine-id
+
+    - name: systemd-networkd 状態ディレクトリを作成
+      become: true
+      ansible.builtin.file:
+        path: /var/lib/systemd/network
+        state: directory
+        owner: systemd-network
+        group: systemd-network
+        mode: '0755'
+
+    - name: DHCPv6 DUID 設定を配置
+      become: true
+      ansible.builtin.template:
+        src: systemd-networkd-dhcpv6-duid.conf.j2
+        dest: /etc/systemd/networkd.conf.d/10-dhcpv6-duid.conf
+        owner: root
+        group: root
+        mode: '0644'
+      notify: Restart systemd-networkd
+
+    - name: systemd-networkd を有効化
+      become: true
+      ansible.builtin.service:
+        name: systemd-networkd
+        state: started
+        enabled: true
+
+    - name: wpa_supplicant サービスを有効化
+      become: true
+      ansible.builtin.service:
+        name: "wpa_supplicant@{{ k3s_wifi_iface_resolved }}"
+        state: started
+        enabled: true
+
+- name: Wi-Fi 省電力無効化スクリプトを配置
+  become: true
+  ansible.builtin.template:
+    src: disable-wifi-powersave.sh.j2
+    dest: /usr/local/sbin/disable-wifi-powersave.sh
+    owner: root
+    group: root
+    mode: '0755'
+  when:
+    - k3s_wifi_manage | bool
+    - k3s_wifi_disable_power_save | bool
+
+- name: Wi-Fi 省電力無効化 systemd ユニットを配置
+  become: true
+  ansible.builtin.template:
+    src: disable-wifi-powersave.service.j2
+    dest: /etc/systemd/system/disable-wifi-powersave.service
+    owner: root
+    group: root
+    mode: '0644'
+  when:
+    - k3s_wifi_manage | bool
+    - k3s_wifi_disable_power_save | bool
+  notify: Reload systemd
+
+- name: Wi-Fi 省電力無効化サービスを有効化
+  become: true
+  ansible.builtin.systemd:
+    name: disable-wifi-powersave.service
+    state: started
+    enabled: true
+  when:
+    - k3s_wifi_manage | bool
+    - k3s_wifi_disable_power_save | bool
+
+- name: Wi-Fi インターフェースの存在確認
+  ansible.builtin.stat:
+    path: "/sys/class/net/{{ k3s_wifi_iface_resolved }}"
+  register: k3s_wifi_iface_path
+  changed_when: false
+  when:
+    - k3s_wifi_manage | bool
+    - k3s_wifi_disable_power_save | bool
+
+- name: Wi-Fi 省電力を即時無効化
+  become: true
+  ansible.builtin.command: "iw dev {{ k3s_wifi_iface_resolved }} set power_save off"
+  changed_when: false
+  failed_when: false
+  when:
+    - k3s_wifi_disable_power_save | bool
+    - k3s_wifi_manage | bool
+    - k3s_wifi_iface_path.stat.exists
+
+- name: エージェント向けラベルを準備
+  ansible.builtin.set_fact:
+    k3s_agent_node_labels: >-
+      {{
+        (
+          ((k3s_agent | default({})).get('node-label', []) | default([], true) | list)
+          + (k3s_agent_extra_node_labels | default([], true) | list)
+        ) | unique
+      }}
+  when: not (k3s_control_node | default(false) | bool)
+
+- name: k3s 設定ディレクトリを確保
+  become: true
+  ansible.builtin.file:
+    path: /etc/rancher/k3s
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: k3s 設定ファイルを配置
+  become: true
+  ansible.builtin.template:
+    src: "{{ (k3s_control_node | default(false) | bool) | ternary('config-server.yaml.j2', 'config-agent.yaml.j2') }}"
+    dest: /etc/rancher/k3s/config.yaml
+    owner: root
+    group: root
+    mode: '0644'
+  notify:
+    - Restart k3s service
+
+- name: systemd ドロップイン用ディレクトリを確保
+  become: true
+  ansible.builtin.file:
+    path: "/etc/systemd/system/{{ k3s_service_name }}.service.d"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Flannel MTU の systemd ドロップインを配置
+  become: true
+  ansible.builtin.template:
+    src: systemd-dropin.conf.j2
+    dest: "/etc/systemd/system/{{ k3s_service_name }}.service.d/10-flannel-mtu.conf"
+    owner: root
+    group: root
+    mode: '0644'
+  notify:
+    - Reload systemd
+    - Restart k3s service
+
+- name: CNI 設定ディレクトリを確保
+  become: true
+  ansible.builtin.file:
+    path: /var/lib/rancher/k3s/agent/etc/cni/net.d
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Flannel CNI 設定を配置
+  become: true
+  ansible.builtin.template:
+    src: 10-flannel.conflist.j2
+    dest: /var/lib/rancher/k3s/agent/etc/cni/net.d/10-flannel.conflist
+    owner: root
+    group: root
+    mode: '0644'
+  notify:
+    - Restart k3s service

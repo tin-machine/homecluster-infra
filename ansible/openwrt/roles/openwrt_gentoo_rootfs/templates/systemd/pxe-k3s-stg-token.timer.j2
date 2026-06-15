@@ -1,0 +1,10 @@
+[Unit]
+Description=Refresh k3s staging agent join token
+
+[Timer]
+OnBootSec={{ openwrt_gentoo_k3s_stg_token_refresh_on_boot_sec }}
+OnUnitActiveSec={{ openwrt_gentoo_k3s_stg_token_refresh_interval }}
+Unit=pxe-k3s-stg-token.service
+
+[Install]
+WantedBy=timers.target

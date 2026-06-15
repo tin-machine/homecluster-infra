@@ -1,0 +1,44 @@
+---
+
+- name: /run のリサイズを実施するか判定
+  ansible.builtin.set_fact:
+    run_tmpfs_resize_do: "{{ run_tmpfs_resize_enabled | bool and (ansible_memtotal_mb | int) >= (run_tmpfs_min_mem_mb | int) }}"
+
+- name: run.mount drop-in を配置
+  when: run_tmpfs_resize_do | bool
+  become: true
+  block:
+    - name: run.mount の drop-in ディレクトリを作成
+      ansible.builtin.file:
+        path: "/etc/systemd/system/{{ run_tmpfs_mount_unit }}.d"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: run.mount のサイズ指定 drop-in を配置
+      ansible.builtin.copy:
+        dest: "/etc/systemd/system/{{ run_tmpfs_mount_unit }}.d/override.conf"
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          [Mount]
+          Options=mode=755,size={{ run_tmpfs_size_mb }}M
+
+    - name: systemd をリロード
+      ansible.builtin.systemd:
+        daemon_reload: true
+
+    - name: /run を即時リサイズ
+      ansible.builtin.command: "mount -o remount,size={{ run_tmpfs_size_mb }}M /run"
+      register: remount_run
+      changed_when: "'busy' not in (remount_run.stderr | default(''))"
+      failed_when: false
+
+- name: メモリ不足のためスキップを通知
+  when:
+    - not run_tmpfs_resize_do | bool
+    - run_tmpfs_resize_enabled | bool
+  ansible.builtin.debug:
+    msg: "skip run tmpfs resize: mem={{ ansible_memtotal_mb }}MB < min={{ run_tmpfs_min_mem_mb }}MB"

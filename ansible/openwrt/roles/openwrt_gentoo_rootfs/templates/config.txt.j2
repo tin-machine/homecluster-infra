@@ -1,0 +1,54 @@
+# {{ ansible_managed }}
+{% set global_initramfs = openwrt_gentoo_rpi_initramfs | default('', true) | trim -%}
+{% set rpi4_initramfs = openwrt_gentoo_rpi4_initramfs | default('', true) | trim -%}
+{% set rpi5_initramfs = openwrt_gentoo_rpi5_initramfs | default('', true) | trim -%}
+{% set model_filter = openwrt_gentoo_rpi_model_filter_config | default(false) | bool -%}
+{% set model_initramfs = model_filter and ((rpi4_initramfs | length > 0) or (rpi5_initramfs | length > 0)) -%}
+{% set rpi4_effective_initramfs = rpi4_initramfs if (rpi4_initramfs | length > 0) else global_initramfs -%}
+{% set rpi5_effective_initramfs = rpi5_initramfs if (rpi5_initramfs | length > 0) else global_initramfs -%}
+[all]
+arm_64bit={{ 1 if openwrt_gentoo_rpi_arm64 | bool else 0 }}
+enable_uart={{ 1 if openwrt_gentoo_rpi_enable_uart | bool else 0 }}
+bootcode_delay={{ openwrt_gentoo_rpi_bootcode_delay }}
+
+{% if (global_initramfs | length > 0) and not model_initramfs -%}
+initramfs {{ global_initramfs }} followkernel
+{% endif -%}
+
+{% if model_filter -%}
+[pi4]
+{% if openwrt_gentoo_rpi4_kernel_image | default('', true) | trim | length > 0 -%}
+kernel={{ openwrt_gentoo_rpi4_kernel_image }}
+{% endif -%}
+{% if model_initramfs and (rpi4_effective_initramfs | length > 0) -%}
+initramfs {{ rpi4_effective_initramfs }} followkernel
+{% endif -%}
+{% if openwrt_gentoo_rpi4_device_tree | default('', true) | trim | length > 0 -%}
+device_tree={{ openwrt_gentoo_rpi4_device_tree }}
+{% endif -%}
+
+[pi5]
+{% if openwrt_gentoo_rpi5_kernel_image | default('', true) | trim | length > 0 -%}
+kernel={{ openwrt_gentoo_rpi5_kernel_image }}
+{% endif -%}
+{% if model_initramfs and (rpi5_effective_initramfs | length > 0) -%}
+initramfs {{ rpi5_effective_initramfs }} followkernel
+{% endif -%}
+{% if openwrt_gentoo_rpi5_device_tree | default('', true) | trim | length > 0 -%}
+device_tree={{ openwrt_gentoo_rpi5_device_tree }}
+{% endif -%}
+
+[all]
+{% else -%}
+{% if openwrt_gentoo_rpi_kernel_image | default('', true) | trim | length > 0 -%}
+kernel={{ openwrt_gentoo_rpi_kernel_image }}
+{% endif -%}
+
+{% if openwrt_gentoo_rpi_device_tree | default('', true) | trim | length > 0 -%}
+device_tree={{ openwrt_gentoo_rpi_device_tree }}
+{% endif -%}
+{% endif -%}
+
+{% if openwrt_gentoo_rpi_extra_config | default('', true) | trim | length > 0 -%}
+{{ openwrt_gentoo_rpi_extra_config | trim }}
+{% endif -%}

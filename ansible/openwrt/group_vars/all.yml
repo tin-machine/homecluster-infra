@@ -1,0 +1,4 @@
+---
+# このファイルに接続ユーザーを置かない。
+# `ansible/openwrt` ツリーで外部 inventory を読むと、`all` は PXE client や
+# k3s node にも適用される。OpenWrt 固有値は group_vars/openwrt.yml に置く。

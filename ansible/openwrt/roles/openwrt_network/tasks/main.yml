@@ -1,0 +1,32 @@
+---
+- name: LAN IP アドレスが site inventory で設定されているか確認
+  ansible.builtin.assert:
+    that:
+      - (openwrt_lan_ipaddr | string | trim) | length > 0
+      - (openwrt_lan_ipaddr | string) is not match('^(192\.0\.2\.|198\.51\.100\.|203\.0\.113\.)')
+      - (openwrt_lan_netmask | string | trim) | length > 0
+    fail_msg: "openwrt_lan_ipaddr/openwrt_lan_netmask を external inventory で指定してください。documentation IP range は live apply で使えません。"
+
+- name: IPv6 ULA prefix が site inventory で設定されているか確認
+  ansible.builtin.assert:
+    that:
+      - (openwrt_ula_prefix | string | trim) | length > 0
+      - (openwrt_ula_prefix | string | lower) is match('^f[cd][0-9a-f]{2}:[0-9a-f]{1,4}:[0-9a-f]{1,4}::/48$')
+    fail_msg: "openwrt_ula_prefix には site 固有の RFC4193 ULA /48 prefix を external inventory で指定してください。"
+
+- name: PPPoE 認証情報が設定されているか確認
+  ansible.builtin.assert:
+    that:
+      - openwrt_wan_pppoe_username | length > 0
+      - openwrt_wan_pppoe_password | length > 0
+    fail_msg: "PPPoE のユーザ名とパスワードを inventory 側で設定してください"
+
+- name: /etc/config/network を適用
+  ansible.builtin.template:
+    src: network.j2
+    dest: /etc/config/network
+    owner: root
+    group: root
+    mode: '0644'
+  notify:
+    - Reload network

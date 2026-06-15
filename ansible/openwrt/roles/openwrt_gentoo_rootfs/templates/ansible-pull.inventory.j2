@@ -1,0 +1,14 @@
+[localhost]
+localhost ansible_connection=local
+
+{% if openwrt_gentoo_ansible_pull_env_group | default('') | length > 0 %}
+[{{ openwrt_gentoo_ansible_pull_env_group }}]
+localhost
+{% endif %}
+
+{% for role in openwrt_gentoo_ansible_pull_roles %}
+[{{ role }}]
+localhost
+[role_{{ role }}]
+localhost
+{% endfor %}

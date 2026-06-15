@@ -1,0 +1,59 @@
+---
+- name: sysupgrade フラグを決定
+  ansible.builtin.set_fact:
+    owrt_sysupgrade_flags: "{{ '' if preserve_settings else '-n' }}"
+
+- name: 目標バージョンに到達済みの場合はスキップ通知
+  ansible.builtin.debug:
+    msg: "既にターゲットバージョン {{ release_version }} です。sysupgrade は実行しません。"
+  when:
+    - branch_type == "releases"
+    - not owrt_upgrade_required
+
+- name: sysupgrade イメージをテスト (-T)
+  when: owrt_upgrade_required
+  ansible.builtin.shell: "sysupgrade -T {{ owrt_local_image }}"
+  args:
+    executable: /bin/ash
+  register: owrt_upgrade_test
+  changed_when: false
+
+- name: sysupgrade を実行
+  when: owrt_upgrade_required
+  ansible.builtin.shell: "sysupgrade {{ owrt_sysupgrade_flags }} {{ owrt_local_image }}"
+  args:
+    executable: /bin/ash
+  async: 1200
+  poll: 0
+  register: owrt_upgrade_async
+  changed_when: true
+  ignore_errors: true
+
+- name: アップグレード開始を記録
+  ansible.builtin.set_fact:
+    owrt_upgrade_launched: "{{ owrt_upgrade_required }}"
+  when: owrt_upgrade_required
+
+- name: 再接続待機の前に通知
+  ansible.builtin.debug:
+    msg: "sysupgrade を開始しました。ルーターが再起動し SSH が切断されます。"
+  when: owrt_upgrade_launched | default(false)
+
+- name: 再接続まで待機
+  when:
+    - owrt_upgrade_launched | default(false)
+    - wait_for_reconnect | bool
+  block:
+    - name: 再起動猶予のために待機
+      ansible.builtin.pause:
+        seconds: "{{ wait_for_reconnect_delay }}"
+      when: wait_for_reconnect_delay | int > 0
+      delegate_to: localhost
+
+    - name: SSH 再接続を待機
+      ansible.builtin.wait_for:
+        host: "{{ ansible_host | default(inventory_hostname) }}"
+        port: "{{ ansible_port | default(22) }}"
+        timeout: "{{ wait_for_reconnect_timeout }}"
+        state: started
+      delegate_to: localhost

@@ -1,0 +1,146 @@
+- block:
+    - name: iptables nft backend 用 bind mount 追跡を初期化
+      ansible.builtin.set_fact:
+        openwrt_gentoo_iptables_nft_bind_targets: []
+
+    - name: iptables nft backend 用 chroot bind mount を準備
+      ansible.builtin.shell: |
+        set -euo pipefail
+        target="{{ openwrt_gentoo_rootfs_dir }}/{{ item.target }}"
+        if grep -qs " $target " /proc/mounts; then
+          exit 0
+        fi
+        mkdir -p "$target"
+        mount --bind {{ item.source }} "$target"
+        echo mounted
+      args:
+        executable: /bin/ash
+      register: openwrt_gentoo_iptables_nft_bind_results
+      changed_when: "'mounted' in (stdout | default(''))"
+      loop: "{{ openwrt_gentoo_chroot_bind_mounts }}"
+      loop_control:
+        label: "{{ item.source }} -> {{ item.target }}"
+
+    - name: iptables nft backend 用 bind mount を記録
+      ansible.builtin.set_fact:
+        openwrt_gentoo_iptables_nft_bind_targets: >-
+          {{
+            (openwrt_gentoo_iptables_nft_bind_results.results | default([]))
+            | selectattr('stdout', 'defined')
+            | selectattr('stdout', 'search', 'mounted')
+            | map(attribute='item.target')
+            | list
+          }}
+
+    - name: iptables/nftables を導入
+      ansible.builtin.shell: |
+        set -euo pipefail
+        chroot {{ openwrt_gentoo_rootfs_dir }} {{ openwrt_gentoo_chroot_shell }} -lc '
+          set -euo pipefail
+          env-update
+          export DEBUGINFOD_URLS=""
+          set +u
+          source /etc/profile
+          set -u
+          export FEATURES="${FEATURES:-} -userpriv -usersandbox"
+          emerge --usepkg --oneshot --changed-use --quiet-build=y net-firewall/iptables net-firewall/nftables
+        '
+      args:
+        executable: /bin/ash
+      changed_when: true
+
+    - name: iptables backend を nft に切り替え
+      ansible.builtin.shell: |
+        set -euo pipefail
+        chroot {{ openwrt_gentoo_rootfs_dir }} {{ openwrt_gentoo_chroot_shell }} -lc '
+          set -euo pipefail
+          if ! eselect iptables list | grep -q "xtables-nft-multi"; then
+            echo "xtables-nft-multi is not available" >&2
+            eselect iptables list >&2
+            exit 1
+          fi
+          current="$(readlink -f /usr/bin/iptables || true)"
+          if [ "${current##*/}" = "xtables-nft-multi" ]; then
+            echo "iptables backend already xtables-nft-multi"
+          else
+            eselect iptables set xtables-nft-multi
+            echo "iptables backend switched to xtables-nft-multi"
+          fi
+          iptables --version
+          nft --version
+        '
+      args:
+        executable: /bin/ash
+      register: openwrt_gentoo_iptables_nft_eselect
+      changed_when: "'switched' in (openwrt_gentoo_iptables_nft_eselect.stdout | default(''))"
+
+    - name: iptables nft backend の修復結果を検証
+      ansible.builtin.shell: |
+        set -euo pipefail
+        rootfs="{{ openwrt_gentoo_rootfs_dir }}"
+
+        for path in \
+          "$rootfs/usr/bin/xtables-nft-multi" \
+          "$rootfs/usr/sbin/xtables-nft-multi" \
+          "$rootfs/sbin/xtables-nft-multi"
+        do
+          if [ -x "$path" ]; then
+            xtables_nft_multi="$path"
+            break
+          fi
+        done
+        if [ -z "${xtables_nft_multi:-}" ]; then
+          echo "xtables-nft-multi is missing in $rootfs" >&2
+          exit 1
+        fi
+
+        for path in "$rootfs/usr/bin/nft" "$rootfs/usr/sbin/nft" "$rootfs/sbin/nft"
+        do
+          if [ -x "$path" ]; then
+            nft_command="$path"
+            break
+          fi
+        done
+        if [ -z "${nft_command:-}" ]; then
+          echo "nft command is missing in $rootfs" >&2
+          exit 1
+        fi
+
+        iptables_target="$(readlink "$rootfs/usr/bin/iptables" 2>/dev/null || true)"
+        if [ "$iptables_target" != "xtables-nft-multi" ]; then
+          echo "/usr/bin/iptables points to '$iptables_target', expected xtables-nft-multi" >&2
+          exit 1
+        fi
+      args:
+        executable: /bin/ash
+      changed_when: false
+
+    - name: iptables nft backend 設定マーカーを作成
+      ansible.builtin.file:
+        path: "{{ openwrt_gentoo_iptables_nft_marker }}"
+        state: touch
+        owner: root
+        group: root
+        mode: '0644'
+
+  always:
+    - name: iptables nft backend 用 bind mount を解除
+      ansible.builtin.shell: |
+        set -euo pipefail
+        target="{{ openwrt_gentoo_rootfs_dir }}/{{ item }}"
+        if grep -qs " $target " /proc/mounts; then
+          umount -l "$target" || umount "$target" || true
+        fi
+      args:
+        executable: /bin/ash
+      loop: "{{ (openwrt_gentoo_iptables_nft_bind_targets | default([])) | reverse | list }}"
+      loop_control:
+        label: "{{ item }}"
+      when: (openwrt_gentoo_iptables_nft_bind_targets | default([])) | length > 0
+
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_iptables_nft_enabled | bool
+    - openwrt_gentoo_iptables_nft_check.rc | default(1) != 0
+  tags:
+    - gentoo_iptables_nft

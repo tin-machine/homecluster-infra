@@ -1,0 +1,98 @@
+---
+
+- name: package.accept_keywords ディレクトリを作成
+  become: true
+  ansible.builtin.file:
+    path: /etc/portage/package.accept_keywords
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: zram-generator を ~arm64 で許可
+  become: true
+  ansible.builtin.lineinfile:
+    path: /etc/portage/package.accept_keywords/zram-generator
+    line: "=sys-apps/zram-generator-{{ zram_generator_version }} {{ zram_generator_keyword }}"
+    regexp: "^=sys-apps/zram-generator-.*"
+    state: present
+    owner: root
+    group: root
+    mode: "0644"
+    create: true
+
+- name: zram-generator をインストール
+  become: true
+  community.general.portage:
+    package: "sys-apps/zram-generator"
+    state: present
+    loadavg: 5
+
+- name: /etc/systemd/zram-generator.conf を配置
+  become: true
+  ansible.builtin.template:
+    src: zram-generator.conf.j2
+    dest: /etc/systemd/zram-generator.conf
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: zram swap を fstab から削除
+  become: true
+  ansible.builtin.mount:
+    path: none
+    src: /dev/zram0
+    fstype: swap
+    opts: "defaults,pri={{ zram_swap_priority }}"
+    state: absent
+
+- name: systemd-zram-setup@.service の存在を確認
+  become: true
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  register: zram_unit_stat
+  loop:
+    - /usr/lib/systemd/system/systemd-zram-setup@.service
+    - /lib/systemd/system/systemd-zram-setup@.service
+
+- name: zram swap を有効化
+  become: true
+  ansible.builtin.file:
+    dest: /etc/systemd/system/multi-user.target.wants/systemd-zram-setup@zram0.service
+    src: "{{ (zram_unit_stat.results | selectattr('stat.exists') | map(attribute='item') | list | first) }}"
+    state: link
+    force: true
+    follow: false
+  when: (zram_unit_stat.results | selectattr('stat.exists') | list | length) > 0
+
+- name: zram カーネルモジュールを読み込む
+  become: true
+  ansible.builtin.command: modprobe zram
+  register: zram_modprobe
+  changed_when: zram_modprobe.rc == 0
+  failed_when: false
+
+- name: zram control デバイスを確認
+  become: true
+  ansible.builtin.stat:
+    path: /sys/class/zram-control
+  register: zram_control_stat
+
+- name: zram swap を起動して即時有効化
+  become: true
+  ansible.builtin.systemd:
+    name: systemd-zram-setup@zram0.service
+    state: started
+  when:
+    - zram_control_stat.stat.exists | default(false)
+    - (zram_unit_stat.results | selectattr('stat.exists') | list | length) > 0
+
+- name: zram swap の即時有効化をスキップ
+  ansible.builtin.debug:
+    msg: "zram カーネルモジュールが利用できないため、zram swap の即時有効化をスキップします"
+  when: not zram_control_stat.stat.exists | default(false)
+
+- name: systemd-zram-setup@.service が見つからないためスキップ
+  ansible.builtin.debug:
+    msg: "systemd-zram-setup@.service が見つからないため zram swap 起動をスキップします"
+  when: (zram_unit_stat.results | selectattr('stat.exists') | list | length) == 0

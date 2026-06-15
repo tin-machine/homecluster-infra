@@ -1,0 +1,100 @@
+config dnsmasq
+	option domainneeded '1'
+	option boguspriv '1'
+	option filterwin2k '0'
+	option localise_queries '1'
+	option rebind_protection '1'
+	option rebind_localhost '1'
+	option local '/lan/'
+	option domain 'lan'
+	option expandhosts '1'
+	option nonegcache '0'
+	option cachesize '1000'
+	option authoritative '1'
+	option readethers '1'
+	option leasefile '/tmp/dhcp.leases'
+	option resolvfile '/tmp/resolv.conf.d/resolv.conf.auto'
+	option nonwildcard '1'
+	option localservice '1'
+	option ednspacket_max '1232'
+	option filter_aaaa '0'
+	option filter_a '0'
+	option enable_tftp '1'
+	option tftp_root '/srv/gentoo/tftp-root'
+	option logdhcp '{{ (openwrt_pxe_log_dhcp | default(false) | bool) | int }}'
+	option logqueries '{{ (openwrt_dnsmasq_log_queries | default(false) | bool) | int }}'
+	option dhcp_broadcast '{{ (openwrt_pxe_dhcp_broadcast | default(false) | bool) | int }}'
+
+config dhcp 'lan'
+	option interface 'lan'
+	option start '150'
+	option limit '100'
+	option leasetime '12h'
+	option dhcpv4 'server'
+	option dhcpv6 'server'
+	option ra 'server'
+	list ra_flags 'managed-config'
+	list ra_flags 'other-config'
+{% for ntp_server in openwrt_dhcp_ntp_servers | default([]) %}
+	list dhcp_option '42,{{ ntp_server }}'
+{% endfor %}
+
+config dhcp 'wan'
+	option interface 'wan'
+	option ignore '1'
+
+config odhcpd 'odhcpd'
+	option maindhcp '0'
+	option leasefile '/tmp/hosts/odhcpd'
+	option leasetrigger '/usr/sbin/odhcpd-update'
+	option loglevel '4'
+
+{% set pxe_hosts = openwrt_dhcp_hosts_effective | default(openwrt_pxe_hosts_effective | default(openwrt_pxe_hosts | default([]))) %}
+{% set pxe_boots = openwrt_pxe_boots_effective | default(openwrt_pxe_boots | default([])) %}
+{% if pxe_hosts | length > 0 %}
+{% for host in pxe_hosts %}
+{% set host_name = host.name | default('host') %}
+{% set host_section = 'pxe_host_' ~ (host_name | regex_replace('[^0-9A-Za-z_]', '_') | lower) %}
+config host '{{ host_section }}'
+	option name '{{ host_name }}'
+{% if host.mac is defined %}
+	option mac '{{ host.mac }}'
+{% endif %}
+{% if host.ip is defined %}
+	option ip '{{ host.ip }}'
+{% endif %}
+{% set host_networkid = host.networkid | default(host_name) %}
+	option networkid '{{ host_networkid }}'
+{% set host_filename = host.filename | default(host.bootfile | default('')) %}
+{% if host_filename %}
+	option filename '{{ host_filename }}'
+{% endif %}
+{% if host.tags is defined %}
+{% for t in host.tags %}
+	list tag '{{ t }}'
+{% endfor %}
+{% endif %}
+{% if host.force is defined %}
+	option force '{{ host.force }}'
+{% endif %}
+{% if host.dhcp_options is defined %}
+{% for opt in host.dhcp_options %}
+	list dhcp_option '{{ opt }}'
+{% endfor %}
+{% endif %}
+
+{% endfor %}
+{% endif %}
+
+{% if pxe_boots | length > 0 %}
+{% for boot in pxe_boots %}
+{% set boot_name = boot.name | default('boot') %}
+{% set boot_section = 'pxe_boot_' ~ (boot_name | regex_replace('[^0-9A-Za-z_]', '_') | lower) %}
+config boot '{{ boot_section }}'
+	option filename '{{ boot.filename }}'
+	option networkid '{{ boot.networkid }}'
+	option serveraddress '{{ boot.serveraddress }}'
+	option servername '{{ boot.servername }}'
+
+{% endfor %}
+{% endif %}

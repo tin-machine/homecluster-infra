@@ -1,0 +1,5 @@
+[Unit]
+{% set dependency = ansible_pull_role_dependency | default(item) %}
+{% for dep in dependency.value.after | default([]) %}
+After=ansible-pull@{{ dep }}.service
+{% endfor %}

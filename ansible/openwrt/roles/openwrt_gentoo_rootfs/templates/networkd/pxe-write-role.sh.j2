@@ -1,0 +1,124 @@
+#!/bin/bash
+
+# {{ ansible_managed }}
+
+set -euo pipefail
+
+LEASE_DIR="{{ openwrt_gentoo_networkd_lease_dir }}"
+ROLE_FILE="{{ openwrt_gentoo_role_output_path }}"
+ROLE_ENV_FILE="{{ openwrt_gentoo_role_env_output_path }}"
+DEBUG_LOG="/run/dhcp/role.debug"
+OPTION_SEPARATOR="{{ openwrt_gentoo_option_separator }}"
+DEFAULT_STAGE="{{ openwrt_gentoo_stage_label | default('') }}"
+
+# ログ/出力用ディレクトリを先に作成しておく
+mkdir -p "$(dirname "$DEBUG_LOG")" "$(dirname "$ROLE_ENV_FILE")"
+
+find_lease_file() {
+  if [ ! -d "$LEASE_DIR" ]; then
+    return 1
+  fi
+  ls -1t "$LEASE_DIR"/* 2>/dev/null | head -n1
+}
+
+write_env_file() {
+  overlay_id="$1"
+  role="$2"
+  roles="$3"
+  stage="$4"
+  raw="$5"
+  mkdir -p "$(dirname "$ROLE_ENV_FILE")"
+  {
+    [ -n "$overlay_id" ] && printf 'OVERLAY_ID=%s\n' "$overlay_id"
+    [ -n "$role" ] && printf 'ROLE=%s\n' "$role"
+    [ -n "$roles" ] && printf 'ROLES=%s\n' "$roles"
+    [ -n "$stage" ] && printf 'STAGE=%s\n' "$stage"
+    [ -n "$raw" ] && printf 'RAW_OPTION_224=%s\n' "$raw"
+  } > "$ROLE_ENV_FILE"
+}
+
+lease_file="$(find_lease_file || true)"
+
+if [ -z "${lease_file:-}" ] || [ ! -f "$lease_file" ]; then
+  {
+    echo "lease_file_missing=1"
+  } >> "$DEBUG_LOG"
+  exit 0
+fi
+
+value="$(sed -n 's/^OPTION_224=//p' "$lease_file" | head -n1)"
+value="${value%\"}"
+value="${value#\"}"
+
+{
+  echo "lease_file=${lease_file}"
+  echo "raw_value=${value}"
+} >> "$DEBUG_LOG"
+
+if [ -n "$value" ]; then
+  # "0x" / "x" 区切りを除去してから 1 回だけ hex デコード
+  value="${value#0x}"
+  value="${value#0X}"
+  value="${value//x/}"
+  value="${value//X/}"
+  echo "normalized_value=${value}" >> "$DEBUG_LOG"
+  if printf '%s' "$value" | grep -Eq '^[0-9A-Fa-f]{2}+$'; then
+    decoded="$(printf '%s' "$value" | perl -ne 's/\s+//g; if (/^[0-9A-Fa-f]+$/) { print pack("H*", $_) } else { print $_ }' || true)"
+    value="${decoded:-$value}"
+  fi
+  {
+    echo "final_value=${value}"
+  } >> "$DEBUG_LOG"
+  if [ -n "$ROLE_FILE" ]; then
+    mkdir -p "$(dirname "$ROLE_FILE")"
+    printf '%s\n' "$value" > "$ROLE_FILE"
+  fi
+
+  overlay_id=""
+  role=""
+  roles=""
+  stage="$DEFAULT_STAGE"
+  # key=value の区切りのみで分割（role 値内のカンマは許可）
+  mapfile -t kv_list < <(printf '%s' "$value" | perl -pe 's/,(?=[A-Za-z_]+=)/\n/g')
+  for kv in "${kv_list[@]}"; do
+    kv_clean="$(printf '%s' "$kv" | tr -d ' \t')"
+    [ -z "$kv_clean" ] && continue
+    key="${kv_clean%%=*}"
+    val="${kv_clean#*=}"
+    [ -z "$key" ] && continue
+    [ "$key" = "$val" ] && continue
+    key_lc="$(printf '%s' "$key" | tr '[:upper:]' '[:lower:]')"
+    case "$key_lc" in
+      overlay_id|overlay)
+        overlay_id="$val"
+        ;;
+      role)
+        role="$val"
+        ;;
+      roles)
+        roles="$val"
+        ;;
+      stage|env|environment)
+        stage="$val"
+        ;;
+    esac
+  done
+  {
+    echo "parsed_overlay_id=${overlay_id}"
+    echo "parsed_role=${role}"
+    echo "parsed_stage=${stage}"
+    echo "parsed_roles=${roles}"
+  } >> "$DEBUG_LOG"
+  if [ -z "$roles" ] && [ -n "$role" ]; then
+    roles="$role"
+  fi
+  write_env_file "$overlay_id" "$role" "$roles" "$stage" "$value"
+else
+  {
+    echo "value_empty=1"
+  } >> "$DEBUG_LOG"
+  if [ -n "$ROLE_FILE" ]; then
+    rm -f "$ROLE_FILE"
+  fi
+  rm -f "$ROLE_ENV_FILE"
+fi

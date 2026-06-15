@@ -1,0 +1,110 @@
+---
+- name: Gentoo PXE paired clean release bundle staging promote
+  hosts: openwrt
+  gather_facts: false
+  become: false
+  vars_files:
+    - ../group_vars/openwrt.yml
+  vars:
+    pxe_release_bundle_stage: stg
+    openwrt_gentoo_rootfs_target_stages:
+      - "{{ pxe_release_bundle_stage }}"
+    openwrt_gentoo_rootfs_include_base_candidate: true
+    openwrt_gentoo_rootfs_candidate_fallback_to_base: true
+
+  pre_tasks:
+    - name: OpenWrt Python bootstrap を適用
+      ansible.builtin.include_role:
+        name: bootstrap_python
+
+    - name: PXE release bundle staging stage 日付を検証
+      ansible.builtin.assert:
+        that:
+          - (openwrt_gentoo_release_bundle_stage_dates | default({})) is mapping
+          - pxe_release_bundle_stage in (openwrt_gentoo_release_bundle_stage_dates | default({}))
+          - ((openwrt_gentoo_release_bundle_stage_dates | default({}))[pxe_release_bundle_stage] | default('', true) | string | trim) is match('^[0-9]{8}$')
+        fail_msg: >-
+          外部 inventory.yml に
+          openwrt_gentoo_release_bundle_stage_dates.{{ pxe_release_bundle_stage }}=YYYYMMDD
+          を設定してください。この playbook は inventory.yml を自動編集しません。
+
+    - name: PXE release bundle staging 日付を inventory から補完
+      ansible.builtin.set_fact:
+        pxe_release_bundle_date: "{{ openwrt_gentoo_release_bundle_stage_dates[pxe_release_bundle_stage] | string | trim }}"
+      when:
+        - >
+          pxe_release_bundle_date is not defined
+          or (pxe_release_bundle_date | string | trim | length) == 0
+
+    - name: PXE release bundle staging 入力を準備
+      ansible.builtin.import_tasks: tasks/pxe_release_bundle_prepare.yml
+
+    - name: PXE release bundle staging 日付と inventory stage 日付の一致を検証
+      ansible.builtin.assert:
+        that:
+          - (openwrt_gentoo_release_bundle_stage_dates[pxe_release_bundle_stage] | string | trim) == pxe_release_bundle_effective_date
+        fail_msg: >-
+          pxe_release_bundle_date={{ pxe_release_bundle_effective_date }} と
+          openwrt_gentoo_release_bundle_stage_dates.{{ pxe_release_bundle_stage }}={{
+            openwrt_gentoo_release_bundle_stage_dates[pxe_release_bundle_stage] | string | trim
+          }} が一致しません。切替前に外部 inventory.yml を手動で揃えてください。
+          この playbook は inventory.yml を自動編集しません。
+
+  tasks:
+    - name: PXE release bundle build と manifest 検証を実行
+      ansible.builtin.import_tasks: tasks/pxe_release_bundle_build_and_manifest.yml
+
+    - name: PXE host release を inventory stage date から再解決
+      ansible.builtin.include_role:
+        name: openwrt_gentoo_rootfs
+        tasks_from: pxe_host_releases
+      tags:
+        - pxe_release_bundle
+        - pxe_tftp_switch
+
+    - name: PXE release bundle staging promote 前 guard を実行
+      ansible.builtin.include_role:
+        name: openwrt_gentoo_rootfs
+        tasks_from: release_bundle
+      vars:
+        openwrt_gentoo_release_bundle_enabled: true
+        openwrt_gentoo_release_bundle_date: "{{ pxe_release_bundle_effective_date }}"
+        openwrt_gentoo_release_bundle_generations: "{{ pxe_release_bundle_effective_generations }}"
+        openwrt_gentoo_release_bundle_policy: paired_clean
+        openwrt_gentoo_release_bundle_strict_hosts: true
+        openwrt_gentoo_release_bundle_require_artifacts: true
+        openwrt_gentoo_release_bundle_manifest_enabled: true
+        openwrt_gentoo_release_bundle_target_stages:
+          - "{{ pxe_release_bundle_stage }}"
+      tags:
+        - pxe_release_bundle
+
+    - name: PXE release bundle staging host directory を promote
+      ansible.builtin.include_role:
+        name: openwrt_gentoo_rootfs
+        tasks_from: tftp_switch
+      vars:
+        openwrt_gentoo_release_bundle_enabled: true
+        openwrt_gentoo_release_bundle_date: "{{ pxe_release_bundle_effective_date }}"
+        openwrt_gentoo_release_bundle_generations: "{{ pxe_release_bundle_effective_generations }}"
+        openwrt_gentoo_release_bundle_policy: paired_clean
+      tags:
+        - pxe_tftp_switch
+        - pxe_release_bundle
+
+    - name: PXE release bundle staging promote 後 guard を実行
+      ansible.builtin.include_role:
+        name: openwrt_gentoo_rootfs
+        tasks_from: release_bundle
+      vars:
+        openwrt_gentoo_release_bundle_enabled: true
+        openwrt_gentoo_release_bundle_date: "{{ pxe_release_bundle_effective_date }}"
+        openwrt_gentoo_release_bundle_generations: "{{ pxe_release_bundle_effective_generations }}"
+        openwrt_gentoo_release_bundle_policy: paired_clean
+        openwrt_gentoo_release_bundle_strict_hosts: true
+        openwrt_gentoo_release_bundle_require_artifacts: true
+        openwrt_gentoo_release_bundle_manifest_enabled: true
+        openwrt_gentoo_release_bundle_target_stages:
+          - "{{ pxe_release_bundle_stage }}"
+      tags:
+        - pxe_release_bundle

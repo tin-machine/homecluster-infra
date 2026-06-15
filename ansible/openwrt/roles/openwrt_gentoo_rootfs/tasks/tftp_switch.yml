@@ -1,0 +1,76 @@
+---
+- name: PXE client catalog を合成
+  ansible.builtin.include_role:
+    name: openwrt_pxe_client_catalog
+    apply:
+      tags:
+        - always
+  tags:
+    - always
+
+- name: PXE host release 解決 tasks を適用
+  ansible.builtin.import_tasks: pxe_host_releases.yml
+  tags:
+    - pxe_tftp_switch
+    - pxe
+    - tftp
+    - tftp_hosts
+
+- name: TFTP 切替用パス関連の Fact を設定
+  ansible.builtin.set_fact:
+    openwrt_gentoo_tftp_dir: "/srv/gentoo/tftp-root/dates/{{ openwrt_gentoo_release }}"
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  when: openwrt_gentoo_enabled | bool
+
+- name: TFTP 切替に必要なディレクトリを作成
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop:
+    - /srv/gentoo/tftp-root
+    - /srv/gentoo/tftp-root/dates
+    - "{{ openwrt_gentoo_tftp_dir }}"
+  loop_control:
+    label: "{{ item }}"
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  when: openwrt_gentoo_enabled | bool
+
+- name: TFTP overlay ファイルを配置
+  ansible.builtin.import_tasks: tftp_overlays.yml
+  tags:
+    - tftp
+    - tftp-firmware
+    - tftp-overlays
+
+- name: TFTP host directory tasks を適用
+  ansible.builtin.import_tasks: tftp_hosts.yml
+  tags:
+    - pxe_tftp_switch
+    - pxe
+    - tftp
+    - tftp_hosts
+
+- name: TFTP host DTB patch tasks を適用
+  ansible.builtin.import_tasks: tftp_dtb_patch.yml
+  tags:
+    - pxe_tftp_switch
+    - pxe
+    - tftp
+    - tftp_hosts
+
+- name: TFTP variant tasks を適用
+  ansible.builtin.import_tasks: tftp_variants.yml
+  tags:
+    - pxe_tftp_switch
+    - pxe
+    - tftp
+
+- name: TFTP date config tasks を適用
+  ansible.builtin.import_tasks: tftp_date_config.yml
+  tags:
+    - pxe_tftp_switch
+    - pxe
+    - tftp

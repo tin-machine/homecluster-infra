@@ -1,0 +1,63 @@
+---
+- name: Exporter 無効化時はスキップ
+  ansible.builtin.debug:
+    msg: "openwrt_prometheus_exporter_enabled=false のため、Exporter 設定はスキップします"
+  when: not openwrt_prometheus_exporter_enabled | bool
+
+- name: Exporter パッケージを導入
+  ansible.builtin.opkg:
+    name: "{{ item }}"
+    state: present
+    update_cache: "{{ openwrt_opkg_update | default(true) }}"
+  loop: "{{ openwrt_prometheus_exporter_packages }}"
+  loop_control:
+    label: "{{ item }}"
+  when: openwrt_prometheus_exporter_enabled | bool
+
+- name: Exporter init スクリプトの存在確認
+  ansible.builtin.stat:
+    path: "{{ openwrt_prometheus_exporter_init_path }}"
+  register: openwrt_prometheus_exporter_init
+  when: openwrt_prometheus_exporter_enabled | bool
+
+- name: Exporter init スクリプト検証
+  ansible.builtin.fail:
+    msg: "{{ openwrt_prometheus_exporter_init_path }} が見つかりません。パッケージの init スクリプト名を確認してください。"
+  when:
+    - openwrt_prometheus_exporter_enabled | bool
+    - openwrt_prometheus_exporter_init.stat is defined
+    - not openwrt_prometheus_exporter_init.stat.exists
+
+- name: prometheus-node-exporter-lua 設定を配置
+  ansible.builtin.template:
+    src: prometheus-node-exporter.j2
+    dest: "{{ openwrt_prometheus_exporter_config_path }}"
+    owner: root
+    group: root
+    mode: '0644'
+  when: openwrt_prometheus_exporter_enabled | bool
+  notify:
+    - Restart prometheus-node-exporter
+
+- name: Exporter サービスを自動起動に設定
+  ansible.builtin.shell: |
+    if {{ openwrt_prometheus_exporter_init_path }} enabled; then
+      exit 0
+    fi
+    {{ openwrt_prometheus_exporter_init_path }} enable
+    echo enabled
+  register: exporter_enable
+  changed_when: "'enabled' in exporter_enable.stdout"
+  when: openwrt_prometheus_exporter_enabled | bool
+
+- name: Exporter サービスを起動
+  ansible.builtin.shell: |
+    if {{ openwrt_prometheus_exporter_init_path }} status >/dev/null 2>&1; then
+      exit 0
+    fi
+    {{ openwrt_prometheus_exporter_init_path }} start
+    echo started
+  register: exporter_start
+  changed_when: "'started' in exporter_start.stdout"
+  failed_when: exporter_start.rc != 0
+  when: openwrt_prometheus_exporter_enabled | bool

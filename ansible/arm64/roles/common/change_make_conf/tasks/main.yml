@@ -1,0 +1,258 @@
+# build.shで作成したイメージのmake.confのmergeのオプションにdeepがついており非常に時間がかかるので外す
+# EMERGE_DEFAULT_OPTS="--jobs --newrepo --newuse --changed-use --changed-deps --changed-slot --deep --tree --unordered-display --nospinner --backtrack=3000 --complete-graph --with-bdeps=y --rebuild-if-new-rev --rebuild-if-new-ver --rebuild-if-unbuilt --rebuilt-binaries --usepkg=y --buildpkg-exclude 'virtual/* sys-kernel/*-sources */*-bin acct-user/* acct-group/*'"
+
+# make.conf について
+# https://wiki.gentoo.org/wiki/EMERGE_DEFAULT_OPTS/ja
+
+- name: make.conf を修正
+  block:
+  - name: Portage binpkg NFS mount source を確認
+    ansible.builtin.assert:
+      that:
+        - (gentoo_binpkg_nfs_src | string | trim) | length > 0
+      fail_msg: >-
+        gentoo_binpkg_nfs_enabled=true の場合は gentoo_binpkg_nfs_src を
+        OpenWrt NFSv4 pseudo root 上の binpkg export に設定してください。
+        mount できない状態で続行すると buildpkg の成果物が PXE root overlay にだけ残ります。
+    when:
+      - gentoo_binpkg_nfs_enabled | bool
+    tags:
+      - nfs_binpkg
+  - name: Portage binpkg NFS mountpoint を作成
+    become: true
+    ansible.builtin.file:
+      path: "{{ gentoo_binpkg_base }}"
+      state: directory
+      owner: root
+      group: root
+      mode: '0755'
+    when:
+      - gentoo_binpkg_nfs_enabled | bool
+    tags:
+      - nfs_binpkg
+  - name: Portage binpkg cache を NFS mount
+    become: true
+    ansible.posix.mount:
+      src: "{{ gentoo_binpkg_nfs_src }}"
+      path: "{{ gentoo_binpkg_base }}"
+      fstype: "{{ gentoo_binpkg_nfs_fstype }}"
+      opts: "{{ gentoo_binpkg_nfs_opts }}"
+      state: mounted
+    when:
+      - gentoo_binpkg_nfs_enabled | bool
+    tags:
+      - nfs_binpkg
+  - name: Portage binpkg cache の filesystem type を確認
+    become: true
+    ansible.builtin.command: "findmnt -n -T {{ gentoo_binpkg_base | quote }} -o FSTYPE"
+    register: gentoo_binpkg_nfs_fstype_result
+    changed_when: false
+    failed_when: >-
+      gentoo_binpkg_nfs_fstype_result.rc != 0
+      or
+      (gentoo_binpkg_nfs_fstype_result.stdout | trim) not in ['nfs', 'nfs4']
+    when:
+      - gentoo_binpkg_nfs_enabled | bool
+      - gentoo_binpkg_nfs_require_mounted | bool
+    tags:
+      - nfs_binpkg
+  - name: "-mtune、-mcpuを決めるため app-misc/resolve-march-native をインストール"
+    portage: >
+      package="app-misc/resolve-march-native"
+      sync=no
+      deep=no
+      state=present
+  - name: CPU part を取得
+    command: "awk -F': ' '/^CPU part/ {print $2; exit}' /proc/cpuinfo"
+    register: cpu_part_raw
+    changed_when: false
+    tags: [cpu_arch, make_conf]
+  - name: CPU part を正規化
+    set_fact:
+      cpu_part_key: "{{ cpu_part_raw.stdout | lower | trim }}"
+    tags: [cpu_arch, make_conf]
+  - name: CPU part から mcpu を決定
+    set_fact:
+      cpu_mcpu_base: >-
+        {{
+          (cpu_part_to_mcpu_map | default({}))
+          .get(cpu_part_key, cpu_part_unknown_fallback | default('armv8-a'))
+        }}
+    tags: [cpu_arch, make_conf]
+  - name: binpkg CPU key を設定
+    set_fact:
+      gentoo_binpkg_cpu_key_effective: >-
+        {{
+          (
+            ((gentoo_binpkg_cpu_key | default('', true) | string | trim) | length > 0)
+            | ternary(gentoo_binpkg_cpu_key | string | trim, cpu_mcpu_base)
+          )
+          | regex_replace('[^A-Za-z0-9_.+-]', '_')
+        }}
+    tags: [cpu_arch, make_conf]
+  - name: resolve-march-native から feature suffix を取得
+    shell: |
+      set -o pipefail
+      resolve-march-native | sed -n 's/.*=[^+]*\(\+.*\)$/\1/p'
+    register: cpu_feature_suffix
+    changed_when: false
+    tags: [cpu_arch, make_conf]
+  - name: COMMONFLAGSを設定
+    set_fact:
+      common_flags_value: "-mcpu={{ cpu_mcpu_base }}{{ cpu_feature_suffix.stdout | default('') }} -mtune={{ cpu_mcpu_base }}"
+    tags: [cpu_arch, make_conf]
+  - name: COMMONFLAGSを表示
+    debug:
+      msg: "{{ common_flags_value }}"
+    tags: [cpu_arch, make_conf]
+  - name: CPUのコア数を取得
+    shell: 'cat /proc/cpuinfo | grep processor | wc -l'
+    register: cpu_num
+    check_mode: no
+    changed_when: false
+  - name: CPU数を表示
+    debug:
+      msg: "{{ cpu_num.stdout }}"
+  - name: プロファイル名を取得
+    shell: |
+      set -euo pipefail
+      # --brief で現在のプロファイルだけを出力、余計な行を除外
+      eselect profile show --brief | tail -n1 | awk '{$1=$1;print}'
+    register: gentoo_profile_name_result
+    changed_when: false
+    when: gentoo_operating_mode != 'standalone' or gentoo_binpkg_nfs_enabled | bool
+  - name: プロファイル名を設定
+    set_fact:
+      gentoo_profile_name: "{{ gentoo_profile_name_result.stdout }}"
+    when: gentoo_operating_mode != 'standalone' or gentoo_binpkg_nfs_enabled | bool
+  - name: Portageのgit同期に必要なgitをインストール
+    become: true
+    community.general.portage:
+      package: dev-vcs/git
+      state: present
+      sync: no
+      deep: no
+  # - name: make.conf EMERGE_DEFAULT_OPTS を変更する
+  #   lineinfile:
+  #     path: '/etc/portage/make.conf'
+  #     regexp: '^EMERGE_DEFAULT_OPTS='
+  #     line: "EMERGE_DEFAULT_OPTS=\"--usepkg=y --jobs 2 --load-average {{cpu_num.stdout}}\""
+  # - name: make.conf FEATURES を変更する
+  #   lineinfile:
+  #     path: '/etc/portage/make.conf'
+  #     regexp: '^FEATURES='
+  #     line: "FEATURES=\"buildpkg -getbinpkg binpkg-multi-instance clean-logs compress-build-logs parallel-fetch parallel-install -distcc -userpriv -usersandbox -network-sandbox -pid-sandbox \""
+  #     state: present
+  - name: 'make.confをテンプレートから作成'
+    template:
+      src: make.conf.j2
+      dest: /etc/portage/make.conf
+      owner: root
+      group: root
+      mode: 0644
+  - name: repos.confディレクトリを作成
+    become: true
+    ansible.builtin.file:
+      path: /etc/portage/repos.conf
+      state: directory
+      owner: root
+      group: root
+      mode: '0755'
+  - name: gentooリポジトリをgit同期に設定
+    become: true
+    ansible.builtin.template:
+      src: repos.conf.gentoo.j2
+      dest: /etc/portage/repos.conf/gentoo.conf
+      owner: root
+      group: root
+      mode: '0644'
+  - name: gentooリポジトリのディレクトリを確認
+    become: true
+    ansible.builtin.stat:
+      path: /var/db/repos/gentoo
+    register: gentoo_repo_dir_stat
+    changed_when: false
+  - name: gentooリポジトリのgit管理を確認
+    become: true
+    ansible.builtin.stat:
+      path: /var/db/repos/gentoo/.git
+    register: gentoo_repo_git_stat
+    changed_when: false
+  - name: gentooリポジトリのgit初期化が必要か判定
+    ansible.builtin.set_fact:
+      gentoo_repo_needs_bootstrap: >-
+        {{
+          gentoo_repo_dir_stat.stat.exists
+          and
+          (not gentoo_repo_git_stat.stat.exists)
+        }}
+    changed_when: false
+  - name: 既存gentooリポジトリの中身を確認
+    become: true
+    ansible.builtin.command: ls -A /var/db/repos/gentoo
+    register: gentoo_repo_ls
+    changed_when: false
+    failed_when: false
+    when: gentoo_repo_needs_bootstrap
+  - name: 既存gentooリポジトリを退避
+    become: true
+    ansible.builtin.command: >-
+      mv /var/db/repos/gentoo
+      /var/db/repos/gentoo.backup-{{ ansible_date_time.iso8601_basic }}
+    when:
+      - gentoo_repo_needs_bootstrap
+      - gentoo_repo_ls.stdout | length > 0
+  - name: 空のgentooリポジトリを削除
+    become: true
+    ansible.builtin.file:
+      path: /var/db/repos/gentoo
+      state: absent
+    when:
+      - gentoo_repo_needs_bootstrap
+      - gentoo_repo_ls.stdout | length == 0
+  - name: gentooリポジトリをgitで初期化
+    become: true
+    ansible.builtin.git:
+      repo: https://github.com/gentoo-mirror/gentoo.git
+      dest: /var/db/repos/gentoo
+      depth: 1
+      version: HEAD
+      update: true
+    when: gentoo_repo_needs_bootstrap
+  - name: portageのビルドをローカルストレージの /usr/local/tmp/portage で行う
+    # /var/tmp/portage がzramでマウントされている。
+    # 通常、こちらの方が高速だが、大きめのビルドを行う場合、ディスクフルでビルドできないため
+    # ローカルドライブに
+    # /usr/local/tmp/portage
+    # を作成して /etc/portage/make.confの環境変数を変えて、こちらでビルドする。
+    # システム系のものはzramでも大丈夫だが、ユーティリティ系のものは大きいものがあるので、
+    # このタイミングで切り替える。
+    block:
+    - name: ディレクトリ作成
+      file:
+        path: /usr/local/tmp/portage
+        state: directory
+        owner: portage
+        group: portage
+        mode: '0755'
+    - name: ビルド作業用ディレクトリの変更
+      # https://wiki.gentoo.org/wiki/Handbook:AMD64/Full/Portage/ja
+      lineinfile:
+        path: '/etc/portage/make.conf'
+        regexp: '^PORTAGE_TMPDIR'
+        line: 'PORTAGE_TMPDIR="/usr/local/tmp/portage"'
+        state: present
+  - name: 現在のPKGDIRを取得
+    command: portageq envvar PKGDIR
+    register: portage_pkgdir_result
+    changed_when: false
+  - name: PKGDIRのディレクトリをportageユーザに合わせる
+    file:
+      path: "{{ portage_pkgdir_result.stdout }}"
+      state: directory
+      owner: portage
+      group: portage
+      mode: '0755'
+    when:
+      - portage_pkgdir_result.stdout is defined
+      - portage_pkgdir_result.stdout | length > 0

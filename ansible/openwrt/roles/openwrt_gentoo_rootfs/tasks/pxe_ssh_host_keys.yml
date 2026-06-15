@@ -1,0 +1,111 @@
+---
+- name: PXE SSH host key 用ディレクトリを作成
+  ansible.builtin.file:
+    path: "{{ item.0 }}/{{ item.1 }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop: "{{ (openwrt_gentoo_pxe_rootfs_dirs | default([openwrt_gentoo_rootfs_dir])) | product(openwrt_gentoo_ssh_host_key_dirs) | list }}"
+  loop_control:
+    label: "{{ item.0 }}/{{ item.1 }}"
+  vars:
+    openwrt_gentoo_ssh_host_key_dirs:
+      - usr/local/sbin
+      - etc
+      - etc/ssh
+      - etc/ssh/sshd_config.d
+      - etc/systemd/system
+      - etc/systemd/system/sshd.service.d
+      - etc/systemd/system/multi-user.target.wants
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_ssh_host_keys_enabled | bool
+  tags:
+    - pxe
+    - pxe_ssh_host_keys
+
+- name: PXE SSH host key 設定を配置
+  ansible.builtin.template:
+    src: pxe-ssh-host-keys.conf.j2
+    dest: "{{ item }}{{ openwrt_gentoo_ssh_host_keys_config_path }}"
+    owner: root
+    group: root
+    mode: '0644'
+  loop: "{{ openwrt_gentoo_pxe_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+  loop_control:
+    label: "{{ item }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_ssh_host_keys_enabled | bool
+  tags:
+    - pxe
+    - pxe_ssh_host_keys
+
+- name: PXE SSH host key スクリプトを配置
+  ansible.builtin.template:
+    src: pxe-ssh-host-keys.sh.j2
+    dest: "{{ item }}{{ openwrt_gentoo_ssh_host_keys_script_path }}"
+    owner: root
+    group: root
+    mode: '0755'
+  loop: "{{ openwrt_gentoo_pxe_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+  loop_control:
+    label: "{{ item }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_ssh_host_keys_enabled | bool
+  tags:
+    - pxe
+    - pxe_ssh_host_keys
+
+- name: PXE SSH host key systemd unit を配置
+  ansible.builtin.template:
+    src: systemd/pxe-ssh-host-keys.service.j2
+    dest: "{{ item }}/etc/systemd/system/{{ openwrt_gentoo_ssh_host_keys_service }}"
+    owner: root
+    group: root
+    mode: '0644'
+  loop: "{{ openwrt_gentoo_pxe_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+  loop_control:
+    label: "{{ item }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_ssh_host_keys_enabled | bool
+  tags:
+    - pxe
+    - pxe_ssh_host_keys
+
+- name: sshd service drop-in を配置
+  ansible.builtin.template:
+    src: systemd/sshd-pxe-host-keys.conf.j2
+    dest: "{{ item }}/etc/systemd/system/sshd.service.d/20-pxe-host-keys.conf"
+    owner: root
+    group: root
+    mode: '0644'
+  loop: "{{ openwrt_gentoo_pxe_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+  loop_control:
+    label: "{{ item }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_ssh_host_keys_enabled | bool
+  tags:
+    - pxe
+    - pxe_ssh_host_keys
+
+- name: PXE SSH host key systemd unit を有効化
+  ansible.builtin.file:
+    src: "../{{ openwrt_gentoo_ssh_host_keys_service }}"
+    dest: "{{ item }}/etc/systemd/system/multi-user.target.wants/{{ openwrt_gentoo_ssh_host_keys_service }}"
+    state: link
+    force: true
+    follow: false
+  loop: "{{ openwrt_gentoo_pxe_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+  loop_control:
+    label: "{{ item }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_ssh_host_keys_enabled | bool
+  tags:
+    - pxe
+    - pxe_ssh_host_keys

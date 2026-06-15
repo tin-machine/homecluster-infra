@@ -1,0 +1,140 @@
+---
+- name: Normalize enabled Raspberry Pi models
+  ansible.builtin.set_fact:
+    rpi_enabled_models_normalized: "{{ rpi_enabled_models | map('lower') | list }}"
+
+- name: Validate high level options
+  ansible.builtin.assert:
+    that:
+      - rpi_network_backend in ['wired', 'wifi']
+      - rpi_enabled_models_normalized | length > 0
+      - (rpi_enabled_models_normalized | difference(['pi3', 'pi4', 'pi5'])) | length == 0
+      - rpi_image_size_mb | int >= 64
+      - rpi_gentoo_release is not none
+      - rpi_gentoo_release | string | length > 0
+      - rpi_gentoo_release != 'latest'
+      - (rpi_root_server | string | trim) | length > 0
+      - (rpi_root_server | string) is not match('^(192\.0\.2\.|198\.51\.100\.|203\.0\.113\.)')
+      - rpi_pi5_kernel_image | string | length > 0
+      - (not (rpi_source_sync_enabled | bool)) or (rpi_source_sync_host | string | length > 0)
+    fail_msg: "rpi_sd_netboot_image の基本変数が不正です。rpi_enabled_models/rpi_network_backend/rpi_gentoo_release/rpi_root_server/rpi_pi5_kernel_image を確認してください。rpi_gentoo_release は latest ではなく固定 release を明示し、rpi_root_server に documentation IP range は使えません。"
+
+- name: Compute required boot files
+  ansible.builtin.set_fact:
+    rpi_required_dtb_files_resolved: >-
+      {{
+        (
+          (rpi_pi3_dtb_files if ('pi3' in rpi_enabled_models_normalized) else [])
+          + (rpi_pi4_dtb_files if ('pi4' in rpi_enabled_models_normalized) else [])
+          + (rpi_pi5_dtb_files if ('pi5' in rpi_enabled_models_normalized) else [])
+        ) | unique | list
+      }}
+    rpi_required_kernel_files_resolved: >-
+      {{
+        (
+          ([rpi_kernel8_image] if (('pi3' in rpi_enabled_models_normalized) or ('pi4' in rpi_enabled_models_normalized)) else [])
+          + ([rpi_pi5_kernel_image] if ('pi5' in rpi_enabled_models_normalized) else [])
+        ) | unique | list
+      }}
+    rpi_generated_cmdline_files: >-
+      {{
+        (
+          (['cmdline-pi3.txt'] if ('pi3' in rpi_enabled_models_normalized) else [])
+          + (['cmdline-pi4.txt'] if ('pi4' in rpi_enabled_models_normalized) else [])
+          + (['cmdline-pi5.txt'] if ('pi5' in rpi_enabled_models_normalized) else [])
+        ) | unique | list
+      }}
+    rpi_generated_initramfs_files: >-
+      {{
+        (
+          (['initramfs-bcm27xx.img'] if (('pi3' in rpi_enabled_models_normalized) or ('pi4' in rpi_enabled_models_normalized)) else [])
+          + (['initramfs-pi5.img'] if ('pi5' in rpi_enabled_models_normalized) else [])
+        ) | unique | list
+      }}
+
+- name: Check required staging commands
+  ansible.builtin.command:
+    argv:
+      - which
+      - "{{ item }}"
+  loop: "{{ rpi_required_staging_commands }}"
+  changed_when: false
+
+- name: Check required image build commands
+  ansible.builtin.command:
+    argv:
+      - which
+      - "{{ item }}"
+  loop: "{{ rpi_required_image_commands }}"
+  changed_when: false
+  when: rpi_image_build | bool
+
+- name: Check lsinitrd when initramfs content validation is enabled
+  ansible.builtin.command:
+    argv:
+      - which
+      - lsinitrd
+  changed_when: false
+  when: rpi_validate_initramfs_contents | bool
+
+- name: Check required source sync commands
+  ansible.builtin.command:
+    argv:
+      - which
+      - "{{ item }}"
+  loop: "{{ rpi_required_source_sync_commands }}"
+  changed_when: false
+  when: rpi_source_sync_enabled | bool
+
+- name: Remove previous workdir when rebuilding
+  ansible.builtin.file:
+    path: "{{ rpi_image_workdir }}"
+    state: absent
+  when: rpi_image_rebuild | bool
+
+- name: Remove previous image when rebuilding
+  ansible.builtin.file:
+    path: "{{ rpi_image_output }}"
+    state: absent
+  when:
+    - rpi_image_rebuild | bool
+    - rpi_image_build | bool
+
+- name: Create work directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ rpi_image_workdir }}"
+    - "{{ rpi_boot_dir }}"
+    - "{{ rpi_boot_mount_dir }}"
+    - "{{ rpi_source_sync_dest }}"
+
+- name: Sync TFTP release from OpenWrt
+  ansible.builtin.command:
+    argv:
+      - rsync
+      - -a
+      - --delete
+      - --copy-links
+      - -e
+      - "{{ rpi_source_sync_ssh_command }}"
+      - "{{ (rpi_source_sync_user | string | length > 0) | ternary(rpi_source_sync_user ~ '@', '') }}{{ rpi_source_sync_host }}:{{ rpi_source_sync_path }}/"
+      - "{{ rpi_source_sync_dest }}/"
+  changed_when: true
+  when: rpi_source_sync_enabled | bool
+
+- name: Check image output parent directory
+  ansible.builtin.stat:
+    path: "{{ rpi_image_output | dirname }}"
+  register: rpi_image_output_parent_stat
+  when: rpi_image_build | bool
+
+- name: Create image output parent directory when missing
+  ansible.builtin.file:
+    path: "{{ rpi_image_output | dirname }}"
+    state: directory
+  when:
+    - rpi_image_build | bool
+    - not rpi_image_output_parent_stat.stat.exists

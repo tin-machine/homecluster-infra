@@ -1,0 +1,31 @@
+# Managed by Ansible (openwrt_gentoo_rootfs)
+COMMON_FLAGS="${CFLAGS} {{ openwrt_gentoo_common_flags }}"
+CFLAGS="${COMMON_FLAGS}"
+CXXFLAGS="${COMMON_FLAGS}"
+FCFLAGS="${COMMON_FLAGS}"
+FFLAGS="${COMMON_FLAGS}"
+
+CHOST="{{ openwrt_gentoo_chost }}"
+USE="{{ openwrt_gentoo_global_use }}"
+PORTAGE_TMPDIR="{{ openwrt_gentoo_portage_tmpdir }}"
+PROFILE_NAME="{{ openwrt_gentoo_profile_name }}"
+
+PKGDIR="{{ openwrt_gentoo_binpkg_dir }}"
+DISTDIR="{{ openwrt_gentoo_distfiles_dir }}"
+BINPKG_FORMAT="gpkg"
+BINPKG_COMPRESS="zstd"
+BINPKG_COMPRESS_FLAGS="-15"
+PORTAGE_BINHOST="{{ openwrt_gentoo_binhost }}"
+
+{% if openwrt_gentoo_distcc_enabled | bool %}
+FEATURES="buildpkg distcc -getbinpkg binpkg-multi-instance clean-logs compress-build-logs parallel-fetch parallel-install -userpriv -usersandbox -network-sandbox -pid-sandbox "
+DISTCC_HOSTS="{{ openwrt_gentoo_distcc_hosts_effective | default(openwrt_gentoo_distcc_hosts) }}"
+{% else %}
+FEATURES="buildpkg -distcc -getbinpkg binpkg-multi-instance clean-logs compress-build-logs parallel-fetch parallel-install -userpriv -usersandbox -network-sandbox -pid-sandbox "
+{% endif %}
+{% if openwrt_gentoo_makeopts | string | trim | length > 0 %}
+MAKEOPTS="{{ openwrt_gentoo_makeopts }}"
+{% endif %}
+{% if openwrt_gentoo_emerge_default_opts | string | trim | length > 0 %}
+EMERGE_DEFAULT_OPTS="{{ openwrt_gentoo_emerge_default_opts }}"
+{% endif %}

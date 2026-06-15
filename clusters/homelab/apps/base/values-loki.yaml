@@ -1,0 +1,131 @@
+deploymentMode: Distributed
+
+loki:
+  auth_enabled: false
+  server:
+    log_level: info
+  schemaConfig:
+    configs:
+      - from: 2024-01-01
+        store: boltdb-shipper
+        object_store: aws
+        schema: v12
+        index:
+          prefix: loki_index_
+          period: 24h
+  storage_config:
+    aws:
+      bucketnames: loki
+      s3forcepathstyle: true
+      insecure: true
+    boltdb_shipper:
+      shared_store: aws
+      cache_location: /var/loki/cache
+      active_index_directory: /var/loki/index
+  commonConfig:
+    replication_factor: 1
+  ingester:
+    lifecycler:
+      ring:
+        replication_factor: 1
+    chunk_idle_period: 30m
+    chunk_retain_period: 1m
+  rulerConfig:
+    storage:
+      type: s3
+      s3:
+        bucketnames: loki-ruler
+        s3forcepathstyle: true
+        insecure: true
+  limits_config:
+    retention_period: 168h
+  chunk_store_config:
+    max_look_back_period: 168h
+  table_manager:
+    retention_deletes_enabled: true
+    retention_period: 168h
+
+read:
+  replicas: 1
+  persistence:
+    enableStatefulSetAutoDeletePVC: true
+    size: 10Gi
+    storageClass: nfs-client
+  podLabels:
+    app.kubernetes.io/name: loki
+    app.kubernetes.io/instance: loki
+    app.kubernetes.io/component: read
+    app.kubernetes.io/part-of: observability
+  service:
+    labels:
+      app.kubernetes.io/name: loki
+      app.kubernetes.io/instance: loki
+      app.kubernetes.io/component: read
+      app.kubernetes.io/part-of: observability
+
+write:
+  replicas: 1
+  persistence:
+    enableStatefulSetAutoDeletePVC: false
+    size: 10Gi
+    storageClass: nfs-client
+  podLabels:
+    app.kubernetes.io/name: loki
+    app.kubernetes.io/instance: loki
+    app.kubernetes.io/component: write
+    app.kubernetes.io/part-of: observability
+  service:
+    labels:
+      app.kubernetes.io/name: loki
+      app.kubernetes.io/instance: loki
+      app.kubernetes.io/component: write
+      app.kubernetes.io/part-of: observability
+
+backend:
+  replicas: 1
+  persistence:
+    enableStatefulSetAutoDeletePVC: true
+    size: 50Gi
+    storageClass: nfs-client
+  podLabels:
+    app.kubernetes.io/name: loki
+    app.kubernetes.io/instance: loki
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/part-of: observability
+  service:
+    labels:
+      app.kubernetes.io/name: loki
+      app.kubernetes.io/instance: loki
+      app.kubernetes.io/component: backend
+      app.kubernetes.io/part-of: observability
+
+gateway:
+  replicas: 1
+  podLabels:
+    app.kubernetes.io/name: loki
+    app.kubernetes.io/instance: loki
+    app.kubernetes.io/component: gateway
+    app.kubernetes.io/part-of: observability
+  service:
+    labels:
+      app.kubernetes.io/name: loki
+      app.kubernetes.io/instance: loki
+      app.kubernetes.io/component: gateway
+      app.kubernetes.io/part-of: observability
+
+test:
+  enabled: false
+
+monitoring:
+  dashboards:
+    enabled: false
+  rules:
+    enabled: false
+  serviceMonitor:
+    enabled: false
+  selfMonitoring:
+    enabled: false
+    grafanaAgent:
+      installOperator: false
+  lokiCanary:
+    enabled: false

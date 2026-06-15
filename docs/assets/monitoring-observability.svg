@@ -1,0 +1,251 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="820" viewBox="0 0 1200 820" role="img" aria-labelledby="title desc">
+  <title id="title">monitoring / observability</title>
+  <desc id="desc">Monitoring and observability dataflow. It shows operator browser access through Grafana, OpenWrt syslog intake through OpenTelemetry Collector, metrics collection through Prometheus and Mimir, logs through Loki, traces through Tempo, and object storage through MinIO.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#334155" />
+    </marker>
+    <marker id="arrow-blue" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#2563eb" />
+    </marker>
+    <marker id="arrow-red" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#b91c1c" />
+    </marker>
+    <marker id="arrow-purple" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#7c3aed" />
+    </marker>
+    <marker id="arrow-green" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#15803d" />
+    </marker>
+    <symbol id="icon-browser" viewBox="0 0 24 24">
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <path d="M3 9h18" />
+      <circle cx="7" cy="7" r="0.8" />
+      <circle cx="10" cy="7" r="0.8" />
+    </symbol>
+    <symbol id="icon-router-log" viewBox="0 0 24 24">
+      <rect x="4" y="6" width="16" height="9" rx="2" />
+      <path d="M7 18h10" />
+      <path d="M8 10h3" />
+      <path d="M13 10h3" />
+      <path d="M8 13h8" />
+    </symbol>
+    <symbol id="icon-lb" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="3" />
+      <path d="M12 4v5" />
+      <path d="M5 18l5-4" />
+      <path d="M19 18l-5-4" />
+      <circle cx="12" cy="4" r="2" />
+      <circle cx="5" cy="18" r="2" />
+      <circle cx="19" cy="18" r="2" />
+    </symbol>
+    <symbol id="icon-bucket" viewBox="0 0 24 24">
+      <ellipse cx="12" cy="6" rx="7" ry="3" />
+      <path d="M5 6v10c0 1.7 3.1 3 7 3s7-1.3 7-3V6" />
+      <path d="M5 11c0 1.7 3.1 3 7 3s7-1.3 7-3" />
+    </symbol>
+    <symbol id="icon-node" viewBox="0 0 24 24">
+      <rect x="5" y="5" width="14" height="14" rx="2" />
+      <path d="M9 2v3" />
+      <path d="M15 2v3" />
+      <path d="M9 19v3" />
+      <path d="M15 19v3" />
+      <path d="M2 9h3" />
+      <path d="M2 15h3" />
+      <path d="M19 9h3" />
+      <path d="M19 15h3" />
+    </symbol>
+    <symbol id="icon-kube" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="3" />
+      <circle cx="5" cy="6" r="2" />
+      <circle cx="19" cy="6" r="2" />
+      <circle cx="6" cy="19" r="2" />
+      <circle cx="18" cy="19" r="2" />
+      <path d="M7 7l3 3" />
+      <path d="M17 7l-3 3" />
+      <path d="M8 18l3-4" />
+      <path d="M16 18l-3-4" />
+    </symbol>
+    <symbol id="icon-smoke" viewBox="0 0 24 24">
+      <path d="M5 17c3-2 1-5 4-7" />
+      <path d="M10 19c4-3 1-7 5-10" />
+      <path d="M15 18c3-2 2-5 4-7" />
+      <path d="M4 20h16" />
+    </symbol>
+    <symbol id="icon-otel" viewBox="0 0 24 24">
+      <polygon points="12 3 20 8 20 16 12 21 4 16 4 8" />
+      <circle cx="12" cy="12" r="3" />
+      <path d="M12 6v3" />
+      <path d="M12 15v3" />
+      <path d="M7 9.5l2.5 1.5" />
+      <path d="M17 9.5L14.5 11" />
+    </symbol>
+    <symbol id="icon-metrics" viewBox="0 0 24 24">
+      <path d="M4 18h16" />
+      <path d="M6 15l4-4 3 3 5-7" />
+      <circle cx="10" cy="11" r="1" />
+      <circle cx="13" cy="14" r="1" />
+      <circle cx="18" cy="7" r="1" />
+    </symbol>
+    <symbol id="icon-db-metrics" viewBox="0 0 24 24">
+      <ellipse cx="12" cy="6" rx="6" ry="3" />
+      <path d="M6 6v8c0 1.7 2.7 3 6 3s6-1.3 6-3V6" />
+      <path d="M8 14l2-2 2 1 3-4" />
+    </symbol>
+    <symbol id="icon-logs" viewBox="0 0 24 24">
+      <rect x="5" y="4" width="14" height="16" rx="2" />
+      <path d="M8 9h8" />
+      <path d="M8 13h8" />
+      <path d="M8 17h5" />
+    </symbol>
+    <symbol id="icon-traces" viewBox="0 0 24 24">
+      <circle cx="6" cy="7" r="2" />
+      <circle cx="18" cy="7" r="2" />
+      <circle cx="12" cy="17" r="2" />
+      <path d="M8 8l3 7" />
+      <path d="M16 8l-3 7" />
+      <path d="M8 7h8" />
+    </symbol>
+    <symbol id="icon-grafana" viewBox="0 0 24 24">
+      <path d="M5 17a8 8 0 1 1 14 0" />
+      <path d="M8 17a4 4 0 1 1 8 0" />
+      <path d="M12 17l3-5" />
+      <circle cx="12" cy="17" r="1.5" />
+    </symbol>
+    <style>
+      .bg { fill: #f8fafc; }
+      .title { fill: #0f172a; font: 700 28px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .zone { fill: #ffffff; stroke: #cbd5e1; stroke-width: 1.5; }
+      .external-zone { fill: #f8fafc; stroke: #94a3b8; }
+      .lb-zone { fill: #eef2ff; stroke: #4f46e5; }
+      .obs-zone { fill: #f0fdf4; stroke: #16a34a; }
+      .storage-zone { fill: #ecfeff; stroke: #0891b2; }
+      .box { fill: #ffffff; stroke: #64748b; stroke-width: 1.4; }
+      .metrics { fill: #eff6ff; stroke: #2563eb; }
+      .logs { fill: #fef2f2; stroke: #b91c1c; }
+      .traces { fill: #f5f3ff; stroke: #7c3aed; }
+      .storage { fill: #ecfdf5; stroke: #15803d; }
+      .label { fill: #0f172a; font: 700 15px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .small { fill: #475569; font: 500 12px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .tiny { fill: #64748b; font: 500 11px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .icon { fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+      .icon-neutral { color: #475569; }
+      .icon-blue { color: #2563eb; }
+      .icon-red { color: #b91c1c; }
+      .icon-purple { color: #7c3aed; }
+      .icon-green { color: #15803d; }
+      .line { fill: none; stroke: #334155; stroke-width: 2; marker-end: url(#arrow); }
+      .line-blue { fill: none; stroke: #2563eb; stroke-width: 2.2; marker-end: url(#arrow-blue); }
+      .line-red { fill: none; stroke: #b91c1c; stroke-width: 2.2; marker-end: url(#arrow-red); }
+      .line-purple { fill: none; stroke: #7c3aed; stroke-width: 2.2; marker-end: url(#arrow-purple); }
+      .line-green { fill: none; stroke: #15803d; stroke-width: 2.2; marker-end: url(#arrow-green); }
+    </style>
+  </defs>
+
+  <rect class="bg" width="1200" height="820" />
+  <text class="title" x="48" y="52">monitoring / observability</text>
+
+  <rect class="zone external-zone" x="48" y="96" width="270" height="214" rx="8" />
+  <text class="label" x="74" y="128">cluster 外</text>
+
+  <rect class="box" x="74" y="160" width="220" height="54" rx="8" />
+  <use href="#icon-browser" class="icon icon-neutral" x="90" y="174" width="22" height="22" />
+  <text class="label" x="188" y="184" text-anchor="middle">operator browser</text>
+  <text class="tiny" x="188" y="202" text-anchor="middle">Grafana UI</text>
+
+  <rect class="box" x="74" y="238" width="220" height="54" rx="8" />
+  <use href="#icon-router-log" class="icon icon-red" x="90" y="252" width="22" height="22" />
+  <text class="label" x="188" y="262" text-anchor="middle">OpenWrt syslog</text>
+  <text class="tiny" x="188" y="280" text-anchor="middle">UDP 1514 / TCP 6514</text>
+
+  <rect class="zone lb-zone" x="332" y="96" width="360" height="214" rx="8" />
+  <text class="label" x="358" y="128">LoadBalancer services</text>
+
+  <rect class="box" x="366" y="160" width="280" height="54" rx="8" />
+  <use href="#icon-lb" class="icon icon-neutral" x="384" y="174" width="22" height="22" />
+  <text class="label" x="516" y="184" text-anchor="middle">Grafana LoadBalancer</text>
+  <text class="tiny" x="516" y="202" text-anchor="middle">dashboard access</text>
+
+  <rect class="box" x="366" y="238" width="280" height="54" rx="8" />
+  <use href="#icon-lb" class="icon icon-red" x="384" y="252" width="22" height="22" />
+  <text class="label" x="516" y="262" text-anchor="middle">OTel syslog LoadBalancer</text>
+  <text class="tiny" x="516" y="280" text-anchor="middle">router log intake</text>
+
+  <rect class="zone storage-zone" x="724" y="96" width="376" height="214" rx="8" />
+  <text class="label" x="750" y="128">object storage namespace</text>
+
+  <rect class="box storage" x="790" y="170" width="244" height="72" rx="8" />
+  <use href="#icon-bucket" class="icon icon-green" x="816" y="194" width="24" height="24" />
+  <text class="label" x="912" y="198" text-anchor="middle">MinIO</text>
+  <text class="small" x="912" y="220" text-anchor="middle">S3-compatible object storage</text>
+
+  <rect class="zone obs-zone" x="48" y="360" width="1052" height="388" rx="8" />
+  <text class="label" x="74" y="392">observability namespace</text>
+
+  <rect class="box metrics" x="82" y="430" width="210" height="58" rx="8" />
+  <use href="#icon-node" class="icon icon-blue" x="98" y="448" width="22" height="22" />
+  <text class="label" x="190" y="455" text-anchor="middle">node-exporter</text>
+  <text class="tiny" x="190" y="474" text-anchor="middle">node metrics</text>
+
+  <rect class="box metrics" x="82" y="512" width="210" height="58" rx="8" />
+  <use href="#icon-kube" class="icon icon-blue" x="98" y="530" width="22" height="22" />
+  <text class="label" x="190" y="537" text-anchor="middle">kube-state-metrics</text>
+  <text class="tiny" x="190" y="556" text-anchor="middle">Kubernetes object metrics</text>
+
+  <rect class="box traces" x="82" y="594" width="210" height="58" rx="8" />
+  <use href="#icon-smoke" class="icon icon-purple" x="98" y="612" width="22" height="22" />
+  <text class="label" x="190" y="619" text-anchor="middle">trace smoke CronJob</text>
+  <text class="tiny" x="190" y="638" text-anchor="middle">OTLP producer</text>
+
+  <rect class="box" x="312" y="470" width="210" height="88" rx="8" />
+  <use href="#icon-otel" class="icon icon-neutral" x="336" y="502" width="26" height="26" />
+  <text class="label" x="417" y="500" text-anchor="middle">OpenTelemetry</text>
+  <text class="label" x="417" y="520" text-anchor="middle">Collector</text>
+  <text class="tiny" x="417" y="540" text-anchor="middle">OTLP + pod log + syslog</text>
+
+  <rect class="box metrics" x="580" y="420" width="184" height="58" rx="8" />
+  <use href="#icon-metrics" class="icon icon-blue" x="598" y="438" width="22" height="22" />
+  <text class="label" x="672" y="445" text-anchor="middle">Prometheus</text>
+  <text class="tiny" x="672" y="464" text-anchor="middle">scrape / remote write</text>
+
+  <rect class="box metrics" x="844" y="420" width="184" height="58" rx="8" />
+  <use href="#icon-db-metrics" class="icon icon-blue" x="862" y="438" width="22" height="22" />
+  <text class="label" x="936" y="445" text-anchor="middle">Mimir</text>
+  <text class="tiny" x="936" y="464" text-anchor="middle">metrics store / query</text>
+
+  <rect class="box logs" x="580" y="522" width="184" height="58" rx="8" />
+  <use href="#icon-logs" class="icon icon-red" x="598" y="540" width="22" height="22" />
+  <text class="label" x="672" y="547" text-anchor="middle">Loki</text>
+  <text class="tiny" x="672" y="566" text-anchor="middle">log store / query</text>
+
+  <rect class="box traces" x="580" y="624" width="184" height="58" rx="8" />
+  <use href="#icon-traces" class="icon icon-purple" x="598" y="642" width="22" height="22" />
+  <text class="label" x="672" y="649" text-anchor="middle">Tempo</text>
+  <text class="tiny" x="672" y="668" text-anchor="middle">trace store / query</text>
+
+  <rect class="box" x="844" y="548" width="184" height="74" rx="8" />
+  <use href="#icon-grafana" class="icon icon-neutral" x="862" y="572" width="24" height="24" />
+  <text class="label" x="936" y="578" text-anchor="middle">Grafana</text>
+  <text class="tiny" x="936" y="598" text-anchor="middle">dashboards / datasources</text>
+
+  <path class="line" d="M294 187 C322 187 342 187 362 187" />
+  <path class="line" d="M646 187 C720 206 784 220 844 548" />
+  <path class="line-red" d="M294 265 C322 265 342 265 362 265" />
+  <path class="line-red" d="M646 265 C704 320 394 398 417 470" />
+
+  <path class="line-blue" d="M292 459 C360 444 496 440 580 449" />
+  <path class="line-blue" d="M292 541 C356 518 496 486 580 456" />
+  <path class="line-blue" d="M522 500 C554 486 558 470 580 456" />
+  <path class="line-blue" d="M764 449 C790 449 816 449 844 449" />
+
+  <path class="line-red" d="M522 520 C550 530 560 542 580 551" />
+  <path class="line-purple" d="M292 623 C302 612 306 590 312 548" />
+  <path class="line-purple" d="M522 536 C560 570 578 606 580 653" />
+
+  <path class="line-green" d="M764 551 C820 498 830 324 884 242" />
+  <path class="line-green" d="M936 420 C926 350 918 288 912 242" />
+
+  <path class="line" d="M936 548 C874 516 812 480 764 449" />
+  <path class="line" d="M936 548 C860 550 810 550 764 551" />
+  <path class="line" d="M936 622 C872 645 820 652 764 653" />
+</svg>

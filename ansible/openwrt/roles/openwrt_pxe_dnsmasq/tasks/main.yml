@@ -1,0 +1,378 @@
+---
+- name: PXE client catalog を合成
+  ansible.builtin.include_role:
+    name: openwrt_pxe_client_catalog
+    apply:
+      tags:
+        - always
+  tags:
+    - always
+
+- name: PXE/TFTP 用ディレクトリを作成
+  ansible.builtin.file:
+    path: /srv/gentoo/tftp-root
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  tags:
+    - pxe_dnsmasq
+
+- name: dnsmasq をアンインストール
+  ansible.builtin.shell: |
+    opkg remove dnsmasq >/tmp/opkg-remove-dnsmasq.log 2>&1 || true
+    cat /tmp/opkg-remove-dnsmasq.log
+    rm -f /tmp/opkg-remove-dnsmasq.log
+  register: openwrt_pxe_dnsmasq_remove
+  changed_when: "'Removing package dnsmasq' in (openwrt_pxe_dnsmasq_remove.stdout | default(''))"
+  failed_when:
+    - openwrt_pxe_dnsmasq_remove.rc not in [0]
+    - "'No packages removed' not in (openwrt_pxe_dnsmasq_remove.stdout | default(''))"
+    - "'Removing package dnsmasq' not in (openwrt_pxe_dnsmasq_remove.stdout | default(''))"
+  tags:
+    - pxe_dnsmasq
+
+- name: dnsmasq 関連パッケージを導入
+  ansible.builtin.opkg:
+    name: "{{ item }}"
+    state: present
+    update_cache: "{{ openwrt_opkg_update | default(true) }}"
+  loop: "{{ openwrt_pxe_dnsmasq_packages | default(['dnsmasq-full']) }}"
+  loop_control:
+    label: "{{ item }}"
+  tags:
+    - pxe_dnsmasq
+
+- name: PXE DHCP 管理可否を判定
+  ansible.builtin.set_fact:
+    openwrt_pxe_manage_dhcp_config: "{{ not (openwrt_dhcp_template_managed | default(false) | bool) }}"
+  tags:
+    - pxe_dnsmasq
+
+- name: dhcp_option を組み立て
+  ansible.builtin.set_fact:
+    openwrt_pxe_dhcp_options_effective: "{{ openwrt_pxe_dhcp_options | default([]) }}"
+  when: openwrt_pxe_manage_dhcp_config
+  tags:
+    - pxe_dnsmasq
+
+- name: dhcp_boot サーバー値を整形
+  ansible.builtin.set_fact:
+    openwrt_pxe_dhcp_boot_server_value: "{{ openwrt_pxe_dhcp_boot_server | default(openwrt_gentoo_server_host | default('', true), true) | string | trim }}"
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  when: openwrt_pxe_manage_dhcp_config
+  tags:
+    - pxe_dnsmasq
+
+- name: dhcp_boot タグ付きエントリを整形
+  ansible.builtin.set_fact:
+    openwrt_pxe_dhcp_boot_entries_effective: "{{ openwrt_pxe_dhcp_boot_entries | default([]) }}"
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  when: openwrt_pxe_manage_dhcp_config
+  tags:
+    - pxe_dnsmasq
+
+- name: dhcp_boot タグ付きエントリを検証
+  ansible.builtin.assert:
+    that:
+      - item is mapping
+      - (item.bootfile | default('') | string | trim) | length > 0
+      - (item.bootfile | string) is match('^\\S+$')
+      - (item.tag | default('') | string) is match('^\\S*$')
+      - (item.server | default('') | string) is match('^\\S*$')
+    fail_msg: "openwrt_pxe_dhcp_boot_entries は tag/bootfile/server に空白を含めず、bootfile を必ず指定してください。"
+  loop: "{{ openwrt_pxe_dhcp_boot_entries_effective }}"
+  loop_control:
+    label: "{{ item.tag | default('default') }}:{{ item.bootfile | default('') }}"
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  when:
+    - openwrt_pxe_manage_dhcp_config
+    - openwrt_pxe_dhcp_boot_entries_effective | length > 0
+  tags:
+    - pxe_dnsmasq
+
+- name: dhcp_boot タグ付きリストを生成
+  ansible.builtin.set_fact:
+    openwrt_pxe_dhcp_boot_list: >-
+      {%- set result = [] -%}
+      {%- for entry in openwrt_pxe_dhcp_boot_entries_effective -%}
+        {%- set tag = entry.tag | default('') | string | trim -%}
+        {%- set bootfile = entry.bootfile | default('') | string | trim -%}
+        {%- set server = entry.server | default(openwrt_pxe_dhcp_boot_server_value) | string | trim -%}
+        {%- if tag -%}
+          {%- set _ = result.append('tag:' ~ tag ~ ',' ~ bootfile ~ (',' ~ server if server else '')) -%}
+        {%- else -%}
+          {%- set _ = result.append(bootfile ~ (',' ~ server if server else '')) -%}
+        {%- endif -%}
+      {%- endfor -%}
+      {{ result }}
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  when:
+    - openwrt_pxe_manage_dhcp_config
+    - openwrt_pxe_dhcp_boot_entries_effective | length > 0
+  tags:
+    - pxe_dnsmasq
+
+- name: dhcp_boot 用コンポーネントを構築
+  ansible.builtin.set_fact:
+    openwrt_pxe_dhcp_boot_components: >-
+      {{
+        [
+          (openwrt_pxe_bootfile | default('pxelinux.0') | string),
+          (openwrt_pxe_dhcp_boot_server_value | string)
+        ] | reject('equalto', '') | list
+      }}
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  when: openwrt_pxe_manage_dhcp_config
+  tags:
+    - pxe_dnsmasq
+
+- name: dhcp_boot の構文を検証
+  ansible.builtin.assert:
+    that:
+      - openwrt_pxe_bootfile | default('pxelinux.0') | string | trim | length > 0
+      - (openwrt_pxe_dhcp_boot_components | length) <= 3
+      - (openwrt_pxe_dhcp_boot_components | select('match', '^\\S+$') | list | length) == (openwrt_pxe_dhcp_boot_components | length)
+    fail_msg: "dhcp_boot パラメータに空白や4つ以上の要素が含まれています。openwrt_pxe_bootfile / openwrt_pxe_dhcp_boot_server を確認してください。"
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  when: openwrt_pxe_manage_dhcp_config
+  tags:
+    - pxe_dnsmasq
+
+- name: dhcp_boot 文字列を生成
+  ansible.builtin.set_fact:
+    openwrt_pxe_dhcp_boot_value: "{{ openwrt_pxe_dhcp_boot_components | join(',') }}"
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  when: openwrt_pxe_manage_dhcp_config
+  tags:
+    - pxe_dnsmasq
+
+- name: dhcp_boot 適用リストを生成
+  ansible.builtin.set_fact:
+    openwrt_pxe_dhcp_boot_list_effective: >-
+      {{
+        (openwrt_pxe_dhcp_boot_entries_effective | length > 0)
+        | ternary(openwrt_pxe_dhcp_boot_list, [openwrt_pxe_dhcp_boot_value])
+      }}
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  when: openwrt_pxe_manage_dhcp_config
+  tags:
+    - pxe_dnsmasq
+
+- name: dnsmasq 全体設定に PXE/TFTP オプションを適用
+  ansible.builtin.shell: |
+    set -e
+    ensure() {
+      local key="$1"
+      local value="$2"
+      local current
+      current="$(uci -q get dhcp.@dnsmasq[0].${key} 2>/dev/null || echo '')"
+      if [ "$current" != "$value" ]; then
+        uci set dhcp.@dnsmasq[0].${key}="$value"
+      fi
+    }
+    ensure enable_tftp "1"
+    ensure tftp_root '/srv/gentoo/tftp-root'
+    ensure logdhcp '{{ (openwrt_pxe_log_dhcp | default(false) | bool) | int }}'
+    ensure logqueries '{{ (openwrt_dnsmasq_log_queries | default(false) | bool) | int }}'
+    ensure dhcp_broadcast '{{ (openwrt_pxe_dhcp_broadcast | default(false) | bool) | int }}'
+    uci -q delete dhcp.@dnsmasq[0].dhcp_boot || true
+    {% for value in openwrt_pxe_dhcp_boot_list_effective %}
+    uci add_list dhcp.@dnsmasq[0].dhcp_boot={{ value | to_json }}
+    {% endfor %}
+    uci commit dhcp
+    echo changed
+  args:
+    executable: /bin/ash
+  register: openwrt_pxe_dnsmasq_globals
+  changed_when: "'changed' in openwrt_pxe_dnsmasq_globals.stdout"
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  notify:
+    - Restart dnsmasq
+  when: openwrt_pxe_manage_dhcp_config
+  tags:
+    - pxe_dnsmasq
+
+- name: 現在の dhcp_option リストを取得
+  ansible.builtin.command: uci -q show dhcp.@dnsmasq[0].dhcp_option
+  register: openwrt_pxe_dnsmasq_options_current
+  changed_when: false
+  failed_when: false
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  when: openwrt_pxe_manage_dhcp_config
+  tags:
+    - pxe_dnsmasq
+
+- name: 現在の dhcp_option リストを整形
+  ansible.builtin.set_fact:
+    openwrt_pxe_existing_dhcp_options: >-
+      {{
+        openwrt_pxe_dnsmasq_options_current.stdout_lines | default([]) |
+        map('regex_replace', "^dhcp\\.@dnsmasq\\[0\\]\\.dhcp_option='(.*)'$", '\\1') |
+        select('ne', '') | list
+      }}
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  when: openwrt_pxe_manage_dhcp_config
+  tags:
+    - pxe_dnsmasq
+
+- name: dhcp_option 更新要否を判定
+  ansible.builtin.set_fact:
+    openwrt_pxe_dhcp_options_need_update: "{{ openwrt_pxe_existing_dhcp_options | default([]) != (openwrt_pxe_dhcp_options_effective | default(openwrt_pxe_dhcp_options | default([]))) }}"
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  when: openwrt_pxe_manage_dhcp_config
+  tags:
+    - pxe_dnsmasq
+
+- name: dnsmasq list dhcp_option を同期
+  ansible.builtin.shell: |
+    set -e
+    uci -q delete dhcp.@dnsmasq[0].dhcp_option || true
+    {% for value in openwrt_pxe_dhcp_options_effective | default(openwrt_pxe_dhcp_options | default([])) %}
+    uci add_list dhcp.@dnsmasq[0].dhcp_option={{ value | to_json }}
+    {% endfor %}
+    uci commit dhcp
+    echo changed
+  args:
+    executable: /bin/ash
+  register: openwrt_pxe_dnsmasq_options
+  changed_when: "'changed' in openwrt_pxe_dnsmasq_options.stdout"
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  notify:
+    - Restart dnsmasq
+  when: openwrt_pxe_manage_dhcp_config
+  tags:
+    - pxe_dnsmasq
+
+- name: PXE ホスト定義リストを初期化
+  ansible.builtin.set_fact:
+    openwrt_pxe_hosts_with_section: {}
+  when: openwrt_pxe_manage_dhcp_config
+  tags:
+    - pxe_dnsmasq
+    - pxe_hosts
+
+- name: PXE ホスト定義を検証
+  ansible.builtin.assert:
+    that:
+      - item is mapping
+      - (item.name | default('') | string | trim) | length > 0
+      - (item.name | string) is match('^[0-9A-Za-z_.-]+$')
+      - (item.networkid | default(item.name) | string) is match('^[0-9A-Za-z_.:-]+$')
+      - item.dhcp_options is not defined or item.dhcp_options is sequence
+      - item.dhcp_options is not defined or item.dhcp_options is not string
+    fail_msg: "openwrt_dhcp_hosts_effective は name/networkid に空白・カンマ・引用符を含めず、DHCP Option は dhcp_options リストへ分けて定義してください。"
+  loop: "{{ openwrt_dhcp_hosts_effective | default(openwrt_pxe_hosts_effective | default(openwrt_pxe_hosts | default([]))) }}"
+  loop_control:
+    label: "{{ item.name | default(item.mac | default('host')) }}"
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  when: openwrt_pxe_manage_dhcp_config
+  tags:
+    - pxe_dnsmasq
+    - pxe_hosts
+
+- name: PXE ホスト定義を整形
+  ansible.builtin.set_fact:
+    openwrt_pxe_hosts_with_section: >-
+      {{
+        openwrt_pxe_hosts_with_section | combine({
+          ('pxe_host_' ~ (item.name | default('host') | regex_replace('[^0-9A-Za-z_]', '_') | lower)):
+            item
+        })
+      }}
+  loop: "{{ openwrt_dhcp_hosts_effective | default(openwrt_pxe_hosts_effective | default(openwrt_pxe_hosts | default([]))) }}"
+  loop_control:
+    label: "{{ item.name | default(item.mac | default('host')) }}"
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  when: openwrt_pxe_manage_dhcp_config
+  tags:
+    - pxe_dnsmasq
+    - pxe_hosts
+
+- name: 現在の PXE ホストセクションを取得
+  ansible.builtin.command: uci -q show dhcp
+  register: openwrt_pxe_dhcp_show
+  changed_when: false
+  failed_when: false
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  when: openwrt_pxe_manage_dhcp_config
+  tags:
+    - pxe_dnsmasq
+    - pxe_hosts
+
+- name: PXE ホストセクション一覧を抽出
+  ansible.builtin.set_fact:
+    openwrt_pxe_existing_sections: >-
+      {{
+        openwrt_pxe_dhcp_show.stdout_lines | default([]) |
+        select('match', '^dhcp\\.pxe_host_[^=]+=host$') |
+        map('regex_replace', '^dhcp\\.([^=]+)=host$', '\\1') |
+        list
+      }}
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  when: openwrt_pxe_manage_dhcp_config
+  tags:
+    - pxe_dnsmasq
+    - pxe_hosts
+
+- name: 削除対象 PXE ホストセクションを算出
+  ansible.builtin.set_fact:
+    openwrt_pxe_sections_to_delete: "{{ openwrt_pxe_existing_sections | default([]) | difference(openwrt_pxe_hosts_with_section.keys() | list) }}"
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  when: openwrt_pxe_manage_dhcp_config
+  tags:
+    - pxe_dnsmasq
+    - pxe_hosts
+
+- name: 不要な PXE ホストセクションを削除して commit
+  ansible.builtin.shell: |
+    set -e
+    for section in {{ openwrt_pxe_sections_to_delete | default([]) | map('quote') | join(' ') }}; do
+      uci -q delete "$section" || true
+    done
+    uci commit dhcp
+    echo changed
+  args:
+    executable: /bin/ash
+  register: openwrt_pxe_host_cleanup
+  changed_when: "'changed' in openwrt_pxe_host_cleanup.stdout"
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  notify:
+    - Restart dnsmasq
+  when: openwrt_pxe_manage_dhcp_config
+  tags:
+    - pxe_dnsmasq
+    - pxe_hosts
+
+- name: PXE ホスト定義を適用
+  vars:
+    openwrt_pxe_host_script: "{{ lookup('template', 'apply-host.sh.j2', template_vars={'section': item.key, 'host': item.value}) }}"
+  ansible.builtin.shell: /bin/ash
+  args:
+    stdin: "{{ openwrt_pxe_host_script }}"
+  register: openwrt_pxe_host_apply
+  changed_when: "'changed' in openwrt_pxe_host_apply.stdout"
+  loop: "{{ openwrt_pxe_hosts_with_section | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  notify:
+    - Restart dnsmasq
+  when: openwrt_pxe_manage_dhcp_config
+  tags:
+    - pxe_dnsmasq
+    - pxe_hosts
+
+- name: dnsmasq 設定の構文チェック
+  ansible.builtin.shell: |
+    set -eu
+    for config in /var/etc/dnsmasq.conf.*; do
+      [ -f "$config" ] || continue
+      dnsmasq --test -C "$config"
+    done
+  register: openwrt_pxe_dnsmasq_check
+  changed_when: false
+  failed_when: openwrt_pxe_dnsmasq_check.rc != 0
+  check_mode: false
+  tags:
+    - pxe_dnsmasq

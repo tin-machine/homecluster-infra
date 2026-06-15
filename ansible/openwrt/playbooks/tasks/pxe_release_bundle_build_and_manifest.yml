@@ -1,0 +1,43 @@
+---
+- name: PXE release bundle release を build
+  ansible.builtin.include_role:
+    name: openwrt_gentoo_rootfs
+  loop: "{{ pxe_release_bundle_build_items }}"
+  loop_control:
+    loop_var: pxe_release_bundle_build_item
+    label: "{{ pxe_release_bundle_build_item.name }}={{ pxe_release_bundle_build_item.release }}"
+  vars:
+    openwrt_gentoo_release: "{{ pxe_release_bundle_build_item.release }}"
+    openwrt_gentoo_release_bundle_enabled: true
+    openwrt_gentoo_release_bundle_date: "{{ pxe_release_bundle_effective_date }}"
+    openwrt_gentoo_release_bundle_generations: "{{ pxe_release_bundle_effective_generations }}"
+    openwrt_gentoo_release_bundle_policy: paired_clean
+    openwrt_gentoo_release_bundle_strict_hosts: false
+    openwrt_gentoo_release_bundle_require_artifacts: false
+    openwrt_gentoo_release_bundle_manifest_enabled: false
+    openwrt_gentoo_rootfs_target_stages: []
+    openwrt_gentoo_rootfs_include_base_candidate: true
+    openwrt_gentoo_rootfs_candidate_fallback_to_base: true
+    openwrt_pxe_hosts: []
+    openwrt_pxe_hosts_effective_override: []
+    openwrt_pxe_boots_effective_override: []
+  when: not (pxe_release_bundle_skip_build | default(false) | bool)
+  tags:
+    - pxe_release_bundle
+    - pxe_release_bundle_build
+
+- name: PXE release bundle artifact と manifest を検証
+  ansible.builtin.include_role:
+    name: openwrt_gentoo_rootfs
+    tasks_from: release_bundle
+  vars:
+    openwrt_gentoo_release_bundle_enabled: true
+    openwrt_gentoo_release_bundle_date: "{{ pxe_release_bundle_effective_date }}"
+    openwrt_gentoo_release_bundle_generations: "{{ pxe_release_bundle_effective_generations }}"
+    openwrt_gentoo_release_bundle_policy: paired_clean
+    openwrt_gentoo_release_bundle_strict_hosts: false
+    openwrt_gentoo_release_bundle_require_artifacts: true
+    openwrt_gentoo_release_bundle_manifest_enabled: true
+  tags:
+    - pxe_release_bundle
+    - pxe_release_bundle_build

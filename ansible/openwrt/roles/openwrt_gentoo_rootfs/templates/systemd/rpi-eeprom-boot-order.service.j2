@@ -1,0 +1,13 @@
+[Unit]
+Description=Apply Raspberry Pi EEPROM bootloader configuration
+Documentation=https://www.raspberrypi.com/documentation/computers/raspberry-pi.html
+After=local-fs.target pxe-bootstrap.service
+
+[Service]
+Type=oneshot
+ExecStart={{ openwrt_gentoo_rpi_eeprom_script_path }}
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

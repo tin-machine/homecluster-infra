@@ -1,0 +1,474 @@
+---
+- name: PXE client catalog を合成
+  ansible.builtin.include_role:
+    name: openwrt_pxe_client_catalog
+    apply:
+      tags:
+        - always
+  tags:
+    - always
+
+- name: Gentoo rootfs 処理をスキップ
+  ansible.builtin.debug:
+    msg: "openwrt_gentoo_enabled=false のため Gentoo rootfs 構築は実行しません"
+  when: not openwrt_gentoo_enabled | bool
+
+- name: Stage3 auto-detection tasks を適用
+  ansible.builtin.import_tasks: stage3_auto.yml
+  tags:
+    - gentoo_stage3_auto
+
+- name: PXE host release 解決 tasks を適用
+  ansible.builtin.import_tasks: pxe_host_releases.yml
+  tags:
+    - pxe
+    - tftp
+    - tftp_hosts
+    - pxe_release_bundle
+    - pxe_rootfs_prune
+    - pxe_timesync
+    - pxe_bootstrap
+    - pxe_ssh_host_keys
+
+- name: PXE release bundle tasks を適用
+  ansible.builtin.import_tasks: release_bundle.yml
+  tags:
+    - pxe_release_bundle
+    - pxe_release_bundle_build
+
+- name: 必須変数を検証
+  ansible.builtin.assert:
+    that:
+      - openwrt_gentoo_stage3_url is not none
+      - (openwrt_gentoo_stage3_url | string | trim) | length > 0
+      - openwrt_gentoo_server_host is defined
+      - (openwrt_gentoo_server_host | string | trim) | length > 0
+      - (openwrt_gentoo_server_host | string) is not match('^(192\\.0\\.2\\.|198\\.51\\.100\\.|203\\.0\\.113\\.)')
+      - >
+        (openwrt_gentoo_stage3_auto | bool)
+        or ((openwrt_gentoo_stage3_sha256 | default('', true) | string | trim) | length > 0)
+        or ((openwrt_gentoo_stage3_sha512 | default('', true) | string | trim) | length > 0)
+      - openwrt_gentoo_release is not none
+      - (openwrt_gentoo_release | string | trim) | length > 0
+    fail_msg: "openwrt_gentoo_stage3_url / openwrt_gentoo_stage3_sha256(またはsha512) / openwrt_gentoo_server_host / openwrt_gentoo_release を inventory で指定してください。openwrt_gentoo_server_host に documentation IP は使えません。"
+  when: openwrt_gentoo_enabled | bool
+
+- name: cmdline の root 引数を検証
+  ansible.builtin.assert:
+    that:
+      - openwrt_gentoo_cmdline_root_arg is defined
+      - (openwrt_gentoo_cmdline_root_arg | string | trim) | length > 0
+      - "'root=' in (openwrt_gentoo_cmdline_root_arg | string)"
+    fail_msg: "openwrt_gentoo_cmdline_root_arg が空、または root= が欠落しています。例: root=nfs4:{{ openwrt_gentoo_server_host }}:/gentoo/{{ openwrt_gentoo_release }}/nfs,{{ openwrt_gentoo_cmdline_nfs_options }} を指定してください。"
+  when: openwrt_gentoo_enabled | bool
+
+- name: distcc ホスト一覧を自動生成
+  ansible.builtin.set_fact:
+    openwrt_gentoo_distcc_hosts_effective: >-
+      {%- set hosts = [] -%}
+      {%- if (openwrt_gentoo_distcc_hosts | trim | length) > 0 -%}
+      {{- openwrt_gentoo_distcc_hosts | trim -}}
+      {%- elif openwrt_gentoo_distcc_auto | bool -%}
+      {%- for h in groups['all'] | default([]) -%}
+      {%- set hv = hostvars[h] -%}
+      {%- set cfg = hv.get('distcc', {}) -%}
+      {%- if cfg is mapping and (cfg.get('enabled', false) | bool) and (cfg.get('client_enabled', true) | bool) -%}
+      {%- set ip = cfg.get('host', cfg.get('address', hv.get('ansible_host', h))) -%}
+      {%- set port = cfg.get('port', 3632) | int -%}
+      {%- set vcpu = (hv.ansible_facts.processor_vcpus | default(0) | int) -%}
+      {%- set slots = cfg.get('slots', cfg.get('client_slots', (vcpu + 1) if vcpu > 0 else (openwrt_gentoo_distcc_default_slots | int))) -%}
+      {%- set host_label = (ip ~ ':' ~ port) if port != 3632 else ip -%}
+      {%- set _ = hosts.append(host_label ~ '/' ~ slots) -%}
+      {%- endif -%}
+      {%- endfor -%}
+      {%- if hosts | length == 0 -%}
+      {%- for h in groups['distcc'] | default([]) -%}
+      {%- set hv = hostvars[h] -%}
+      {%- set ip = (hv.ansible_host | default(h)) -%}
+      {%- set vcpu = (hv.ansible_facts.processor_vcpus | default(0) | int) -%}
+      {%- set slots = (vcpu + 1) if vcpu > 0 else (openwrt_gentoo_distcc_default_slots | int) -%}
+      {%- set _ = hosts.append(ip ~ '/' ~ slots) -%}
+      {%- endfor -%}
+      {%- endif -%}
+      {{- hosts | unique | join(' ') -}}
+      {%- else -%}
+      {{- openwrt_gentoo_distcc_hosts | trim -}}
+      {%- endif -%}
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_distcc_enabled | bool
+  tags:
+    - portage_config
+    - gentoo_distcc
+
+- name: distcc 設定を検証
+  ansible.builtin.assert:
+    that:
+      - openwrt_gentoo_distcc_hosts_effective | length > 0
+    fail_msg: "openwrt_gentoo_distcc_enabled=true の場合、openwrt_gentoo_distcc_hosts か distcc グループを指定してください。"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_distcc_enabled | bool
+  tags:
+    - portage_config
+    - gentoo_distcc
+
+- name: Overlay remote 有効時は overlay_clients を必須化
+  ansible.builtin.assert:
+    that:
+      - openwrt_gentoo_overlay_clients is defined
+      - (openwrt_gentoo_overlay_clients_effective | default(openwrt_gentoo_overlay_clients | default([])) | length) > 0
+    fail_msg: "openwrt_gentoo_overlay_remote_enabled=true の場合、openwrt_gentoo_overlay_clients に overlay_id/role を定義してください。"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_overlay_remote_enabled | bool
+
+- name: パス関連の Fact を設定
+  ansible.builtin.set_fact:
+    openwrt_gentoo_release_dir: "/srv/gentoo/{{ openwrt_gentoo_release }}"
+    openwrt_gentoo_rootfs_dir: "/srv/gentoo/{{ openwrt_gentoo_release }}/nfs"
+    openwrt_gentoo_tftp_dir: "/srv/gentoo/tftp-root/dates/{{ openwrt_gentoo_release }}"
+    openwrt_gentoo_latest_path: /srv/gentoo/latest
+    openwrt_gentoo_stage3_filename: "{{ openwrt_gentoo_stage3_url | regex_replace('.*/', '') | regex_replace('\\?.*$', '') }}"
+    openwrt_gentoo_stage3_path: "{{ openwrt_gentoo_download_dir.rstrip('/') }}/{{ openwrt_gentoo_stage3_url | regex_replace('.*/', '') | regex_replace('\\?.*$', '') }}"
+    openwrt_gentoo_marker_path: "/srv/gentoo/{{ openwrt_gentoo_release }}/.stage3_applied"
+  when: openwrt_gentoo_enabled | bool
+  tags:
+    - pxe
+    - tftp
+    - tftp_hosts
+    - tftp_artifacts
+    - tftp_extra_files
+    - lower_runtime_base
+    - pxe_timesync
+    - pxe_bootstrap
+    - gentoo_initramfs
+    - pxe_ansible_pull
+    - pxe_slack
+    - pxe_users
+    - pxe_ssh_keys
+    - pxe_ssh_host_keys
+    - gentoo_packages
+    - gentoo_iptables_nft
+    - portage_config
+    - official_binhost
+    - rpi_eeprom
+    - eeprom_config
+    - rpi_wireless
+
+- name: Raspberry Pi firmware / modules 用パスを設定
+  ansible.builtin.set_fact:
+    openwrt_gentoo_firmware_checkout_dir: "/srv/gentoo/{{ openwrt_gentoo_release }}/{{ openwrt_gentoo_rpi_firmware_dirname }}"
+    openwrt_gentoo_modules_dest_root: "{{ openwrt_gentoo_rootfs_dir }}/lib"
+  when: openwrt_gentoo_enabled | bool
+
+- name: Gentoo rootfs 関連ディレクトリを作成
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop:
+    - /srv/gentoo
+    - "{{ openwrt_gentoo_release_dir }}"
+    - "{{ openwrt_gentoo_rootfs_dir }}"
+    - /srv/gentoo/tftp-root
+    - /srv/gentoo/tftp-root/dates
+    - "{{ openwrt_gentoo_tftp_dir }}"
+    - /srv/nfs/ansible-logs
+  loop_control:
+    label: "{{ item }}"
+  when: openwrt_gentoo_enabled | bool
+  tags:
+    - pxe
+    - tftp
+    - tftp_hosts
+    - tftp_artifacts
+    - tftp_extra_files
+    - lower_runtime_base
+    - pxe_timesync
+    - pxe_bootstrap
+    - gentoo_initramfs
+
+- name: PXE user / NFS home 反映 rootfs 候補を作成
+  ansible.builtin.set_fact:
+    openwrt_gentoo_pxe_rootfs_dir_candidates: >-
+      {%- set dirs = [] -%}
+      {%- if openwrt_gentoo_rootfs_include_base_candidate | default(true) | bool -%}
+        {%- set _ = dirs.append(openwrt_gentoo_rootfs_dir) -%}
+      {%- endif -%}
+      {%- set stage_dates = openwrt_gentoo_release_bundle_stage_dates | default({}, true) -%}
+      {%- set configured_target_stages = openwrt_gentoo_rootfs_target_stages | default([]) | map('string') | map('trim') | reject('equalto', '') | list -%}
+      {%- set target_stages = configured_target_stages if (configured_target_stages | length) > 0 else (stage_dates.keys() | list | map('string') | list) -%}
+      {%- for host in openwrt_pxe_hosts_effective | default(openwrt_pxe_hosts | default([])) -%}
+        {%- set stage = host.tftp_stage | default(host.stage | default('', true), true) | string | trim -%}
+        {%- set r = host.rootfs_release | default('', true) | string | trim -%}
+        {%- if r and ((target_stages | length) == 0 or stage in target_stages) -%}
+          {%- set _ = dirs.append('/srv/gentoo/' ~ r ~ '/nfs') -%}
+        {%- endif -%}
+      {%- endfor -%}
+      {%- set fallback_to_base = openwrt_gentoo_rootfs_candidate_fallback_to_base | default(openwrt_gentoo_rootfs_include_base_candidate | default(true)) | bool -%}
+      {{ (dirs | unique | list) if (dirs | length) > 0 else ([openwrt_gentoo_rootfs_dir] if fallback_to_base else []) }}
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  when: openwrt_gentoo_enabled | bool
+  tags:
+    - pxe
+    - pxe_bootstrap
+    - pxe_users
+    - pxe_ssh_keys
+    - pxe_ssh_host_keys
+    - pxe_ansible_pull
+    - official_binhost
+
+- name: PXE user / NFS home 反映 rootfs の存在を確認
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop: "{{ openwrt_gentoo_pxe_rootfs_dir_candidates | default([openwrt_gentoo_rootfs_dir]) }}"
+  loop_control:
+    label: "{{ item }}"
+  register: openwrt_gentoo_pxe_rootfs_dir_stats
+  when: openwrt_gentoo_enabled | bool
+  tags:
+    - pxe
+    - pxe_bootstrap
+    - pxe_users
+    - pxe_ssh_keys
+    - pxe_ssh_host_keys
+    - pxe_ansible_pull
+    - official_binhost
+
+- name: PXE user / NFS home 反映 rootfs を確定
+  ansible.builtin.set_fact:
+    openwrt_gentoo_pxe_rootfs_dirs: >-
+      {{
+        openwrt_gentoo_pxe_rootfs_dir_stats.results
+        | default([])
+        | selectattr('stat.isdir', 'defined')
+        | selectattr('stat.isdir')
+        | map(attribute='item')
+        | unique
+        | list
+      }}
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  when: openwrt_gentoo_enabled | bool
+  tags:
+    - pxe
+    - pxe_bootstrap
+    - pxe_users
+    - pxe_ssh_keys
+    - pxe_ssh_host_keys
+    - pxe_ansible_pull
+    - official_binhost
+
+- name: TFTP host directory tasks を適用
+  ansible.builtin.import_tasks: tftp_hosts.yml
+  tags:
+    - pxe
+    - tftp
+    - tftp_hosts
+    - tftp_artifacts
+
+- name: overlay 用ベースディレクトリを作成
+  ansible.builtin.file:
+    path: /srv/nfs/overlay
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_overlay_remote_enabled | bool
+
+- name: Stage3 展開に必要なパッケージを導入
+  ansible.builtin.opkg:
+    name: "{{ item }}"
+    state: present
+    update_cache: "{{ openwrt_opkg_update | default(true) }}"
+  loop: "{{ openwrt_gentoo_packages }}"
+  loop_control:
+    label: "{{ item }}"
+  when: openwrt_gentoo_enabled | bool
+
+- name: Raspberry Pi firmware 取得用パッケージを導入
+  ansible.builtin.opkg:
+    name: "{{ item }}"
+    state: present
+    update_cache: "{{ openwrt_opkg_update | default(true) }}"
+  loop: "{{ openwrt_gentoo_rpi_firmware_packages }}"
+  loop_control:
+    label: "{{ item }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_copy_rpi_modules | bool
+    - (openwrt_gentoo_rpi_firmware_packages | length) > 0
+
+- name: Overlay クライアント定義を検証
+  ansible.builtin.assert:
+    that:
+      - item is mapping
+      - item.id is defined
+      - (item.id | string | trim) | length > 0
+    fail_msg: "openwrt_gentoo_overlay_clients の各要素には id を指定してください。"
+  loop: "{{ openwrt_gentoo_overlay_clients_effective | default(openwrt_gentoo_overlay_clients | default([])) }}"
+  loop_control:
+    label: "{{ item | default('client') }}"
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - (openwrt_gentoo_overlay_clients_effective | default(openwrt_gentoo_overlay_clients | default([])) | length) > 0
+
+- name: PXE Slack 通知 tasks を適用
+  ansible.builtin.import_tasks: pxe_slack.yml
+  tags:
+    - pxe
+    - pxe_slack
+
+- name: Overlay upper ディレクトリを作成
+  ansible.builtin.file:
+    path: "/srv/nfs/overlay/{{ item.id }}/upper"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop: "{{ openwrt_gentoo_overlay_clients_effective | default(openwrt_gentoo_overlay_clients | default([])) }}"
+  loop_control:
+    label: "{{ item.id }}"
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_overlay_remote_enabled | bool
+    - (openwrt_gentoo_overlay_clients_effective | default(openwrt_gentoo_overlay_clients | default([])) | length) > 0
+
+- name: Overlay work ディレクトリを作成
+  ansible.builtin.file:
+    path: "/srv/nfs/overlay/{{ item.id }}/work"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop: "{{ openwrt_gentoo_overlay_clients_effective | default(openwrt_gentoo_overlay_clients | default([])) }}"
+  loop_control:
+    label: "{{ item.id }}"
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_overlay_remote_enabled | bool
+    - (openwrt_gentoo_overlay_clients_effective | default(openwrt_gentoo_overlay_clients | default([])) | length) > 0
+
+- name: Ansible ログディレクトリを作成
+  ansible.builtin.file:
+    path: "/srv/nfs/ansible-logs/{{ item.id }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop: "{{ openwrt_gentoo_overlay_clients_effective | default(openwrt_gentoo_overlay_clients | default([])) }}"
+  loop_control:
+    label: "{{ item.id }}"
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - (openwrt_gentoo_overlay_clients_effective | default(openwrt_gentoo_overlay_clients | default([])) | length) > 0
+
+- name: PXE SSH host key store root を作成
+  ansible.builtin.file:
+    path: "{{ openwrt_gentoo_ssh_host_keys_store_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_ssh_host_keys_enabled | bool
+  tags:
+    - pxe
+    - pxe_ssh_host_keys
+
+- name: rootfs stage3 tasks を適用
+  ansible.builtin.import_tasks: rootfs_stage3.yml
+  tags:
+    - pxe
+    - pxe_rootfs
+
+- name: rootfs 内の補助ディレクトリを作成
+  ansible.builtin.file:
+    path: "{{ openwrt_gentoo_rootfs_dir }}/{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop:
+    - usr/local/sbin
+    - etc
+    - etc/systemd/network
+  loop_control:
+    label: "{{ item }}"
+  when: openwrt_gentoo_enabled | bool
+  tags:
+    - lower_runtime_base
+
+- name: Raspberry Pi firmware module tasks を適用
+  ansible.builtin.import_tasks: rpi_firmware_modules.yml
+  tags:
+    - pxe
+    - pxe_rootfs
+
+- name: lower runtime base tasks を適用
+  ansible.builtin.import_tasks: lower_runtime_base.yml
+  tags:
+    - lower_runtime_base
+
+- name: Portage prepare tasks を適用
+  ansible.builtin.import_tasks: portage_prepare.yml
+
+- name: Portage chroot tasks を適用
+  ansible.builtin.import_tasks: portage_chroot.yml
+
+- name: iptables nft repair tasks を適用
+  ansible.builtin.import_tasks: iptables_nft_repair.yml
+
+- name: lower runtime finalize tasks を適用
+  ansible.builtin.import_tasks: lower_runtime_finalize.yml
+  tags:
+    - lower_runtime_base
+
+- name: PXE runtime / ansible-pull tasks を適用
+  ansible.builtin.import_tasks: pxe_runtime.yml
+
+- name: Portage make.conf.d ディレクトリを作成
+  ansible.builtin.file:
+    path: "{{ openwrt_gentoo_rootfs_dir }}/etc/portage/make.conf.d"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_binpkg_enabled | bool
+
+- name: TFTP artifact tasks を適用
+  ansible.builtin.import_tasks: tftp_artifacts.yml
+  tags:
+    - tftp_artifacts
+
+- name: PXE bootstrap tasks を適用
+  ansible.builtin.import_tasks: pxe_bootstrap.yml
+  tags:
+    - pxe_bootstrap
+
+- name: PXE SSH host key tasks を適用
+  ansible.builtin.import_tasks: pxe_ssh_host_keys.yml
+  tags:
+    - pxe
+    - pxe_ssh_host_keys
+
+- name: initramfs tasks を適用
+  ansible.builtin.import_tasks: initramfs.yml
+  tags:
+    - gentoo_initramfs
+
+- name: TFTP 追加ファイル tasks を適用
+  ansible.builtin.import_tasks: tftp_extra_files.yml
+  tags:
+    - tftp_extra_files

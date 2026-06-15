@@ -1,0 +1,32 @@
+#!/bin/sh /etc/rc.common
+
+START=90
+STOP=10
+
+SOURCE="{{ openwrt_backup_share_source }}"
+TARGET="{{ openwrt_backup_share_bind_target }}"
+
+start() {
+	mkdir -p "$SOURCE" "$TARGET"
+
+	if ! grep -qs " $SOURCE " /proc/mounts; then
+		block mount >/dev/null 2>&1 || true
+	fi
+
+	if ! grep -qs " $SOURCE " /proc/mounts; then
+		mount "$SOURCE" || return 1
+	fi
+
+	if grep -qs " $TARGET " /proc/mounts; then
+		return 0
+	fi
+
+	mount -o {{ openwrt_backup_share_bind_options }} "$SOURCE" "$TARGET" || return 1
+	echo mounted
+}
+
+stop() {
+	if grep -qs " $TARGET " /proc/mounts; then
+		umount "$TARGET" || umount -l "$TARGET"
+	fi
+}

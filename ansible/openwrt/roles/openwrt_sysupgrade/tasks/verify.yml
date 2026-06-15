@@ -1,0 +1,110 @@
+---
+- name: ダウンロードディレクトリを作成
+  ansible.builtin.file:
+    path: "{{ download_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: イメージの HTTP HEAD を確認
+  ansible.builtin.uri:
+    url: "{{ owrt_image_url }}"
+    method: HEAD
+    return_content: false
+    status_code: 200
+  register: owrt_image_head
+  changed_when: false
+
+- name: イメージが見つからない場合は失敗
+  ansible.builtin.fail:
+    msg: "イメージが見つかりません: {{ owrt_image_url }}"
+  when: owrt_image_head.status | default(0) != 200
+
+- name: sysupgrade イメージをダウンロード
+  ansible.builtin.get_url:
+    url: "{{ owrt_image_url }}"
+    dest: "{{ owrt_local_image }}"
+    mode: "0644"
+    force: true
+
+- name: sha256sums を取得
+  when: verify_sha256 | bool
+  ansible.builtin.get_url:
+    url: "{{ owrt_sha256_url }}"
+    dest: "{{ download_dir }}/sha256sums"
+    mode: "0644"
+    force: true
+
+- name: SHA256 行を抽出
+  when: verify_sha256 | bool
+  ansible.builtin.shell: |
+    cd {{ download_dir }}
+    grep -F " {{ owrt_image_filename }}" sha256sums > sha256sums.selected || grep -F "*{{ owrt_image_filename }}" sha256sums > sha256sums.selected
+  args:
+    executable: /bin/ash
+  register: sha256_extract
+  changed_when: false
+  failed_when: sha256_extract.rc != 0
+
+- name: SHA256 を検証
+  when: verify_sha256 | bool
+  ansible.builtin.shell: |
+    cd {{ download_dir }}
+    sha256sum -c sha256sums.selected
+  args:
+    executable: /bin/ash
+  register: sha256_check
+  changed_when: false
+  failed_when: "'OK' not in sha256_check.stdout"
+
+- name: md5sums を取得
+  when: verify_md5 | bool
+  ansible.builtin.get_url:
+    url: "{{ owrt_md5_url }}"
+    method: HEAD
+    return_content: false
+    status_code: [200, 404]
+  register: md5_head
+  changed_when: false
+
+- name: md5sums が提供されていない場合は通知
+  when:
+    - verify_md5 | bool
+    - md5_head.status != 200
+  ansible.builtin.debug:
+    msg: "md5sums ({{ owrt_md5_url }}) は HTTP {{ md5_head.status }} のため MD5 検証をスキップします。"
+
+- name: md5sums を取得
+  when:
+    - verify_md5 | bool
+    - md5_head.status == 200
+  ansible.builtin.get_url:
+    url: "{{ owrt_md5_url }}"
+    dest: "{{ download_dir }}/md5sums"
+    mode: "0644"
+    force: true
+
+- name: MD5 行を抽出
+  when:
+    - verify_md5 | bool
+    - md5_head.status == 200
+  ansible.builtin.shell: |
+    cd {{ download_dir }}
+    grep -F " {{ owrt_image_filename }}" md5sums > md5sums.selected
+  args:
+    executable: /bin/ash
+  register: md5_extract
+  changed_when: false
+  failed_when: md5_extract.rc != 0
+
+- name: MD5 を検証
+  when:
+    - verify_md5 | bool
+    - md5_head.status == 200
+  ansible.builtin.shell: |
+    cd {{ download_dir }}
+    md5sum -c md5sums.selected
+  args:
+    executable: /bin/ash
+  register: md5_check
+  changed_when: false
+  failed_when: "'OK' not in md5_check.stdout"

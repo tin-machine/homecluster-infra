@@ -1,0 +1,210 @@
+#!/bin/sh
+# Managed by Ansible (openwrt_gentoo_rootfs)
+
+set -eu
+
+# このスクリプトは PXE クライアント上で実行され、ansible-pull の結果を Slack に送信する。
+# 引数または環境変数 ROLE には、systemd unit 名の role 部分が入る。
+# 例: ansible-pull@base.service から呼ばれる場合は ROLE=base。
+ROLE_ARG="${1:-}"
+ROLE="${ROLE_ARG:-${ROLE:-}}"
+
+# ansible-pull wrapper が実行結果を書き込む場所。
+# last.env は直近に実行された role の結果、<role>.env は role ごとの結果を保持する。
+STATE_DIR="/run/ansible-pull"
+STATE_FILE="${STATE_DIR}/last.env"
+
+# DHCP Option 224 から生成された role 情報。
+# 例: overlay_id=node-a,role=base,roles=base,workstation_cli,stage=prod
+ROLE_FILE="/run/dhcp/role"
+
+# role 名から状態ファイルのパスを作る。
+# role 名にファイル名として扱いにくい文字が入っても壊れないように安全な文字へ置換する。
+state_file_for_role() {
+  role_name="${1:-unknown}"
+  safe_name="$(printf '%s' "${role_name}" | tr -c 'A-Za-z0-9_.@-' '_')"
+  printf '%s/%s.env\n' "${STATE_DIR}" "${safe_name}"
+}
+
+# Slack API へ JSON を送るため、本文中の \ と " と改行をエスケープする。
+json_escape() {
+  printf '%s' "$1" | awk 'BEGIN { ORS = "" } { gsub(/\\/, "\\\\"); gsub(/"/, "\\\""); if (NR > 1) printf "\\n"; printf "%s", $0 }'
+}
+
+# overlay_id は PXE クライアント個体を識別する ID。
+# pxe_role は DHCP Option 224 の role= に入っていた代表 role。
+# どちらも通知本文と slack.env の参照先決定に使う。
+overlay_id="unknown"
+pxe_role="unknown"
+if [ -r "${ROLE_FILE}" ]; then
+  overlay_id="$(awk -F, '{for(i=1;i<=NF;i++){split($i,a,"="); if(a[1]=="overlay_id"){print a[2]; exit}}}' "${ROLE_FILE}" | sed 's/[[:space:]]//g')"
+  pxe_role="$(awk -F, '{for(i=1;i<=NF;i++){split($i,a,"="); if(a[1]=="role"){print a[2]; exit}}}' "${ROLE_FILE}" | sed 's/[[:space:]]//g')"
+fi
+[ -n "${overlay_id}" ] || overlay_id="unknown"
+[ -n "${pxe_role}" ] || pxe_role="unknown"
+
+# Slack の秘密情報は共有 rootfs ではなく、クライアントごとの overlay 側を優先して読む。
+# SLACK_BOT_TOKEN は Slack Bot の OAuth token、SLACK_CHANNEL_ID は投稿先チャンネル ID。
+SLACK_ENV_PATH="/run/pxe-bootstrap/overlay/${overlay_id}/etc/pxe/slack.env"
+if [ ! -r "${SLACK_ENV_PATH}" ]; then
+  SLACK_ENV_PATH="/etc/pxe/slack.env"
+fi
+
+# slack.env が無い場合でも ansible-pull 自体は失敗扱いにしない。
+# 通知だけを諦めるため、エラーを出して正常終了する。
+if [ ! -r "${SLACK_ENV_PATH}" ]; then
+  echo "slack env not found: ${SLACK_ENV_PATH}" >&2
+  exit 0
+fi
+
+# slack.env から SLACK_BOT_TOKEN と SLACK_CHANNEL_ID を読み込む。
+# shellcheck source=/dev/null
+. "${SLACK_ENV_PATH}"
+
+# Slack API に必須の値が空なら通知できないため、ここで終了する。
+if [ -z "${SLACK_BOT_TOKEN:-}" ] || [ -z "${SLACK_CHANNEL_ID:-}" ]; then
+  echo "slack env missing token or channel id" >&2
+  exit 0
+fi
+
+# 通知に載せるホスト名と IPv4 アドレス。
+# ip_addr は lo 以外の最初の IPv4 を採用するため、NIC が複数ある場合は代表値として扱う。
+host="$(hostname -s 2>/dev/null || hostname)"
+ip_addr="$(ip -o -4 addr show 2>/dev/null | awk '!/ lo /{print $4}' | head -n1 | cut -d/ -f1)"
+[ -n "${ip_addr}" ] || ip_addr="unknown"
+
+# ansible_role は今回このスクリプトを呼び出した role。
+# rc は ansible-pull の終了コード、elapsed は実行秒数、step は失敗または完了した処理段階。
+ansible_role="${ROLE:-unknown}"
+rc="unknown"
+elapsed="unknown"
+step="unknown"
+
+# まず role ごとの状態ファイルを読む。
+# 無ければ後方互換として last.env を読む。
+role_state_file="$(state_file_for_role "${ansible_role}")"
+if [ -r "${role_state_file}" ]; then
+  # shellcheck source=/dev/null
+  . "${role_state_file}"
+  rc="${RC:-unknown}"
+  elapsed="${ELAPSED_SECS:-unknown}"
+  step="${STEP:-unknown}"
+elif [ -r "${STATE_FILE}" ]; then
+  # shellcheck source=/dev/null
+  . "${STATE_FILE}"
+  rc="${RC:-unknown}"
+  elapsed="${ELAPSED_SECS:-unknown}"
+  step="${STEP:-unknown}"
+fi
+
+# rc=0 なら成功、それ以外なら失敗として Slack の本文に出す。
+status="success"
+if [ "${rc}" != "0" ]; then
+  status="failed"
+fi
+
+# SLACK_NOTIFY_AGGREGATE=1 は wrapper から渡される集約通知モード。
+# ROLES には実行予定の role 一覧がカンマ区切りで入る。
+# 例: ROLES=base,workstation_cli,k3s_node
+if [ "${SLACK_NOTIFY_AGGREGATE:-0}" = "1" ]; then
+  roles_value="${ROLES:-${ansible_role}}"
+  role_summary=""
+  overall_status="success"
+
+  # IFS を一時的にカンマへ変更し、ROLES を role ごとに分割する。
+  # ループ内で標準の IFS に戻すのは、sed や test など通常の空白処理を壊さないため。
+  old_ifs="${IFS}"
+  IFS=","
+  for role_name in ${roles_value}; do
+    IFS="${old_ifs}"
+    role_name="$(printf '%s' "${role_name}" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+    [ -n "${role_name}" ] || continue
+    item_rc="pending"
+    item_elapsed="unknown"
+    item_step="pending"
+    item_status="pending"
+    item_state_file="$(state_file_for_role "${role_name}")"
+    if [ -r "${item_state_file}" ]; then
+      # 状態ファイルを source すると RC などの変数が上書きされるため、先に空にしてから読む。
+      RC=""
+      ELAPSED_SECS=""
+      STEP=""
+      # shellcheck source=/dev/null
+      . "${item_state_file}"
+      item_rc="${RC:-unknown}"
+      item_elapsed="${ELAPSED_SECS:-unknown}"
+      item_step="${STEP:-unknown}"
+      item_status="success"
+      if [ "${item_rc}" != "0" ]; then
+        item_status="failed"
+        overall_status="failed"
+      fi
+    fi
+
+    # role_summary は Slack に出す role 別結果。
+    # 例: - base: success rc=0 elapsed=125s step=complete
+    if [ -n "${role_summary}" ]; then
+      role_summary="${role_summary}
+"
+    fi
+    role_summary="${role_summary}- ${role_name}: ${item_status} rc=${item_rc} elapsed=${item_elapsed}s step=${item_step}"
+    IFS=","
+  done
+  IFS="${old_ifs}"
+  if [ "${status}" = "failed" ]; then
+    overall_status="failed"
+  fi
+
+  # ROLES が空などで summary を作れなかった場合は、今回の role の結果だけで本文を作る。
+  [ -n "${role_summary}" ] || role_summary="- ${ansible_role}: ${status} rc=${rc} elapsed=${elapsed}s step=${step}"
+  text=$(cat <<EOF
+サーバ ${ip_addr} がPXEブートしました、動作の確認をお願いします
+
+PXE ansible-pull ${overall_status}
+host=${host}
+ip=${ip_addr}
+overlay_id=${overlay_id}
+role=${pxe_role}
+trigger_role=${ansible_role}
+roles:
+${role_summary}
+
+確認は ssh で ansibleユーザでログインして確認してください
+EOF
+)
+else
+  # 手動実行や旧来の呼び出しでは、今回の role だけを通知する。
+  text=$(cat <<EOF
+サーバ ${ip_addr} がPXEブートしました、動作の確認をお願いします
+
+PXE ansible-pull ${status}
+host=${host}
+ip=${ip_addr}
+overlay_id=${overlay_id}
+role=${pxe_role}
+ansible_role=${ansible_role}
+elapsed=${elapsed}s
+rc=${rc}
+step=${step}
+
+確認は ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ansible@${ip_addr} でログインして確認してください
+EOF
+)
+fi
+
+# Slack API に送る JSON payload を組み立てる。
+payload_text="$(json_escape "${text}")"
+payload_channel="$(json_escape "${SLACK_CHANNEL_ID}")"
+
+payload=$(cat <<EOF
+{"channel":"${payload_channel}","text":"${payload_text}"}
+EOF
+)
+
+# Slack chat.postMessage API へ投稿する。
+# curl の失敗で ansible-pull の結果を上書きしないよう、最後は || true にしている。
+curl -sS -X POST \
+  -H "Authorization: Bearer ${SLACK_BOT_TOKEN}" \
+  -H "Content-type: application/json; charset=utf-8" \
+  https://slack.com/api/chat.postMessage \
+  -d "${payload}" >/dev/null 2>&1 || true

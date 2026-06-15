@@ -1,0 +1,106 @@
+---
+- name: package.use ディレクトリを確保
+  become: true
+  ansible.builtin.file:
+    path: /etc/portage/package.use
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  tags:
+    - k3s_iptables_nft
+
+- name: iptables の nft backend USE フラグを設定
+  become: true
+  ansible.builtin.lineinfile:
+    path: /etc/portage/package.use/ansible-home
+    line: "net-firewall/iptables nftables"
+    regexp: "^net-firewall/iptables\\s"
+    create: true
+    owner: root
+    group: root
+    mode: '0644'
+  tags:
+    - k3s_iptables_nft
+
+- name: k3s の iptables backend パッケージを world に保持
+  become: true
+  ansible.builtin.lineinfile:
+    path: /var/lib/portage/world
+    line: "{{ item }}"
+    create: true
+    owner: root
+    group: root
+    mode: '0644'
+  loop:
+    - net-firewall/iptables
+    - net-firewall/nftables
+  loop_control:
+    label: "{{ item }}"
+  tags:
+    - k3s_iptables_nft
+
+- name: iptables nft backend の実体を確認
+  become: true
+  ansible.builtin.shell: |
+    set -euo pipefail
+    command -v nft >/dev/null
+    command -v xtables-nft-multi >/dev/null
+    [ "$(readlink /usr/bin/iptables 2>/dev/null || true)" = "xtables-nft-multi" ]
+    iptables --version
+    nft --version
+  args:
+    executable: /bin/bash
+  register: k3s_iptables_nft_check
+  changed_when: false
+  failed_when: false
+  tags:
+    - k3s_iptables_nft
+
+- block:
+    - name: iptables/nftables を nft backend 有効で再導入
+      become: true
+      ansible.builtin.shell: |
+        set -euo pipefail
+        log=/var/log/k3s-iptables-nft-emerge.log
+        {
+          date -Is
+          emerge --usepkg --oneshot --changed-use --quiet-build=y \
+            net-firewall/iptables net-firewall/nftables
+        } >"$log" 2>&1
+      changed_when: true
+      args:
+        executable: /bin/bash
+
+    - name: iptables backend を nft に切り替え
+      become: true
+      ansible.builtin.shell: |
+        set -euo pipefail
+        current="$(readlink -f /usr/bin/iptables || true)"
+        if [ "${current##*/}" = "xtables-nft-multi" ]; then
+          echo "iptables backend already xtables-nft-multi"
+        else
+          eselect iptables set xtables-nft-multi
+          echo "iptables backend switched to xtables-nft-multi"
+        fi
+      register: k3s_iptables_nft_eselect
+      changed_when: "'switched' in (k3s_iptables_nft_eselect.stdout | default(''))"
+      args:
+        executable: /bin/bash
+
+    - name: iptables nft backend の修復結果を検証
+      become: true
+      ansible.builtin.shell: |
+        set -euo pipefail
+        command -v nft >/dev/null
+        command -v xtables-nft-multi >/dev/null
+        [ "$(readlink /usr/bin/iptables 2>/dev/null || true)" = "xtables-nft-multi" ]
+        iptables --version
+        nft --version
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+  when: k3s_iptables_nft_check.rc != 0
+  tags:
+    - k3s_iptables_nft

@@ -1,0 +1,4 @@
+# {{ ansible_managed }}
+# root=/dev/nfs + nfsroot=... + rootovl を前提に、pxeoverlay モジュールで
+# pre-pivot フェーズに pxe-bootstrap.sh を実行して overlay を構成する。
+add_dracutmodules+=" overlayfs pxeoverlay "

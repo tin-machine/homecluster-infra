@@ -1,0 +1,33 @@
+---
+# Wi-Fi 接続管理方式: networkmanager / systemd-networkd
+k3s_wifi_manage: true
+k3s_wifi_backend: networkmanager
+
+# Wi-Fi 省電力制御
+k3s_wifi_disable_power_save: true
+
+k3s_wifi_network_defaults:
+  key_mgmt: "WPA-PSK WPA-PSK-SHA256"
+  ieee80211w: 1
+  pairwise: "CCMP"
+  group: "CCMP"
+  proto: "RSN"
+  priority: 20
+
+# NetworkManager を用いた Wi-Fi 接続 MTU 永続化の設定
+# conn_name が未指定の場合は nmcli タスクをスキップする
+k3s_wifi_connection_name: null
+k3s_wifi_connection_mtu: "{{ k3s_flannel_mtu | default(1500) }}"
+k3s_wifi_ssid: null
+k3s_wifi_psk: null
+k3s_wifi_interface: null
+k3s_wifi_country: JP
+k3s_wifi_route_metric: 1024
+k3s_wifi_networks: []
+
+# systemd-networkd 用 Wi-Fi 設定の既定値
+k3s_wifi_configure_without_carrier: true
+k3s_wifi_dhcp_mode: ipv4
+k3s_wifi_ipv6_accept_ra: false
+k3s_wifi_dhcp_use_broadcast: true
+k3s_wifi_dhcp_client_identifier: mac

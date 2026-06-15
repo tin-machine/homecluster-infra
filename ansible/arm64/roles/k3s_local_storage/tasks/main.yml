@@ -1,0 +1,352 @@
+---
+- name: k3s local storage をスキップ
+  ansible.builtin.debug:
+    msg: "k3s_local_storage_enabled=false のため local storage 設定は実行しません"
+  when: not (k3s_local_storage_enabled | bool)
+
+- name: k3s local storage の必須変数を検証
+  ansible.builtin.assert:
+    that:
+      - (k3s_local_storage_device | string | length) > 0
+      - (k3s_local_storage_mountpoint | string | length) > 0
+      - k3s_local_storage_mountpoint == '/var/lib/rancher/k3s'
+      - k3s_local_storage_filesystem_type in ['ext4', 'f2fs']
+      - (k3s_local_storage_mount_options | string | length) > 0
+    fail_msg: "k3s_local_storage_device / mountpoint / filesystem_type / mount_options を定義してください"
+  when: k3s_local_storage_enabled | bool
+
+- name: ephemeral agent data-dir は agent 専用に限定
+  ansible.builtin.assert:
+    that:
+      - k3s_agent is defined
+      - k3s_local_storage_mountpoint == '/var/lib/rancher/k3s'
+    fail_msg: "k3s_local_storage_ephemeral_agent_data=true は k3s agent の /var/lib/rancher/k3s 専用です"
+  when:
+    - k3s_local_storage_enabled | bool
+    - k3s_local_storage_ephemeral_agent_data | bool
+
+- name: local storage format 方針を決定
+  ansible.builtin.set_fact:
+    k3s_local_storage_effective_force_format: >-
+      {{ (k3s_local_storage_force_format | bool) or (k3s_local_storage_ephemeral_agent_data | bool) }}
+  when: k3s_local_storage_enabled | bool
+
+- name: ext4 tools を導入
+  become: true
+  ansible.builtin.portage:
+    package: sys-fs/e2fsprogs
+    state: present
+  when:
+    - k3s_local_storage_enabled | bool
+    - k3s_local_storage_filesystem_type == 'ext4'
+
+- name: f2fs tools を導入
+  become: true
+  ansible.builtin.portage:
+    package: sys-fs/f2fs-tools
+    state: present
+  when:
+    - k3s_local_storage_enabled | bool
+    - k3s_local_storage_filesystem_type == 'f2fs'
+
+- name: local storage device が block device として存在するか確認
+  become: true
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/test
+      - -b
+      - "{{ k3s_local_storage_device }}"
+  changed_when: false
+  when: k3s_local_storage_enabled | bool
+
+- name: local storage device の block type を確認
+  become: true
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/lsblk
+      - -dn
+      - -o
+      - TYPE
+      - "{{ k3s_local_storage_device }}"
+  register: k3s_local_storage_device_type
+  changed_when: false
+  when: k3s_local_storage_enabled | bool
+
+- name: k3s data dir には partition device を要求
+  ansible.builtin.assert:
+    that:
+      - not (k3s_local_storage_require_partition | bool) or (k3s_local_storage_device_type.stdout | trim) == 'part'
+    fail_msg: "{{ k3s_local_storage_device }} は {{ k3s_local_storage_device_type.stdout | trim }} です。kubelet/cAdvisor の imagefs stats が壊れやすいため partition device を指定してください"
+  when: k3s_local_storage_enabled | bool
+
+- name: local storage device の既存 mountpoint を確認
+  become: true
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/findmnt
+      - -rn
+      - -S
+      - "{{ k3s_local_storage_device }}"
+      - -o
+      - TARGET
+  register: k3s_local_storage_existing_mounts
+  changed_when: false
+  failed_when: false
+  when: k3s_local_storage_enabled | bool
+
+- name: local storage device が target mountpoint に mount 済みか判定
+  ansible.builtin.set_fact:
+    k3s_local_storage_mounted_at_target: >-
+      {{ k3s_local_storage_mountpoint in (k3s_local_storage_existing_mounts.stdout_lines | default([])) }}
+  when: k3s_local_storage_enabled | bool
+
+- name: local storage device の許可済み runtime mount pattern を決定
+  ansible.builtin.set_fact:
+    k3s_local_storage_allowed_runtime_mount_pattern: >-
+      {{ (k3s_local_storage_mounted_at_target | bool) | ternary('^/run/k3s/containerd/', '^$') }}
+  when: k3s_local_storage_enabled | bool
+
+- name: local storage device の想定外 mountpoint を抽出
+  ansible.builtin.set_fact:
+    k3s_local_storage_unexpected_mounts: >-
+      {{
+        k3s_local_storage_existing_mounts.stdout_lines | default([])
+        | reject('equalto', k3s_local_storage_mountpoint)
+        | reject('match', k3s_local_storage_allowed_runtime_mount_pattern)
+        | list
+      }}
+  when: k3s_local_storage_enabled | bool
+
+- name: local storage device が想定外 mountpoint で使われていないか確認
+  ansible.builtin.assert:
+    that:
+      - (k3s_local_storage_unexpected_mounts | default([]) | length) == 0
+    fail_msg: "{{ k3s_local_storage_device }} は想定外の mountpoint で使用中です: {{ k3s_local_storage_unexpected_mounts | join(', ') }}"
+  when: k3s_local_storage_enabled | bool
+
+- name: local storage device の filesystem を確認
+  become: true
+  ansible.builtin.command:
+    argv:
+      - /usr/sbin/blkid
+      - -s
+      - TYPE
+      - -o
+      - value
+      - "{{ k3s_local_storage_device }}"
+  register: k3s_local_storage_blkid_type
+  changed_when: false
+  failed_when: false
+  when: k3s_local_storage_enabled | bool
+
+- name: 既存 filesystem が違う場合は format 許可を要求
+  ansible.builtin.assert:
+    that:
+      - >-
+        (k3s_local_storage_blkid_type.stdout | default('') | trim) == k3s_local_storage_filesystem_type
+        or
+        (k3s_local_storage_allow_format | bool)
+    fail_msg: "{{ k3s_local_storage_device }} は {{ k3s_local_storage_blkid_type.stdout | default('unknown') }} です。{{ k3s_local_storage_filesystem_type }} 化するには k3s_local_storage_allow_format=true が必要です"
+  when: k3s_local_storage_enabled | bool
+
+- name: local storage device の format 要否を判定
+  ansible.builtin.set_fact:
+    k3s_local_storage_needs_format: >-
+      {{
+        (k3s_local_storage_allow_format | bool)
+        and
+        (
+          (k3s_local_storage_effective_force_format | default(false) | bool)
+          or
+          ((k3s_local_storage_blkid_type.stdout | default('') | trim) != k3s_local_storage_filesystem_type)
+        )
+      }}
+  when: k3s_local_storage_enabled | bool
+
+- name: local storage device の mount 変更要否を判定
+  ansible.builtin.set_fact:
+    k3s_local_storage_needs_mount_change: >-
+      {{
+        not (k3s_local_storage_mounted_at_target | default(false) | bool)
+        or
+        (k3s_local_storage_needs_format | default(false) | bool)
+      }}
+  when: k3s_local_storage_enabled | bool
+
+- name: mount 変更が必要な場合だけ k3s を停止
+  become: true
+  ansible.builtin.service:
+    name: k3s
+    state: stopped
+  failed_when: false
+  when:
+    - k3s_local_storage_enabled | bool
+    - k3s_local_storage_needs_mount_change | bool
+
+- name: k3s data mount を解除
+  become: true
+  ansible.posix.mount:
+    path: "{{ k3s_local_storage_mountpoint }}"
+    state: unmounted
+  when:
+    - k3s_local_storage_enabled | bool
+    - k3s_local_storage_needs_format | bool
+    - k3s_local_storage_mounted_at_target | bool
+
+- name: local storage device の既存 signature を削除
+  become: true
+  ansible.builtin.command:
+    argv:
+      - /usr/sbin/wipefs
+      - -a
+      - "{{ k3s_local_storage_device }}"
+  when:
+    - k3s_local_storage_enabled | bool
+    - k3s_local_storage_allow_format | bool
+    - k3s_local_storage_wipe_signatures | bool
+    - k3s_local_storage_needs_format | bool
+
+- name: local storage device を F2FS で format
+  become: true
+  ansible.builtin.command:
+    argv:
+      - /usr/sbin/mkfs.f2fs
+      - -f
+      - -t
+      - "0"
+      - -l
+      - "{{ k3s_local_storage_label }}"
+      - "{{ k3s_local_storage_device }}"
+  when:
+    - k3s_local_storage_enabled | bool
+    - k3s_local_storage_filesystem_type == 'f2fs'
+    - k3s_local_storage_allow_format | bool
+    - k3s_local_storage_needs_format | bool
+
+- name: local storage device を ext4 で format
+  become: true
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/mkfs.ext4
+      - -F
+      - -E
+      - nodiscard
+      - -L
+      - "{{ k3s_local_storage_label }}"
+      - "{{ k3s_local_storage_device }}"
+  when:
+    - k3s_local_storage_enabled | bool
+    - k3s_local_storage_filesystem_type == 'ext4'
+    - k3s_local_storage_allow_format | bool
+    - k3s_local_storage_needs_format | bool
+
+- name: mountpoint を作成
+  become: true
+  ansible.builtin.file:
+    path: "{{ k3s_local_storage_mountpoint }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  when: k3s_local_storage_enabled | bool
+
+- name: node password sync script を配置
+  become: true
+  ansible.builtin.template:
+    src: k3s-node-password-sync.sh.j2
+    dest: "{{ k3s_local_storage_node_password_sync_script_path }}"
+    owner: root
+    group: root
+    mode: '0755'
+  when:
+    - k3s_local_storage_enabled | bool
+    - k3s_local_storage_node_password_sync_enabled | bool
+
+- name: k3s node password sync drop-in ディレクトリを作成
+  become: true
+  ansible.builtin.file:
+    path: "/etc/systemd/system/{{ k3s_local_storage_node_password_sync_service_name }}.service.d"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  when:
+    - k3s_local_storage_enabled | bool
+    - k3s_local_storage_node_password_sync_enabled | bool
+
+- name: k3s node password sync drop-in を配置
+  become: true
+  ansible.builtin.template:
+    src: k3s-node-password-sync.conf.j2
+    dest: "/etc/systemd/system/{{ k3s_local_storage_node_password_sync_service_name }}.service.d/{{ k3s_local_storage_node_password_sync_dropin_name }}"
+    owner: root
+    group: root
+    mode: '0644'
+  when:
+    - k3s_local_storage_enabled | bool
+    - k3s_local_storage_node_password_sync_enabled | bool
+
+- name: local storage device の UUID を確認
+  become: true
+  ansible.builtin.command:
+    argv:
+      - /usr/sbin/blkid
+      - -s
+      - UUID
+      - -o
+      - value
+      - "{{ k3s_local_storage_device }}"
+  register: k3s_local_storage_uuid
+  changed_when: false
+  when: k3s_local_storage_enabled | bool
+
+- name: k3s data dir を local storage に mount
+  become: true
+  ansible.posix.mount:
+    src: "UUID={{ k3s_local_storage_uuid.stdout | trim }}"
+    path: "{{ k3s_local_storage_mountpoint }}"
+    fstype: "{{ k3s_local_storage_filesystem_type }}"
+    opts: "{{ k3s_local_storage_mount_options }}"
+    state: mounted
+  when: k3s_local_storage_enabled | bool
+
+- name: systemd を再読み込み
+  become: true
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when: k3s_local_storage_enabled | bool
+
+- name: mount 後の node password 同期用ディレクトリを確保
+  become: true
+  ansible.builtin.file:
+    path: "{{ k3s_local_storage_state_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+  when:
+    - k3s_local_storage_enabled | bool
+    - k3s_local_storage_node_password_sync_enabled | bool
+
+- name: 既存の node password を確認
+  become: true
+  ansible.builtin.stat:
+    path: /etc/rancher/node/password
+  register: k3s_local_storage_node_password_file
+  when:
+    - k3s_local_storage_enabled | bool
+    - k3s_local_storage_node_password_sync_enabled | bool
+
+- name: 既存の node password を local storage 側へ退避
+  become: true
+  ansible.builtin.copy:
+    src: /etc/rancher/node/password
+    dest: "{{ k3s_local_storage_node_password_state_path }}"
+    owner: root
+    group: root
+    mode: '0600'
+    remote_src: true
+  when:
+    - k3s_local_storage_enabled | bool
+    - k3s_local_storage_node_password_sync_enabled | bool
+    - k3s_local_storage_node_password_file.stat.exists | default(false)

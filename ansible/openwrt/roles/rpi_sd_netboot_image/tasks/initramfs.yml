@@ -1,0 +1,55 @@
+---
+- name: Check initramfs source
+  ansible.builtin.stat:
+    path: "{{ rpi_initramfs_src }}"
+  register: rpi_initramfs_src_stat
+
+- name: Assert initramfs source exists
+  ansible.builtin.assert:
+    that:
+      - rpi_initramfs_src_stat.stat.exists
+      - rpi_initramfs_src_stat.stat.isreg
+    fail_msg: "Required initramfs is missing: {{ rpi_initramfs_src }}"
+
+- name: Inspect initramfs contents
+  ansible.builtin.command:
+    argv:
+      - lsinitrd
+      - "{{ rpi_initramfs_src }}"
+  register: rpi_lsinitrd
+  changed_when: false
+  when: rpi_validate_initramfs_contents | bool
+
+- name: Assert initramfs contains required wired boot elements
+  ansible.builtin.assert:
+    that:
+      - item in rpi_lsinitrd.stdout
+    fail_msg: "initramfs {{ rpi_initramfs_src }} does not contain expected pattern: {{ item }}"
+  loop: "{{ rpi_initramfs_required_patterns }}"
+  when: rpi_validate_initramfs_contents | bool
+
+- name: Assert initramfs contains required Wi-Fi boot elements
+  ansible.builtin.assert:
+    that:
+      - item in rpi_lsinitrd.stdout
+    fail_msg: "Wi-Fi initramfs {{ rpi_initramfs_src }} does not contain expected pattern: {{ item }}"
+  loop: "{{ rpi_wifi_initramfs_required_patterns }}"
+  when:
+    - rpi_validate_initramfs_contents | bool
+    - rpi_network_backend == 'wifi'
+
+- name: Copy initramfs for Pi 3/4
+  ansible.builtin.copy:
+    src: "{{ rpi_initramfs_src }}"
+    dest: "{{ rpi_initramfs_bcm27xx_dest }}"
+    mode: "0644"
+    remote_src: true
+  when: "'pi3' in rpi_enabled_models_normalized or 'pi4' in rpi_enabled_models_normalized"
+
+- name: Copy initramfs for Pi 5
+  ansible.builtin.copy:
+    src: "{{ rpi_initramfs_src }}"
+    dest: "{{ rpi_initramfs_pi5_dest }}"
+    mode: "0644"
+    remote_src: true
+  when: "'pi5' in rpi_enabled_models_normalized"

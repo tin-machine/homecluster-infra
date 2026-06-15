@@ -1,0 +1,86 @@
+set -e
+
+SECTION="{{ section }}"
+changed=0
+
+ensure() {
+  local key="$1"
+  local value="$2"
+  local current
+  current="$(uci -q get dhcp.${SECTION}.${key} 2>/dev/null || echo '')"
+  if [ "$current" != "$value" ]; then
+    uci set dhcp.${SECTION}.${key}="$value"
+    changed=1
+  fi
+}
+
+ensure_section() {
+  if ! uci -q get dhcp.${SECTION} >/dev/null 2>&1; then
+    uci set dhcp.${SECTION}=host
+    changed=1
+  fi
+}
+
+ensure_section
+
+ensure name '{{ host.name | default(host.mac | default(section)) }}'
+{% if host.mac is defined %}
+ensure mac '{{ host.mac }}'
+{% endif %}
+{% if host.ip is defined %}
+ensure ip '{{ host.ip }}'
+{% endif %}
+{% set host_networkid = host.networkid | default(host.name | default(host.mac | default(section))) %}
+ensure networkid '{{ host_networkid }}'
+{% set tag_values = [] %}
+{% if host.set_tag is defined %}
+{%   set _ = tag_values.append(host.set_tag) %}
+{% endif %}
+{% if host.tags is defined %}
+{%   for t in host.tags %}
+{%     set _ = tag_values.append(t) %}
+{%   endfor %}
+{% endif %}
+{% if tag_values %}
+uci -q delete dhcp.${SECTION}.tag >/dev/null 2>&1 || true
+{%   for t in tag_values | unique %}
+uci add_list dhcp.${SECTION}.tag='{{ t }}'
+{%   endfor %}
+changed=1
+{% endif %}
+{% if host.bootfile is defined %}
+ensure bootfile '{{ host.bootfile }}'
+{% endif %}
+{% if host.dhcp_options is defined and host.dhcp_options %}
+ensure force '{{ host.force | default(1) }}'
+{% endif %}
+
+{% if host.dhcp_options is defined and host.dhcp_options %}
+tmp_opts="$(mktemp)"
+cat <<'EOF' > "$tmp_opts"
+{% for opt in host.dhcp_options %}
+{{ opt }}
+{% endfor %}
+EOF
+for line in $(uci -q show dhcp.${SECTION}.dhcp_option 2>/dev/null | cut -d"'" -f2); do
+  if ! grep -Fxq "$line" "$tmp_opts"; then
+    uci del_list dhcp.${SECTION}.dhcp_option="$line"
+    changed=1
+  fi
+done
+while IFS= read -r opt; do
+  [ -z "$opt" ] && continue
+  if ! uci -q show dhcp.${SECTION}.dhcp_option 2>/dev/null | grep -Fqx "dhcp.${SECTION}.dhcp_option='$opt'"; then
+    uci add_list dhcp.${SECTION}.dhcp_option="$opt"
+    changed=1
+  fi
+done < "$tmp_opts"
+rm -f "$tmp_opts"
+{% else %}
+uci -q delete dhcp.${SECTION}.dhcp_option >/dev/null 2>&1 || true
+{% endif %}
+
+if [ "$changed" -eq 1 ]; then
+  uci commit dhcp
+  echo changed
+fi

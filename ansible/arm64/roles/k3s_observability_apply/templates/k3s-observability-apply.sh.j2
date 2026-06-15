@@ -1,0 +1,353 @@
+#!/bin/sh
+
+set -eu
+
+DONE_MARKER="{{ k3s_observability_apply_run_root }}/{{ k3s_observability_apply_stage_name }}.done"
+KUBECONFIG_PATH="{{ k3s_observability_apply_kubeconfig_path }}"
+BUNDLE_ROOT="{{ k3s_observability_apply_state_mount_path }}/{{ k3s_observability_apply_stage_name }}"
+INFRA_CURRENT_LINK="${BUNDLE_ROOT}/{{ k3s_observability_apply_infra_bundle_name }}/current"
+SITE_INPUT_CURRENT_LINK="${BUNDLE_ROOT}/{{ k3s_observability_apply_site_input_bundle_name }}/current"
+WORK_ROOT="{{ k3s_observability_apply_work_root }}"
+WORK_DIR="${WORK_ROOT}/{{ k3s_observability_apply_infra_bundle_name }}"
+COMMON_CRDS_STATE_PATH="${BUNDLE_ROOT}/common-crds.tfstate"
+COMMON_ADDONS_STATE_PATH="${BUNDLE_ROOT}/common-addons.tfstate"
+COMMON_CERTIFICATES_STATE_PATH="${BUNDLE_ROOT}/common-certificates.tfstate"
+ENV_STATE_PATH="${BUNDLE_ROOT}/{{ k3s_observability_apply_stage_name }}.tfstate"
+LIVE_WRAPPER_CONTRACT_PATH="/etc/homecluster/k3s-observability-apply-contract-version"
+LOCK_TIMEOUT="{{ k3s_observability_apply_lock_timeout }}"
+APPLY_PARALLELISM="{{ k3s_observability_apply_parallelism }}"
+METALLB_CRD_WAIT_TIMEOUT_SECS="{{ k3s_observability_apply_metallb_crd_wait_timeout_secs }}"
+METALLB_READY_WAIT_TIMEOUT_SECS="{{ k3s_observability_apply_metallb_ready_wait_timeout_secs }}"
+CERT_MANAGER_READY_WAIT_TIMEOUT_SECS="{{ k3s_observability_apply_cert_manager_ready_wait_timeout_secs }}"
+
+if [ -e "${DONE_MARKER}" ]; then
+  echo "k3s observability apply already completed for this boot: ${DONE_MARKER}"
+  exit 0
+fi
+
+if [ ! -d "${INFRA_CURRENT_LINK}" ]; then
+  echo "infra current bundle not found: ${INFRA_CURRENT_LINK}" >&2
+  exit 1
+fi
+
+if [ ! -d "${SITE_INPUT_CURRENT_LINK}" ]; then
+  echo "site input current bundle not found: ${SITE_INPUT_CURRENT_LINK}" >&2
+  exit 1
+fi
+
+INFRA_SOURCE_DIR="$(readlink -f "${INFRA_CURRENT_LINK}")"
+SITE_INPUT_DIR="$(readlink -f "${SITE_INPUT_CURRENT_LINK}")"
+
+case "${INFRA_SOURCE_DIR}" in
+  "${BUNDLE_ROOT}"/{{ k3s_observability_apply_infra_bundle_name }}/releases/*) ;;
+  *)
+    echo "infra current link resolves outside the release directory" >&2
+    exit 1
+    ;;
+esac
+
+case "${SITE_INPUT_DIR}" in
+  "${BUNDLE_ROOT}"/{{ k3s_observability_apply_site_input_bundle_name }}/releases/*) ;;
+  *)
+    echo "site input current link resolves outside the release directory" >&2
+    exit 1
+    ;;
+esac
+
+for marker in .homecluster-bundle-id .homecluster-infra-revision; do
+  if [ ! -s "${INFRA_SOURCE_DIR}/${marker}" ] || [ ! -s "${SITE_INPUT_DIR}/${marker}" ]; then
+    echo "required bundle marker is missing: ${marker}" >&2
+    exit 1
+  fi
+done
+
+INFRA_BUNDLE_ID="$(cat "${INFRA_SOURCE_DIR}/.homecluster-bundle-id")"
+SITE_INPUT_BUNDLE_ID="$(cat "${SITE_INPUT_DIR}/.homecluster-bundle-id")"
+INFRA_REVISION="$(cat "${INFRA_SOURCE_DIR}/.homecluster-infra-revision")"
+SITE_INPUT_INFRA_REVISION="$(cat "${SITE_INPUT_DIR}/.homecluster-infra-revision")"
+STAGED_WRAPPER_CONTRACT_PATH="${INFRA_SOURCE_DIR}/ansible/arm64/roles/k3s_observability_apply/files/apply-contract-version"
+
+if [ "${INFRA_BUNDLE_ID}" != "${SITE_INPUT_BUNDLE_ID}" ]; then
+  echo "infra and site input bundle IDs do not match" >&2
+  exit 1
+fi
+
+if [ "${INFRA_REVISION}" != "${SITE_INPUT_INFRA_REVISION}" ]; then
+  echo "infra revisions do not match across the bundle" >&2
+  exit 1
+fi
+
+read_contract_version() {
+  contract_path="$1"
+  if [ ! -s "${contract_path}" ]; then
+    echo "required k3s observability apply contract marker is missing: ${contract_path}" >&2
+    return 1
+  fi
+
+  version="$(sed -n '1p' "${contract_path}" | tr -d '[:space:]')"
+  if [ -z "${version}" ]; then
+    echo "k3s observability apply contract marker is empty: ${contract_path}" >&2
+    return 1
+  fi
+  printf '%s\n' "${version}"
+}
+
+LIVE_WRAPPER_CONTRACT_VERSION="$(read_contract_version "${LIVE_WRAPPER_CONTRACT_PATH}")"
+STAGED_WRAPPER_CONTRACT_VERSION="$(read_contract_version "${STAGED_WRAPPER_CONTRACT_PATH}")"
+
+if [ "${LIVE_WRAPPER_CONTRACT_VERSION}" != "${STAGED_WRAPPER_CONTRACT_VERSION}" ]; then
+  echo "k3s observability apply wrapper contract mismatch" >&2
+  echo "live_contract=${LIVE_WRAPPER_CONTRACT_VERSION} staged_contract=${STAGED_WRAPPER_CONTRACT_VERSION}" >&2
+  echo "The live apply wrapper is not compatible with the staged infra bundle." >&2
+  echo "Re-run ansible-pull@terraform_stg.service or apply the k3s_observability_apply role before Terraform apply." >&2
+  exit 1
+fi
+
+case "${WORK_DIR}" in
+  "${WORK_ROOT}"/*) ;;
+  *)
+    echo "work directory resolves outside the work root" >&2
+    exit 1
+    ;;
+esac
+
+rm -rf "${WORK_DIR}"
+install -d -m 0700 "${WORK_ROOT}"
+install -d -m 0700 "${WORK_DIR}"
+cp -a "${INFRA_SOURCE_DIR}/." "${WORK_DIR}/"
+REPO_DIR="${WORK_DIR}"
+
+for root in common-crds common-addons common-certificates {{ k3s_observability_apply_stage_name }}; do
+  if [ ! -d "${REPO_DIR}/terraform/env/${root}" ]; then
+    echo "terraform env/${root} not found under the staged infra bundle" >&2
+    exit 1
+  fi
+  if [ ! -s "${SITE_INPUT_DIR}/terraform/${root}.tfvars.json" ]; then
+    echo "required site input not found: ${root}.tfvars.json" >&2
+    exit 1
+  fi
+done
+
+if [ ! -d "${SITE_INPUT_DIR}/helm/{{ k3s_observability_apply_stage_name }}" ]; then
+  echo "required staging Helm site values directory not found" >&2
+  exit 1
+fi
+
+KUBERNETES_PRE_APPLY_DIR="${SITE_INPUT_DIR}/kubernetes/pre-apply"
+
+export KUBECONFIG="${KUBECONFIG_PATH}"
+export TF_IN_AUTOMATION=1
+export TF_INPUT=0
+
+COMMON_CRDS_VAR_FILE="${SITE_INPUT_DIR}/terraform/common-crds.tfvars.json"
+COMMON_ADDONS_VAR_FILE="${SITE_INPUT_DIR}/terraform/common-addons.tfvars.json"
+COMMON_CERTIFICATES_VAR_FILE="${SITE_INPUT_DIR}/terraform/common-certificates.tfvars.json"
+ENV_VAR_FILE="${SITE_INPUT_DIR}/terraform/{{ k3s_observability_apply_stage_name }}.tfvars.json"
+
+now_epoch() {
+  date +%s
+}
+
+wait_for_metallb_crd() {
+  crd_name="$1"
+  deadline=$(( $(now_epoch) + METALLB_CRD_WAIT_TIMEOUT_SECS ))
+
+  while ! kubectl --kubeconfig="${KUBECONFIG_PATH}" get "crd/${crd_name}" >/dev/null 2>&1; do
+    if [ "$(now_epoch)" -ge "${deadline}" ]; then
+      echo "timed out waiting for MetalLB CRD ${crd_name}" >&2
+      return 1
+    fi
+    sleep 5
+  done
+
+  kubectl --kubeconfig="${KUBECONFIG_PATH}" wait \
+    --for=condition=Established \
+    --timeout=60s \
+    "crd/${crd_name}" >/dev/null
+}
+
+fail_if_helm_release_pending() {
+  namespace="$1"
+  release="$2"
+
+  pending_revisions="$(
+    kubectl --kubeconfig="${KUBECONFIG_PATH}" -n "${namespace}" get secrets \
+      -l "owner=helm,name=${release}" \
+      -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.metadata.labels.status}{"\n"}{end}' 2>/dev/null |
+      awk '$2 ~ /^pending-/ { print $0 }'
+  )"
+
+  if [ -n "${pending_revisions}" ]; then
+    echo "Helm release ${namespace}/${release} has pending revision(s):" >&2
+    echo "${pending_revisions}" >&2
+    echo "Recover the Helm release metadata before running Terraform apply." >&2
+    return 1
+  fi
+}
+
+apply_kubernetes_pre_apply_manifests() {
+  if [ ! -d "${KUBERNETES_PRE_APPLY_DIR}" ]; then
+    return 0
+  fi
+
+  pre_apply_dir="$(readlink -f "${KUBERNETES_PRE_APPLY_DIR}")"
+  case "${pre_apply_dir}" in
+    "${SITE_INPUT_DIR}"/kubernetes/pre-apply) ;;
+    *)
+      echo "Kubernetes pre-apply directory resolves outside site inputs" >&2
+      return 1
+      ;;
+  esac
+
+  find "${pre_apply_dir}" -maxdepth 1 -type f \( -name '*.yaml' -o -name '*.yml' \) -print |
+    sort |
+    while IFS= read -r manifest; do
+      manifest_path="$(readlink -f "${manifest}")"
+      case "${manifest_path}" in
+        "${pre_apply_dir}"/*) ;;
+        *)
+          echo "Kubernetes pre-apply manifest resolves outside pre-apply directory" >&2
+          return 1
+          ;;
+      esac
+      echo "applying private Kubernetes pre-apply manifest: $(basename "${manifest_path}")"
+      kubectl --kubeconfig="${KUBECONFIG_PATH}" apply -f "${manifest_path}" >/dev/null
+    done
+}
+
+wait_for_metallb_ready() {
+  kubectl --kubeconfig="${KUBECONFIG_PATH}" -n metallb-system rollout status \
+    deployment/metallb-controller \
+    --timeout="${METALLB_READY_WAIT_TIMEOUT_SECS}s"
+
+  kubectl --kubeconfig="${KUBECONFIG_PATH}" -n metallb-system rollout status \
+    daemonset/metallb-speaker \
+    --timeout="${METALLB_READY_WAIT_TIMEOUT_SECS}s"
+
+  kubectl --kubeconfig="${KUBECONFIG_PATH}" -n metallb-system get \
+    ipaddresspools.metallb.io vip-bgp-pool >/dev/null
+  kubectl --kubeconfig="${KUBECONFIG_PATH}" -n metallb-system get \
+    bgppeers.metallb.io openwrt >/dev/null
+  kubectl --kubeconfig="${KUBECONFIG_PATH}" -n metallb-system get \
+    bgpadvertisements.metallb.io vip-bgp-adv >/dev/null
+}
+
+wait_for_cert_manager_ready() {
+  kubectl --kubeconfig="${KUBECONFIG_PATH}" wait \
+    --for=condition=Established \
+    --timeout="${CERT_MANAGER_READY_WAIT_TIMEOUT_SECS}s" \
+    crd/clusterissuers.cert-manager.io
+
+  kubectl --kubeconfig="${KUBECONFIG_PATH}" wait \
+    --for=condition=Established \
+    --timeout="${CERT_MANAGER_READY_WAIT_TIMEOUT_SECS}s" \
+    crd/certificates.cert-manager.io
+
+  kubectl --kubeconfig="${KUBECONFIG_PATH}" -n cert-manager rollout status \
+    deployment/cert-manager \
+    --timeout="${CERT_MANAGER_READY_WAIT_TIMEOUT_SECS}s"
+
+  kubectl --kubeconfig="${KUBECONFIG_PATH}" -n cert-manager rollout status \
+    deployment/cert-manager-cainjector \
+    --timeout="${CERT_MANAGER_READY_WAIT_TIMEOUT_SECS}s"
+
+  kubectl --kubeconfig="${KUBECONFIG_PATH}" -n cert-manager rollout status \
+    deployment/cert-manager-webhook \
+    --timeout="${CERT_MANAGER_READY_WAIT_TIMEOUT_SECS}s"
+}
+
+terraform -chdir="${REPO_DIR}/terraform/env/common-crds" init \
+  -input=false \
+  -no-color \
+  -migrate-state \
+  -force-copy \
+  -backend-config="path=${COMMON_CRDS_STATE_PATH}"
+
+fail_if_helm_release_pending metallb-system metallb
+fail_if_helm_release_pending cert-manager cert-manager
+
+terraform -chdir="${REPO_DIR}/terraform/env/common-crds" apply \
+  -auto-approve \
+  -input=false \
+  -no-color \
+  -compact-warnings \
+  -var-file="${COMMON_CRDS_VAR_FILE}" \
+  -parallelism="${APPLY_PARALLELISM}" \
+  -lock-timeout="${LOCK_TIMEOUT}"
+
+wait_for_metallb_crd "ipaddresspools.metallb.io"
+wait_for_metallb_crd "l2advertisements.metallb.io"
+wait_for_metallb_crd "bgppeers.metallb.io"
+wait_for_metallb_crd "bgpadvertisements.metallb.io"
+
+terraform -chdir="${REPO_DIR}/terraform/env/common-addons" init \
+  -input=false \
+  -no-color \
+  -migrate-state \
+  -force-copy \
+  -backend-config="path=${COMMON_ADDONS_STATE_PATH}"
+
+fail_if_helm_release_pending ingress-nginx ingress-nginx
+
+terraform -chdir="${REPO_DIR}/terraform/env/common-addons" apply \
+  -auto-approve \
+  -input=false \
+  -no-color \
+  -compact-warnings \
+  -var-file="${COMMON_ADDONS_VAR_FILE}" \
+  -parallelism="${APPLY_PARALLELISM}" \
+  -lock-timeout="${LOCK_TIMEOUT}"
+
+wait_for_metallb_ready
+wait_for_cert_manager_ready
+
+terraform -chdir="${REPO_DIR}/terraform/env/common-certificates" init \
+  -input=false \
+  -no-color \
+  -migrate-state \
+  -force-copy \
+  -backend-config="path=${COMMON_CERTIFICATES_STATE_PATH}"
+
+terraform -chdir="${REPO_DIR}/terraform/env/common-certificates" apply \
+  -auto-approve \
+  -input=false \
+  -no-color \
+  -compact-warnings \
+  -var-file="${COMMON_CERTIFICATES_VAR_FILE}" \
+  -parallelism="${APPLY_PARALLELISM}" \
+  -lock-timeout="${LOCK_TIMEOUT}"
+
+terraform -chdir="${REPO_DIR}/terraform/env/{{ k3s_observability_apply_stage_name }}" init \
+  -input=false \
+  -no-color \
+  -migrate-state \
+  -force-copy \
+  -backend-config="path=${ENV_STATE_PATH}"
+
+if [ -d "${KUBERNETES_PRE_APPLY_DIR}" ]; then
+  terraform -chdir="${REPO_DIR}/terraform/env/{{ k3s_observability_apply_stage_name }}" apply \
+    -auto-approve \
+    -input=false \
+    -no-color \
+    -compact-warnings \
+    -var-file="${ENV_VAR_FILE}" \
+    -parallelism="${APPLY_PARALLELISM}" \
+    -lock-timeout="${LOCK_TIMEOUT}" \
+    -target=module.observability_stack.kubernetes_namespace.observability
+
+  apply_kubernetes_pre_apply_manifests
+fi
+
+terraform -chdir="${REPO_DIR}/terraform/env/{{ k3s_observability_apply_stage_name }}" apply \
+  -auto-approve \
+  -input=false \
+  -no-color \
+  -compact-warnings \
+  -var-file="${ENV_VAR_FILE}" \
+  -parallelism="${APPLY_PARALLELISM}" \
+  -lock-timeout="${LOCK_TIMEOUT}"
+
+rm -rf "${WORK_DIR}"
+mkdir -p "$(dirname "${DONE_MARKER}")"
+touch "${DONE_MARKER}"
+echo "k3s observability apply completed for bundle ${INFRA_BUNDLE_ID}"

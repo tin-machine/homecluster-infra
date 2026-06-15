@@ -1,0 +1,126 @@
+---
+- name: NFS サーバ設定をスキップ
+  ansible.builtin.debug:
+    msg: "openwrt_nfs_server_enabled=false のため NFS サーバ設定は実行しません"
+  when: not openwrt_nfs_server_enabled | bool
+
+- name: PXE/NFS 用ファイアウォール例外が有効か確認
+  ansible.builtin.debug:
+    msg: "openwrt_firewall_allow_pxe が無効です。NFS/TFTP を利用する場合は inventory で openwrt_firewall_allow_pxe: true を指定してください。"
+  when:
+    - openwrt_nfs_server_enabled | bool
+    - not (openwrt_firewall_allow_pxe | default(false) | bool)
+
+- name: エクスポート対象ディレクトリを作成
+  vars:
+    export_dir_defaults: "{{ openwrt_nfs_export_dir_defaults.get(item.path, {}) }}"
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner | default(export_dir_defaults.owner | default('root')) }}"
+    group: "{{ item.group | default(export_dir_defaults.group | default('root')) }}"
+    mode: "{{ item.mode | default(export_dir_defaults.mode | default('0755')) }}"
+  loop: "{{ (openwrt_nfs_exports | default([])) + (openwrt_nfs_extra_exports | default([])) }}"
+  loop_control:
+    label: "{{ item.path }}"
+  when:
+    - openwrt_nfs_server_enabled | bool
+    - item.ensure_dir | default(false) | bool
+
+- name: NFS サーバ関連パッケージを導入
+  ansible.builtin.opkg:
+    name: "{{ item }}"
+    state: present
+    update_cache: "{{ openwrt_opkg_update | default(true) }}"
+  loop: "{{ openwrt_nfs_packages }}"
+  loop_control:
+    label: "{{ item }}"
+  when: openwrt_nfs_server_enabled | bool
+
+- name: /etc/exports を適用
+  ansible.builtin.template:
+    src: exports.j2
+    dest: /etc/exports
+    owner: root
+    group: root
+    mode: '0644'
+  when: openwrt_nfs_server_enabled | bool
+  notify:
+    - Reexport NFS shares
+
+- name: rpcbind を有効化
+  ansible.builtin.shell: |
+    if /etc/init.d/rpcbind enabled; then
+      exit 0
+    fi
+    /etc/init.d/rpcbind enable
+    echo changed
+  args:
+    executable: /bin/ash
+  register: openwrt_rpcbind_enable
+  changed_when: "'changed' in openwrt_rpcbind_enable.stdout"
+  when: openwrt_nfs_server_enabled | bool
+
+- name: rpcbind を起動
+  ansible.builtin.shell: |
+    if /etc/init.d/rpcbind status >/dev/null 2>&1; then
+      exit 0
+    fi
+    /etc/init.d/rpcbind start
+    echo changed
+  args:
+    executable: /bin/ash
+  register: openwrt_rpcbind_start
+  changed_when: "'changed' in openwrt_rpcbind_start.stdout"
+  failed_when: openwrt_rpcbind_start.rc not in [0]
+  when: openwrt_nfs_server_enabled | bool
+
+- name: nfsd を有効化
+  ansible.builtin.shell: |
+    if /etc/init.d/nfsd enabled; then
+      exit 0
+    fi
+    /etc/init.d/nfsd enable
+    echo changed
+  args:
+    executable: /bin/ash
+  register: openwrt_nfsd_enable
+  changed_when: "'changed' in openwrt_nfsd_enable.stdout"
+  when: openwrt_nfs_server_enabled | bool
+
+- name: nfsd を起動
+  ansible.builtin.shell: |
+    if /etc/init.d/nfsd status >/dev/null 2>&1; then
+      exit 0
+    fi
+    /etc/init.d/nfsd start
+    echo changed
+  args:
+    executable: /bin/ash
+  register: openwrt_nfsd_start
+  changed_when: "'changed' in openwrt_nfsd_start.stdout"
+  failed_when: openwrt_nfsd_start.rc not in [0]
+  when: openwrt_nfs_server_enabled | bool
+
+- name: NFS エクスポートを確認
+  ansible.builtin.shell: |
+    if command -v showmount >/dev/null 2>&1; then
+      showmount -e 127.0.0.1
+    else
+      rpcinfo -p 127.0.0.1
+    fi
+  args:
+    executable: /bin/ash
+  register: openwrt_nfs_export_check
+  changed_when: false
+  failed_when: openwrt_nfs_export_check.rc != 0
+  when:
+    - openwrt_nfs_server_enabled | bool
+    - not ansible_check_mode
+
+- name: NFS エクスポート確認コマンドを案内
+  ansible.builtin.debug:
+    msg: "チェックモードのため NFS エクスポート確認は実行していません。解除後に 'showmount -e {{ openwrt_lan_ipaddr | default(ansible_host | default('<router-ip>'), true) }}' 等で確認してください。"
+  when:
+    - openwrt_nfs_server_enabled | bool
+    - ansible_check_mode

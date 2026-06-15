@@ -1,0 +1,18 @@
+---
+- name: ripgrep を install
+  become: true
+  community.general.portage:
+    package: sys-apps/ripgrep
+    state: present
+    loadavg: 5
+  tags:
+    - rg
+    - cli_tools
+
+- name: rg command を確認
+  ansible.builtin.shell: command -v rg
+  register: common_ripgrep_command
+  changed_when: false
+  tags:
+    - rg
+    - cli_tools

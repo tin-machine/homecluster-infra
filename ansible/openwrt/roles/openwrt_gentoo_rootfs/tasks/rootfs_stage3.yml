@@ -1,0 +1,82 @@
+---
+- name: Stage3 マーカーの存在確認
+  ansible.builtin.stat:
+    path: "{{ openwrt_gentoo_marker_path }}"
+  register: openwrt_gentoo_marker
+  when: openwrt_gentoo_enabled | bool
+
+- name: 既存 rootfs を削除
+  ansible.builtin.file:
+    path: "{{ openwrt_gentoo_rootfs_dir }}"
+    state: absent
+  when:
+    - openwrt_gentoo_enabled | bool
+    - not ansible_check_mode
+    - openwrt_gentoo_force_reextract | bool
+
+- name: rootfs ディレクトリを再作成
+  ansible.builtin.file:
+    path: "{{ openwrt_gentoo_rootfs_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  when: openwrt_gentoo_enabled | bool
+
+- name: Stage3 アーカイブをダウンロード
+  ansible.builtin.get_url:
+    url: "{{ openwrt_gentoo_stage3_url }}"
+    dest: "{{ openwrt_gentoo_stage3_path }}"
+    mode: '0644'
+    force: "{{ openwrt_gentoo_force_reextract | bool }}"
+    checksum: >-
+      {%- if (openwrt_gentoo_stage3_checksum_algo | default('', true) | string | trim) | length > 0
+            and (openwrt_gentoo_stage3_checksum_value | default('', true) | string | trim) | length > 0 -%}
+      {{ openwrt_gentoo_stage3_checksum_algo ~ ':' ~ openwrt_gentoo_stage3_checksum_value }}
+      {%- else -%}
+      {{ omit }}
+      {%- endif -%}
+  when:
+    - openwrt_gentoo_enabled | bool
+    - not ansible_check_mode
+
+- name: Stage3 を展開
+  ansible.builtin.shell: |
+    set -o pipefail
+    xz -d -c "{{ openwrt_gentoo_stage3_path }}" | tar -xpf - -C "{{ openwrt_gentoo_rootfs_dir }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - not ansible_check_mode
+    - openwrt_gentoo_force_reextract | bool or not openwrt_gentoo_marker.stat.exists | default(false)
+
+- name: Stage3 展開後のマーカーを作成
+  ansible.builtin.copy:
+    dest: "{{ openwrt_gentoo_marker_path }}"
+    mode: '0644'
+    content: |
+      stage3_url={{ openwrt_gentoo_stage3_url }}
+      stage3_filename={{ openwrt_gentoo_stage3_filename }}
+  when:
+    - openwrt_gentoo_enabled | bool
+    - not ansible_check_mode
+    - openwrt_gentoo_force_reextract | bool or not (openwrt_gentoo_marker.stat.exists | default(false))
+
+- name: root パスワードを更新
+  ansible.builtin.replace:
+    path: "{{ openwrt_gentoo_rootfs_dir }}/etc/shadow"
+    regexp: '^root:[^:]*:'
+    replace: "root:{{ openwrt_gentoo_root_password_hash }}:"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_root_password_hash is not none
+    - (openwrt_gentoo_root_password_hash | string | trim) | length > 0
+
+- name: latest シンボリックリンクを更新
+  ansible.builtin.file:
+    dest: "{{ openwrt_gentoo_latest_path }}"
+    src: "{{ openwrt_gentoo_release_dir }}"
+    state: link
+    force: true
+    owner: root
+    group: root
+  when: openwrt_gentoo_enabled | bool

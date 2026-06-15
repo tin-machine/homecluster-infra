@@ -1,0 +1,819 @@
+---
+- name: 従来の ansible-pull スクリプトを削除
+  ansible.builtin.file:
+    path: "{{ openwrt_gentoo_rootfs_dir }}/usr/local/sbin/pxe-ansible-pull.sh"
+    state: absent
+  when:
+    - openwrt_gentoo_enabled | bool
+
+- name: ansible-pull 反映 rootfs を決定
+  ansible.builtin.set_fact:
+    openwrt_gentoo_ansible_pull_rootfs_dirs: "{{ openwrt_gentoo_pxe_rootfs_dirs | default(openwrt_gentoo_timesync_rootfs_dirs | default([openwrt_gentoo_rootfs_dir])) }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_ansible_pull_enabled | bool
+  tags:
+    - pxe
+    - pxe_ansible_pull
+    - pxe_timesync
+
+- name: ansible-pull repo URL を検証
+  ansible.builtin.assert:
+    that:
+      - openwrt_gentoo_ansible_pull_repo_url is defined
+      - (openwrt_gentoo_ansible_pull_repo_url | string | trim) | length > 0
+      - "'example/' not in (openwrt_gentoo_ansible_pull_repo_url | string)"
+      - "'example.com' not in (openwrt_gentoo_ansible_pull_repo_url | string)"
+    fail_msg: "openwrt_gentoo_ansible_pull_repo_url を site inventory で指定してください。placeholder URL は PXE client の ansible-pull 失敗につながります。"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_ansible_pull_enabled | bool
+  tags:
+    - pxe
+    - pxe_ansible_pull
+
+- name: ansible-pull systemd unit を配置
+  ansible.builtin.template:
+    src: systemd/ansible-pull@.service.j2
+    dest: "{{ item }}/etc/systemd/system/ansible-pull@.service"
+    owner: root
+    group: root
+    mode: '0644'
+  loop: "{{ openwrt_gentoo_ansible_pull_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+  loop_control:
+    label: "{{ item }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_ansible_pull_enabled | bool
+  tags:
+    - pxe
+    - pxe_ansible_pull
+    - pxe_timesync
+
+- name: ansible-pull wrapper を配置
+  ansible.builtin.template:
+    src: pxe-ansible-pull-wrapper.sh.j2
+    dest: "{{ item }}/usr/local/sbin/pxe-ansible-pull-wrapper.sh"
+    owner: root
+    group: root
+    mode: '0755'
+  loop: "{{ openwrt_gentoo_ansible_pull_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+  loop_control:
+    label: "{{ item }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_ansible_pull_enabled | bool
+  tags:
+    - pxe
+    - pxe_ansible_pull
+
+- name: Slack 通知スクリプトを配置
+  ansible.builtin.template:
+    src: pxe-slack-notify.sh.j2
+    dest: "{{ openwrt_gentoo_rootfs_dir }}/usr/local/sbin/pxe-slack-notify.sh"
+    owner: root
+    group: root
+    mode: '0755'
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_ansible_pull_enabled | bool
+  tags:
+    - pxe
+    - pxe_slack
+
+- name: ansible-pull 用 netrc を配置
+  ansible.builtin.template:
+    src: netrc.j2
+    dest: "{{ item }}/root/.netrc"
+    owner: root
+    group: root
+    mode: '0600'
+  loop: "{{ openwrt_gentoo_ansible_pull_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+  loop_control:
+    label: "{{ item }}"
+  no_log: true
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_ansible_pull_enabled | bool
+    - (openwrt_gentoo_ansible_pull_netrc_entries | length) > 0
+  tags:
+    - pxe
+    - pxe_ansible_pull
+
+- name: ansible-pull 用 netrc を削除
+  ansible.builtin.file:
+    path: "{{ item }}/root/.netrc"
+    state: absent
+  loop: "{{ openwrt_gentoo_ansible_pull_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+  loop_control:
+    label: "{{ item }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_ansible_pull_enabled | bool
+    - (openwrt_gentoo_ansible_pull_netrc_entries | length) == 0
+  tags:
+    - pxe
+    - pxe_ansible_pull
+
+- name: ansible-pull ワークディレクトリを作成
+  ansible.builtin.file:
+    path: "{{ item }}/var/lib/ansible-pull"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop: "{{ openwrt_gentoo_ansible_pull_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+  loop_control:
+    label: "{{ item }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_ansible_pull_enabled | bool
+  tags:
+    - pxe
+    - pxe_ansible_pull
+
+- name: ansible-pull inventory ディレクトリを作成
+  ansible.builtin.file:
+    path: "{{ item }}/etc/ansible-pull"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop: "{{ openwrt_gentoo_ansible_pull_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+  loop_control:
+    label: "{{ item }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_ansible_pull_enabled | bool
+  tags:
+    - pxe
+    - pxe_ansible_pull
+
+- name: ansible-pull group_vars ディレクトリを作成
+  ansible.builtin.file:
+    path: "{{ item }}/etc/ansible-pull/group_vars/all"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop: "{{ openwrt_gentoo_ansible_pull_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+  loop_control:
+    label: "{{ item }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_ansible_pull_enabled | bool
+    - users is defined
+  tags:
+    - pxe
+    - pxe_ansible_pull
+
+- name: ansible-pull group_vars 定義を検証
+  ansible.builtin.assert:
+    that:
+      - (openwrt_gentoo_ansible_pull_group_vars_effective | default(openwrt_gentoo_ansible_pull_group_vars | default({}))) is mapping
+    fail_msg: "openwrt_gentoo_ansible_pull_group_vars_effective は YAML mapping にしてください。"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_ansible_pull_enabled | bool
+    - openwrt_gentoo_ansible_pull_group_vars_effective is defined or openwrt_gentoo_ansible_pull_group_vars is defined
+  tags:
+    - pxe
+    - pxe_ansible_pull
+
+- name: ansible-pull group_vars effective を決定
+  ansible.builtin.set_fact:
+    openwrt_gentoo_ansible_pull_group_vars_runtime: "{{ openwrt_gentoo_ansible_pull_group_vars_effective | default(openwrt_gentoo_ansible_pull_group_vars | default({})) }}"
+  no_log: true
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_ansible_pull_enabled | bool
+  tags:
+    - pxe
+    - pxe_ansible_pull
+
+- name: PXE server address を ansible-pull NTP 入力に投影
+  ansible.builtin.set_fact:
+    openwrt_gentoo_ansible_pull_group_vars_runtime: >-
+      {{
+        openwrt_gentoo_ansible_pull_group_vars_runtime
+        | combine({'all': {'ntp_servers': [openwrt_gentoo_server_host]}}, recursive=True)
+      }}
+  no_log: true
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_ansible_pull_enabled | bool
+  tags:
+    - pxe
+    - pxe_ansible_pull
+
+- name: ansible-pull group_vars に distcc hosts を注入
+  ansible.builtin.set_fact:
+    openwrt_gentoo_ansible_pull_group_vars_runtime: >-
+      {{
+        openwrt_gentoo_ansible_pull_group_vars_runtime
+        | default({})
+        | combine({'all': {'distcc_hosts': openwrt_gentoo_distcc_hosts_effective | trim}}, recursive=True)
+      }}
+  no_log: true
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_ansible_pull_enabled | bool
+    - openwrt_gentoo_distcc_enabled | bool
+    - openwrt_gentoo_distcc_hosts_effective is defined
+    - (openwrt_gentoo_distcc_hosts_effective | trim | length) > 0
+  tags:
+    - pxe
+    - pxe_ansible_pull
+    - gentoo_distcc
+
+- name: ansible-pull group_vars 各グループ定義を検証
+  ansible.builtin.assert:
+    that:
+      - item.key is match('^[A-Za-z0-9_][A-Za-z0-9_.-]*$')
+      - item.value is mapping
+    fail_msg: >-
+      openwrt_gentoo_ansible_pull_group_vars の各キーは group 名として使える文字列、
+      値は YAML mapping にしてください: {{ item.key }}
+  loop: "{{ (openwrt_gentoo_ansible_pull_group_vars_runtime | default({})) | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  no_log: true
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_ansible_pull_enabled | bool
+    - (openwrt_gentoo_ansible_pull_group_vars_runtime | default({}) | length) > 0
+  tags:
+    - pxe
+    - pxe_ansible_pull
+
+- name: ansible-pull group_vars 用ディレクトリを作成
+  ansible.builtin.file:
+    path: "{{ item.0 }}/etc/ansible-pull/group_vars/{{ item.1.key }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop: "{{ (openwrt_gentoo_ansible_pull_rootfs_dirs | default([openwrt_gentoo_rootfs_dir])) | product((openwrt_gentoo_ansible_pull_group_vars_runtime | default({})) | dict2items) | list }}"
+  loop_control:
+    label: "{{ item.0 }} {{ item.1.key }}"
+  no_log: true
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_ansible_pull_enabled | bool
+    - (openwrt_gentoo_ansible_pull_group_vars_runtime | default({}) | length) > 0
+  tags:
+    - pxe
+    - pxe_ansible_pull
+
+- name: ansible-pull group_vars を配置
+  ansible.builtin.template:
+    src: ansible-pull.group_vars.yml.j2
+    dest: "{{ item.0 }}/etc/ansible-pull/group_vars/{{ item.1.key }}/vars.yml"
+    owner: root
+    group: root
+    mode: '0600'
+  vars:
+    ansible_pull_group_vars: "{{ item.1.value }}"
+  loop: "{{ (openwrt_gentoo_ansible_pull_rootfs_dirs | default([openwrt_gentoo_rootfs_dir])) | product((openwrt_gentoo_ansible_pull_group_vars_runtime | default({})) | dict2items) | list }}"
+  loop_control:
+    label: "{{ item.0 }} {{ item.1.key }}"
+  no_log: true
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_ansible_pull_enabled | bool
+    - (openwrt_gentoo_ansible_pull_group_vars_runtime | default({}) | length) > 0
+  tags:
+    - pxe
+    - pxe_ansible_pull
+
+- name: ansible-pull group_vars ディレクトリを検出
+  ansible.builtin.find:
+    paths: "{{ item }}/etc/ansible-pull/group_vars"
+    file_type: directory
+    recurse: false
+  loop: "{{ openwrt_gentoo_ansible_pull_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+  register: openwrt_gentoo_ansible_pull_group_vars_directories
+  no_log: true
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_ansible_pull_enabled | bool
+  tags:
+    - pxe
+    - pxe_ansible_pull
+
+- name: ansible-pull の不要な group_vars ディレクトリを削除
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: absent
+  loop: "{{ openwrt_gentoo_ansible_pull_group_vars_directories.results | map(attribute='files') | flatten }}"
+  no_log: true
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_ansible_pull_enabled | bool
+    - (item.path | basename) not in ((openwrt_gentoo_ansible_pull_group_vars_runtime | default({})).keys() | list)
+  tags:
+    - pxe
+    - pxe_ansible_pull
+
+- name: ansible-pull client vars root ディレクトリを作成
+  ansible.builtin.file:
+    path: "{{ item }}/etc/ansible-pull/client_vars"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop: "{{ openwrt_gentoo_ansible_pull_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+  no_log: true
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_ansible_pull_enabled | bool
+  tags:
+    - pxe
+    - pxe_ansible_pull
+
+- name: ansible-pull client vars ファイルを検出
+  ansible.builtin.find:
+    paths: "{{ item }}/etc/ansible-pull/client_vars"
+    file_type: file
+    patterns:
+      - '*.yml'
+    recurse: true
+  loop: "{{ openwrt_gentoo_ansible_pull_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+  register: openwrt_gentoo_ansible_pull_client_vars_files
+  no_log: true
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_ansible_pull_enabled | bool
+  tags:
+    - pxe
+    - pxe_ansible_pull
+
+- name: ansible-pull の不要な client vars ファイルを削除
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: absent
+  loop: "{{ openwrt_gentoo_ansible_pull_client_vars_files.results | map(attribute='files') | flatten }}"
+  no_log: true
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_ansible_pull_enabled | bool
+    - >-
+      (
+        openwrt_gentoo_ansible_pull_client_vars_effective
+        | default([])
+        | selectattr('overlay_id', 'equalto', (item.path | dirname | basename))
+        | selectattr('role', 'equalto', (item.path | basename | regex_replace('\.yml$', '')))
+        | list
+        | length
+      ) == 0
+  tags:
+    - pxe
+    - pxe_ansible_pull
+
+- name: ansible-pull client vars 定義を検証
+  ansible.builtin.assert:
+    that:
+      - item is mapping
+      - (item.overlay_id | default('') | string | trim) | length > 0
+      - (item.overlay_id | string) is match('^[A-Za-z0-9_.-]+$')
+      - (item.role | default('') | string | trim) | length > 0
+      - (item.role | string) is match('^[A-Za-z0-9_.-]+$')
+      - item.vars is mapping
+    fail_msg: "openwrt_gentoo_ansible_pull_client_vars_effective は overlay_id / role / vars(mapping) を指定してください。"
+  loop: "{{ openwrt_gentoo_ansible_pull_client_vars_effective | default([]) }}"
+  loop_control:
+    label: "{{ item.overlay_id | default('unknown') }} {{ item.role | default('unknown') }}"
+  no_log: true
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_ansible_pull_enabled | bool
+    - (openwrt_gentoo_ansible_pull_client_vars_effective | default([]) | length) > 0
+  tags:
+    - pxe
+    - pxe_ansible_pull
+
+- name: ansible-pull client vars 用ディレクトリを作成
+  ansible.builtin.file:
+    path: "{{ item.0 }}/etc/ansible-pull/client_vars/{{ item.1.overlay_id }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop: "{{ (openwrt_gentoo_ansible_pull_rootfs_dirs | default([openwrt_gentoo_rootfs_dir])) | product(openwrt_gentoo_ansible_pull_client_vars_effective | default([])) | list }}"
+  loop_control:
+    label: "{{ item.0 }} {{ item.1.overlay_id }} {{ item.1.role }}"
+  no_log: true
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_ansible_pull_enabled | bool
+    - (openwrt_gentoo_ansible_pull_client_vars_effective | default([]) | length) > 0
+  tags:
+    - pxe
+    - pxe_ansible_pull
+
+- name: ansible-pull client vars を配置
+  ansible.builtin.template:
+    src: ansible-pull.client_vars.yml.j2
+    dest: "{{ item.0 }}/etc/ansible-pull/client_vars/{{ item.1.overlay_id }}/{{ item.1.role }}.yml"
+    owner: root
+    group: root
+    mode: '0600'
+  vars:
+    ansible_pull_client_vars: "{{ item.1.vars }}"
+  loop: "{{ (openwrt_gentoo_ansible_pull_rootfs_dirs | default([openwrt_gentoo_rootfs_dir])) | product(openwrt_gentoo_ansible_pull_client_vars_effective | default([])) | list }}"
+  loop_control:
+    label: "{{ item.0 }} {{ item.1.overlay_id }} {{ item.1.role }}"
+  no_log: true
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_ansible_pull_enabled | bool
+    - (openwrt_gentoo_ansible_pull_client_vars_effective | default([]) | length) > 0
+  tags:
+    - pxe
+    - pxe_ansible_pull
+
+- name: ansible-pull role 依存関係を決定
+  ansible.builtin.set_fact:
+    openwrt_gentoo_ansible_pull_role_dependencies_effective: >-
+      {{
+        {
+          'workstation_cli': {
+            'after': ['base']
+          }
+        } | combine(openwrt_gentoo_ansible_pull_role_dependencies | default({}), recursive=True)
+      }}
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_ansible_pull_enabled | bool
+    - (openwrt_gentoo_ansible_pull_roles | length) > 0
+  tags:
+    - pxe
+    - pxe_ansible_pull
+
+- name: ansible-pull root role を multi-user.target で有効化
+  ansible.builtin.file:
+    state: link
+    src: "../ansible-pull@.service"
+    dest: "{{ item.0 }}/etc/systemd/system/multi-user.target.wants/ansible-pull@{{ item.1 }}.service"
+    owner: root
+    group: root
+  loop: "{{ (openwrt_gentoo_ansible_pull_rootfs_dirs | default([openwrt_gentoo_rootfs_dir])) | product(openwrt_gentoo_ansible_pull_roles) | list }}"
+  loop_control:
+    label: "{{ item.0 }} {{ item.1 }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_ansible_pull_enabled | bool
+    - (openwrt_gentoo_ansible_pull_roles | length) > 0
+    - (((openwrt_gentoo_ansible_pull_role_dependencies_effective | default({})).get(item.1, {}).get('after', [])) | length) == 0
+  tags:
+    - pxe
+    - pxe_ansible_pull
+
+- name: ansible-pull dependent role の direct enable を削除
+  ansible.builtin.file:
+    path: "{{ item.0 }}/etc/systemd/system/multi-user.target.wants/ansible-pull@{{ item.1.key }}.service"
+    state: absent
+  loop: "{{ (openwrt_gentoo_ansible_pull_rootfs_dirs | default([openwrt_gentoo_rootfs_dir])) | product((openwrt_gentoo_ansible_pull_role_dependencies_effective | default({})) | dict2items) | list }}"
+  loop_control:
+    label: "{{ item.0 }} {{ item.1.key }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_ansible_pull_enabled | bool
+    - item.1.key in openwrt_gentoo_ansible_pull_roles
+    - (item.1.value.after | default([]) | length) > 0
+  tags:
+    - pxe
+    - pxe_ansible_pull
+
+- name: ansible-pull role drop-in ディレクトリを作成
+  ansible.builtin.file:
+    path: "{{ item.0 }}/etc/systemd/system/ansible-pull@{{ item.1.key }}.service.d"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop: "{{ (openwrt_gentoo_ansible_pull_rootfs_dirs | default([openwrt_gentoo_rootfs_dir])) | product((openwrt_gentoo_ansible_pull_role_dependencies_effective | default({})) | dict2items) | list }}"
+  loop_control:
+    label: "{{ item.0 }} {{ item.1.key }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_ansible_pull_enabled | bool
+    - item.1.key in openwrt_gentoo_ansible_pull_roles
+    - (item.1.value.after | default([]) | length) > 0
+  tags:
+    - pxe
+    - pxe_ansible_pull
+
+- name: ansible-pull role 起動順序 drop-in を配置
+  ansible.builtin.template:
+    src: systemd/ansible-pull@role.override.conf.j2
+    dest: "{{ item.0 }}/etc/systemd/system/ansible-pull@{{ item.1.key }}.service.d/override.conf"
+    owner: root
+    group: root
+    mode: '0644'
+  vars:
+    ansible_pull_role_dependency: "{{ item.1 }}"
+  loop: "{{ (openwrt_gentoo_ansible_pull_rootfs_dirs | default([openwrt_gentoo_rootfs_dir])) | product((openwrt_gentoo_ansible_pull_role_dependencies_effective | default({})) | dict2items) | list }}"
+  loop_control:
+    label: "{{ item.0 }} {{ item.1.key }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_ansible_pull_enabled | bool
+    - item.1.key in openwrt_gentoo_ansible_pull_roles
+    - (item.1.value.after | default([]) | length) > 0
+  tags:
+    - pxe
+    - pxe_ansible_pull
+
+- name: ansible-pull OnSuccess source role drop-in ディレクトリを作成
+  ansible.builtin.file:
+    path: "{{ item.0 }}/etc/systemd/system/ansible-pull@{{ item.1.value.after | last }}.service.d"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop: "{{ (openwrt_gentoo_ansible_pull_rootfs_dirs | default([openwrt_gentoo_rootfs_dir])) | product((openwrt_gentoo_ansible_pull_role_dependencies_effective | default({})) | dict2items) | list }}"
+  loop_control:
+    label: "{{ item.0 }} {{ item.1.value.after | default([]) | last | default('') }} -> {{ item.1.key }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_ansible_pull_enabled | bool
+    - item.1.key in openwrt_gentoo_ansible_pull_roles
+    - (item.1.value.after | default([]) | length) > 0
+    - (item.1.value.after | last) in openwrt_gentoo_ansible_pull_roles
+  tags:
+    - pxe
+    - pxe_ansible_pull
+
+- name: ansible-pull OnSuccess chain drop-in を配置
+  ansible.builtin.template:
+    src: systemd/ansible-pull@role.on-success.conf.j2
+    dest: "{{ item.0 }}/etc/systemd/system/ansible-pull@{{ item.1.value.after | last }}.service.d/10-on-success-{{ item.1.key }}.conf"
+    owner: root
+    group: root
+    mode: '0644'
+  vars:
+    ansible_pull_role_dependency: "{{ item.1 }}"
+  loop: "{{ (openwrt_gentoo_ansible_pull_rootfs_dirs | default([openwrt_gentoo_rootfs_dir])) | product((openwrt_gentoo_ansible_pull_role_dependencies_effective | default({})) | dict2items) | list }}"
+  loop_control:
+    label: "{{ item.0 }} {{ item.1.value.after | default([]) | last | default('') }} -> {{ item.1.key }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_ansible_pull_enabled | bool
+    - item.1.key in openwrt_gentoo_ansible_pull_roles
+    - (item.1.value.after | default([]) | length) > 0
+    - (item.1.value.after | last) in openwrt_gentoo_ansible_pull_roles
+  tags:
+    - pxe
+    - pxe_ansible_pull
+
+- name: k3s staging token publisher スクリプトを配置
+  ansible.builtin.template:
+    src: pxe-k3s-stg-token.sh.j2
+    dest: "{{ openwrt_gentoo_rootfs_dir }}/usr/local/sbin/pxe-k3s-stg-token.sh"
+    owner: root
+    group: root
+    mode: '0755'
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_ansible_pull_enabled | bool
+    - openwrt_gentoo_k3s_stg_auto_join_enabled | bool
+  tags:
+    - pxe
+    - pxe_ansible_pull
+    - k3s_stg_auto_join
+
+- name: k3s staging token publisher systemd unit を配置
+  ansible.builtin.template:
+    src: "systemd/{{ item.src }}"
+    dest: "{{ openwrt_gentoo_rootfs_dir }}/etc/systemd/system/{{ item.dest }}"
+    owner: root
+    group: root
+    mode: '0644'
+  loop:
+    - src: pxe-k3s-stg-token.service.j2
+      dest: pxe-k3s-stg-token.service
+    - src: pxe-k3s-stg-token.timer.j2
+      dest: pxe-k3s-stg-token.timer
+  loop_control:
+    label: "{{ item.dest }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_ansible_pull_enabled | bool
+    - openwrt_gentoo_k3s_stg_auto_join_enabled | bool
+  tags:
+    - pxe
+    - pxe_ansible_pull
+    - k3s_stg_auto_join
+
+- name: systemd timers target wants ディレクトリを作成
+  ansible.builtin.file:
+    path: "{{ openwrt_gentoo_rootfs_dir }}/etc/systemd/system/timers.target.wants"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_ansible_pull_enabled | bool
+    - openwrt_gentoo_k3s_stg_auto_join_enabled | bool
+  tags:
+    - pxe
+    - pxe_ansible_pull
+    - k3s_stg_auto_join
+
+- name: k3s staging token publisher timer を有効化
+  ansible.builtin.file:
+    state: link
+    src: "../pxe-k3s-stg-token.timer"
+    dest: "{{ openwrt_gentoo_rootfs_dir }}/etc/systemd/system/timers.target.wants/pxe-k3s-stg-token.timer"
+    owner: root
+    group: root
+    force: true
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_ansible_pull_enabled | bool
+    - openwrt_gentoo_k3s_stg_auto_join_enabled | bool
+  tags:
+    - pxe
+    - pxe_ansible_pull
+    - k3s_stg_auto_join
+
+- name: ansible-pull 用 inventory を配置
+  ansible.builtin.template:
+    src: ansible-pull.inventory.j2
+    dest: "{{ item }}/etc/ansible-pull/inventory.ini"
+    owner: root
+    group: root
+    mode: '0644'
+  loop: "{{ openwrt_gentoo_ansible_pull_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+  loop_control:
+    label: "{{ item }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_ansible_pull_enabled | bool
+  tags:
+    - pxe
+    - pxe_ansible_pull
+
+- name: ansible-pull 用 users vars を配置
+  ansible.builtin.template:
+    src: ansible-pull.group_vars.all.users.yml.j2
+    dest: "{{ item }}/etc/ansible-pull/group_vars/all/users.yml"
+    owner: root
+    group: root
+    mode: '0644'
+  loop: "{{ openwrt_gentoo_ansible_pull_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+  loop_control:
+    label: "{{ item }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_ansible_pull_enabled | bool
+    - users is defined
+  tags:
+    - pxe
+    - pxe_ansible_pull
+
+- name: PXE rootfs の旧 QNAP fstab entries を削除
+  ansible.builtin.lineinfile:
+    path: "{{ openwrt_gentoo_rootfs_dir }}/etc/fstab"
+    regexp: "{{ openwrt_gentoo_legacy_nfs_fstab_regexp }}"
+    state: absent
+  when:
+    - openwrt_gentoo_enabled | bool
+  tags:
+    - pxe
+    - pxe_ansible_pull
+
+- name: PXE rootfs の autofs ディレクトリを作成
+  ansible.builtin.file:
+    path: "{{ item }}/etc/autofs"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop: "{{ openwrt_gentoo_pxe_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+  loop_control:
+    label: "{{ item }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+  tags:
+    - pxe
+    - pxe_ansible_pull
+    - pxe_users
+
+- name: PXE rootfs の NFS home autofs 親ディレクトリを作成
+  ansible.builtin.file:
+    path: "{{ item.0 }}/{{ item.1 }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop: "{{ (openwrt_gentoo_pxe_rootfs_dirs | default([openwrt_gentoo_rootfs_dir])) | product([openwrt_gentoo_home_autofs_mount_root | regex_replace('^/', ''), (openwrt_gentoo_home_autofs_mount_root | regex_replace('^/', '')) ~ '/' ~ openwrt_gentoo_home_autofs_server]) | list }}"
+  loop_control:
+    label: "{{ item.0 }}/{{ item.1 }}"
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_home_autofs_enabled | bool
+  tags:
+    - pxe
+    - pxe_ansible_pull
+    - pxe_users
+
+- name: PXE rootfs の auto.master に home direct map を登録
+  ansible.builtin.lineinfile:
+    path: "{{ item }}/etc/autofs/auto.master"
+    line: "/-    /etc/autofs/auto.homes"
+    state: present
+    create: true
+    owner: root
+    group: root
+    mode: '0644'
+  loop: "{{ openwrt_gentoo_pxe_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+  loop_control:
+    label: "{{ item }}"
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_home_autofs_enabled | bool
+  tags:
+    - pxe
+    - pxe_ansible_pull
+    - pxe_users
+
+- name: PXE rootfs のホーム用 autofs map を更新
+  ansible.builtin.copy:
+    dest: "{{ item }}/etc/autofs/auto.homes"
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      {{ openwrt_gentoo_home_autofs_mount_root }}/{{ openwrt_gentoo_home_autofs_server }}{{ openwrt_gentoo_home_autofs_export }} -fstype=nfs4,vers=4.2,proto=tcp,hard,nodev,nosuid,noatime,async,rsize=1048576,wsize=1048576 {{ openwrt_gentoo_home_autofs_server }}:{{ openwrt_gentoo_home_autofs_export }}
+  loop: "{{ openwrt_gentoo_pxe_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+  loop_control:
+    label: "{{ item }}"
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_home_autofs_enabled | bool
+  tags:
+    - pxe
+    - pxe_ansible_pull
+    - pxe_users
+
+- name: PXE rootfs の autofs service wants ディレクトリを作成
+  ansible.builtin.file:
+    path: "{{ item }}/etc/systemd/system/multi-user.target.wants"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop: "{{ openwrt_gentoo_pxe_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+  loop_control:
+    label: "{{ item }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_home_autofs_enabled | bool
+  tags:
+    - pxe
+    - pxe_ansible_pull
+    - pxe_users
+
+- name: PXE rootfs の autofs service を有効化
+  ansible.builtin.file:
+    src: /usr/lib/systemd/system/autofs.service
+    dest: "{{ item }}/etc/systemd/system/multi-user.target.wants/autofs.service"
+    state: link
+    force: true
+    follow: false
+  loop: "{{ openwrt_gentoo_pxe_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+  loop_control:
+    label: "{{ item }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_home_autofs_enabled | bool
+  tags:
+    - pxe
+    - pxe_ansible_pull
+    - pxe_users
+
+- name: PXE rootfs の autofs OPTIONS を明示
+  ansible.builtin.lineinfile:
+    path: "{{ item }}/etc/conf.d/autofs"
+    regexp: '^OPTIONS='
+    line: 'OPTIONS=""'
+    create: true
+    owner: root
+    group: root
+    mode: '0644'
+  loop: "{{ openwrt_gentoo_pxe_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+  loop_control:
+    label: "{{ item }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_home_autofs_enabled | bool
+  tags:
+    - pxe
+    - pxe_ansible_pull
+    - pxe_users

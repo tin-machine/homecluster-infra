@@ -1,0 +1,19 @@
+---
+# OpenWrt sysupgrade 用の単独プレイブック
+# inventory.yml に openwrt_release_version / openwrt_perform_upgrade などを定義してください。
+
+- hosts: openwrt
+  gather_facts: false
+  vars:
+    ansible_user: root
+    ansible_shell_type: ash
+  roles:
+    - role: openwrt_sysupgrade
+      branch_type: "{{ hostvars[inventory_hostname].openwrt_branch_type | default('releases') }}"
+      release_version: "{{ hostvars[inventory_hostname].openwrt_release_version | default(omit, true) }}"
+      image_ext: "{{ hostvars[inventory_hostname].openwrt_image_ext | default('bin') }}"
+      perform_upgrade: "{{ hostvars[inventory_hostname].openwrt_perform_upgrade | default(false) }}"
+      preserve_settings: "{{ hostvars[inventory_hostname].openwrt_preserve_settings | default(true) }}"
+      download_dir: "{{ hostvars[inventory_hostname].openwrt_download_dir | default('/tmp') }}"
+      verify_sha256: "{{ hostvars[inventory_hostname].openwrt_verify_sha256 | default(true) }}"
+      verify_md5: "{{ hostvars[inventory_hostname].openwrt_verify_md5 | default(true) }}"

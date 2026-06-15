@@ -1,0 +1,94 @@
+config:
+  receivers:
+    otlp:
+      protocols:
+        grpc: {}
+        http: {}
+    filelog/pods:
+      include:
+        - /var/log/containers/*.log
+      start_at: end
+      include_file_name: false
+      operators:
+        - type: container
+    syslog/openwrt:
+      protocol: rfc3164
+      udp:
+        listen_address: 0.0.0.0:1514
+      tcp:
+        listen_address: 0.0.0.0:6514
+  processors:
+    batch: {}
+    resource/environment:
+      attributes:
+        - key: environment
+          value: staging
+          action: upsert
+        - key: loki.resource.labels
+          value: environment
+          action: upsert
+    attributes/openwrt:
+      actions:
+        - key: app
+          value: openwrt-router
+          action: upsert
+        - key: loki.attribute.labels
+          value: app
+          action: upsert
+  exporters:
+    loki:
+      endpoint: http://loki-gateway.observability-stg.svc.cluster.local/loki/api/v1/push
+      tls:
+        insecure: true
+    otlp/tempo:
+      endpoint: stg-tempo.observability-stg.svc.cluster.local:4317
+      tls:
+        insecure: true
+    prometheus:
+      endpoint: 0.0.0.0:8889
+      const_labels:
+        app: otel-collector
+        environment: staging
+  service:
+    telemetry:
+      logs:
+        level: info
+      metrics:
+        level: basic
+    pipelines:
+      logs:
+        receivers: [filelog/pods]
+        processors: [resource/environment, batch]
+        exporters: [loki]
+      "logs/openwrt":
+        receivers: [syslog/openwrt]
+        processors: [attributes/openwrt, resource/environment, batch]
+        exporters: [loki]
+      metrics:
+        receivers: [otlp]
+        processors: [resource/environment, batch]
+        exporters: [prometheus]
+      traces:
+        receivers: [otlp]
+        processors: [batch]
+        exporters: [otlp/tempo]
+
+podLabels:
+  environment: staging
+
+ports:
+  metrics:
+    enabled: true
+    containerPort: 8889
+    servicePort: 8889
+    protocol: TCP
+
+additionalLabels:
+  environment: staging
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    memory: 256Mi

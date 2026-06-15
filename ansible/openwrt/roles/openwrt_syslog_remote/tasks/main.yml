@@ -1,0 +1,73 @@
+---
+- name: リモート syslog 無効化時はスキップ
+  ansible.builtin.debug:
+    msg: "openwrt_syslog_remote_enabled=false のため、syslog 転送設定はスキップします"
+  when: not openwrt_syslog_remote_enabled | bool
+
+- name: リモート syslog 宛先が設定されているか確認
+  ansible.builtin.assert:
+    that:
+      - (openwrt_syslog_remote_host | string | trim) | length > 0
+      - (openwrt_syslog_remote_host | string) is not match('^(192\.0\.2\.|198\.51\.100\.|203\.0\.113\.)')
+    fail_msg: "openwrt_syslog_remote_host を external inventory で指定してください。documentation IP range は live apply で使えません。"
+  when: openwrt_syslog_remote_enabled | bool
+
+- name: syslog 転送設定を UCI で更新
+  ansible.builtin.shell: |
+    set -e
+    CHANGED=0
+    current_remote=$(uci -q get system.@system[0].log_remote 2>/dev/null || echo 0)
+    if [ "$current_remote" != "1" ]; then
+      uci set system.@system[0].log_remote='1'
+      CHANGED=1
+    fi
+    if [ "$(uci -q get system.@system[0].log_proto 2>/dev/null || echo '')" != '{{ openwrt_syslog_remote_proto }}' ]; then
+      uci set system.@system[0].log_proto='{{ openwrt_syslog_remote_proto }}'
+      CHANGED=1
+    fi
+    if [ "$(uci -q get system.@system[0].log_port 2>/dev/null || echo '')" != '{{ openwrt_syslog_remote_port }}' ]; then
+      uci set system.@system[0].log_port='{{ openwrt_syslog_remote_port }}'
+      CHANGED=1
+    fi
+    if [ "$(uci -q get system.@system[0].log_host 2>/dev/null || echo '')" != '{{ openwrt_syslog_remote_host }}' ]; then
+      uci set system.@system[0].log_host='{{ openwrt_syslog_remote_host }}'
+      CHANGED=1
+    fi
+    if [ "$(uci -q get system.@system[0].log_ip 2>/dev/null || echo '')" != '{{ openwrt_syslog_remote_host }}' ]; then
+      uci set system.@system[0].log_ip='{{ openwrt_syslog_remote_host }}'
+      CHANGED=1
+    fi
+    {% if openwrt_syslog_buffer_size is not none %}
+    if [ "$(uci -q get system.@system[0].log_buffer_size 2>/dev/null || echo '')" != '{{ openwrt_syslog_buffer_size }}' ]; then
+      uci set system.@system[0].log_buffer_size='{{ openwrt_syslog_buffer_size }}'
+      CHANGED=1
+    fi
+    {% endif %}
+    if [ $CHANGED -eq 1 ]; then
+      uci commit system
+      echo changed
+    fi
+  args:
+    executable: /bin/sh
+  register: openwrt_syslog_apply
+  changed_when: "'changed' in openwrt_syslog_apply.stdout"
+  when: openwrt_syslog_remote_enabled | bool
+  notify:
+    - Restart log service
+
+- name: syslog 転送設定を無効化
+  ansible.builtin.shell: |
+    set -e
+    if [ "$(uci -q get system.@system[0].log_remote 2>/dev/null || echo 0)" = "0" ]; then
+      exit 0
+    fi
+    uci set system.@system[0].log_remote='0'
+    uci commit system
+    echo disabled
+  args:
+    executable: /bin/sh
+  register: openwrt_syslog_disable
+  changed_when: "'disabled' in openwrt_syslog_disable.stdout"
+  when: not openwrt_syslog_remote_enabled | bool
+  notify:
+    - Restart log service

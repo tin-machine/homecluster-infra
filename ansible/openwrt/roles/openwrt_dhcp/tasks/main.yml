@@ -1,0 +1,76 @@
+---
+- name: PXE client catalog を合成
+  ansible.builtin.include_role:
+    name: openwrt_pxe_client_catalog
+    apply:
+      tags:
+        - always
+  tags:
+    - always
+
+- name: DHCP NTP server 定義を検証
+  ansible.builtin.assert:
+    that:
+      - (openwrt_dhcp_ntp_servers | default([])) is sequence
+      - (openwrt_dhcp_ntp_servers | default([])) is not string
+      - >-
+        ((openwrt_dhcp_ntp_servers | default([]) | map('string') | map('trim') | reject('equalto', '') | list) | length)
+        == ((openwrt_dhcp_ntp_servers | default([])) | length)
+      - >-
+        ((openwrt_dhcp_ntp_servers | default([]) | map('string') | select('match', '^(192\.0\.2\.|198\.51\.100\.|203\.0\.113\.)') | list) | length) == 0
+    fail_msg: "openwrt_dhcp_ntp_servers を external inventory で指定してください。documentation IP range は DHCP Option 42 に使えません。"
+  tags:
+    - dhcp
+
+- name: PXE boot 定義を検証
+  ansible.builtin.assert:
+    that:
+      - item.filename is defined
+      - item.networkid is defined
+      - item.serveraddress is defined
+      - item.servername is defined
+      - (item.filename | string | trim) | length > 0
+      - (item.networkid | string | trim) | length > 0
+      - (item.serveraddress | string | trim) | length > 0
+      - (item.servername | string | trim) | length > 0
+    fail_msg: "openwrt_pxe_boots は filename/networkid/serveraddress/servername を必ず指定してください。"
+  loop: "{{ openwrt_pxe_boots_effective | default(openwrt_pxe_boots | default([])) }}"
+  loop_control:
+    label: "{{ item.name | default('boot') }}"
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  when:
+    - (openwrt_pxe_boots_effective | default(openwrt_pxe_boots | default([]))) | length > 0
+  tags:
+    - dhcp
+
+- name: PXE host 定義を検証
+  ansible.builtin.assert:
+    that:
+      - item is mapping
+      - (item.name | default('') | string | trim) | length > 0
+      - (item.name | string) is match('^[0-9A-Za-z_.-]+$')
+      - (item.networkid | default(item.name) | string) is match('^[0-9A-Za-z_.:-]+$')
+      - item.dhcp_options is not defined or item.dhcp_options is sequence
+      - item.dhcp_options is not defined or item.dhcp_options is not string
+    fail_msg: "openwrt_dhcp_hosts_effective は name/networkid に空白・カンマ・引用符を含めず、DHCP Option は dhcp_options リストへ分けて定義してください。"
+  loop: "{{ openwrt_dhcp_hosts_effective | default(openwrt_pxe_hosts_effective | default(openwrt_pxe_hosts | default([]))) }}"
+  loop_control:
+    label: "{{ item.name | default(item.mac | default('host')) }}"
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  when:
+    - (openwrt_dhcp_hosts_effective | default(openwrt_pxe_hosts_effective | default(openwrt_pxe_hosts | default([])))) | length > 0
+  tags:
+    - dhcp
+
+- name: /etc/config/dhcp を適用
+  ansible.builtin.template:
+    src: dhcp.j2
+    dest: /etc/config/dhcp
+    owner: root
+    group: root
+    mode: '0644'
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  notify:
+    - Reload dnsmasq
+  tags:
+    - dhcp

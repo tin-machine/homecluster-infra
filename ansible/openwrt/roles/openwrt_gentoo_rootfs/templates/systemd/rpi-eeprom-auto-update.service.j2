@@ -1,0 +1,10 @@
+[Unit]
+Description=Apply available Raspberry Pi EEPROM bootloader update
+Documentation=https://www.raspberrypi.com/documentation/computers/raspberry-pi.html
+After=local-fs.target network-online.target time-sync.target pxe-bootstrap.service
+
+[Service]
+Type=oneshot
+ExecStart={{ openwrt_gentoo_rpi_eeprom_update_script_path }}
+StandardOutput=journal
+StandardError=journal

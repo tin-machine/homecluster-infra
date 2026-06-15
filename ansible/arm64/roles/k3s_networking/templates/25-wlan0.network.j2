@@ -1,0 +1,17 @@
+[Match]
+Name={{ k3s_wifi_iface_resolved }}
+
+[Link]
+{% if k3s_wifi_connection_mtu is defined and (k3s_wifi_connection_mtu | int) > 0 %}
+MTU={{ k3s_wifi_connection_mtu | int }}
+{% endif %}
+ConfigureWithoutCarrier={{ (k3s_wifi_configure_without_carrier | default(true)) | ternary('yes', 'no') }}
+
+[Network]
+DHCP={{ k3s_wifi_dhcp_mode | default('ipv4') }}
+IPv6AcceptRA={{ (k3s_wifi_ipv6_accept_ra | default(false)) | ternary('yes', 'no') }}
+
+[DHCP]
+RouteMetric={{ k3s_wifi_route_metric | int }}
+UseBroadcast={{ (k3s_wifi_dhcp_use_broadcast | default(true)) | ternary('yes', 'no') }}
+ClientIdentifier={{ k3s_wifi_dhcp_client_identifier | default('mac') }}

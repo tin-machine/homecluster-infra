@@ -1,0 +1,4 @@
+---
+- name: Restart log service
+  ansible.builtin.command: /etc/init.d/log restart
+  changed_when: true

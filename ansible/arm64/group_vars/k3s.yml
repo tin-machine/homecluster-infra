@@ -1,0 +1,7 @@
+---
+# k3s 共通のネットワーク設定
+k3s_flannel_backend: vxlan
+k3s_flannel_mtu: 1400
+k3s_disable_components:
+  - traefik
+  - servicelb

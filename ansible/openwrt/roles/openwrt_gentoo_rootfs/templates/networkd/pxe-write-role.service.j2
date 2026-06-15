@@ -1,0 +1,14 @@
+[Unit]
+Description=Write PXE role from DHCP lease (Option 224)
+After=network-online.target
+Wants=network-online.target
+ConditionPathExistsGlob={{ openwrt_gentoo_networkd_lease_dir }}/*
+StartLimitIntervalSec=0
+StartLimitBurst=0
+
+[Service]
+Type=oneshot
+ExecStart={{ openwrt_gentoo_networkd_role_script }}
+
+[Install]
+WantedBy=multi-user.target

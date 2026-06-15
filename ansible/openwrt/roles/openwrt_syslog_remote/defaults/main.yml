@@ -1,0 +1,6 @@
+---
+openwrt_syslog_remote_enabled: false
+openwrt_syslog_remote_host: ""
+openwrt_syslog_remote_port: 6514
+openwrt_syslog_remote_proto: tcp
+openwrt_syslog_buffer_size: null

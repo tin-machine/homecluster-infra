@@ -1,0 +1,5 @@
+[zram0]
+zram-size = min(ram * {{ zram_swap_fraction | float }}, {{ zram_swap_max_mb }}M)
+compression-algorithm = {{ zram_swap_compression }}
+swap-priority = {{ zram_swap_priority }}
+fs-type = swap

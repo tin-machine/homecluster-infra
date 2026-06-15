@@ -1,0 +1,180 @@
+---
+- name: banIP feed 名を検証
+  ansible.builtin.assert:
+    that:
+      - item is match('^[A-Za-z0-9_.-]+$')
+    fail_msg: "openwrt_banip_feeds は banIP feed 名だけを指定してください: {{ item }}"
+  loop: "{{ openwrt_banip_feeds }}"
+  loop_control:
+    label: "{{ item }}"
+
+- name: banIP block policy を検証
+  ansible.builtin.assert:
+    that:
+      - openwrt_banip_blockpolicy in ['drop', 'reject']
+    fail_msg: "openwrt_banip_blockpolicy は drop または reject を指定してください。"
+
+- name: banIP パッケージを導入
+  ansible.builtin.opkg:
+    name: "{{ item }}"
+    state: present
+    update_cache: "{{ openwrt_opkg_update | default(true) }}"
+  loop: "{{ ['banip'] + ((openwrt_banip_install_luci | bool) | ternary(['luci-app-banip'], [])) }}"
+  loop_control:
+    label: "{{ item }}"
+
+- name: banIP init スクリプトの存在確認
+  ansible.builtin.stat:
+    path: /etc/init.d/banip
+  register: openwrt_banip_init
+  when: not ansible_check_mode
+
+- name: banIP init スクリプト検証
+  ansible.builtin.fail:
+    msg: "/etc/init.d/banip が見つかりません。banip package の導入状態を確認してください。"
+  when:
+    - not ansible_check_mode
+    - openwrt_banip_init.stat is defined
+    - not openwrt_banip_init.stat.exists
+
+- name: banIP check mode の案内
+  ansible.builtin.debug:
+    msg: "check mode では banIP UCI / service 変更は実行しません。通常実行前に --list-tasks と diff を確認してください。"
+  when: ansible_check_mode
+
+- name: banIP UCI 設定を更新
+  ansible.builtin.shell: |
+    set -e
+    CHANGED=0
+
+    set_value() {
+      key="$1"
+      value="$2"
+      current="$(uci -q get "banip.global.${key}" 2>/dev/null || echo '')"
+      if [ "${current}" != "${value}" ]; then
+        uci set "banip.global.${key}=${value}"
+        CHANGED=1
+      fi
+    }
+
+    set_bool() {
+      key="$1"
+      value="$2"
+      if [ "${value}" = "True" ] || [ "${value}" = "true" ] || [ "${value}" = "1" ]; then
+        set_value "${key}" "1"
+      else
+        set_value "${key}" "0"
+      fi
+    }
+
+    set_bool ban_enabled "{{ openwrt_banip_enabled | bool }}"
+    set_bool ban_autodetect "{{ openwrt_banip_autodetect | bool }}"
+    set_value ban_blockpolicy "{{ openwrt_banip_blockpolicy }}"
+    set_bool ban_loginbound "{{ openwrt_banip_loginbound | bool }}"
+    set_bool ban_logoutbound "{{ openwrt_banip_logoutbound | bool }}"
+    set_bool ban_logprerouting "{{ openwrt_banip_logprerouting | bool }}"
+    set_bool ban_nftcount "{{ openwrt_banip_nftcount | bool }}"
+
+    current_feeds="$(uci -q get banip.global.ban_feed 2>/dev/null || echo '')"
+    desired_feeds="{{ openwrt_banip_feeds | join(' ') }}"
+    if [ "${current_feeds}" != "${desired_feeds}" ]; then
+      uci -q delete banip.global.ban_feed 2>/dev/null || true
+    {% for feed in openwrt_banip_feeds %}
+      uci add_list banip.global.ban_feed='{{ feed }}'
+    {% endfor %}
+      CHANGED=1
+    fi
+
+    if [ "${CHANGED}" -eq 1 ]; then
+      uci commit banip
+      echo changed
+    fi
+  args:
+    executable: /bin/sh
+  register: openwrt_banip_uci
+  changed_when: "'changed' in openwrt_banip_uci.stdout"
+  when: not ansible_check_mode
+
+- name: banIP 無効時はサービスを停止
+  ansible.builtin.shell: |
+    if ps w | awk '$5 == "/usr/bin/banip-service.sh" { found=1 } END { exit found ? 0 : 1 }'; then
+      /etc/init.d/banip stop
+      echo stopped
+    fi
+  args:
+    executable: /bin/sh
+  register: openwrt_banip_stop
+  changed_when: "'stopped' in openwrt_banip_stop.stdout"
+  when:
+    - not ansible_check_mode
+    - not (openwrt_banip_enabled | bool)
+
+- name: banIP 無効時は自動起動を無効化
+  ansible.builtin.shell: |
+    if /etc/init.d/banip enabled; then
+      /etc/init.d/banip disable
+      echo disabled
+    fi
+  args:
+    executable: /bin/sh
+  register: openwrt_banip_disable
+  changed_when: "'disabled' in openwrt_banip_disable.stdout"
+  when:
+    - not ansible_check_mode
+    - not (openwrt_banip_enabled | bool)
+
+- name: banIP 有効時は自動起動を有効化
+  ansible.builtin.shell: |
+    if /etc/init.d/banip enabled; then
+      exit 0
+    fi
+    /etc/init.d/banip enable
+    echo enabled
+  args:
+    executable: /bin/sh
+  register: openwrt_banip_enable
+  changed_when: "'enabled' in openwrt_banip_enable.stdout"
+  when:
+    - not ansible_check_mode
+    - openwrt_banip_enabled | bool
+
+- name: banIP 設定変更時はサービスを再起動
+  ansible.builtin.command: /etc/init.d/banip restart
+  register: openwrt_banip_restart
+  changed_when: true
+  when:
+    - not ansible_check_mode
+    - openwrt_banip_enabled | bool
+    - openwrt_banip_uci.changed | default(false)
+
+- name: banIP 有効時はサービスを起動
+  ansible.builtin.shell: |
+    if /etc/init.d/banip running >/dev/null 2>&1; then
+      exit 0
+    fi
+    /etc/init.d/banip start
+    echo started
+  args:
+    executable: /bin/sh
+  register: openwrt_banip_start
+  changed_when: "'started' in openwrt_banip_start.stdout"
+  failed_when: openwrt_banip_start.rc != 0
+  when:
+    - not ansible_check_mode
+    - openwrt_banip_enabled | bool
+
+- name: banIP 有効時の状態確認
+  ansible.builtin.command: /etc/init.d/banip status
+  register: openwrt_banip_status
+  changed_when: false
+  failed_when: openwrt_banip_status.rc != 0
+  when:
+    - not ansible_check_mode
+    - openwrt_banip_enabled | bool
+
+- name: firewall4 設定を検証
+  ansible.builtin.command: fw4 check
+  changed_when: false
+  when:
+    - not ansible_check_mode
+    - openwrt_banip_enabled | bool

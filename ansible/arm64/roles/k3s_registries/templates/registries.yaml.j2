@@ -1,0 +1,18 @@
+# Ansible managed.
+{% if k3s_registries_mirrors | length > 0 %}
+mirrors:
+{% for registry, endpoints in k3s_registries_mirrors | dictsort %}
+  "{{ registry }}":
+    endpoint:
+{% for endpoint in endpoints %}
+      - "{{ endpoint }}"
+{% endfor %}
+{% endfor %}
+{% endif %}
+{% if k3s_registries_configs | length > 0 %}
+configs:
+{% for registry, config in k3s_registries_configs | dictsort %}
+  "{{ registry }}":
+{{ config | to_nice_yaml(indent=2) | indent(4, true) }}
+{% endfor %}
+{% endif %}

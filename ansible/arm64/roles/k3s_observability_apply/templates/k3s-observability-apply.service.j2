@@ -1,0 +1,21 @@
+[Unit]
+Description=Run k3s observability Terraform apply after k3s is Ready
+Wants=network-online.target
+Requires=k3s.service
+After=network-online.target {{ k3s_observability_apply_after_units | join(' ') }}
+ConditionPathExists={{ k3s_observability_apply_kubeconfig_path }}
+RequiresMountsFor={{ k3s_observability_apply_state_mount_path }}
+RequiresMountsFor={{ k3s_observability_apply_k3s_data_dir }}
+
+[Service]
+Type=oneshot
+Environment=KUBECONFIG={{ k3s_observability_apply_kubeconfig_path }}
+ExecStartPre=/usr/local/sbin/k3s-observability-apply-wait.sh
+ExecStart=/usr/local/sbin/k3s-observability-apply.sh
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=2h
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

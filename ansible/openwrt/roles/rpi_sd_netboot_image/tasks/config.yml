@@ -1,0 +1,32 @@
+---
+- name: Render config.txt
+  ansible.builtin.template:
+    src: config.txt.j2
+    dest: "{{ rpi_boot_dir }}/config.txt"
+    mode: "0644"
+
+- name: Render cmdline files
+  ansible.builtin.template:
+    src: cmdline.txt.j2
+    dest: "{{ rpi_boot_dir }}/{{ item.dest }}"
+    mode: "0644"
+  vars:
+    boot_model: "{{ item.model }}"
+    root_path: "{{ item.root_path }}"
+  loop:
+    - model: pi3
+      root_path: "{{ rpi_root_path_pi3 }}"
+      dest: cmdline-pi3.txt
+    - model: pi4
+      root_path: "{{ rpi_root_path_pi4 }}"
+      dest: cmdline-pi4.txt
+    - model: pi5
+      root_path: "{{ rpi_root_path_pi5 }}"
+      dest: cmdline-pi5.txt
+  when: item.model in rpi_enabled_models_normalized
+
+- name: Render boot README
+  ansible.builtin.template:
+    src: README.txt.j2
+    dest: "{{ rpi_boot_dir }}/README.txt"
+    mode: "0644"

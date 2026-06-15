@@ -1,0 +1,6 @@
+# {{ ansible_managed }}
+{% for entry in openwrt_gentoo_ansible_pull_netrc_entries %}
+machine {{ entry.machine }}
+  login {{ entry.login }}
+  password {{ entry.password }}
+{% endfor %}

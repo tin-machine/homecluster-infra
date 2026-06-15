@@ -1,0 +1,43 @@
+---
+- name: Prepare SD netboot image workspace
+  ansible.builtin.import_tasks: prepare.yml
+  tags:
+    - rpi_sd_netboot_image
+    - rpi_sd_netboot_prepare
+
+- name: Copy Raspberry Pi firmware and DTBs
+  ansible.builtin.import_tasks: firmware.yml
+  tags:
+    - rpi_sd_netboot_image
+    - rpi_sd_netboot_stage
+
+- name: Copy kernels
+  ansible.builtin.import_tasks: kernel.yml
+  tags:
+    - rpi_sd_netboot_image
+    - rpi_sd_netboot_stage
+
+- name: Copy initramfs
+  ansible.builtin.import_tasks: initramfs.yml
+  tags:
+    - rpi_sd_netboot_image
+    - rpi_sd_netboot_stage
+
+- name: Render boot configuration
+  ansible.builtin.import_tasks: config.yml
+  tags:
+    - rpi_sd_netboot_image
+    - rpi_sd_netboot_stage
+
+- name: Validate boot staging directory
+  ansible.builtin.import_tasks: validate.yml
+  tags:
+    - rpi_sd_netboot_image
+    - rpi_sd_netboot_validate
+
+- name: Build disk image
+  ansible.builtin.import_tasks: image.yml
+  when: rpi_image_build | bool
+  tags:
+    - rpi_sd_netboot_image
+    - rpi_sd_netboot_build

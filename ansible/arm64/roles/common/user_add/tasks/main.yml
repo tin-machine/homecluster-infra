@@ -1,0 +1,90 @@
+# userの参考
+# https://runebook.dev/ja/docs/ansible/collections/ansible/builtin/user_module
+- name: ansibleユーザのUID/GIDを固定（2000）
+  block:
+    - name: ansibleユーザの存在を確認
+      ansible.builtin.command: getent passwd ansible
+      register: ansible_user_getent
+      changed_when: false
+      failed_when: false
+
+    - name: ansibleユーザのプロセスを確認
+      ansible.builtin.command: ps -u ansible -o pid=
+      register: ansible_user_ps
+      changed_when: false
+      failed_when: false
+      when: ansible_user_getent.rc == 0
+
+    - name: ansibleユーザが使用中か判定
+      ansible.builtin.set_fact:
+        ansible_user_in_use: "{{ (ansible_user_ps.stdout | default('') | trim) != '' }}"
+      when: ansible_user_getent.rc == 0
+
+    - name: ansibleユーザの状態を表示（使用中なら後続をスキップ）
+      ansible.builtin.debug:
+        msg: "ansibleユーザが利用中のためUID/GID更新をスキップします"
+      when:
+        - ansible_user_getent.rc == 0
+        - ansible_user_in_use | default(false)
+
+    - name: ansibleグループを作成/更新（GID 2000）
+      ansible.builtin.group:
+        name: ansible
+        gid: 2000
+        state: present
+
+    - name: ansibleユーザを作成/更新（UID/GID 2000）
+      ansible.builtin.user:
+        name: ansible
+        uid: 2000
+        group: 2000
+      when: ansible_user_getent.rc != 0 or not (ansible_user_in_use | default(false))
+
+    - name: users で ansible を定義していないか検証
+      ansible.builtin.assert:
+        that:
+          - users is not defined or (users.ansible is not defined)
+        fail_msg: "users で ansible を定義しないでください。ansible は UID/GID=2000 固定です。"
+
+- name: ユーザー追加
+  block:
+    - name: "ホームディレクトリの存在確認"
+      ansible.builtin.stat:
+        path: "{{ item.value.home }}"
+      loop: "{{ users | dict2items }}"
+      register: user_home_stats
+
+    - name: "グループ作成"
+      group:
+        name: "{{ item.key }}"
+        gid: "{{ item.value.gid }}"
+        state: present
+      loop: "{{ users | dict2items}}"
+    - name: "ユーザーアカウント作成"
+      user:
+        name: "{{ item.key }}"
+        password: "{{ item.value.password }}"
+        uid: "{{ item.value.uid }}"
+        group: "{{ item.value.gid }}"
+        groups: "{{ item.value.groups }}"
+        shell: "{{ item.value.shell }}"
+        home: "{{ item.value.home }}"
+        create_home: "{{ (user_home_stats.results[user_idx].stat.exists | default(false)) }}"
+      loop: "{{ users | dict2items}}"
+      loop_control:
+        index_var: user_idx
+
+- name: wheelグループのユーザはsudo可能にする
+  lineinfile:
+    path: '/etc/sudoers'
+    regexp: '^%wheel '
+    line: '%wheel ALL=(ALL:ALL) NOPASSWD: ALL'
+    state: present
+
+- name: ansible実行用ユーザansibleでパスワードログインを不可にする
+  block:
+  - block:
+    - name: /etc/ssh/sshd_config.d配下にコピー
+      copy:
+        src: files/ansible_no_password.conf
+        dest: /etc/ssh/sshd_config.d/ansible_no_password.conf

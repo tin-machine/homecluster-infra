@@ -1,0 +1,19 @@
+fullnameOverride: stg-kube-state-metrics
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    memory: 256Mi
+podLabels:
+  app.kubernetes.io/name: kube-state-metrics
+  app.kubernetes.io/instance: stg-kube-state-metrics
+  app.kubernetes.io/part-of: observability
+  environment: staging
+customLabels:
+  app.kubernetes.io/name: kube-state-metrics
+  app.kubernetes.io/instance: stg-kube-state-metrics
+  app.kubernetes.io/part-of: observability
+  environment: staging
+service:
+  type: ClusterIP

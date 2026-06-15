@@ -1,0 +1,9 @@
+---
+openwrt_ntp_enabled: true
+openwrt_ntp_enable_server: true
+openwrt_ntp_service: sysntpd
+openwrt_ntp_servers:
+  - 0.openwrt.pool.ntp.org
+  - 1.openwrt.pool.ntp.org
+  - 2.openwrt.pool.ntp.org
+  - 3.openwrt.pool.ntp.org

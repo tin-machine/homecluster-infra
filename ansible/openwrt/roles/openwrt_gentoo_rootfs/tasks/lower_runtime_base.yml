@@ -1,0 +1,58 @@
+---
+- name: overlay 用 fstab.overlay を配置
+  ansible.builtin.template:
+    src: fstab.overlay.j2
+    dest: "{{ openwrt_gentoo_rootfs_dir }}/etc/fstab.overlay"
+    owner: root
+    group: root
+    mode: '0644'
+  when: openwrt_gentoo_enabled | bool
+
+- name: systemd-networkd .network を配置
+  ansible.builtin.template:
+    src: networkd/10-wired-dhcp.network.j2
+    dest: "{{ openwrt_gentoo_rootfs_dir }}{{ openwrt_gentoo_network_unit_path }}"
+    owner: root
+    group: root
+    mode: '0644'
+  when: openwrt_gentoo_enabled | bool
+
+- name: DHCP 役割検出スクリプトを配置
+  ansible.builtin.template:
+    src: networkd/pxe-write-role.sh.j2
+    dest: "{{ openwrt_gentoo_rootfs_dir }}{{ openwrt_gentoo_networkd_role_script }}"
+    owner: root
+    group: root
+    mode: '0755'
+  when: openwrt_gentoo_enabled | bool
+
+- name: DHCP 役割検出 Path ユニットを配置
+  ansible.builtin.template:
+    src: networkd/pxe-write-role.path.j2
+    dest: "{{ openwrt_gentoo_rootfs_dir }}/etc/systemd/system/{{ openwrt_gentoo_networkd_role_path_unit }}"
+    owner: root
+    group: root
+    mode: '0644'
+  when: openwrt_gentoo_enabled | bool
+
+- name: DHCP 役割検出 Service ユニットを配置
+  ansible.builtin.template:
+    src: networkd/pxe-write-role.service.j2
+    dest: "{{ openwrt_gentoo_rootfs_dir }}/etc/systemd/system/{{ openwrt_gentoo_networkd_role_service }}"
+    owner: root
+    group: root
+    mode: '0644'
+  when: openwrt_gentoo_enabled | bool
+
+- name: systemd wants ディレクトリを作成
+  ansible.builtin.file:
+    path: "{{ openwrt_gentoo_rootfs_dir }}/etc/systemd/system/{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop:
+    - multi-user.target.wants
+  loop_control:
+    label: "{{ item }}"
+  when: openwrt_gentoo_enabled | bool

@@ -1,0 +1,32 @@
+---
+- name: k3s registries.yaml の親ディレクトリを確保
+  become: true
+  ansible.builtin.file:
+    path: "{{ k3s_registries_config_path | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: k3s registries.yaml を配置
+  become: true
+  ansible.builtin.template:
+    src: registries.yaml.j2
+    dest: "{{ k3s_registries_config_path }}"
+    owner: root
+    group: root
+    mode: '0644'
+  register: k3s_registries_template
+
+- name: k3s を再起動して registry 設定を反映
+  become: true
+  ansible.builtin.service:
+    name: "{{ k3s_registries_service_name }}"
+    state: restarted
+  when:
+    - k3s_registries_restart_service | bool
+    - k3s_registries_template.changed
+
+- name: k3s registry 設定の反映状況を表示
+  ansible.builtin.debug:
+    msg: "registries.yaml changed={{ k3s_registries_template.changed }} restart={{ k3s_registries_restart_service | bool }}"

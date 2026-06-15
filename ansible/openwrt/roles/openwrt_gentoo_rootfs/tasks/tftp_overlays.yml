@@ -1,0 +1,84 @@
+---
+- name: TFTP overlay ディレクトリ一覧を整形
+  ansible.builtin.set_fact:
+    openwrt_gentoo_tftp_overlay_dirs:
+      - overlays
+  when:
+    - openwrt_gentoo_enabled | bool
+  tags:
+    - tftp
+    - tftp-firmware
+    - tftp-overlays
+
+- name: TFTP overlay ディレクトリの既存状態を取得
+  ansible.builtin.stat:
+    path: "{{ openwrt_gentoo_tftp_dir }}/{{ item }}"
+    follow: false
+  loop: "{{ openwrt_gentoo_tftp_overlay_dirs | default([]) }}"
+  loop_control:
+    label: "{{ item }}"
+  register: openwrt_gentoo_tftp_overlay_dir_stats
+  when:
+    - openwrt_gentoo_enabled | bool
+    - (openwrt_gentoo_tftp_overlay_dirs | default([]) | length) > 0
+  tags:
+    - tftp
+    - tftp-firmware
+    - tftp-overlays
+
+- name: TFTP root 外へ向く既存 overlay symlink を削除
+  ansible.builtin.file:
+    path: "{{ item.stat.path }}"
+    state: absent
+  loop: "{{ openwrt_gentoo_tftp_overlay_dir_stats.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - item.stat.islnk | default(false)
+  tags:
+    - tftp
+    - tftp-firmware
+    - tftp-overlays
+
+- name: TFTP overlay ディレクトリを作成
+  ansible.builtin.file:
+    path: "{{ openwrt_gentoo_tftp_dir }}/{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop: "{{ openwrt_gentoo_tftp_overlay_dirs | default([]) }}"
+  loop_control:
+    label: "{{ item }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_tftp_fetch_firmware | bool
+    - (openwrt_gentoo_tftp_overlay_dirs | default([]) | length) > 0
+  tags:
+    - tftp
+    - tftp-firmware
+    - tftp-overlays
+
+- name: TFTP overlay ファイルを取得
+  ansible.builtin.get_url:
+    url: "{{ openwrt_gentoo_tftp_firmware_base_url.rstrip('/') }}/{{ item }}"
+    dest: "{{ openwrt_gentoo_tftp_dir }}/{{ item }}"
+    mode: '0644'
+    timeout: "{{ openwrt_gentoo_tftp_get_url_timeout }}"
+  loop:
+    - overlays/overlay_map.dtb
+    - overlays/bcm2712d0.dtbo
+  loop_control:
+    label: "{{ item }}"
+  register: tftp_overlay_get_url
+  retries: "{{ openwrt_gentoo_tftp_get_url_retries }}"
+  delay: "{{ openwrt_gentoo_tftp_get_url_delay }}"
+  until: tftp_overlay_get_url is succeeded
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_tftp_fetch_firmware | bool
+  tags:
+    - tftp
+    - tftp-firmware
+    - tftp-overlays

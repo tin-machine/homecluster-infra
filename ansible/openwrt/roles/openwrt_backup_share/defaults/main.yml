@@ -1,0 +1,24 @@
+---
+openwrt_backup_share_enabled: true
+
+openwrt_backup_share_source: /mnt/external-disk
+openwrt_backup_share_bind_target: /srv/external-disk
+openwrt_backup_share_fstype: ext4
+openwrt_backup_share_uuid: ""
+openwrt_backup_share_mount_options: rw,relatime
+openwrt_backup_share_bind_options: bind
+openwrt_backup_share_init_name: external-disk-bind
+
+# If false, tagless apply does not fail when the removable backup disk is absent.
+openwrt_backup_share_require_present: false
+
+# /srv is the NFSv4 pseudo-root, so clients mount this below the router export.
+openwrt_backup_share_export_enabled: true
+openwrt_backup_share_nfs_export:
+  path: "{{ openwrt_backup_share_bind_target }}"
+  ensure_dir: false
+  clients:
+    - host: "{{ openwrt_backup_share_nfs_client_cidr }}"
+      options: rw,sync,no_subtree_check,no_root_squash
+
+openwrt_backup_share_nfs_client_cidr: 192.0.2.0/24

@@ -1,0 +1,28 @@
+---
+- name: TFTP 追加ファイル用ディレクトリを作成
+  ansible.builtin.file:
+    path: "{{ openwrt_gentoo_tftp_dir }}/{{ item.key | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop: "{{ openwrt_gentoo_tftp_files | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_tftp_files | length > 0
+
+- name: TFTP 追加ファイルを配置
+  ansible.builtin.copy:
+    dest: "{{ openwrt_gentoo_tftp_dir }}/{{ item.key }}"
+    content: "{{ item.value }}"
+    owner: root
+    group: root
+    mode: '0644'
+  loop: "{{ openwrt_gentoo_tftp_files | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_tftp_files | length > 0

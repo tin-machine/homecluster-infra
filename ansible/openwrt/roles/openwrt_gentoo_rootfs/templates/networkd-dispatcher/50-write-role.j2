@@ -1,0 +1,74 @@
+#!/bin/sh
+
+# {{ ansible_managed }}
+
+set -eu
+
+LEASE_DIR="{{ openwrt_gentoo_networkd_lease_dir }}"
+ROLE_FILE="{{ openwrt_gentoo_role_output_path }}"
+ROLE_ENV_FILE="{{ openwrt_gentoo_role_env_output_path }}"
+OPTION_SEPARATOR="{{ openwrt_gentoo_option_separator }}"
+DEFAULT_STAGE="{{ openwrt_gentoo_stage_label | default('') }}"
+
+# IFACE_INDEX と IFACE は networkd-dispatcher が提供する環境変数
+if [ -z "${IFACE_INDEX:-}" ]; then
+    exit 0
+fi
+
+LEASE_FILE="${LEASE_DIR%/}/${IFACE_INDEX}"
+
+if [ ! -f "$LEASE_FILE" ]; then
+    exit 0
+fi
+
+value="$(sed -n 's/^OPTION_224=//p' "$LEASE_FILE" | tail -n1)"
+value="${value%\"}"
+value="${value#\"}"
+
+if [ -n "$value" ]; then
+    overlay_id=""
+    role=""
+    roles=""
+    stage="$DEFAULT_STAGE"
+    OLDIFS="$IFS"
+    IFS='
+'
+    set -- $(printf '%s' "$value" | perl -pe 's/,(?=[A-Za-z_]+=)/\n/g')
+    IFS="$OLDIFS"
+    for kv in "$@"; do
+        kv_clean="$(printf '%s' "$kv" | tr -d ' \t')"
+        [ -z "$kv_clean" ] && continue
+        key="${kv_clean%%=*}"
+        val="${kv_clean#*=}"
+        [ -z "$key" ] && continue
+        [ "$key" = "$val" ] && continue
+        key_lc="$(printf '%s' "$key" | tr '[:upper:]' '[:lower:]')"
+        case "$key_lc" in
+            overlay_id|overlay) overlay_id="$val" ;;
+            role) role="$val" ;;
+            roles) roles="$val" ;;
+            stage|env|environment) stage="$val" ;;
+        esac
+    done
+    if [ -n "$ROLE_FILE" ]; then
+        mkdir -p "$(dirname "$ROLE_FILE")"
+        printf '%s\n' "$value" > "$ROLE_FILE"
+    fi
+    if [ -z "$roles" ] && [ -n "$role" ]; then
+        roles="$role"
+    fi
+    {
+        [ -n "$overlay_id" ] && printf 'OVERLAY_ID=%s\n' "$overlay_id"
+        [ -n "$role" ] && printf 'ROLE=%s\n' "$role"
+        [ -n "$roles" ] && printf 'ROLES=%s\n' "$roles"
+        [ -n "$stage" ] && printf 'STAGE=%s\n' "$stage"
+        printf 'RAW_OPTION_224=%s\n' "$value"
+    } > "$ROLE_ENV_FILE"
+else
+    if [ -n "$ROLE_FILE" ]; then
+        rm -f "$ROLE_FILE"
+    fi
+    rm -f "$ROLE_ENV_FILE"
+fi
+
+exit 0

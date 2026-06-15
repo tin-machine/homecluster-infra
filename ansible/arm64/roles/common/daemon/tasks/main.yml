@@ -1,0 +1,26 @@
+# 下記のループは serviceしか、つまりloopの手前のものしかループされない可能性がある。
+- name: デーモン起動が必要なパッケージ
+  vars:
+    package_list:
+      - sys-process/cronie
+      - app-admin/rsyslog
+    daemon_list:
+      - cronie
+      - rsyslog
+  block:
+  - name: インストール
+    loop: "{{ package_list }}"
+    portage: >-
+      package={{ item }}
+      state=present
+  - name: rsyslogでport514でログを受け付けるようにする
+    copy:
+      src: ../files/60-tcpudp.conf
+      dest: /etc/rsyslog.d/
+      mode: 0644
+  - name: デーモン起動
+    loop: "{{ daemon_list }}"
+    service: >-
+      name={{ item }}
+      state=started
+      enabled=yes

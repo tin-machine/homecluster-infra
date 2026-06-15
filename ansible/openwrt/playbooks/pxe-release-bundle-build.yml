@@ -1,0 +1,19 @@
+---
+- name: Gentoo PXE paired clean release bundle build
+  hosts: openwrt
+  gather_facts: false
+  become: false
+  vars_files:
+    - ../group_vars/openwrt.yml
+
+  pre_tasks:
+    - name: OpenWrt Python bootstrap を適用
+      ansible.builtin.include_role:
+        name: bootstrap_python
+
+    - name: PXE release bundle build 入力を準備
+      ansible.builtin.import_tasks: tasks/pxe_release_bundle_prepare.yml
+
+  tasks:
+    - name: PXE release bundle build と manifest 検証を実行
+      ansible.builtin.import_tasks: tasks/pxe_release_bundle_build_and_manifest.yml

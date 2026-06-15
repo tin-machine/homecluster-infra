@@ -1,0 +1,12 @@
+---
+openwrt_banip_install: false
+openwrt_banip_enabled: false
+openwrt_banip_install_luci: false
+
+openwrt_banip_feeds: []
+openwrt_banip_autodetect: true
+openwrt_banip_blockpolicy: drop
+openwrt_banip_loginbound: false
+openwrt_banip_logoutbound: false
+openwrt_banip_logprerouting: false
+openwrt_banip_nftcount: false

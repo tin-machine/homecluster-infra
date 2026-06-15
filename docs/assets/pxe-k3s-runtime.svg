@@ -1,0 +1,131 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="900" viewBox="0 0 1200 900" role="img" aria-labelledby="title desc">
+  <title id="title">PXE / k3s ランタイム構成</title>
+  <desc id="desc">公開用のネットワーク構成図。インターネット、OpenWrt ルーター、PXE Gentoo ノード、その上に構成される k3s cluster、DHCP、TFTP、NFS、FRR BGP、syslog、k3s API の経路を示す。実ホスト名、アドレス、serial、MAC address、token、secret は省略している。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#334155" />
+    </marker>
+    <marker id="arrow-blue" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#2563eb" />
+    </marker>
+    <marker id="arrow-green" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#15803d" />
+    </marker>
+    <marker id="arrow-orange" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto-start-reverse" markerUnits="strokeWidth">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#c2410c" />
+    </marker>
+    <marker id="arrow-red" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#b91c1c" />
+    </marker>
+    <style>
+      .bg { fill: #f8fafc; }
+      .title { fill: #0f172a; font: 700 28px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .zone { fill: #ffffff; stroke: #cbd5e1; stroke-width: 1.5; }
+      .wan { fill: #ecfeff; stroke: #0891b2; }
+      .router { fill: #eef2ff; stroke: #4f46e5; stroke-width: 2; }
+      .lan { fill: #f1f5f9; stroke: #94a3b8; }
+      .cluster-zone { fill: #f0fdf4; stroke: #16a34a; }
+      .node-zone { fill: #fff7ed; stroke: #f97316; }
+      .box { fill: #ffffff; stroke: #64748b; stroke-width: 1.4; }
+      .chip { fill: #ffffff; stroke-width: 1.5; }
+      .dhcp { stroke: #2563eb; }
+      .tftp { stroke: #0284c7; }
+      .nfs { stroke: #15803d; }
+      .bgp { stroke: #c2410c; }
+      .log { stroke: #b91c1c; }
+      .label { fill: #0f172a; font: 700 15px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .small { fill: #475569; font: 500 12px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .tiny { fill: #64748b; font: 500 11px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .line { fill: none; stroke: #334155; stroke-width: 2; marker-end: url(#arrow); }
+      .line-blue { fill: none; stroke: #2563eb; stroke-width: 2.2; marker-end: url(#arrow-blue); }
+      .line-green { fill: none; stroke: #15803d; stroke-width: 2.2; marker-end: url(#arrow-green); }
+      .line-orange { fill: none; stroke: #c2410c; stroke-width: 2.2; marker-end: url(#arrow-orange); }
+      .line-orange-both { fill: none; stroke: #c2410c; stroke-width: 2.2; marker-start: url(#arrow-orange); marker-end: url(#arrow-orange); }
+      .line-red { fill: none; stroke: #b91c1c; stroke-width: 2.2; marker-end: url(#arrow-red); }
+    </style>
+  </defs>
+
+  <rect class="bg" width="1200" height="900" />
+  <text class="title" x="48" y="52">PXE / k3s ランタイム構成</text>
+
+  <rect class="zone wan" x="420" y="104" width="360" height="72" rx="8" />
+  <text class="label" x="600" y="134" text-anchor="middle">インターネット / WAN</text>
+  <text class="small" x="600" y="156" text-anchor="middle">上位接続</text>
+
+  <rect class="router" x="400" y="214" width="400" height="112" rx="8" />
+  <text class="label" x="600" y="244" text-anchor="middle">OpenWrt ルーター</text>
+  <text class="small" x="600" y="268" text-anchor="middle">routing / firewall / PXE サービス</text>
+  <text class="tiny" x="600" y="291" text-anchor="middle">dnsmasq / TFTP / NFS / FRR / syslog 転送</text>
+
+  <path class="line" d="M600 176 C600 190 600 200 600 210" />
+  <text class="tiny" x="616" y="204">WAN 経路 / NAT</text>
+
+  <rect class="zone lan" x="40" y="356" width="1120" height="500" rx="8" />
+  <text class="label" x="64" y="386">LAN / PXE 検証セグメント</text>
+
+  <rect class="chip dhcp" x="80" y="438" width="170" height="72" rx="8" />
+  <text class="label" x="165" y="466" text-anchor="middle">DHCP</text>
+  <text class="small" x="165" y="488" text-anchor="middle">boot metadata 配布</text>
+
+  <rect class="chip tftp" x="280" y="438" width="170" height="72" rx="8" />
+  <text class="label" x="365" y="466" text-anchor="middle">TFTP</text>
+  <text class="small" x="365" y="488" text-anchor="middle">kernel / initramfs</text>
+
+  <rect class="chip nfs" x="480" y="438" width="170" height="72" rx="8" />
+  <text class="label" x="565" y="466" text-anchor="middle">NFS</text>
+  <text class="small" x="565" y="488" text-anchor="middle">rootfs / binpkg / state</text>
+
+  <rect class="chip bgp" x="755" y="438" width="170" height="72" rx="8" />
+  <text class="label" x="840" y="466" text-anchor="middle">FRR BGP</text>
+  <text class="small" x="840" y="488" text-anchor="middle">MetalLB VIP 経路</text>
+
+  <rect class="chip log" x="950" y="438" width="170" height="72" rx="8" />
+  <text class="label" x="1035" y="466" text-anchor="middle">syslog</text>
+  <text class="small" x="1035" y="488" text-anchor="middle">UDP 1514 / TCP 6514</text>
+
+  <rect class="zone cluster-zone" x="270" y="548" width="860" height="128" rx="8" />
+  <text class="label" x="296" y="578">k3s cluster</text>
+  <text class="small" x="296" y="600">PXE Gentoo ノード上に構成される cluster 全体の service</text>
+
+  <rect class="box" x="305" y="617" width="170" height="44" rx="8" />
+  <text class="label" x="390" y="642" text-anchor="middle">Kubernetes API</text>
+
+  <rect class="box" x="510" y="617" width="170" height="44" rx="8" />
+  <text class="label" x="595" y="642" text-anchor="middle">MetalLB / ingress</text>
+
+  <rect class="box" x="715" y="617" width="170" height="44" rx="8" />
+  <text class="label" x="800" y="642" text-anchor="middle">Terraform apply</text>
+
+  <rect class="box" x="920" y="617" width="170" height="44" rx="8" />
+  <text class="label" x="1005" y="642" text-anchor="middle">監視系 LB</text>
+
+  <rect class="zone node-zone" x="90" y="708" width="1020" height="124" rx="8" />
+  <text class="label" x="116" y="738">PXE Gentoo ノード</text>
+  <text class="small" x="116" y="760">ネットワーク boot + tmpfs root overlay</text>
+
+  <rect class="box" x="315" y="772" width="210" height="46" rx="8" />
+  <text class="label" x="420" y="800" text-anchor="middle">rpi5 制御プレーン</text>
+
+  <rect class="box" x="565" y="772" width="210" height="46" rx="8" />
+  <text class="label" x="670" y="800" text-anchor="middle">rpi4 / rpi5 agent</text>
+
+  <rect class="box" x="815" y="772" width="210" height="46" rx="8" />
+  <text class="label" x="920" y="800" text-anchor="middle">agent local storage</text>
+
+  <path class="line-blue" d="M520 326 C500 374 228 374 165 438" />
+  <path class="line-blue" d="M550 326 C522 376 420 376 365 438" />
+  <path class="line-green" d="M600 326 C600 372 578 388 565 438" />
+  <path class="line-orange" d="M650 326 C720 378 814 382 840 438" />
+  <path class="line-red" d="M690 326 C820 372 1005 382 1035 438" />
+
+  <path class="line-blue" d="M165 510 C150 610 260 690 350 768" />
+  <path class="line-blue" d="M365 510 C338 610 370 698 420 768" />
+  <path class="line-green" d="M565 510 C528 620 500 710 420 768" />
+  <path class="line-green" d="M565 510 C600 602 698 654 800 617" />
+
+  <path class="line" d="M420 772 C415 730 400 696 390 665" />
+
+  <path class="line-orange-both" d="M840 510 C815 556 690 586 595 617" />
+  <path class="line-red" d="M1035 510 C1044 558 1028 586 1005 617" />
+
+</svg>

@@ -1,0 +1,123 @@
+---
+# Public OpenWrt / PXE baseline playbook.
+# Site-specific inventory, secrets, and storage exports stay outside this repository.
+
+- name: OpenWrt PXE infrastructure
+  hosts: openwrt
+  gather_facts: false
+  become: false
+  roles:
+    - role: bootstrap_python
+      tags: ['never', 'bootstrap']
+    - role: openwrt_storage
+      tags: ['never', 'openwrt_storage']
+      when: openwrt_enable_storage | default(false)
+    - role: openwrt_pxe_client_catalog
+      tags: ['always', 'pxe', 'dhcp', 'pxe_dnsmasq', 'pxe_hosts', 'tftp', 'tftp_hosts', 'pxe_tftp_switch', 'pxe_ansible_pull', 'pxe_release_bundle', 'pxe_rootfs_prune', 'pxe_timesync']
+    - role: openwrt_gentoo_rootfs
+      tags: ['never', 'pxe', 'pxe_rootfs']
+    - role: openwrt_backup_share
+      tags: ['backup_share']
+    - role: openwrt_nfs_server
+      tags: ['pxe', 'pxe_nfs', 'backup_share']
+    - role: openwrt_network
+      tags: ['network']
+    - role: openwrt_ntp
+      tags: ['ntp', 'openwrt_ntp']
+    - role: openwrt_firewall
+      tags: ['firewall']
+    - role: openwrt_banip
+      tags: ['banip', 'openwrt_banip']
+      when: (openwrt_banip_install | default(false) | bool) or (openwrt_banip_enabled | default(false) | bool)
+    - role: openwrt_dhcp
+      tags: ['dhcp']
+    - role: openwrt_pxe_dnsmasq
+      tags: ['pxe', 'pxe_dnsmasq']
+    - role: openwrt_wireless
+      tags: ['wireless']
+      when: openwrt_enable_wireless | default(false)
+    - role: openwrt_sysupgrade
+      tags: ['never', 'sysupgrade']
+      branch_type: "{{ openwrt_branch_type | default('releases') }}"
+      release_version: "{{ openwrt_release_version | default(omit, true) }}"
+      image_ext: "{{ openwrt_image_ext | default('bin') }}"
+      perform_upgrade: "{{ openwrt_perform_upgrade | default(false) }}"
+      preserve_settings: "{{ openwrt_preserve_settings | default(true) }}"
+      download_dir: "{{ openwrt_download_dir | default('/tmp') }}"
+      verify_sha256: "{{ openwrt_verify_sha256 | default(true) }}"
+      verify_md5: "{{ openwrt_verify_md5 | default(true) }}"
+    - role: openwrt_frr
+      tags: ['frr', 'openwrt_frr']
+      when: openwrt_enable_frr | default(false)
+    - role: openwrt_prometheus_exporter
+      tags: ['prometheus_exporter', 'openwrt_prometheus_exporter']
+      when: openwrt_enable_prometheus_exporter | default(false)
+    - role: openwrt_syslog_remote
+      tags: ['syslog_remote', 'openwrt_syslog_remote']
+      when: openwrt_syslog_remote_enabled | default(false)
+  tasks:
+    - name: Gentoo PXE TFTP 切替だけを反映
+      ansible.builtin.include_role:
+        name: openwrt_gentoo_rootfs
+        tasks_from: tftp_switch
+        apply:
+          tags:
+            - pxe_tftp_switch
+      tags:
+        - never
+        - pxe_tftp_switch
+
+    - name: Gentoo PXE networkd 設定だけを反映
+      ansible.builtin.include_role:
+        name: openwrt_gentoo_rootfs
+        tasks_from: networkd_config
+        apply:
+          tags:
+            - pxe_networkd_config
+      tags:
+        - never
+        - pxe_networkd_config
+
+    - name: Gentoo PXE rootfs clone だけを反映
+      ansible.builtin.include_role:
+        name: openwrt_gentoo_rootfs
+        tasks_from: rootfs_clone
+        apply:
+          tags:
+            - pxe_rootfs_clone
+      tags:
+        - never
+        - pxe_rootfs_clone
+
+    - name: Gentoo PXE rootfs prune 候補だけを確認
+      ansible.builtin.include_role:
+        name: openwrt_gentoo_rootfs
+        tasks_from: rootfs_prune
+        apply:
+          tags:
+            - pxe_rootfs_prune
+      tags:
+        - never
+        - pxe_rootfs_prune
+
+    - name: Gentoo PXE host release を rootfs maintenance 用に解決
+      ansible.builtin.include_role:
+        name: openwrt_gentoo_rootfs
+        tasks_from: pxe_host_releases
+        apply:
+          tags:
+            - pxe_rootfs_maintenance
+      tags:
+        - never
+        - pxe_rootfs_maintenance
+
+    - name: Gentoo PXE rootfs maintenance 候補だけを確認
+      ansible.builtin.include_role:
+        name: openwrt_gentoo_rootfs
+        tasks_from: rootfs_prune
+        apply:
+          tags:
+            - pxe_rootfs_maintenance
+      tags:
+        - never
+        - pxe_rootfs_maintenance

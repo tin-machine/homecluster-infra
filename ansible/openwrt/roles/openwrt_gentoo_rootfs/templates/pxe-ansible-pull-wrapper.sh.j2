@@ -1,0 +1,421 @@
+#!/bin/sh
+# Managed by Ansible (openwrt_gentoo_rootfs)
+
+set -eu
+
+ROLE_ARG="${1:-}"
+ROLE="${ROLE_ARG:-${ROLE:-}}"
+REPO_URL="${REPO_URL:-}"
+BRANCH="${BRANCH:-}"
+DEST="${DEST:-}"
+INVENTORY_PATH="/etc/ansible-pull/inventory.ini"
+STATE_DIR="/run/ansible-pull"
+RUNTIME_INVENTORY="${STATE_DIR}/inventory.ini"
+STATIC_INVENTORY_DIR="$(dirname "${INVENTORY_PATH}")"
+STATE_FILE="${STATE_DIR}/last.env"
+CURRENT_STEP="init"
+STATE_LOGGING_ENABLED=0
+EXTRA_VARS_FILE=""
+K3S_STG_AGENT_TOKEN_FILE="${K3S_STG_AGENT_TOKEN_FILE:-/run/pxe-bootstrap/logs/k3s-stg/agent-token}"
+K3S_STG_AGENT_TOKEN_META_FILE="${K3S_STG_AGENT_TOKEN_META_FILE:-/run/pxe-bootstrap/logs/k3s-stg/agent-token.meta}"
+K3S_STG_AGENT_TOKEN_WAIT_SECS="${K3S_STG_AGENT_TOKEN_WAIT_SECS:-{{ openwrt_gentoo_k3s_stg_agent_token_wait_seconds }}}"
+K3S_STG_AGENT_TOKEN_MAX_AGE_SECS="${K3S_STG_AGENT_TOKEN_MAX_AGE_SECS:-{{ openwrt_gentoo_k3s_stg_agent_token_max_age_seconds }}}"
+K3S_STG_AGENT_TOKEN_RETRY_SECS="${K3S_STG_AGENT_TOKEN_RETRY_SECS:-{{ openwrt_gentoo_k3s_stg_agent_token_retry_seconds }}}"
+K3S_STG_AGENT_SERVER_API_URL="${K3S_STG_AGENT_SERVER_API_URL:-{{ openwrt_gentoo_k3s_stg_server_api_url }}}"
+K3S_STG_AGENT_REGISTRATION_ADDRESS="${K3S_STG_AGENT_REGISTRATION_ADDRESS:-{{ openwrt_gentoo_k3s_stg_server_api_host }}}"
+
+now_epoch() {
+  if date +%s >/dev/null 2>&1; then
+    date +%s
+    return 0
+  fi
+  if command -v busybox >/dev/null 2>&1; then
+    busybox date +%s 2>/dev/null || true
+    return 0
+  fi
+  echo 0
+}
+
+START_TS="$(now_epoch)"
+
+state_file_for_role() {
+  role_name="${1:-unknown}"
+  safe_name="$(printf '%s' "${role_name}" | tr -c 'A-Za-z0-9_.@-' '_')"
+  printf '%s/%s.env\n' "${STATE_DIR}" "${safe_name}"
+}
+
+last_role_from_roles() {
+  roles_value="${ROLES:-${ROLE}}"
+  printf '%s' "${roles_value}" | awk -F, '{gsub(/[[:space:]]/, "", $NF); print $NF}'
+}
+
+should_notify() {
+  rc="$1"
+  if [ "${rc}" != "0" ]; then
+    return 0
+  fi
+  last_role="$(last_role_from_roles)"
+  [ "${ROLE}" = "${last_role}" ]
+}
+
+safe_inventory_name() {
+  value="$1"
+  safe_name="$(printf '%s' "${value}" | tr -c 'A-Za-z0-9_' '_')"
+  safe_name="${safe_name#_}"
+  safe_name="${safe_name%_}"
+  printf '%s' "${safe_name}"
+}
+
+branch_is_allowed() {
+  candidate="$1"
+  allowed_branches="${ANSIBLE_PULL_ALLOWED_BRANCHES:-main stg}"
+  for allowed_branch in ${allowed_branches}; do
+    [ "${candidate}" = "${allowed_branch}" ] && return 0
+  done
+  return 1
+}
+
+branch_from_stage() {
+  stage_value="${STAGE:-}"
+  case "${stage_value}" in
+    stg|staging)
+      printf '%s\n' "stg"
+      ;;
+    prod|prd|production)
+      printf '%s\n' "main"
+      ;;
+    "")
+      echo "STAGE is empty; cannot resolve ansible-pull branch" >&2
+      return 1
+      ;;
+    *)
+      echo "unsupported STAGE for ansible-pull branch: ${stage_value}" >&2
+      return 1
+      ;;
+  esac
+}
+
+resolve_branch() {
+  stage_branch="$(branch_from_stage)" || return 1
+
+  if [ -z "${BRANCH}" ]; then
+    BRANCH="${stage_branch}"
+  fi
+
+  if [ -z "${BRANCH}" ]; then
+    echo "BRANCH is empty" >&2
+    return 1
+  fi
+
+  if [ "${BRANCH}" != "${stage_branch}" ]; then
+    echo "BRANCH does not match STAGE: STAGE=${STAGE:-} expected=${stage_branch} actual=${BRANCH}" >&2
+    return 1
+  fi
+
+  if ! branch_is_allowed "${BRANCH}"; then
+    echo "BRANCH is not allowed: ${BRANCH}" >&2
+    return 1
+  fi
+
+  export BRANCH
+}
+
+meta_value() {
+  meta_path="$1"
+  meta_key="$2"
+  [ -f "${meta_path}" ] || return 1
+  awk -F= -v key="${meta_key}" '$1 == key { sub(/^[^=]*=/, "", $0); print; exit }' "${meta_path}"
+}
+
+secure_token_ca_hash() {
+  token_value="$1"
+  case "${token_value}" in
+    K10*::*)
+      remainder="${token_value#K10}"
+      printf '%s\n' "${remainder%%::*}"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+fetch_server_ca_hash() {
+  api_url="${1%/}"
+  [ -n "${api_url}" ] || return 1
+  curl -skf "${api_url}/cacerts" | sha256sum | awk '{print $1}'
+}
+
+write_runtime_inventory() {
+  stage_value="${STAGE:-prd}"
+  case "${stage_value}" in
+    stg|staging)
+      env_group="env_stg"
+      ;;
+    prd|prod|production)
+      env_group="env_prd"
+      ;;
+    *)
+      safe_stage="$(safe_inventory_name "${stage_value}")"
+      if [ -z "${safe_stage}" ]; then
+        echo "STAGE produced empty inventory group name: ${STAGE:-}" >&2
+        return 1
+      fi
+      env_group="env_${safe_stage}"
+      ;;
+  esac
+  safe_role="$(safe_inventory_name "${ROLE}")"
+  if [ -z "${safe_role}" ]; then
+    echo "ROLE produced empty inventory group name: ${ROLE}" >&2
+    return 1
+  fi
+  case "${safe_role}" in
+    k3s_stg_*) needs_k3s_stg_group=1 ;;
+    *) needs_k3s_stg_group=0 ;;
+  esac
+  case "${safe_role}" in
+    k3s_stg_agent) needs_k3s_stg_agents_group=1 ;;
+    *) needs_k3s_stg_agents_group=0 ;;
+  esac
+
+  umask 0077
+  mkdir -p "${STATE_DIR}"
+  {
+    echo "[localhost]"
+    echo "localhost ansible_connection=local"
+    echo
+    echo "[${env_group}]"
+    echo "localhost"
+    echo
+    echo "[${safe_role}]"
+    echo "localhost"
+    echo "[role_${safe_role}]"
+    echo "localhost"
+    echo
+    if [ "${needs_k3s_stg_group}" = "1" ]; then
+      echo "[k3s_stg]"
+      echo "localhost"
+      echo
+    fi
+    if [ "${needs_k3s_stg_agents_group}" = "1" ]; then
+      echo "[k3s_stg_agents]"
+      echo "localhost"
+      echo
+    fi
+  } > "${RUNTIME_INVENTORY}"
+
+  rm -rf "${STATE_DIR}/group_vars"
+  if [ -d "${STATIC_INVENTORY_DIR}/group_vars" ]; then
+    ln -s "${STATIC_INVENTORY_DIR}/group_vars" "${STATE_DIR}/group_vars"
+  fi
+}
+
+prepare_k3s_stg_agent_vars() {
+  [ "${ROLE}" = "k3s_stg_agent" ] || return 0
+  client_vars_file="${STATIC_INVENTORY_DIR}/client_vars/${OVERLAY_ID:-unknown}/k3s_stg_agent.yml"
+
+  deadline=$(( $(now_epoch) + K3S_STG_AGENT_TOKEN_WAIT_SECS ))
+  last_validation_error="token validation not started"
+  while :; do
+    if token_file_is_usable "${K3S_STG_AGENT_TOKEN_FILE}"; then
+      token="$(tr -d '\r\n' < "${K3S_STG_AGENT_TOKEN_FILE}")"
+      if [ -z "${token}" ]; then
+        last_validation_error="k3s stg agent token is empty"
+      else
+        token_ca_hash="$(secure_token_ca_hash "${token}" 2>/dev/null || true)"
+        meta_ca_hash="$(meta_value "${K3S_STG_AGENT_TOKEN_META_FILE}" ca_hash 2>/dev/null || true)"
+        meta_api_url="$(meta_value "${K3S_STG_AGENT_TOKEN_META_FILE}" api_url 2>/dev/null || true)"
+        api_url="${meta_api_url:-${K3S_STG_AGENT_SERVER_API_URL}}"
+        if [ -z "${token_ca_hash}" ]; then
+          last_validation_error="k3s stg agent token is not a secure token"
+        elif [ -z "${meta_ca_hash}" ]; then
+          last_validation_error="k3s stg agent token meta ca_hash is empty"
+        elif [ "${token_ca_hash}" != "${meta_ca_hash}" ]; then
+          last_validation_error="token CA hash and meta ca_hash do not match"
+        elif [ -z "${api_url}" ]; then
+          last_validation_error="k3s stg agent api url is empty"
+        else
+          server_ca_hash="$(fetch_server_ca_hash "${api_url}" 2>/dev/null || true)"
+          if [ -z "${server_ca_hash}" ]; then
+            last_validation_error="server CA hash could not be fetched from ${api_url}/cacerts"
+          elif [ "${server_ca_hash}" != "${token_ca_hash}" ]; then
+            last_validation_error="token CA hash does not match current server CA hash"
+          else
+            EXTRA_VARS_FILE="${STATE_DIR}/k3s_stg_agent.vars.yml"
+            umask 0077
+            {
+              if [ -n "${K3S_STG_AGENT_REGISTRATION_ADDRESS}" ]; then
+                printf 'k3s_registration_address: %s\n' "${K3S_STG_AGENT_REGISTRATION_ADDRESS}"
+              fi
+              printf 'k3s_control_token: %s\n' "${token}"
+              if [ -f "${client_vars_file}" ]; then
+                cat "${client_vars_file}"
+              fi
+            } > "${EXTRA_VARS_FILE}"
+            return 0
+          fi
+        fi
+      fi
+    else
+      last_validation_error="k3s stg agent token not found, stale, or meta missing"
+    fi
+
+    if [ "$(now_epoch)" -ge "${deadline}" ]; then
+      echo "k3s stg agent token validation timed out: ${last_validation_error}" >&2
+      return 1
+    fi
+    sleep "${K3S_STG_AGENT_TOKEN_RETRY_SECS}"
+  done
+}
+
+prepare_role_client_vars() {
+  client_vars_file="${STATIC_INVENTORY_DIR}/client_vars/${OVERLAY_ID:-unknown}/${ROLE}.yml"
+  [ -f "${client_vars_file}" ] || return 0
+
+  EXTRA_VARS_FILE="${STATE_DIR}/${ROLE}.vars.yml"
+  umask 0077
+  cat "${client_vars_file}" > "${EXTRA_VARS_FILE}"
+}
+
+prepare_role_extra_vars() {
+  case "${ROLE}" in
+    k3s_stg_agent)
+      prepare_k3s_stg_agent_vars
+      ;;
+    *)
+      prepare_role_client_vars
+      ;;
+  esac
+}
+
+token_file_is_usable() {
+  token_path="$1"
+  [ -s "${token_path}" ] || return 1
+  [ -s "${K3S_STG_AGENT_TOKEN_META_FILE}" ] || return 1
+  [ "${K3S_STG_AGENT_TOKEN_MAX_AGE_SECS}" -le 0 ] && return 0
+
+  mtime="$(stat -c %Y "${token_path}" 2>/dev/null || echo 0)"
+  now="$(now_epoch)"
+  [ "${mtime}" -gt 0 ] || return 1
+  age=$(( now - mtime ))
+  [ "${age}" -le "${K3S_STG_AGENT_TOKEN_MAX_AGE_SECS}" ]
+}
+
+log_state() {
+  rc="$1"
+  elapsed="$2"
+  role_state_file="$(state_file_for_role "${ROLE}")"
+  umask 0077
+  mkdir -p "${STATE_DIR}"
+  cat > "${STATE_FILE}" <<EOF
+ROLE=${ROLE}
+STAGE=${STAGE:-unknown}
+BRANCH=${BRANCH:-unknown}
+RC=${rc}
+ELAPSED_SECS=${elapsed}
+STEP=${CURRENT_STEP}
+EOF
+  cat > "${role_state_file}" <<EOF
+ROLE=${ROLE}
+STAGE=${STAGE:-unknown}
+BRANCH=${BRANCH:-unknown}
+RC=${rc}
+ELAPSED_SECS=${elapsed}
+STEP=${CURRENT_STEP}
+EOF
+}
+
+finish() {
+  rc="$?"
+  trap - EXIT
+  if [ "${STATE_LOGGING_ENABLED}" -eq 1 ]; then
+    end_ts="$(now_epoch)"
+    elapsed=$(( end_ts - START_TS ))
+    log_state "${rc}" "${elapsed}"
+    if should_notify "${rc}"; then
+      SLACK_NOTIFY_AGGREGATE=1 /usr/local/sbin/pxe-slack-notify.sh "${ROLE}" || true
+    fi
+  fi
+  exit "${rc}"
+}
+
+if [ -z "${ROLE}" ]; then
+  echo "ROLE is empty" >&2
+  exit 1
+fi
+if [ -n "${ROLES:-}" ]; then
+  case ",${ROLES}," in
+    *",${ROLE},"*) ;;
+    *) echo "skip ansible-pull: ROLE=${ROLE} not in ROLES=${ROLES}" >&2; exit 0 ;;
+  esac
+fi
+
+STATE_LOGGING_ENABLED=1
+trap finish EXIT
+
+CURRENT_STEP="branch_resolve"
+resolve_branch
+CURRENT_STEP="runtime_inventory"
+write_runtime_inventory
+CURRENT_STEP="role_extra_vars"
+prepare_role_extra_vars
+
+CURRENT_STEP="time_sync_check"
+timeout 5 timedatectl show -p NTPSynchronized --value >/dev/null 2>&1 || echo "warning: timedatectl failed; continuing" >&2
+CURRENT_STEP="dns_flush"
+resolvectl flush-caches || true
+resolved=0
+CURRENT_STEP="dns_wait"
+for i in $(seq 1 30); do
+  if getent hosts github.com >/dev/null 2>&1; then
+    resolved=1
+    break
+  fi
+  sleep 2
+done
+if [ "${resolved}" -ne 1 ]; then
+  echo "warning: DNS not ready; continuing" >&2
+fi
+
+CURRENT_STEP="prepare_dest"
+mkdir -p "${DEST}"
+if [ ! -d "${DEST}/.git" ]; then
+  CURRENT_STEP="git_clone"
+  git clone --depth 1 --branch "${BRANCH}" "${REPO_URL}" "${DEST}"
+else
+  CURRENT_STEP="git_fetch"
+  git -C "${DEST}" fetch --depth 1 origin "${BRANCH}"
+  if [ -d "${DEST}/ansible/arm64/roles/xanmanning.k3s" ]; then
+    CURRENT_STEP="cleanup_old_galaxy_roles"
+    rm -rf "${DEST}/ansible/arm64/roles/xanmanning.k3s"
+  fi
+  CURRENT_STEP="git_reset"
+  git -C "${DEST}" reset --hard "origin/${BRANCH}"
+fi
+
+ARM64_PLAYBOOK_DIR="${DEST}/ansible/arm64"
+ARM64_PLAYBOOK_REL="ansible/arm64"
+export ANSIBLE_CONFIG="${ARM64_PLAYBOOK_DIR}/ansible.cfg"
+export ANSIBLE_ROLES_PATH="${ARM64_PLAYBOOK_DIR}/roles:${DEST}/ansible/roles:/root/.ansible/roles:/usr/share/ansible/roles:/etc/ansible/roles"
+
+CURRENT_STEP="ansible_galaxy_roles"
+/usr/bin/ansible-galaxy install -r "${ARM64_PLAYBOOK_DIR}/requirements.yml" -p "${ARM64_PLAYBOOK_DIR}/roles"
+CURRENT_STEP="ansible_galaxy_collections"
+/usr/bin/ansible-galaxy collection install -r "${ARM64_PLAYBOOK_DIR}/requirements.yml"
+
+CURRENT_STEP="ansible_pull"
+if [ -n "${EXTRA_VARS_FILE}" ]; then
+  /usr/bin/ansible-pull -U "${REPO_URL}" -C "${BRANCH}" -d "${DEST}" \
+    -i "${RUNTIME_INVENTORY}" -c local --limit "${ROLE}" \
+    -e "overlay_id=${OVERLAY_ID:-unknown}" -e "role=${ROLE}" \
+    -e "roles=${ROLES:-${ROLE}}" -e "stage=${STAGE:-unknown}" \
+    -e "@${EXTRA_VARS_FILE}" \
+    "${ARM64_PLAYBOOK_REL}/site.yml"
+else
+  /usr/bin/ansible-pull -U "${REPO_URL}" -C "${BRANCH}" -d "${DEST}" \
+    -i "${RUNTIME_INVENTORY}" -c local --limit "${ROLE}" \
+    -e "overlay_id=${OVERLAY_ID:-unknown}" -e "role=${ROLE}" \
+    -e "roles=${ROLES:-${ROLE}}" -e "stage=${STAGE:-unknown}" \
+    "${ARM64_PLAYBOOK_REL}/site.yml"
+fi
+CURRENT_STEP="complete"

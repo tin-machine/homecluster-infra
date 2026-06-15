@@ -1,0 +1,11 @@
+---
+- name: reload systemd
+  become: true
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: restart distccd
+  become: true
+  ansible.builtin.service:
+    name: distccd
+    state: restarted

@@ -1,0 +1,62 @@
+---
+# Public example inventory for the sanitized infra repository.
+# Real site inventory is kept outside the public repository, normally as ../inventory.yml.
+
+all:
+  vars:
+    ansible_become: true
+    ansible_python_interpreter: /usr/bin/python3
+    homelab_domain: example.net
+    ntp_servers:
+      - 192.0.2.1
+
+  children:
+    openwrt:
+      hosts:
+        router.example:
+          ansible_host: 192.0.2.1
+          ansible_user: root
+
+    env_stg:
+      children:
+        role_base:
+          hosts:
+            pxe-control-a.example:
+              ansible_host: 192.0.2.11
+              overlay_id: pxe-control-a
+              stage: stg
+              roles:
+                - base
+                - k3s_stg_server
+                - terraform_stg
+            pxe-agent-a.example:
+              ansible_host: 192.0.2.21
+              overlay_id: pxe-agent-a
+              stage: stg
+              roles:
+                - base
+                - k3s_stg_agent
+
+        role_k3s_stg_server:
+          hosts:
+            pxe-control-a.example:
+
+        role_terraform_stg:
+          hosts:
+            pxe-control-a.example:
+
+        k3s_stg_server:
+          hosts:
+            pxe-control-a.example:
+
+        k3s_stg:
+          hosts:
+            pxe-control-a.example:
+            pxe-agent-a.example:
+
+        k3s_stg_agents:
+          hosts:
+            pxe-agent-a.example:
+
+    role_workstation_cli:
+      hosts: {}

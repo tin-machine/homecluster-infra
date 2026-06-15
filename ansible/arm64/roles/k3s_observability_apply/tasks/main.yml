@@ -1,0 +1,286 @@
+---
+- name: k3s observability apply の必須変数を検証
+  ansible.builtin.assert:
+    that:
+      - (k3s_observability_apply_package_atom | string | trim) | length > 0
+      - k3s_observability_apply_package_accept_keywords is sequence
+      - k3s_observability_apply_package_accept_keywords is not string
+      - k3s_observability_apply_package_licenses is sequence
+      - k3s_observability_apply_package_licenses is not string
+      - (k3s_observability_apply_state_mount_src | string | trim) | length > 0
+      - (k3s_observability_apply_state_mount_path | string | trim) | length > 0
+      - (k3s_observability_apply_work_root | string | trim) | length > 1
+      - (k3s_observability_apply_stage_name | string | trim) | length > 0
+    fail_msg: >-
+      k3s observability apply の必須入力が不足しています。
+      state mount source、Terraform package pin、stage name は外部 inventory 側で定義してください。
+  tags:
+    - terraform_stg
+    - k3s_observability_apply
+
+- name: k3s observability apply 用ディレクトリを確保
+  become: true
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner | default('root') }}"
+    group: "{{ item.group | default('root') }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - path: /etc/portage/package.accept_keywords
+      mode: '0755'
+    - path: /etc/portage/package.license
+      mode: '0755'
+    - path: /etc/portage/env
+      mode: '0755'
+    - path: /etc/portage/package.env
+      mode: '0755'
+    - path: /etc/homecluster
+      mode: '0755'
+    - path: "{{ k3s_observability_apply_run_root }}"
+      mode: '0700'
+    - path: "{{ k3s_observability_apply_state_mount_path }}"
+      mode: '0755'
+  tags:
+    - terraform_stg
+    - k3s_observability_apply
+
+- name: terraform package.accept_keywords を配置
+  become: true
+  ansible.builtin.copy:
+    dest: /etc/portage/package.accept_keywords/k3s-observability-apply
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      {% for line in k3s_observability_apply_package_accept_keywords %}
+      {{ line }}
+      {% endfor %}
+  when: (k3s_observability_apply_package_accept_keywords | length) > 0
+  tags:
+    - terraform_stg
+    - k3s_observability_apply
+
+- name: terraform package.license を配置
+  become: true
+  ansible.builtin.copy:
+    dest: /etc/portage/package.license/k3s-observability-apply
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      {% for line in k3s_observability_apply_package_licenses %}
+      {{ line }}
+      {% endfor %}
+  when: (k3s_observability_apply_package_licenses | length) > 0
+  tags:
+    - terraform_stg
+    - k3s_observability_apply
+
+- name: Terraform state bundle storage を mount
+  become: true
+  ansible.posix.mount:
+    src: "{{ k3s_observability_apply_state_mount_src }}"
+    path: "{{ k3s_observability_apply_state_mount_path }}"
+    fstype: "{{ k3s_observability_apply_state_mount_fstype }}"
+    opts: "{{ k3s_observability_apply_state_mount_opts }}"
+    state: mounted
+  tags:
+    - terraform_stg
+    - k3s_observability_apply
+
+- name: Terraform 用 Portage binpkg NFS mount source を確認
+  ansible.builtin.assert:
+    that:
+      - (k3s_observability_apply_portage_binpkg_nfs_src | string | trim) | length > 0
+    fail_msg: >-
+      Terraform package install 前に Portage binpkg cache を永続化するには、
+      k3s_observability_apply_portage_binpkg_nfs_src または gentoo_binpkg_nfs_src を設定してください。
+  when: k3s_observability_apply_portage_binpkg_nfs_enabled | bool
+  tags:
+    - terraform_stg
+    - k3s_observability_apply
+    - nfs_binpkg
+
+- name: Terraform 用 Portage binpkg NFS mountpoint を作成
+  become: true
+  ansible.builtin.file:
+    path: "{{ k3s_observability_apply_portage_binpkg_base }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  when: k3s_observability_apply_portage_binpkg_nfs_enabled | bool
+  tags:
+    - terraform_stg
+    - k3s_observability_apply
+    - nfs_binpkg
+
+- name: Terraform 用 Portage binpkg cache を NFS mount
+  become: true
+  ansible.posix.mount:
+    src: "{{ k3s_observability_apply_portage_binpkg_nfs_src }}"
+    path: "{{ k3s_observability_apply_portage_binpkg_base }}"
+    fstype: "{{ k3s_observability_apply_portage_binpkg_nfs_fstype }}"
+    opts: "{{ k3s_observability_apply_portage_binpkg_nfs_opts }}"
+    state: mounted
+  when: k3s_observability_apply_portage_binpkg_nfs_enabled | bool
+  tags:
+    - terraform_stg
+    - k3s_observability_apply
+    - nfs_binpkg
+
+- name: Terraform 用 Portage binpkg cache の filesystem type を確認
+  become: true
+  ansible.builtin.command: "findmnt -n -T {{ k3s_observability_apply_portage_binpkg_base | quote }} -o FSTYPE"
+  register: k3s_observability_apply_binpkg_fstype_result
+  changed_when: false
+  failed_when: >-
+    k3s_observability_apply_binpkg_fstype_result.rc != 0
+    or
+    (k3s_observability_apply_binpkg_fstype_result.stdout | trim) not in ['nfs', 'nfs4']
+  when:
+    - k3s_observability_apply_portage_binpkg_nfs_enabled | bool
+    - k3s_observability_apply_portage_binpkg_nfs_require_mounted | bool
+  tags:
+    - terraform_stg
+    - k3s_observability_apply
+    - nfs_binpkg
+
+- name: Terraform hugebuild ディレクトリを確保
+  become: true
+  ansible.builtin.file:
+    path: "{{ k3s_observability_apply_state_mount_path }}/portage-hugebuild"
+    state: directory
+    owner: portage
+    group: portage
+    mode: '0755'
+  tags:
+    - terraform_stg
+    - k3s_observability_apply
+
+- name: Terraform 用 package.env override を配置
+  become: true
+  ansible.builtin.copy:
+    dest: /etc/portage/env/k3s-observability-apply
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      PORTAGE_TMPDIR={{ k3s_observability_apply_state_mount_path }}/portage-hugebuild
+      MAKEOPTS="-j1"
+      GOFLAGS="-p=1"
+      GOMAXPROCS="1"
+  tags:
+    - terraform_stg
+    - k3s_observability_apply
+
+- name: Terraform 用 package.env mapping を配置
+  become: true
+  ansible.builtin.copy:
+    dest: /etc/portage/package.env/k3s-observability-apply
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      {{ k3s_observability_apply_package_atom }} k3s-observability-apply
+  tags:
+    - terraform_stg
+    - k3s_observability_apply
+
+- name: Terraform state stage ディレクトリを確保
+  become: true
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - path: "{{ k3s_observability_apply_state_mount_path }}/{{ k3s_observability_apply_stage_name }}"
+      mode: '0700'
+    - path: "{{ k3s_observability_apply_work_root }}"
+      mode: '0700'
+  tags:
+    - terraform_stg
+    - k3s_observability_apply
+
+- name: Terraform パッケージを導入
+  become: true
+  community.general.portage:
+    package:
+      - "{{ k3s_observability_apply_package_atom }}"
+    state: present
+    sync: false
+    deep: false
+  tags:
+    - terraform_stg
+    - k3s_observability_apply
+
+- name: k3s observability apply contract marker を配置
+  become: true
+  ansible.builtin.copy:
+    src: apply-contract-version
+    dest: /etc/homecluster/k3s-observability-apply-contract-version
+    owner: root
+    group: root
+    mode: '0644'
+  tags:
+    - terraform_stg
+    - k3s_observability_apply
+
+- name: k3s observability readiness wait script を配置
+  become: true
+  ansible.builtin.template:
+    src: k3s-observability-apply-wait.sh.j2
+    dest: /usr/local/sbin/k3s-observability-apply-wait.sh
+    owner: root
+    group: root
+    mode: '0755'
+  tags:
+    - terraform_stg
+    - k3s_observability_apply
+
+- name: k3s observability apply script を配置
+  become: true
+  ansible.builtin.template:
+    src: k3s-observability-apply.sh.j2
+    dest: /usr/local/sbin/k3s-observability-apply.sh
+    owner: root
+    group: root
+    mode: '0755'
+  tags:
+    - terraform_stg
+    - k3s_observability_apply
+
+- name: k3s observability apply service を配置
+  become: true
+  ansible.builtin.template:
+    src: k3s-observability-apply.service.j2
+    dest: "/etc/systemd/system/{{ k3s_observability_apply_service_name }}.service"
+    owner: root
+    group: root
+    mode: '0644'
+  tags:
+    - terraform_stg
+    - k3s_observability_apply
+
+- name: systemd を再読み込み
+  become: true
+  ansible.builtin.systemd:
+    daemon_reload: true
+  tags:
+    - terraform_stg
+    - k3s_observability_apply
+
+- name: k3s observability apply service を有効化して起動
+  become: true
+  ansible.builtin.systemd:
+    name: "{{ k3s_observability_apply_service_name }}.service"
+    enabled: true
+    state: started
+    no_block: true
+  tags:
+    - terraform_stg
+    - k3s_observability_apply
+    - k3s_observability_apply_start

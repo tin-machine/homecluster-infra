@@ -1,0 +1,101 @@
+---
+rpi_image_workdir: /tmp/rpi-sd-netboot-image
+rpi_image_output: /tmp/rpi-sd-netboot.img
+rpi_image_size_mb: 256
+rpi_image_rebuild: true
+rpi_image_build: true
+rpi_image_become: true
+rpi_image_label: RPI_NETBOOT
+
+rpi_boot_mount_dir: "{{ rpi_image_workdir }}/mnt/boot"
+rpi_boot_dir: "{{ rpi_image_workdir }}/boot"
+
+rpi_source_sync_enabled: false
+rpi_source_sync_host: ""
+rpi_source_sync_user: root
+rpi_source_sync_path: "/srv/gentoo/tftp-root/dates/{{ rpi_gentoo_release }}"
+rpi_source_sync_dest: "{{ rpi_image_workdir }}/source/tftp-release"
+rpi_source_sync_ssh_command: "ssh -o ControlMaster=no -o ControlPersist=0"
+
+rpi_enabled_models:
+  - pi4
+  - pi5
+
+rpi_root_server: "{{ openwrt_gentoo_server_host | default('', true) }}"
+rpi_gentoo_release: null
+rpi_root_path_common: "/gentoo/{{ rpi_gentoo_release }}/nfs"
+rpi_root_path_pi3: "{{ rpi_root_path_common }}"
+rpi_root_path_pi4: "{{ rpi_root_path_common }}"
+rpi_root_path_pi5: "{{ rpi_root_path_common }}"
+
+rpi_boot_stage: "stg"
+rpi_network_backend: "wired"
+rpi_nfs_opts: "vers=4.2,proto=tcp"
+rpi_cmdline_common_extra: "rw rd.neednet=1 rd.net.timeout.carrier=30 rootwait rd.info rd.debug rd.overlayfs=1 rd.shell cgroup_enable=cpuset cgroup_enable=memory cgroup_memory=1"
+
+rpi_wifi_interface: "wlan0"
+rpi_wifi_country: "JP"
+rpi_wifi_cmdline_extra: "boot_net=wifi wifi_iface={{ rpi_wifi_interface }} rd.net.timeout.carrier=60"
+rpi_wifi_networks: []
+
+rpi_enable_uart: true
+rpi_arm_64bit: true
+
+rpi_tftp_release_dir: "/srv/gentoo/tftp-root/dates/{{ rpi_gentoo_release }}"
+rpi_tftp_release_dir_effective: "{{ (rpi_source_sync_enabled | bool) | ternary(rpi_source_sync_dest, rpi_tftp_release_dir) }}"
+
+rpi_kernel8_image: kernel8.img
+rpi_kernel8_src: "{{ rpi_tftp_release_dir_effective }}/{{ rpi_kernel8_image }}"
+rpi_kernel_2712_image: kernel_2712.img
+rpi_kernel_2712_src: "{{ rpi_tftp_release_dir_effective }}/{{ rpi_kernel_2712_image }}"
+rpi_pi5_kernel_image: "{{ rpi_kernel_2712_image }}"
+rpi_pi5_kernel_src: "{{ rpi_tftp_release_dir_effective }}/{{ rpi_pi5_kernel_image }}"
+
+rpi_initramfs_image: initramfs-pxe.img
+rpi_initramfs_src: "{{ (rpi_network_backend == 'wifi') | ternary(rpi_wifi_initramfs_src, rpi_tftp_release_dir_effective ~ '/' ~ rpi_initramfs_image) }}"
+rpi_wifi_initramfs_src: "{{ rpi_tftp_release_dir_effective }}/initramfs-pxe-wifi.img"
+rpi_initramfs_bcm27xx_dest: "{{ rpi_boot_dir }}/initramfs-bcm27xx.img"
+rpi_initramfs_pi5_dest: "{{ rpi_boot_dir }}/initramfs-pi5.img"
+
+rpi_firmware_src_dir: "{{ rpi_tftp_release_dir_effective }}"
+rpi_dtb_src_dir: "{{ rpi_tftp_release_dir_effective }}"
+rpi_overlays_src_dir: "{{ rpi_tftp_release_dir_effective }}/overlays"
+rpi_overlays_required: false
+
+rpi_required_firmware_files:
+  - start.elf
+  - fixup.dat
+  - start4.elf
+  - fixup4.dat
+
+rpi_pi3_dtb_files:
+  - bcm2710-rpi-3-b.dtb
+  - bcm2710-rpi-3-b-plus.dtb
+rpi_pi4_dtb_files:
+  - bcm2711-rpi-4-b.dtb
+rpi_pi5_dtb_files:
+  - bcm2712-rpi-5-b.dtb
+
+rpi_validate_initramfs_contents: true
+rpi_initramfs_required_patterns:
+  - overlayfs
+  - nfs
+rpi_wifi_initramfs_required_patterns:
+  - wpa_supplicant
+  - iw
+  - brcmfmac
+
+rpi_required_staging_commands:
+  - rsync
+  - wc
+  - which
+rpi_required_source_sync_commands:
+  - ssh
+rpi_required_image_commands:
+  - dd
+  - parted
+  - mkfs.vfat
+  - losetup
+  - mount
+  - umount
+  - sync

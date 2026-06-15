@@ -1,0 +1,297 @@
+---
+- name: TFTP hosts のボードハッシュ symlink を作成
+  ansible.builtin.file:
+    src: "dates/{{ item.tftp_release }}"
+    dest: "/srv/gentoo/tftp-root/{{ item.board_hash }}"
+    state: link
+    force: true
+  loop: "{{ openwrt_pxe_hosts_effective | default(openwrt_pxe_hosts | default([])) }}"
+  loop_control:
+    label: "{{ item.name | default(item.board_hash) }}"
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - (openwrt_gentoo_tftp_hosts_mode | default('symlink')) == 'symlink'
+    - item.board_hash is defined
+    - item.tftp_release is defined
+  tags:
+    - pxe
+    - tftp
+    - tftp_hosts
+
+- name: TFTP symlink mode で rootfs release 分離を拒否
+  ansible.builtin.assert:
+    that:
+      - >-
+        (item.rootfs_release | default('', true) | string | trim | length) == 0
+        or
+        ((item.rootfs_release | string | trim) == (item.tftp_release | default('', true) | string | trim))
+    fail_msg: >-
+      {{ item.name | default(item.board_hash | default('host')) }} は rootfs_release を指定していますが、
+      TFTP hosts mode=symlink では host 固有 cmdline.txt を生成できません。
+      openwrt_gentoo_tftp_hosts_mode=directory を使ってください。
+  loop: "{{ openwrt_pxe_hosts_effective | default(openwrt_pxe_hosts | default([])) }}"
+  loop_control:
+    label: "{{ item.name | default(item.board_hash | default('host')) }}"
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - (openwrt_gentoo_tftp_hosts_mode | default('symlink')) == 'symlink'
+  tags:
+    - pxe
+    - tftp
+    - tftp_hosts
+
+- name: TFTP cmdline の既定値を設定
+  ansible.builtin.set_fact:
+    openwrt_gentoo_tftp_cmdline_defaults:
+      root_arg: "{{ openwrt_gentoo_cmdline_root_arg | default('', true) }}"
+      ip: "{{ openwrt_gentoo_cmdline_ip | default('', true) }}"
+      extra_args: "{{ openwrt_gentoo_cmdline_extra_args | default('', true) }}"
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  when: openwrt_gentoo_enabled | bool
+  tags:
+    - pxe
+    - tftp
+    - tftp_hosts
+    - tftp_artifacts
+
+- name: TFTP hosts 用ボードハッシュ情報を整形
+  ansible.builtin.set_fact:
+    openwrt_gentoo_tftp_host_entries: >-
+      {%- set result = [] -%}
+      {%- for item in openwrt_pxe_hosts_effective | default(openwrt_pxe_hosts | default([])) -%}
+        {%- set board_hash = item.board_hash | default('') | string | trim -%}
+        {%- if board_hash -%}
+          {%- set stage = item.tftp_stage | default(item.stage, true) | default('') | string | trim -%}
+          {%- set release = item.tftp_release | default('') | string | trim -%}
+          {%- set rootfs_release = item.rootfs_release | default(release, true) | string | trim -%}
+          {%- set _ = result.append({
+            'name': item.name | default(board_hash),
+            'board_hash': board_hash,
+            'release': release,
+            'rootfs_release': rootfs_release,
+            'stage': stage,
+            'cmdline_root_arg': item.cmdline_root_arg | default('', true) | string | trim,
+            'cmdline_ip': item.cmdline_ip | default('', true) | string | trim,
+            'cmdline_extra_args': item.cmdline_extra_args | default('', true) | string | trim,
+            'symlinks': ['start4.elf', 'start.elf', 'fixup4.dat', 'fixup.dat', 'bootcode.bin', 'kernel8.img', 'kernel8_rt.img', 'kernel_2712.img', 'bcm2711-rpi-4-b.dtb', 'bcm2712-rpi-5-b.dtb']
+          }) -%}
+        {%- endif -%}
+      {%- endfor -%}
+      {{ result }}
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - (openwrt_gentoo_tftp_hosts_mode | default('symlink')) == 'directory'
+  tags:
+    - pxe
+    - tftp
+    - tftp_hosts
+    - tftp_artifacts
+
+- name: TFTP hosts のリリース指定を確認
+  ansible.builtin.assert:
+    that:
+      - item.release | string | trim | length > 0
+    fail_msg: >-
+      TFTP hosts モードが directory の場合、{{ item.name }} ({{ item.board_hash }}) に
+      tftp_release もしくは tftp_stage=prod|stg を指定してください。
+  loop: "{{ openwrt_gentoo_tftp_host_entries | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - (openwrt_gentoo_tftp_hosts_mode | default('symlink')) == 'directory'
+  tags:
+    - pxe
+    - tftp
+    - tftp_hosts
+    - tftp_artifacts
+
+- name: TFTP hosts のボードハッシュパス状態を取得
+  ansible.builtin.stat:
+    path: "/srv/gentoo/tftp-root/{{ item.board_hash }}"
+  loop: "{{ openwrt_gentoo_tftp_host_entries | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: openwrt_gentoo_tftp_host_stats
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - (openwrt_gentoo_tftp_hosts_mode | default('symlink')) == 'directory'
+  tags:
+    - pxe
+    - tftp
+    - tftp_hosts
+
+- name: 既存のボードハッシュ symlink を削除
+  ansible.builtin.file:
+    path: "{{ item.stat.path }}"
+    state: absent
+  loop: "{{ openwrt_gentoo_tftp_host_stats.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item.name }}"
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - (openwrt_gentoo_tftp_hosts_mode | default('symlink')) == 'directory'
+    - item.stat.islnk | default(false)
+  tags:
+    - pxe
+    - tftp
+    - tftp_hosts
+
+- name: TFTP hosts のボードハッシュディレクトリを作成
+  ansible.builtin.file:
+    path: "/srv/gentoo/tftp-root/{{ item.board_hash }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop: "{{ openwrt_gentoo_tftp_host_entries | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - (openwrt_gentoo_tftp_hosts_mode | default('symlink')) == 'directory'
+  tags:
+    - pxe
+    - tftp
+    - tftp_hosts
+
+- name: TFTP hosts の共通ファイル symlink を作成
+  ansible.builtin.raw: |
+    set -eu
+    target="../dates/{{ item.0.release }}/{{ item.1 }}"
+    dest="/srv/gentoo/tftp-root/{{ item.0.board_hash }}/{{ item.1 }}"
+    current="$(readlink "$dest" 2>/dev/null || true)"
+    if [ "$current" = "$target" ]; then
+      exit 0
+    fi
+    if [ -e "$dest" ] && [ ! -L "$dest" ]; then
+      echo "refuse to replace non-symlink: $dest" >&2
+      exit 1
+    fi
+    ln -sfn "$target" "$dest"
+    echo changed
+  register: openwrt_gentoo_tftp_host_symlink_result
+  changed_when: "'changed' in openwrt_gentoo_tftp_host_symlink_result.stdout"
+  loop: "{{ (openwrt_gentoo_tftp_host_entries | default([])) | subelements('symlinks', skip_missing=True) }}"
+  loop_control:
+    label: "{{ item.0.name }}/{{ item.1 }}"
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - (openwrt_gentoo_tftp_hosts_mode | default('symlink')) == 'directory'
+    - (item.1 | string | trim | length) > 0
+  tags:
+    - pxe
+    - tftp
+    - tftp_hosts
+
+- name: TFTP hosts の共通ディレクトリ symlink を作成
+  ansible.builtin.raw: |
+    set -eu
+    target="../dates/{{ item.0.release }}/{{ item.1 }}"
+    dest="/srv/gentoo/tftp-root/{{ item.0.board_hash }}/{{ item.1 }}"
+    current="$(readlink "$dest" 2>/dev/null || true)"
+    if [ "$current" = "$target" ]; then
+      exit 0
+    fi
+    if [ -e "$dest" ] && [ ! -L "$dest" ]; then
+      echo "refuse to replace non-symlink: $dest" >&2
+      exit 1
+    fi
+    ln -sfn "$target" "$dest"
+    echo changed
+  register: openwrt_gentoo_tftp_host_dir_symlink_result
+  changed_when: "'changed' in openwrt_gentoo_tftp_host_dir_symlink_result.stdout"
+  loop: "{{ (openwrt_gentoo_tftp_host_entries | default([])) | product(['overlays']) | list }}"
+  loop_control:
+    label: "{{ item.0.name }}/{{ item.1 }}"
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - (openwrt_gentoo_tftp_hosts_mode | default('symlink')) == 'directory'
+    - (item.1 | string | trim | length) > 0
+  tags:
+    - pxe
+    - tftp
+    - tftp_hosts
+
+- name: TFTP hosts の initramfs symlink を作成
+  ansible.builtin.file:
+    src: "../dates/{{ item.0.release }}/{{ item.1 }}"
+    dest: "/srv/gentoo/tftp-root/{{ item.0.board_hash }}/{{ item.1 }}"
+    state: link
+    force: true
+    follow: false
+  loop: "{{ (openwrt_gentoo_tftp_host_entries | default([])) | product(openwrt_gentoo_initramfs_tftp_paths | default([openwrt_gentoo_initramfs_tftp_path])) | list }}"
+  loop_control:
+    label: "{{ item.0.name }}/{{ item.1 }}"
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - (openwrt_gentoo_tftp_hosts_mode | default('symlink')) == 'directory'
+    - openwrt_gentoo_initramfs_enabled | bool
+    - (item.1 | string | trim | length) > 0
+  tags:
+    - pxe
+    - tftp
+    - tftp_hosts
+
+- name: TFTP hosts の config.txt を配置
+  ansible.builtin.template:
+    src: config.txt.j2
+    dest: "/srv/gentoo/tftp-root/{{ item.board_hash }}/config.txt"
+    owner: root
+    group: root
+    mode: '0644'
+  loop: "{{ openwrt_gentoo_tftp_host_entries | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - (openwrt_gentoo_tftp_hosts_mode | default('symlink')) == 'directory'
+    - openwrt_gentoo_tftp_config_enabled | bool
+  tags:
+    - pxe
+    - tftp
+    - tftp_hosts
+
+- name: TFTP hosts の cmdline.txt を配置
+  ansible.builtin.template:
+    src: cmdline.txt.j2
+    dest: "/srv/gentoo/tftp-root/{{ item.board_hash }}/cmdline.txt"
+    owner: root
+    group: root
+    mode: '0644'
+  vars:
+    openwrt_gentoo_cmdline_root_arg: >-
+      {{
+        item.cmdline_root_arg | default(
+          'root=nfs4:' ~ openwrt_gentoo_server_host ~ ':/gentoo/' ~ item.rootfs_release ~ '/nfs,' ~ openwrt_gentoo_cmdline_nfs_options,
+          true
+        )
+      }}
+    openwrt_gentoo_cmdline_ip: "{{ item.cmdline_ip | default(openwrt_gentoo_tftp_cmdline_defaults.ip, true) }}"
+    openwrt_gentoo_cmdline_extra_args: "{{ item.cmdline_extra_args | default(openwrt_gentoo_tftp_cmdline_defaults.extra_args, true) }}"
+    openwrt_gentoo_cmdline_host_args:
+      - "rpi_tftp_board_hash={{ item.board_hash }}"
+      - "rpi_tftp_host={{ item.name }}"
+  loop: "{{ openwrt_gentoo_tftp_host_entries | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - (openwrt_gentoo_tftp_hosts_mode | default('symlink')) == 'directory'
+    - openwrt_gentoo_tftp_cmdline_enabled | bool
+  tags:
+    - pxe
+    - tftp
+    - tftp_hosts

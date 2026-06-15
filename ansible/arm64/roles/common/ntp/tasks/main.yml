@@ -1,0 +1,77 @@
+- name: サービスマネージャー( initd or systemd )の取得
+  block:
+  - name: ファクト収集
+    setup:
+      filter: "ansible_service_mgr"
+  - name: 'サービスマネージー名を出力'
+    set_fact:
+      service_mgr: "{{ ansible_service_mgr }}"
+  - name: 結果の表示
+    debug:
+      var: service_mgr
+
+- name: 時刻同期のデーモンをインストール、設定
+  block:
+  - block:
+    - name: systemd-timesyncd の site-local NTP 入力を確認
+      ansible.builtin.assert:
+        that:
+          - ntp_servers is defined
+          - ntp_servers is sequence
+          - ntp_servers is not string
+          - ntp_servers | length > 0
+        fail_msg: "ntp_servers は外部 inventory 側で1件以上指定してください"
+    - name: systemd-timesyncd 設定ディレクトリを作成
+      ansible.builtin.file:
+        path: /etc/systemd/timesyncd.conf.d
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+    - name: systemdの場合はsystemd-timesyncdを利用する
+      ansible.builtin.template:
+        src: timesyncd.conf.j2
+        dest: /etc/systemd/timesyncd.conf.d/timesyncd.conf
+        owner: root
+        group: root
+        mode: '0644'
+    - name: デフォルトの設定ファイルを削除
+      ansible.builtin.file:
+        path: /etc/systemd/timesyncd.conf
+        state: absent
+    - name: systemd-time-wait-sync drop-in ディレクトリを作成
+      ansible.builtin.file:
+        path: /etc/systemd/system/systemd-time-wait-sync.service.d
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+    - name: systemd-time-wait-sync の待ち時間を有限化
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/systemd-time-wait-sync.service.d/timeout.conf
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          [Service]
+          TimeoutStartSec=120s
+    - name: systemd-timesyncd を有効化
+      ansible.builtin.systemd:
+        name: systemd-timesyncd.service
+        enabled: true
+        state: started
+        daemon_reload: true
+    when: service_mgr == "systemd"
+  - block:
+    - name: OpenRCの場合はntpdを利用する
+      portage: >
+        package="net-misc/ntp"
+        sync=no
+        deep=no
+        state=present
+    - name: ntpd起動
+      service: >-
+        name=ntpd
+        state=started
+        enabled=yes
+    when: service_mgr == "initd"

@@ -1,0 +1,49 @@
+mimir:
+  structuredConfig:
+    blocks_storage:
+      s3:
+        bucket_name: stg-mimir-blocks
+        endpoint: stg-minio.object-storage-stg.svc.cluster.local:9000
+    ruler_storage:
+      s3:
+        bucket_name: stg-mimir-ruler
+        endpoint: stg-minio.object-storage-stg.svc.cluster.local:9000
+    alertmanager_storage:
+      s3:
+        bucket_name: stg-mimir-alertmanager
+        endpoint: stg-minio.object-storage-stg.svc.cluster.local:9000
+
+global:
+  podLabels:
+    environment: staging
+
+ingester:
+  extraArgs:
+    memberlist.abort-if-fast-join-fails: false
+  initContainers:
+    - name: wait-for-gossip-ring
+      image: docker.io/library/busybox:1.31.1
+      imagePullPolicy: IfNotPresent
+      command:
+        - /bin/sh
+        - -ec
+      args:
+        - |
+          until nslookup stg-mimir-gossip-ring.observability-stg.svc.cluster.local; do
+            sleep 2
+          done
+  zoneAwareReplication:
+    enabled: false
+
+store_gateway:
+  zoneAwareReplication:
+    enabled: false
+
+rollout_operator:
+  enabled: false
+
+minio:
+  enabled: false
+
+serviceMonitor:
+  enabled: false

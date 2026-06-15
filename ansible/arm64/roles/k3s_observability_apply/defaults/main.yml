@@ -1,0 +1,42 @@
+---
+k3s_observability_apply_package_atom: =app-admin/terraform-1.14.8
+k3s_observability_apply_package_accept_keywords:
+  - =app-admin/terraform-1.14.8 ~arm64
+k3s_observability_apply_package_licenses:
+  - app-admin/terraform BUSL-1.1
+
+k3s_observability_apply_state_mount_src: ""
+k3s_observability_apply_state_mount_path: /srv/terraform-state
+k3s_observability_apply_state_mount_fstype: nfs4
+k3s_observability_apply_state_mount_opts: vers=4.2,hard,timeo=600,retrans=2,nodev,nosuid,noatime,rsize=1048576,wsize=1048576
+
+k3s_observability_apply_portage_binpkg_nfs_enabled: "{{ gentoo_binpkg_nfs_enabled | default(false) }}"
+k3s_observability_apply_portage_binpkg_base: "{{ gentoo_binpkg_base | default('/srv/gentoo/binpkgs') }}"
+k3s_observability_apply_portage_binpkg_nfs_src: "{{ gentoo_binpkg_nfs_src | default('') }}"
+k3s_observability_apply_portage_binpkg_nfs_fstype: "{{ gentoo_binpkg_nfs_fstype | default('nfs4') }}"
+k3s_observability_apply_portage_binpkg_nfs_opts: "{{ gentoo_binpkg_nfs_opts | default('vers=4.2,hard,timeo=600,retrans=2,nodev,nosuid,noatime,rsize=1048576,wsize=1048576') }}"
+k3s_observability_apply_portage_binpkg_nfs_require_mounted: "{{ gentoo_binpkg_nfs_require_mounted | default(true) }}"
+
+k3s_observability_apply_stage_name: staging
+k3s_observability_apply_infra_bundle_name: homecluster-infra
+k3s_observability_apply_site_input_bundle_name: site-inputs
+k3s_observability_apply_run_root: /run/k3s-observability-apply
+k3s_observability_apply_work_root: "{{ k3s_observability_apply_state_mount_path }}/{{ k3s_observability_apply_stage_name }}/work"
+k3s_observability_apply_service_name: k3s-ready-terraform
+k3s_observability_apply_kubeconfig_path: /etc/rancher/k3s/k3s.yaml
+k3s_observability_apply_k3s_data_dir: /var/lib/rancher/k3s
+
+k3s_observability_apply_lock_timeout: 60s
+k3s_observability_apply_parallelism: 1
+k3s_observability_apply_wait_timeout_secs: 900
+k3s_observability_apply_retry_secs: 5
+k3s_observability_apply_post_ready_settle_secs: 60
+k3s_observability_apply_metallb_crd_wait_timeout_secs: 300
+k3s_observability_apply_metallb_ready_wait_timeout_secs: 600
+k3s_observability_apply_cert_manager_ready_wait_timeout_secs: 600
+
+k3s_observability_apply_after_units:
+  - ansible-pull@k3s_stg_server.service
+  - ansible-pull@terraform_stg.service
+  - k3s.service
+  - var-lib-rancher-k3s.mount

@@ -1,0 +1,37 @@
+fullnameOverride: node-exporter
+podLabels:
+  app.kubernetes.io/part-of: observability
+service:
+  labels:
+    app.kubernetes.io/part-of: observability
+  type: ClusterIP
+
+resources:
+  requests:
+    cpu: 20m
+    memory: 16Mi
+  limits:
+    cpu: 200m
+    memory: 64Mi
+
+tolerations:
+  - key: "node-role.kubernetes.io/control-plane"
+    operator: "Exists"
+    effect: "NoSchedule"
+  - key: "node-role.kubernetes.io/master"
+    operator: "Exists"
+    effect: "NoSchedule"
+
+affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/os
+              operator: In
+              values: ["linux"]
+
+extraArgs:
+  - --collector.processes
+  - --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($|/)
+  - --collector.filesystem.fs-types-exclude=^(autofs|binfmt_misc|cgroup|debugfs|fusectl|proc|pstore|securityfs|sysfs|tracefs)$

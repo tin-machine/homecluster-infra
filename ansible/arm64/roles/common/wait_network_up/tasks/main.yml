@@ -1,0 +1,25 @@
+- name: サービスマネージャー( initd or systemd )の取得
+  block:
+  - name: ファクト収集
+    setup:
+      filter: "ansible_service_mgr"
+  - name: 'サービスマネージー名を出力'
+    set_fact:
+      service_mgr: "{{ ansible_service_mgr }}"
+  - name: 結果の表示
+    debug:
+      var: service_mgr
+
+- name: systemdの場合、ネットワークインターフェースが有効になった事を確認する
+  block:
+  - name: wlan0の確認は無視する
+    lineinfile:
+      path: '/usr/lib/systemd/system/systemd-networkd-wait-online.service'
+      regexp: '^ExecStart=/usr/lib/systemd/systemd-networkd-wait-online'
+      line: 'ExecStart=/usr/lib/systemd/systemd-networkd-wait-online --ignore=wlan0'
+      state: present
+  - name: systemd-networkd-wait-online を有効にする
+    service: >
+      name=systemd-networkd-wait-online
+      enabled=yes
+  when: service_mgr == "systemd"

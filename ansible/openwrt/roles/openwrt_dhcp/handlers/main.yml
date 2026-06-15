@@ -1,0 +1,5 @@
+---
+- name: Reload dnsmasq
+  ansible.builtin.command: /etc/init.d/dnsmasq restart
+  become: true
+  changed_when: true

@@ -1,0 +1,548 @@
+---
+- name: ストレージ関連パッケージを導入
+  ansible.builtin.opkg:
+    name: "{{ item }}"
+    state: present
+    update_cache: "{{ openwrt_opkg_update | default(true) }}"
+  loop: "{{ openwrt_storage_packages }}"
+  loop_control:
+    label: "{{ item }}"
+
+- name: ストレージ role の実行モードを決定
+  ansible.builtin.set_fact:
+    openwrt_storage_partition_map_enabled: "{{ (openwrt_storage_partition_map | default([]) | length) > 0 }}"
+    openwrt_storage_destructive_requested: "{{ (openwrt_storage_force_repartition | bool) or (openwrt_storage_force_format | bool) }}"
+    openwrt_storage_partition_suffix: "{{ 'p' if (openwrt_storage_device | regex_search('[0-9]$')) else '' }}"
+    openwrt_storage_destructive_confirm_expected: "erase-{{ openwrt_storage_device | regex_replace('^.*/', '') }}"
+
+- name: ブロックデバイス情報を取得
+  ansible.builtin.shell: "block info {{ openwrt_storage_block_info_globs | join(' ') }} 2>/dev/null || true"
+  register: openwrt_storage_block_info
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: ラベルから legacy パーティションを自動検出
+  ansible.builtin.set_fact:
+    openwrt_storage_boot_partition_autodetect: >-
+      {{
+        openwrt_storage_block_info.stdout_lines
+        | select('search', 'LABEL="' ~ (openwrt_storage_boot_label | regex_escape) ~ '"')
+        | map('regex_replace', ':.*$', '')
+        | list
+        | first
+        | default('', true)
+      }}
+    openwrt_storage_data_partition_autodetect: >-
+      {{
+        openwrt_storage_block_info.stdout_lines
+        | select('search', 'LABEL="' ~ (openwrt_storage_data_label | regex_escape) ~ '"')
+        | map('regex_replace', ':.*$', '')
+        | list
+        | first
+        | default('', true)
+      }}
+  when: not openwrt_storage_partition_map_enabled | bool
+
+- name: legacy 自動検出結果を反映
+  ansible.builtin.set_fact:
+    openwrt_storage_boot_partition: >-
+      {{
+        openwrt_storage_boot_partition_autodetect
+        if openwrt_storage_boot_partition_autodetect | length > 0
+        else openwrt_storage_boot_partition
+      }}
+    openwrt_storage_data_partition: >-
+      {{
+        openwrt_storage_data_partition_autodetect
+        if openwrt_storage_data_partition_autodetect | length > 0
+        else openwrt_storage_data_partition
+      }}
+    openwrt_storage_device: >-
+      {{
+        (
+          openwrt_storage_data_partition_autodetect
+          | default(openwrt_storage_boot_partition_autodetect, true)
+          | default('', true)
+          | regex_replace('p?[0-9]+$', '')
+        )
+        if (openwrt_storage_data_partition_autodetect | length > 0
+            or openwrt_storage_boot_partition_autodetect | length > 0)
+        else openwrt_storage_device
+      }}
+  when: not openwrt_storage_partition_map_enabled | bool
+
+- name: legacy storage partition list を作成
+  ansible.builtin.set_fact:
+    openwrt_storage_effective_partitions:
+      - name: boot
+        number: 1
+        partition: "{{ openwrt_storage_boot_partition }}"
+        start: 1MiB
+        end: "{{ (openwrt_storage_boot_size_mib | int) + 1 }}MiB"
+        parted_type: fat32
+        fstype: "{{ openwrt_storage_boot_fstype }}"
+        label: "{{ openwrt_storage_boot_label }}"
+        target: "{{ openwrt_storage_boot_mount }}"
+        fstab_section: srv_boot
+        mount_options: "{{ openwrt_storage_boot_mount_options }}"
+        mount_mode: "{{ openwrt_storage_boot_mount_mode }}"
+        esp: true
+      - name: data
+        number: 2
+        partition: "{{ openwrt_storage_data_partition }}"
+        start: "{{ (openwrt_storage_boot_size_mib | int) + 1 }}MiB"
+        end: 100%
+        fstype: "{{ openwrt_storage_data_fstype }}"
+        label: "{{ openwrt_storage_data_label }}"
+        target: "{{ openwrt_storage_data_mount }}"
+        fstab_section: srv
+        mount_options: "{{ openwrt_storage_data_mount_options }}"
+        mount_mode: "{{ openwrt_storage_data_mount_mode }}"
+  when: not openwrt_storage_partition_map_enabled | bool
+
+- name: partition map 必須値を検証
+  ansible.builtin.assert:
+    that:
+      - item.number is defined
+      - item.fstype is defined
+      - item.fstype in ['vfat', 'fat32', 'f2fs', 'swap']
+      - item.label is defined
+      - (not openwrt_storage_force_repartition | bool) or item.start is defined
+      - (not openwrt_storage_force_repartition | bool) or item.end is defined
+    fail_msg: "openwrt_storage_partition_map item に number/fstype/label/start/end が不足、または fstype が未対応です: {{ item }}"
+  loop: "{{ openwrt_storage_partition_map | default([]) }}"
+  loop_control:
+    label: "{{ item.number | default('?') }}:{{ item.label | default('?') }}"
+  when: openwrt_storage_partition_map_enabled | bool
+
+- name: partition map を初期化
+  ansible.builtin.set_fact:
+    openwrt_storage_effective_partitions: []
+  when: openwrt_storage_partition_map_enabled | bool
+
+- name: partition map に device path を補完
+  ansible.builtin.set_fact:
+    openwrt_storage_effective_partitions: >-
+      {{
+        openwrt_storage_effective_partitions
+        + [
+          item | combine({
+            'partition': item.partition | default(openwrt_storage_device ~ openwrt_storage_partition_suffix ~ (item.number | string)),
+            'parted_type': item.parted_type | default(
+              'fat32' if item.fstype in ['vfat', 'fat32']
+              else ('linux-swap' if item.fstype == 'swap'
+              else '')
+            ),
+            'mount_mode': item.mount_mode | default('0755'),
+            'mount_options': item.mount_options | default('rw,noatime')
+          })
+        ]
+      }}
+  loop: "{{ openwrt_storage_partition_map | default([]) }}"
+  loop_control:
+    label: "{{ item.number }}:{{ item.label }}"
+  when: openwrt_storage_partition_map_enabled | bool
+
+- name: マウントポイントを作成
+  ansible.builtin.file:
+    path: "{{ item.target }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "{{ item.mount_mode | default('0755') }}"
+  loop: "{{ openwrt_storage_effective_partitions }}"
+  loop_control:
+    label: "{{ item.target | default(item.partition) }}"
+  when:
+    - item.target is defined
+    - (item.target | string | length) > 0
+    - item.fstype != 'swap'
+
+- name: destructive storage 操作の確認 token を検証
+  ansible.builtin.assert:
+    that:
+      - openwrt_storage_destructive_confirm == openwrt_storage_destructive_confirm_expected
+    fail_msg: >-
+      openwrt_storage_force_repartition/openwrt_storage_force_format には
+      openwrt_storage_destructive_confirm={{ openwrt_storage_destructive_confirm_expected }}
+      の明示が必要です。target={{ openwrt_storage_device }}
+  when: openwrt_storage_destructive_requested | bool
+
+- name: destructive storage 操作の対象 device を検証
+  ansible.builtin.shell: |
+    set -eu
+    target={{ openwrt_storage_device | quote }}
+    expected_model={{ openwrt_storage_expected_model | quote }}
+    expected_serial={{ openwrt_storage_expected_serial | quote }}
+    protected_mounts=' {{ (["/srv", "/srv/boot"] + (openwrt_storage_protected_mounts | default([]))) | unique | join(" ") }} '
+
+    case "$target" in
+      /dev/*) ;;
+      *) echo "target must be under /dev: $target" >&2; exit 1 ;;
+    esac
+    [ -b "$target" ] || { echo "target is not a block device: $target" >&2; exit 1; }
+
+    awk '{print $1 " " $2}' /proc/mounts | while read -r src mnt; do
+      case "$protected_mounts" in
+        *" $mnt "*) ;;
+        *) continue ;;
+      esac
+      case "$src" in
+        "$target"|"$target"[0-9]*|"$target"p[0-9]*)
+          echo "target $target owns protected mount $mnt via $src" >&2
+          exit 1
+          ;;
+      esac
+    done
+
+    name="$(basename "$target")"
+    model="$(
+      { cat "/sys/block/$name/device/model" 2>/dev/null || true; } |
+      sed 's/[[:space:]]*$//' |
+      sed -n '1p'
+    )"
+    serial="$(
+      { cat "/sys/block/$name/device/serial" 2>/dev/null || true; } |
+      sed 's/[[:space:]]*$//' |
+      sed -n '1p'
+    )"
+    case "$name" in
+      nvme*n*)
+        ctrl="${name%n*}"
+        model="$({ cat "/sys/class/nvme/$ctrl/model" 2>/dev/null || printf '%s' "$model"; } | sed 's/[[:space:]]*$//' | sed -n '1p')"
+        serial="$({ cat "/sys/class/nvme/$ctrl/serial" 2>/dev/null || printf '%s' "$serial"; } | sed 's/[[:space:]]*$//' | sed -n '1p')"
+        ;;
+    esac
+
+    if [ -n "$expected_model" ] && [ "$model" != "$expected_model" ]; then
+      echo "model mismatch: expected=$expected_model actual=$model" >&2
+      exit 1
+    fi
+    if [ -n "$expected_serial" ] && [ "$serial" != "$expected_serial" ]; then
+      echo "serial mismatch: expected=$expected_serial actual=$serial" >&2
+      exit 1
+    fi
+    printf 'target=%s model=%s serial=%s\n' "$target" "$model" "$serial"
+  args:
+    executable: /bin/ash
+  register: openwrt_storage_destructive_guard
+  changed_when: false
+  check_mode: false
+  when: openwrt_storage_destructive_requested | bool
+
+- name: /dev を再スキャン（パーティション作成前の保険）
+  ansible.builtin.command: partprobe "{{ openwrt_storage_device }}"
+  register: openwrt_storage_partprobe_before
+  failed_when: false
+  changed_when: false
+  when: openwrt_storage_force_repartition | bool
+
+- name: legacy 500MiB FAT32 + f2fs 構成で再パーティション
+  ansible.builtin.shell: |
+    set -eu
+    parted -s {{ openwrt_storage_device | quote }} mklabel gpt
+    parted -s {{ openwrt_storage_device | quote }} mkpart primary fat32 1MiB {{ (openwrt_storage_boot_size_mib | int) + 1 }}MiB
+    parted -s {{ openwrt_storage_device | quote }} set 1 esp on
+    parted -s {{ openwrt_storage_device | quote }} mkpart primary {{ (openwrt_storage_boot_size_mib | int) + 1 }}MiB 100%
+  args:
+    executable: /bin/ash
+  register: openwrt_storage_parted_legacy
+  changed_when: openwrt_storage_parted_legacy.rc == 0
+  when:
+    - openwrt_storage_force_repartition | bool
+    - not openwrt_storage_partition_map_enabled | bool
+
+- name: partition map 構成で再パーティション
+  ansible.builtin.shell: |
+    set -eu
+    parted -s {{ openwrt_storage_device | quote }} mklabel gpt
+    {% for part in openwrt_storage_effective_partitions %}
+    parted -s {{ openwrt_storage_device | quote }} mkpart primary{% if part.parted_type | default('') | length > 0 %} {{ part.parted_type }}{% endif %} {{ part.start }} {{ part.end }}
+    {% if part.esp | default(false) | bool %}
+    parted -s {{ openwrt_storage_device | quote }} set {{ part.number }} esp on
+    {% endif %}
+    {% endfor %}
+  args:
+    executable: /bin/ash
+  register: openwrt_storage_parted_map
+  changed_when: openwrt_storage_parted_map.rc == 0
+  when:
+    - openwrt_storage_force_repartition | bool
+    - openwrt_storage_partition_map_enabled | bool
+
+- name: /dev を再スキャン（パーティション作成後）
+  ansible.builtin.command: partprobe "{{ openwrt_storage_device }}"
+  register: openwrt_storage_partprobe_after
+  failed_when: false
+  changed_when: false
+  when: openwrt_storage_force_repartition | bool
+
+- name: パーティション再認識待機
+  ansible.builtin.shell: |
+    set -eu
+    for i in $(seq 1 10); do
+      missing=0
+      {% for part in openwrt_storage_effective_partitions %}
+      [ -b {{ part.partition | quote }} ] || missing=1
+      {% endfor %}
+      [ "$missing" -eq 0 ] && exit 0
+      sleep 1
+    done
+    echo "partition device not found" >&2
+    {% for part in openwrt_storage_effective_partitions %}
+    ls -l {{ part.partition | quote }} 2>/dev/null || true
+    {% endfor %}
+    exit 1
+  args:
+    executable: /bin/ash
+  when: openwrt_storage_force_repartition | bool
+
+- name: 管理パーティションを初期化
+  ansible.builtin.shell: |
+    set -eu
+    part={{ item.partition | quote }}
+    label={{ item.label | quote }}
+    case {{ item.fstype | quote }} in
+      vfat|fat32)
+        /usr/sbin/mkfs.fat -F 32 -n "$label" "$part"
+        ;;
+      f2fs)
+        /usr/sbin/mkfs.f2fs -f -l "$label" "$part"
+        ;;
+      swap)
+        mkswap -L "$label" "$part"
+        ;;
+      *)
+        echo "unsupported fstype: {{ item.fstype }}" >&2
+        exit 1
+        ;;
+    esac
+  args:
+    executable: /bin/ash
+  loop: "{{ openwrt_storage_effective_partitions }}"
+  loop_control:
+    label: "{{ item.partition }} {{ item.fstype }} {{ item.label }}"
+  register: openwrt_storage_mkfs
+  changed_when: openwrt_storage_mkfs.rc == 0
+  when:
+    - openwrt_storage_force_repartition | bool or openwrt_storage_force_format | bool
+    - item.format | default(true) | bool
+
+- name: fstab 更新用にブロックデバイス情報を再取得
+  ansible.builtin.shell: "block info {{ openwrt_storage_block_info_globs | join(' ') }} 2>/dev/null || true"
+  register: openwrt_storage_block_info_fstab
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: 管理 mount パーティションの fstab を更新
+  ansible.builtin.shell: |
+    set -eu
+    section={{ (item.fstab_section | default('storage_' ~ (item.number | string))) | quote }}
+    partition={{ item.partition | quote }}
+    target={{ item.target | quote }}
+    fstype={{ item.fstype | quote }}
+    options={{ item.mount_options | default('rw,noatime') | quote }}
+    label={{ item.label | quote }}
+    info="$(block info "$partition" 2>/dev/null || true)"
+    uuid="$(printf '%s\n' "$info" | sed -n 's/.*UUID="\([^"]*\)".*/\1/p' | sed -n '1p')"
+    actual_label="$(printf '%s\n' "$info" | sed -n 's/.*LABEL="\([^"]*\)".*/\1/p' | sed -n '1p')"
+    if [ -z "$uuid" ]; then
+      echo "block info did not report UUID for $partition: $info" >&2
+      exit 1
+    fi
+    if [ -n "$label" ] && [ -n "$actual_label" ] && [ "$actual_label" != "$label" ]; then
+      echo "label mismatch for $partition: expected=$label actual=$actual_label" >&2
+      exit 1
+    fi
+
+    changed=0
+    if ! uci -q get "fstab.${section}" >/dev/null; then
+      uci set "fstab.${section}=mount"
+      changed=1
+    fi
+    ensure() {
+      key="$1"
+      value="$2"
+      current="$(uci -q get "fstab.${section}.${key}" 2>/dev/null || true)"
+      if [ "$current" != "$value" ]; then
+        uci set "fstab.${section}.${key}=$value"
+        changed=1
+      fi
+    }
+    ensure target "$target"
+    ensure uuid "$uuid"
+    ensure fstype "$fstype"
+    ensure options "$options"
+    ensure enabled '1'
+    ensure enabled_fsck '0'
+    if [ "$changed" -eq 1 ]; then
+      uci commit fstab
+      echo changed
+    fi
+  args:
+    executable: /bin/ash
+  loop: "{{ openwrt_storage_effective_partitions }}"
+  loop_control:
+    label: "{{ item.fstab_section | default(item.partition) }} -> {{ item.target | default('') }}"
+  register: openwrt_storage_fstab_mounts
+  changed_when: "'changed' in openwrt_storage_fstab_mounts.stdout"
+  when:
+    - openwrt_storage_manage_fstab | bool
+    - item.fstype != 'swap'
+    - item.target is defined
+    - (item.target | string | length) > 0
+
+- name: swap デバイス候補を autodetect
+  ansible.builtin.set_fact:
+    openwrt_storage_swap_partitions_autodetect: >-
+      {{
+        openwrt_storage_block_info_fstab.stdout_lines
+        | select('search', 'TYPE="swap"')
+        | map('regex_replace', ':.*$', '')
+        | list
+      }}
+
+- name: swap デバイス指定を整形
+  ansible.builtin.set_fact:
+    openwrt_storage_swap_device_configured: "{{ openwrt_storage_swap_device | default('') | string | trim }}"
+    openwrt_storage_swap_map_candidates: >-
+      {{
+        openwrt_storage_effective_partitions
+        | selectattr('fstype', 'equalto', 'swap')
+        | map(attribute='partition')
+        | list
+      }}
+  when:
+    - openwrt_storage_manage_fstab | bool
+    - openwrt_storage_swap_device is defined or (openwrt_storage_partition_map_enabled | bool and (openwrt_storage_effective_partitions | selectattr('fstype', 'equalto', 'swap') | list | length) > 0)
+
+- name: swap autodetect 候補を絞り込む
+  ansible.builtin.set_fact:
+    openwrt_storage_swap_autodetect_candidates: >-
+      {{
+        (
+          openwrt_storage_swap_partitions_autodetect
+          | intersect(openwrt_storage_swap_map_candidates)
+        )
+        if (openwrt_storage_partition_map_enabled | bool and (openwrt_storage_swap_map_candidates | length) > 0)
+        else openwrt_storage_swap_partitions_autodetect
+      }}
+  when:
+    - openwrt_storage_manage_fstab | bool
+    - openwrt_storage_swap_device_configured | default('') == 'auto'
+
+- name: swap デバイスを決定
+  ansible.builtin.set_fact:
+    openwrt_storage_swap_device_effective: >-
+      {{
+        (openwrt_storage_swap_autodetect_candidates | first | default('', true))
+        if openwrt_storage_swap_device_configured | default('') == 'auto'
+        else (
+          openwrt_storage_swap_device_configured
+          if openwrt_storage_swap_device_configured | default('') | length > 0
+          else (openwrt_storage_swap_map_candidates | first | default('', true))
+        )
+      }}
+  when:
+    - openwrt_storage_manage_fstab | bool
+    - openwrt_storage_swap_device is defined or (openwrt_storage_partition_map_enabled | bool and (openwrt_storage_effective_partitions | selectattr('fstype', 'equalto', 'swap') | list | length) > 0)
+
+- name: swap デバイス指定を検証
+  ansible.builtin.assert:
+    that:
+      - openwrt_storage_swap_device_effective | default('') | length > 0
+      - openwrt_storage_swap_device_effective in openwrt_storage_swap_partitions_autodetect
+      - openwrt_storage_swap_device_configured | default('') != 'auto' or (openwrt_storage_swap_autodetect_candidates | default([]) | length) == 1
+    fail_msg: >-
+      openwrt_storage_swap_device が TYPE=swap のパーティションを一意に指していません。
+      configured={{ openwrt_storage_swap_device_configured | default('') }};
+      effective={{ openwrt_storage_swap_device_effective | default('') }};
+      detected={{ openwrt_storage_swap_partitions_autodetect | default([]) }};
+      map_candidates={{ openwrt_storage_swap_map_candidates | default([]) }};
+      autodetect_candidates={{ openwrt_storage_swap_autodetect_candidates | default([]) }};
+      OpenWrt 再起動後の /dev/sdX 列挙順変更、または swap フォーマットを確認してください。
+  when:
+    - openwrt_storage_manage_fstab | bool
+    - openwrt_storage_swap_device is defined or (openwrt_storage_partition_map_enabled | bool and (openwrt_storage_effective_partitions | selectattr('fstype', 'equalto', 'swap') | list | length) > 0)
+
+- name: fstab.swap0 セクションを更新
+  ansible.builtin.shell: |
+    set -eu
+    device={{ openwrt_storage_swap_device_effective | quote }}
+    mode={{ openwrt_storage_swap_identifier_mode | quote }}
+    info="$(block info "$device" 2>/dev/null || true)"
+    uuid="$(printf '%s\n' "$info" | sed -n 's/.*UUID="\([^"]*\)".*/\1/p' | sed -n '1p')"
+    label="$(printf '%s\n' "$info" | sed -n 's/.*LABEL="\([^"]*\)".*/\1/p' | sed -n '1p')"
+
+    key=device
+    value="$device"
+    if [ "$mode" = auto ]; then
+      if [ -n "$uuid" ]; then
+        key=uuid
+        value="$uuid"
+      elif [ -n "$label" ]; then
+        key=label
+        value="$label"
+      fi
+    elif [ "$mode" = uuid ]; then
+      [ -n "$uuid" ] || { echo "swap UUID not detected for $device: $info" >&2; exit 1; }
+      key=uuid
+      value="$uuid"
+    elif [ "$mode" = label ]; then
+      [ -n "$label" ] || { echo "swap LABEL not detected for $device: $info" >&2; exit 1; }
+      key=label
+      value="$label"
+    elif [ "$mode" != device ]; then
+      echo "unsupported openwrt_storage_swap_identifier_mode=$mode" >&2
+      exit 1
+    fi
+
+    changed=0
+    if ! uci -q get fstab.swap0 >/dev/null; then
+      uci set fstab.swap0=swap
+      changed=1
+    fi
+    for stale in device uuid label; do
+      if [ "$stale" != "$key" ] && uci -q get "fstab.swap0.${stale}" >/dev/null; then
+        uci delete "fstab.swap0.${stale}"
+        changed=1
+      fi
+    done
+    current="$(uci -q get "fstab.swap0.${key}" 2>/dev/null || true)"
+    if [ "$current" != "$value" ]; then
+      uci set "fstab.swap0.${key}=$value"
+      changed=1
+    fi
+    current_enabled="$(uci -q get fstab.swap0.enabled 2>/dev/null || true)"
+    if [ "$current_enabled" != 1 ]; then
+      uci set fstab.swap0.enabled='1'
+      changed=1
+    fi
+    if [ "$changed" -eq 1 ]; then
+      uci commit fstab
+      echo changed
+    fi
+  args:
+    executable: /bin/ash
+  register: openwrt_storage_fstab_swap
+  changed_when: "'changed' in openwrt_storage_fstab_swap.stdout"
+  when:
+    - openwrt_storage_manage_fstab | bool
+    - openwrt_storage_swap_device_effective | default('') | length > 0
+
+- name: block mount を再適用
+  ansible.builtin.command: block mount
+  when:
+    - openwrt_storage_manage_fstab | bool
+    - openwrt_storage_apply_mounts | bool
+    - (openwrt_storage_fstab_mounts is defined and openwrt_storage_fstab_mounts is changed) or (openwrt_storage_fstab_swap is defined and openwrt_storage_fstab_swap is changed)
+
+- name: iSCSI backing file 用ディレクトリを確保
+  ansible.builtin.file:
+    path: "{{ openwrt_iscsi_backing_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'

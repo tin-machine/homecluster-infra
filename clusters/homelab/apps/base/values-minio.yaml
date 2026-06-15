@@ -1,0 +1,38 @@
+mode: standalone
+replicas: 1
+drivesPerNode: 1
+pools: 1
+
+image:
+  repository: quay.io/minio/minio
+  tag: RELEASE.2024-12-18T13-15-44Z
+  pullPolicy: IfNotPresent
+
+persistence:
+  enabled: true
+  storageClass: nfs-client
+  size: 100Gi
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+
+podLabels:
+  app.kubernetes.io/name: minio
+  app.kubernetes.io/instance: minio
+  app.kubernetes.io/part-of: object-storage
+
+service:
+  labels:
+    app.kubernetes.io/name: minio
+    app.kubernetes.io/instance: minio
+    app.kubernetes.io/part-of: object-storage
+
+buckets:
+  - name: loki
+    policy: none
+    purge: false
+  - name: loki-ruler
+    policy: none
+    purge: false

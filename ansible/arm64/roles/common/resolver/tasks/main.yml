@@ -1,0 +1,28 @@
+- name: ホスト名の表示
+  debug:
+    msg: "{{ inventory_hostname }}"
+
+- name: ホスト名の決定
+  ansible.builtin.set_fact:
+    resolver_hostname: "{{ overlay_id | default(inventory_hostname) }}"
+
+- name: /etc/hostname を作成
+  ansible.builtin.copy:
+    dest: /etc/hostname
+    content: "{{ resolver_hostname }}\n"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: systemd のホスト名を更新
+  ansible.builtin.command: "hostnamectl set-hostname {{ resolver_hostname }}"
+  when: ansible_service_mgr is defined and ansible_service_mgr == 'systemd'
+  changed_when: true
+
+- name: hostsファイルの設定
+  template:
+    src: hosts.j2
+    dest: /etc/hosts
+    owner: root
+    group: root
+    mode: 0644

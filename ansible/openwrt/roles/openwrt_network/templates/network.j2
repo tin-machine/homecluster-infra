@@ -1,0 +1,34 @@
+config interface 'loopback'
+	option device 'lo'
+	option proto 'static'
+	option ipaddr '127.0.0.1'
+	option netmask '255.0.0.0'
+
+config globals 'globals'
+	option ula_prefix '{{ openwrt_ula_prefix }}'
+
+config device
+	option name '{{ openwrt_lan_device }}'
+	option type 'bridge'
+{% for port in openwrt_lan_ports %}
+	list ports '{{ port }}'
+{% endfor %}
+
+config interface 'lan'
+	option device '{{ openwrt_lan_device }}'
+	option proto 'static'
+	option ipaddr '{{ openwrt_lan_ipaddr }}'
+	option netmask '{{ openwrt_lan_netmask }}'
+	option ip6assign '{{ openwrt_lan_ip6assign }}'
+
+config interface 'wan'
+	option device '{{ openwrt_wan_device }}'
+	option proto 'pppoe'
+	option username '{{ openwrt_wan_pppoe_username }}'
+	option password '{{ openwrt_wan_pppoe_password }}'
+	option ipv6 '{{ openwrt_wan_pppoe_ipv6 }}'
+	option keepalive '{{ openwrt_wan_pppoe_keepalive }}'
+
+config interface 'wan6'
+	option device '{{ openwrt_wan_device }}'
+	option proto '{{ openwrt_wan6_proto }}'

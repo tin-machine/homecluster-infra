@@ -1,0 +1,24 @@
+---
+- name: TFTP date config.txt を配置
+  ansible.builtin.template:
+    src: config.txt.j2
+    dest: "{{ openwrt_gentoo_tftp_dir }}/config.txt"
+    owner: root
+    group: root
+    mode: '0644'
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_tftp_config_enabled | bool
+
+- name: TFTP date cmdline.txt を配置
+  ansible.builtin.template:
+    src: cmdline.txt.j2
+    dest: "{{ openwrt_gentoo_tftp_dir }}/cmdline.txt"
+    owner: root
+    group: root
+    mode: '0644'
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_tftp_cmdline_enabled | bool

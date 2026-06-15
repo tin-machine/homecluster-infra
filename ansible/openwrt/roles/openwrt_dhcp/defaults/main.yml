@@ -1,0 +1,3 @@
+---
+openwrt_dhcp_ntp_servers: []
+openwrt_dnsmasq_log_queries: false

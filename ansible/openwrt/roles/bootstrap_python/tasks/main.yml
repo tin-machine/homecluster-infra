@@ -1,0 +1,123 @@
+---
+- name: Python3 コマンドの存在確認
+  ansible.builtin.raw: python3 --version
+  register: openwrt_python_check
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: 必須 Python パッケージのインストール状況を確認
+  ansible.builtin.raw: "opkg list-installed {{ item }}"
+  register: openwrt_python_pkg_check
+  failed_when: false
+  changed_when: false
+  loop: "{{ openwrt_python_packages }}"
+  loop_control:
+    label: "{{ item }}"
+  check_mode: false
+
+- name: 未インストールパッケージ用のリストを初期化
+  ansible.builtin.set_fact:
+    openwrt_missing_python_packages: []
+  when: not (openwrt_python_force_install | default(false))
+
+- name: 強制インストール時は全パッケージを対象に設定
+  ansible.builtin.set_fact:
+    openwrt_missing_python_packages: "{{ openwrt_python_packages }}"
+  when: openwrt_python_force_install | default(false)
+
+- name: 未インストールの Python パッケージを抽出
+  ansible.builtin.set_fact:
+    openwrt_missing_python_packages: "{{ openwrt_missing_python_packages + [item.item] }}"
+  loop: "{{ openwrt_python_pkg_check.results | default([]) }}"
+  when:
+    - (item.stdout | default('') | trim) == ''
+    - not (openwrt_python_force_install | default(false))
+
+- name: チェックモードでは Python インストールをスキップ
+  ansible.builtin.debug:
+    msg: "チェックモードのため Python パッケージの導入は実行しません"
+  when:
+    - (openwrt_missing_python_packages | default(openwrt_python_packages) | length) > 0
+    - ansible_check_mode
+
+- name: opkg update を実行
+  ansible.builtin.raw: opkg update
+  when:
+    - (openwrt_missing_python_packages | default(openwrt_python_packages) | length) > 0
+    - openwrt_opkg_update | bool
+    - not ansible_check_mode
+  check_mode: false
+
+- name: Python 実行環境を導入
+  ansible.builtin.raw: "opkg install {{ (openwrt_missing_python_packages | default(openwrt_python_packages)) | join(' ') }}"
+  when:
+    - (openwrt_missing_python_packages | default(openwrt_python_packages) | length) > 0
+    - not ansible_check_mode
+  register: openwrt_python_install
+  changed_when: openwrt_python_install.rc == 0
+  check_mode: false
+
+- name: python3 バイナリのシンボリックリンクを確認
+  ansible.builtin.raw: |
+    if [ -e /usr/bin/python3 ]; then
+      exit 0
+    fi
+    target=$(ls -1 /usr/bin/python3.* 2>/dev/null | head -n1)
+    if [ -z "$target" ]; then
+      echo 'python3 variant not found' >&2
+      exit 1
+    fi
+    ln -sf "$target" /usr/bin/python3 && echo linked
+  register: openwrt_python_link
+  changed_when: "'linked' in openwrt_python_link.stdout"
+  check_mode: false
+  when: not ansible_check_mode
+
+- name: インストール後に python3 が利用できるか確認
+  ansible.builtin.raw: python3 --version
+  register: openwrt_python_post_check
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  when: not ansible_check_mode
+
+- name: Python インストールに失敗した場合は停止
+  ansible.builtin.fail:
+    msg: "python3 が導入できませんでした"
+  when:
+    - not ansible_check_mode
+    - (openwrt_missing_python_packages | default(openwrt_python_packages) | length) > 0
+    - openwrt_python_post_check.rc is defined
+    - openwrt_python_post_check.rc != 0
+
+- name: zlib モジュールが利用可能か事前確認
+  ansible.builtin.raw: |
+    python3 - <<'PY'
+    import zlib
+    PY
+  register: openwrt_python_zlib_check
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: チェックモードでは zlib 不足を通知
+  ansible.builtin.fail:
+    msg: "python3 に zlib モジュールが存在しません。チェックモードの前に一度 apply を実行して必要なパッケージを導入してください。"
+  when:
+    - ansible_check_mode
+    - openwrt_python_zlib_check.rc != 0
+
+- name: Python 利用可能化後にファクトを収集
+  ansible.builtin.setup:
+    gather_subset:
+      - min
+  check_mode: false
+  when: not ansible_check_mode
+
+- name: Python が既に導入済みのホストで最小ファクトを取得
+  ansible.builtin.setup:
+    gather_subset:
+      - min
+  when:
+    - ansible_check_mode or openwrt_python_check.rc == 0

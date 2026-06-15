@@ -1,0 +1,9 @@
+---
+openwrt_prometheus_exporter_enabled: true
+openwrt_prometheus_exporter_listen_interface: "*"
+openwrt_prometheus_exporter_listen_port: 9100
+openwrt_prometheus_exporter_packages:
+  - prometheus-node-exporter-lua
+openwrt_prometheus_exporter_service: prometheus-node-exporter-lua
+openwrt_prometheus_exporter_init_path: "/etc/init.d/{{ openwrt_prometheus_exporter_service }}"
+openwrt_prometheus_exporter_config_path: "/etc/config/{{ openwrt_prometheus_exporter_service }}"

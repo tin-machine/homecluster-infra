@@ -1,0 +1,94 @@
+---
+# Join staging k3s agents from an already bootstrapped staging server.
+# Tokens and node addresses are external inputs and must not be committed.
+
+- name: Validate staging server inventory
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Require exactly one staging server
+      ansible.builtin.assert:
+        that:
+          - groups['k3s_stg_server'] | default([]) | length == 1
+        fail_msg: "k3s_stg_server must resolve to exactly one active host"
+
+- name: Fetch staging server token and address
+  hosts: k3s_stg_server
+  become: true
+  gather_facts: true
+  vars_files:
+    - ../group_vars/all.yml
+    - ../group_vars/k3s.yml
+    - ../group_vars/k3s_stg.yml
+  tasks:
+    - name: Read k3s server node-token
+      ansible.builtin.slurp:
+        path: /var/lib/rancher/k3s/server/node-token
+      register: token_slurp
+      no_log: true
+
+    - name: Save token and server address as host facts
+      ansible.builtin.set_fact:
+        k3s_server_token: "{{ token_slurp.content | b64decode | trim }}"
+        k3s_server_ip: "{{ ansible_host | default(ansible_facts.get('default_ipv4', {}).get('address', ''), true) }}"
+        cacheable: true
+      no_log: true
+
+    - name: Read k3s server version
+      ansible.builtin.command:
+        argv:
+          - /usr/local/bin/k3s
+          - --version
+      register: k3s_server_version_cmd
+      changed_when: false
+
+    - name: Save k3s server version as host fact
+      ansible.builtin.set_fact:
+        k3s_server_release_version: "{{ k3s_server_version_cmd.stdout | regex_search('v[0-9]+\\.[0-9]+\\.[0-9]+\\+k3s[0-9]+') }}"
+        cacheable: true
+
+- name: Join staging agents
+  hosts: k3s_stg_server:k3s_stg_agents
+  become: true
+  gather_facts: true
+  vars_files:
+    - ../group_vars/all.yml
+    - ../group_vars/k3s.yml
+    - ../group_vars/k3s_stg.yml
+  vars:
+    k3s_registration_address: "{{ hostvars[groups['k3s_stg_server'][0]].k3s_server_ip }}"
+    k3s_control_token: "{{ hostvars[groups['k3s_stg_server'][0]].k3s_server_token }}"
+    k3s_control_delegate: "{{ groups['k3s_stg_server'][0] }}"
+  roles:
+    - role: k3s_log_limits
+      when: inventory_hostname in (groups['k3s_stg_agents'] | default([]))
+      tags:
+        - k3s_log_limits
+    - role: k3s_iptables_nft
+      when: inventory_hostname in (groups['k3s_stg_agents'] | default([]))
+      tags:
+        - k3s_iptables_nft
+    - role: k3s_local_storage
+      tags:
+        - k3s_local_storage
+      when:
+        - inventory_hostname in (groups['k3s_stg_agents'] | default([]))
+        - k3s_local_storage_enabled | default(false)
+    - role: xanmanning.k3s
+      when: inventory_hostname in (groups['k3s_stg_agents'] | default([]))
+      vars:
+        k3s_state: installed
+        k3s_release_version: "{{ hostvars[groups['k3s_stg_server'][0]].k3s_server_release_version }}"
+        k3s_control_node: false
+        k3s_primary_control_node: false
+        k3s_build_cluster: true
+        k3s_service_name: k3s
+        k3s_defer_service_restart: true
+    - role: k3s_networking
+      when: inventory_hostname in (groups['k3s_stg_agents'] | default([]))
+      vars:
+        k3s_control_node: false
+        k3s_service_name: k3s
+        k3s_defer_service_restart: true
+      tags:
+        - k3s_networking

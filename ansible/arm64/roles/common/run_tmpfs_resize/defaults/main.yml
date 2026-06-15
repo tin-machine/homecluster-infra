@@ -1,0 +1,6 @@
+---
+# /run tmpfs をリサイズするロールのデフォルト
+run_tmpfs_resize_enabled: true
+run_tmpfs_size_mb: 4500        # 2.5GB
+run_tmpfs_min_mem_mb: 5000     # ホストメモリがこの値未満ならスキップ
+run_tmpfs_mount_unit: run.mount

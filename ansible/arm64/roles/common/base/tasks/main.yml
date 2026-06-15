@@ -1,0 +1,46 @@
+---
+
+# portageでの書き方
+# https://docs.ansible.com/ansible/2.3/portage_module.html
+
+- name: ディスク書き込みを遅延する処理が入っているか確認
+  block:
+    - name: /etc/sysctl.d/が無かったら作る
+      file:
+        path: "/etc/sysctl.d"
+        state: directory
+        mode: "0755"
+    - name: vm.* sysctl を設定
+      ansible.builtin.sysctl:
+        name: "{{ item.name }}"
+        value: "{{ item.value }}"
+        state: present
+        reload: true
+        sysctl_file: /etc/sysctl.d/99-disk.conf
+      loop:
+        - {name: "vm.dirty_background_ratio", value: "70"}
+        - {name: "vm.dirty_ratio", value: "70"}
+        - {name: "vm.dirty_writeback_centisecs", value: "5000"}
+        - {name: "vm.dirty_expire_centisecs", value: "30000"}
+
+- name: ロケール設定
+  become: true
+  block:
+    - name: タイムゾーン設定
+      community.general.timezone:
+        name: Asia/Tokyo
+    - name: ja_JP.UTF-8 ロケールを有効化（/etc/locale.gen）
+      community.general.locale_gen:
+        name: ja_JP.UTF-8
+        state: present
+    # eselect は使わず 02locale を直接管理（冪等）
+    - name: /etc/env.d/02locale を設定
+      copy:
+        dest: /etc/env.d/02locale
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          LANG="ja_JP.utf8"
+          LC_CTYPE="ja_JP.utf8"
+      notify: Run env-update

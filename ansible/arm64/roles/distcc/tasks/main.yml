@@ -1,0 +1,73 @@
+---
+- name: distcc 変数を検証
+  ansible.builtin.assert:
+    that:
+      - distcc_port | int > 0
+      - distcc_port | int < 65536
+      - distcc_jobs | int > 0
+      - distcc_nice | int >= 0
+      - distcc_nice | int <= 20
+      - distcc_allow | length > 0
+    fail_msg: "distcc.enabled=true の host は port/jobs/nice/allow を有効な値にしてください"
+  when:
+    - distcc_enabled | bool
+
+- name: distcc を導入
+  become: true
+  community.general.portage:
+    package: "{{ distcc_package }}"
+    state: present
+    loadavg: "{{ [distcc_jobs | int, 4] | max }}"
+  when:
+    - distcc_enabled | bool
+
+- name: distccd systemd drop-in ディレクトリを作成
+  become: true
+  ansible.builtin.file:
+    path: /etc/systemd/system/distccd.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when:
+    - distcc_enabled | bool
+
+- name: distccd systemd drop-in を配置
+  become: true
+  ansible.builtin.template:
+    src: distccd-homecluster.conf.j2
+    dest: /etc/systemd/system/distccd.service.d/10-homecluster.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - reload systemd
+    - restart distccd
+  when:
+    - distcc_enabled | bool
+
+- name: distccd を有効化して起動
+  become: true
+  ansible.builtin.systemd:
+    name: distccd
+    enabled: true
+    state: started
+    daemon_reload: true
+  when:
+    - distcc_enabled | bool
+
+- name: distccd の listen 状態を確認
+  become: true
+  ansible.builtin.command: "ss -ltn sport = :{{ distcc_port }}"
+  register: distccd_listen
+  changed_when: false
+  when:
+    - distcc_enabled | bool
+
+- name: distccd listen 確認結果を検証
+  ansible.builtin.assert:
+    that:
+      - "'LISTEN' in (distccd_listen.stdout | default(''))"
+    fail_msg: "distccd が TCP/{{ distcc_port }} で listen していません"
+  when:
+    - distcc_enabled | bool

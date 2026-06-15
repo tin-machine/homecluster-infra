@@ -1,0 +1,4 @@
+---
+- name: Restart prometheus-node-exporter
+  ansible.builtin.command: "{{ openwrt_prometheus_exporter_init_path }} restart"
+  changed_when: true

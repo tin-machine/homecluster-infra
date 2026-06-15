@@ -1,0 +1,6 @@
+PXE_SSH_HOST_ROLE_ENV_FILE="{{ openwrt_gentoo_role_env_output_path }}"
+PXE_SSH_HOST_KEY_STORE_ROOT="{{ openwrt_gentoo_ssh_host_keys_store_root }}"
+PXE_SSH_HOST_KEY_LOCAL_DIR="{{ openwrt_gentoo_ssh_host_keys_local_dir }}"
+PXE_SSH_HOST_KEY_TYPES="{{ openwrt_gentoo_ssh_host_keys_types | join(' ') }}"
+PXE_SSH_HOST_CERTIFICATES_ENABLED="{{ 1 if openwrt_gentoo_ssh_host_certificates_enabled | bool else 0 }}"
+PXE_SSH_HOST_CERTIFICATE_CONFIG="{{ openwrt_gentoo_ssh_host_certificates_config_path }}"

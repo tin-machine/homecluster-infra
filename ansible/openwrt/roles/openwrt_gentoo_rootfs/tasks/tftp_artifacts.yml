@@ -1,0 +1,204 @@
+---
+- name: TFTP firmware ディレクトリを作成
+  ansible.builtin.file:
+    path: "{{ openwrt_gentoo_tftp_dir }}/{{ openwrt_gentoo_tftp_firmware_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_tftp_firmware_dir | default('') | string | trim | length > 0
+  tags:
+    - tftp
+    - tftp-firmware
+
+- name: TFTP firmware ファイルを取得
+  ansible.builtin.get_url:
+    url: "{{ openwrt_gentoo_tftp_firmware_base_url.rstrip('/') }}/{{ item }}"
+    dest: "{{ openwrt_gentoo_tftp_dir }}/{{ openwrt_gentoo_tftp_firmware_dir }}/{{ item }}"
+    mode: '0644'
+    timeout: "{{ openwrt_gentoo_tftp_get_url_timeout }}"
+  loop:
+    - start4.elf
+    - start.elf
+    - fixup4.dat
+    - fixup.dat
+    - bootcode.bin
+  loop_control:
+    label: "{{ item }}"
+  register: tftp_firmware_get_url
+  retries: "{{ openwrt_gentoo_tftp_get_url_retries }}"
+  delay: "{{ openwrt_gentoo_tftp_get_url_delay }}"
+  until: tftp_firmware_get_url is succeeded
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_tftp_fetch_firmware | bool
+    - openwrt_gentoo_tftp_firmware_dir | default('') | string | trim | length > 0
+  tags:
+    - tftp
+    - tftp-firmware
+
+- name: TFTP ルートに firmware シンボリックリンクを作成
+  ansible.builtin.file:
+    src: "{{ openwrt_gentoo_tftp_firmware_dir }}/{{ item }}"
+    dest: "{{ openwrt_gentoo_tftp_dir }}/{{ item }}"
+    state: link
+    force: true
+  loop:
+    - start4.elf
+    - start.elf
+    - fixup4.dat
+    - fixup.dat
+    - bootcode.bin
+  loop_control:
+    label: "{{ item }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_tftp_firmware_dir | default('') | string | trim | length > 0
+
+- name: TFTP kernel ファイルを取得
+  ansible.builtin.get_url:
+    url: "{{ openwrt_gentoo_tftp_firmware_base_url.rstrip('/') }}/{{ item }}"
+    dest: "{{ openwrt_gentoo_tftp_dir }}/{{ item }}"
+    mode: '0644'
+    timeout: "{{ openwrt_gentoo_tftp_get_url_timeout }}"
+  loop:
+    - kernel8.img
+    - kernel8_rt.img
+    - kernel_2712.img
+  loop_control:
+    label: "{{ item }}"
+  register: tftp_kernel_get_url
+  retries: "{{ openwrt_gentoo_tftp_get_url_retries }}"
+  delay: "{{ openwrt_gentoo_tftp_get_url_delay }}"
+  until: tftp_kernel_get_url is succeeded
+  when:
+    - openwrt_gentoo_enabled | bool
+  tags:
+    - tftp
+    - tftp-kernel
+
+- name: TFTP DTB ファイルを取得
+  ansible.builtin.get_url:
+    url: "{{ openwrt_gentoo_tftp_firmware_base_url.rstrip('/') }}/{{ item }}"
+    dest: "{{ openwrt_gentoo_tftp_dir }}/{{ item }}"
+    mode: '0644'
+    timeout: "{{ openwrt_gentoo_tftp_get_url_timeout }}"
+  loop:
+    - bcm2711-rpi-4-b.dtb
+    - bcm2712-rpi-5-b.dtb
+  loop_control:
+    label: "{{ item }}"
+  register: tftp_dtb_get_url
+  retries: "{{ openwrt_gentoo_tftp_get_url_retries }}"
+  delay: "{{ openwrt_gentoo_tftp_get_url_delay }}"
+  until: tftp_dtb_get_url is succeeded
+  when:
+    - openwrt_gentoo_enabled | bool
+  tags:
+    - tftp
+    - tftp-dtb
+
+- name: TFTP overlay ファイルを配置
+  ansible.builtin.import_tasks: tftp_overlays.yml
+  tags:
+    - tftp
+    - tftp-firmware
+    - tftp-overlays
+
+- name: TFTP host DTB patch tasks を適用
+  ansible.builtin.import_tasks: tftp_dtb_patch.yml
+  tags:
+    - pxe
+    - tftp
+    - tftp_hosts
+
+- name: TFTP variant tasks を適用
+  ansible.builtin.import_tasks: tftp_variants.yml
+  tags:
+    - pxe
+    - tftp
+    - tftp_artifacts
+
+- name: ボード固有リンク一覧を整形
+  ansible.builtin.set_fact:
+    openwrt_gentoo_board_hash_links: >-
+      {%- set result = [] -%}
+      {%- set default_symlinks = ['start4.elf', 'start.elf', 'fixup4.dat', 'fixup.dat', 'config.txt'] -%}
+      {%- for raw in openwrt_gentoo_tftp_board_hashes | default([]) -%}
+        {%- if raw is mapping -%}
+          {%- set name = raw.name -%}
+          {%- set symlinks = raw.symlinks if raw.symlinks is defined else default_symlinks -%}
+        {%- else -%}
+          {%- set name = raw -%}
+          {%- set symlinks = default_symlinks -%}
+        {%- endif -%}
+        {%- for link in symlinks -%}
+          {%- if link | string | trim -%}
+            {%- set _ = result.append({'name': name, 'link': link | string | trim}) -%}
+          {%- endif -%}
+        {%- endfor -%}
+      {%- endfor -%}
+      {{ result }}
+  when:
+    - openwrt_gentoo_enabled | bool
+    - (openwrt_gentoo_tftp_board_hashes | default([]) | length) > 0
+
+- name: ボード固有ディレクトリ一覧を抽出
+  ansible.builtin.set_fact:
+    openwrt_gentoo_board_hash_dirs: "{{ openwrt_gentoo_board_hash_links | default([]) | map(attribute='name') | unique | list }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - (openwrt_gentoo_board_hash_links | default([]) | length) > 0
+
+- name: ボード固有 (hash) ディレクトリを作成
+  ansible.builtin.file:
+    path: "{{ openwrt_gentoo_tftp_dir }}/{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop: "{{ openwrt_gentoo_board_hash_dirs | default([]) }}"
+  loop_control:
+    label: "{{ item }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - (openwrt_gentoo_board_hash_links | default([]) | length) > 0
+
+- name: ボード固有ディレクトリにシンボリックリンクを作成
+  ansible.builtin.file:
+    src: "../{{ item.link }}"
+    dest: "{{ openwrt_gentoo_tftp_dir }}/{{ item.name }}/{{ item.link }}"
+    state: link
+    force: true
+    follow: false
+  loop: "{{ openwrt_gentoo_board_hash_links | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}/{{ item.link }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - (openwrt_gentoo_board_hash_links | default([]) | length) > 0
+
+- name: ボード固有ディレクトリに initramfs のシンボリックリンクを作成
+  ansible.builtin.file:
+    src: "../{{ item.1 }}"
+    dest: "{{ openwrt_gentoo_tftp_dir }}/{{ item.0 }}/{{ item.1 }}"
+    state: link
+    force: true
+    follow: false
+  loop: "{{ (openwrt_gentoo_board_hash_dirs | default([])) | product(openwrt_gentoo_initramfs_tftp_paths | default([openwrt_gentoo_initramfs_tftp_path])) | list }}"
+  loop_control:
+    label: "{{ item.0 }}/{{ item.1 }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_initramfs_enabled | bool
+    - (openwrt_gentoo_board_hash_links | default([]) | length) > 0
+    - (item.1 | string | trim | length) > 0
+
+- name: TFTP date config tasks を適用
+  ansible.builtin.import_tasks: tftp_date_config.yml
+  tags:
+    - pxe
+    - tftp
+    - tftp_artifacts

@@ -1,0 +1,12 @@
+[Unit]
+Description=Weekly Raspberry Pi EEPROM bootloader update check
+
+[Timer]
+OnBootSec={{ openwrt_gentoo_rpi_eeprom_update_on_boot_sec }}
+OnCalendar={{ openwrt_gentoo_rpi_eeprom_update_on_calendar }}
+RandomizedDelaySec={{ openwrt_gentoo_rpi_eeprom_update_randomized_delay_sec }}
+Persistent={{ (openwrt_gentoo_rpi_eeprom_update_persistent | bool) | ternary('true', 'false') }}
+Unit={{ openwrt_gentoo_rpi_eeprom_update_service_name }}
+
+[Install]
+WantedBy=timers.target

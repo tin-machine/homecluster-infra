@@ -1,0 +1,76 @@
+ctrl_interface=/var/run/wpa_supplicant
+update_config=0
+country={{ wifi_country | default('JP') }}
+
+{% set wifi_defaults = k3s_wifi_network_defaults | default({}) %}
+
+{% for net in wifi_networks %}
+{% set key_mgmt_val = net.key_mgmt | default(wifi_defaults.key_mgmt, true) | default('WPA-PSK WPA-PSK-SHA256', true) %}
+{% set priority_val = net.priority | default(wifi_defaults.priority, true) %}
+{% set proto_val = net.proto | default(wifi_defaults.proto, true) %}
+{% set pairwise_val = net.pairwise | default(wifi_defaults.pairwise, true) %}
+{% set group_val = net.group | default(wifi_defaults.group, true) %}
+{% set ieee80211w_val = net.ieee80211w | default(wifi_defaults.ieee80211w, true) %}
+network={
+    ssid="{{ net.ssid }}"
+    psk="{{ net.psk }}"
+    key_mgmt={{ key_mgmt_val }}
+{% if priority_val is not none %}
+    priority={{ priority_val }}
+{% endif %}
+{% if proto_val is not none %}
+    proto={{ proto_val }}
+{% endif %}
+{% if pairwise_val is not none %}
+    pairwise={{ pairwise_val }}
+{% endif %}
+{% if group_val is not none %}
+    group={{ group_val }}
+{% endif %}
+{% if ieee80211w_val is not none %}
+    ieee80211w={{ ieee80211w_val }}
+{% endif %}
+{% if net.scan_ssid is defined %}
+    scan_ssid={{ net.scan_ssid | int }}
+{% endif %}
+{% if net.mode is defined %}
+    mode={{ net.mode }}
+{% endif %}
+{% if net.eap is defined %}
+    eap={{ net.eap }}
+{% endif %}
+{% if net.identity is defined %}
+    identity="{{ net.identity }}"
+{% endif %}
+{% if net.anonymous_identity is defined %}
+    anonymous_identity="{{ net.anonymous_identity }}"
+{% endif %}
+{% if net.password is defined %}
+    password="{{ net.password }}"
+{% endif %}
+{% if net.ca_cert is defined %}
+    ca_cert="{{ net.ca_cert }}"
+{% endif %}
+{% if net.client_cert is defined %}
+    client_cert="{{ net.client_cert }}"
+{% endif %}
+{% if net.private_key is defined %}
+    private_key="{{ net.private_key }}"
+{% endif %}
+{% if net.private_key_passwd is defined %}
+    private_key_passwd="{{ net.private_key_passwd }}"
+{% endif %}
+{% if net.phase1 is defined %}
+    phase1="{{ net.phase1 }}"
+{% endif %}
+{% if net.phase2 is defined %}
+    phase2="{{ net.phase2 }}"
+{% endif %}
+{% if net.id_str is defined %}
+    id_str="{{ net.id_str }}"
+{% endif %}
+{% if net.disabled is defined %}
+    disabled={{ net.disabled | int }}
+{% endif %}
+}
+{% endfor %}

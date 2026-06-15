@@ -1,0 +1,91 @@
+---
+{% set server_settings = k3s_server | default({}) %}
+{% set raw_node_ip = server_settings.get('node-ip') | default('', true) %}
+{% set raw_node_name = server_settings.get('node-name') | default('', true) %}
+{% set raw_node_external_ip = server_settings.get('node-external-ip') | default('', true) %}
+{% set raw_tls_san = server_settings.get('tls-san') | default('', true) %}
+{% set ansible_host_value = ansible_host | default('', true) %}
+{% set default_ipv4_value = ansible_facts.get('default_ipv4', {}).get('address', '') %}
+{% set invalid_node_ip_values = ['', 'localhost', '127.0.0.1', '::1'] %}
+{% set fallback_node_ip = default_ipv4_value if ansible_host_value in invalid_node_ip_values else ansible_host_value %}
+{% set fallback_node_name = overlay_id | default(inventory_hostname) %}
+disable:
+{% for component in server_settings.get('disable', k3s_disable_components | default(['traefik', 'servicelb'])) %}
+  - {{ component }}
+{% endfor %}
+{% if raw_node_ip %}
+{% if raw_node_ip is string and ('{{' in raw_node_ip or raw_node_ip in invalid_node_ip_values) %}
+{% if fallback_node_ip %}
+node-ip: {{ fallback_node_ip }}
+{% endif %}
+{% else %}
+node-ip: {{ raw_node_ip }}
+{% endif %}
+{% elif fallback_node_ip %}
+node-ip: {{ fallback_node_ip }}
+{% endif %}
+{% if raw_node_name %}
+{% if raw_node_name is string and '{{' in raw_node_name %}
+node-name: {{ fallback_node_name }}
+{% else %}
+node-name: {{ raw_node_name }}
+{% endif %}
+{% else %}
+node-name: {{ fallback_node_name }}
+{% endif %}
+{% if server_settings.get('snapshotter') %}
+snapshotter: {{ server_settings.get('snapshotter') }}
+{% endif %}
+{% if server_settings.get('data-dir') %}
+data-dir: {{ server_settings.get('data-dir') }}
+{% endif %}
+{% if server_settings.get('write-kubeconfig-mode') %}
+write-kubeconfig-mode: "{{ server_settings.get('write-kubeconfig-mode') }}"
+{% endif %}
+{% set raw_tls_san_text = raw_tls_san if raw_tls_san is string else (raw_tls_san | join(' ') if raw_tls_san else '') %}
+{% set tls_san_has_unrendered_jinja = '{{' in raw_tls_san_text %}
+{% if raw_tls_san %}
+tls-san:
+{%   if tls_san_has_unrendered_jinja %}
+{%     if fallback_node_ip %}
+  - {{ fallback_node_ip }}
+{%     endif %}
+  - {{ fallback_node_name }}
+{%   elif raw_tls_san is string %}
+  - {{ raw_tls_san }}
+{%   else %}
+{%     for san in raw_tls_san %}
+  - {{ san }}
+{%     endfor %}
+{%   endif %}
+{% endif %}
+{% set raw_node_external_ip_text = raw_node_external_ip if raw_node_external_ip is string else (raw_node_external_ip | join(' ') if raw_node_external_ip else '') %}
+{% set node_external_ip_has_unrendered_jinja = '{{' in raw_node_external_ip_text %}
+{% if raw_node_external_ip %}
+node-external-ip:
+{%   if node_external_ip_has_unrendered_jinja %}
+{%     if fallback_node_ip %}
+  - {{ fallback_node_ip }}
+{%     endif %}
+{%   elif raw_node_external_ip is string %}
+  - {{ raw_node_external_ip }}
+{%   else %}
+{%     for ip in raw_node_external_ip %}
+  - {{ ip }}
+{%     endfor %}
+{%   endif %}
+{% endif %}
+{% set kubelet_default_args = ['container-log-max-size=10Mi', 'container-log-max-files=3'] %}
+{% set kubelet_args = server_settings.get('kubelet-arg', kubelet_default_args) %}
+{% if kubelet_args %}
+kubelet-arg:
+{%   if kubelet_args is string %}
+  - {{ kubelet_args }}
+{%   else %}
+{%     for arg in kubelet_args %}
+  - {{ arg }}
+{%     endfor %}
+{%   endif %}
+{% endif %}
+flannel-backend: {{ k3s_flannel_backend }}
+flannel-mtu: {{ k3s_flannel_mtu }}

@@ -1,0 +1,37 @@
+---
+openwrt_pxe_client_catalog_enabled: true
+openwrt_pxe_client_catalog_no_log: true
+openwrt_pxe_client_catalog_assert_overlay_legacy_match: false
+openwrt_pxe_client_catalog_assert_pxe_hosts_legacy_match: false
+openwrt_pxe_client_catalog_assert_pxe_boots_legacy_match: false
+openwrt_pxe_client_catalog_assert_ansible_pull_group_vars_legacy_match: false
+openwrt_pxe_client_catalog_dhcp_option_code: "224"
+openwrt_pxe_client_catalog_default_filename: start4.elf
+openwrt_pxe_client_catalog_default_force: 1
+openwrt_pxe_client_catalog_default_serveraddress: "{{ openwrt_gentoo_server_host | default('', true) }}"
+openwrt_pxe_client_catalog_default_servername: "{{ openwrt_pxe_client_catalog_default_serveraddress }}"
+openwrt_pxe_client_catalog_compare_overlay_fields:
+  - id
+  - role
+  - option_value
+  - ansible_extra_vars
+openwrt_pxe_client_catalog_compare_pxe_host_fields:
+  - name
+  - mac
+  - ip
+  - networkid
+  - filename
+  - force
+  - tags
+  - dhcp_options
+  - board_hash
+  - tftp_stage
+  - tftp_release
+  - rootfs_release
+  - cmdline_extra_args
+openwrt_pxe_client_catalog_compare_pxe_boot_fields:
+  - name
+  - networkid
+  - filename
+  - serveraddress
+  - servername

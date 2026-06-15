@@ -1,0 +1,21 @@
+---
+k3s_local_storage_enabled: false
+k3s_local_storage_device: ""
+k3s_local_storage_mountpoint: /var/lib/rancher/k3s
+k3s_local_storage_filesystem_type: ext4
+k3s_local_storage_label: K3S_DATA
+k3s_local_storage_mount_options: defaults,noatime,lazytime,nodiscard,errors=remount-ro
+k3s_local_storage_allow_format: false
+k3s_local_storage_force_format: false
+k3s_local_storage_ephemeral_agent_data: false
+k3s_local_storage_wipe_signatures: true
+k3s_local_storage_require_partition: true
+k3s_local_storage_node_password_sync_enabled: true
+k3s_local_storage_node_password_sync_service_name: "{{ k3s_service_name | default('k3s') }}"
+k3s_local_storage_node_password_sync_script_path: /usr/local/sbin/k3s-node-password-sync.sh
+k3s_local_storage_node_password_sync_dropin_name: 20-node-password-sync.conf
+k3s_local_storage_state_dir: "{{ k3s_local_storage_mountpoint }}/.state"
+k3s_local_storage_node_password_state_path: "{{ k3s_local_storage_state_dir }}/node-password"
+k3s_local_storage_server_ca_hash_state_path: "{{ k3s_local_storage_state_dir }}/server-ca-hash"
+k3s_local_storage_cluster_token_path: /etc/rancher/k3s/cluster-token
+k3s_local_storage_reset_identity_when_local_password_missing: true

@@ -1,0 +1,246 @@
+---
+- name: rootfs prune 設定を表示
+  ansible.builtin.debug:
+    msg: "openwrt_gentoo_rootfs_prune_enabled=false のため rootfs prune は実行しません"
+  when: not (openwrt_gentoo_rootfs_prune_enabled | bool)
+  tags:
+    - pxe_rootfs_prune
+
+- name: rootfs prune 設定を検証
+  ansible.builtin.assert:
+    that:
+      - (openwrt_gentoo_rootfs_prune_keep_generations | int) >= 1
+      - (openwrt_gentoo_rootfs_prune_min_release_age_days | int) >= 0
+    fail_msg: "rootfs prune は keep_generations >= 1 / min_release_age_days >= 0 を指定してください"
+  when: openwrt_gentoo_rootfs_prune_enabled | bool
+  tags:
+    - pxe_rootfs_prune
+
+- name: rootfs prune apply 確認を検証
+  ansible.builtin.assert:
+    that:
+      - (openwrt_gentoo_rootfs_prune_confirm | string) == (openwrt_gentoo_rootfs_prune_confirm_value | string)
+    fail_msg: >-
+      rootfs prune の削除実行には
+      -e openwrt_gentoo_rootfs_prune_apply=true
+      -e openwrt_gentoo_rootfs_prune_confirm={{ openwrt_gentoo_rootfs_prune_confirm_value }}
+      を明示してください。
+  when:
+    - openwrt_gentoo_rootfs_prune_enabled | bool
+    - openwrt_gentoo_rootfs_prune_apply | bool
+  tags:
+    - pxe_rootfs_prune
+
+- name: rootfs prune 候補を確認
+  ansible.builtin.shell: |
+    set -euo pipefail
+    python3 - <<'PY'
+    import datetime as _dt
+    import json
+    import os
+    import re
+    import shutil
+    import sys
+
+    root = "/srv/gentoo"
+    tftp_root = "/srv/gentoo/tftp-root"
+    keep_generations = int({{ openwrt_gentoo_rootfs_prune_keep_generations | int }})
+    min_release_age_days = int({{ openwrt_gentoo_rootfs_prune_min_release_age_days | int }})
+    apply = {{ (openwrt_gentoo_rootfs_prune_apply | bool) | ternary('True', 'False') }}
+    explicit_protected = {{ (openwrt_gentoo_rootfs_prune_protected_releases | default([])) | to_json }}
+    configured_releases = {{
+      [
+        openwrt_gentoo_release | default('', true),
+      ] | to_json
+    }}
+    pxe_hosts = {{ (openwrt_pxe_hosts_effective | default(openwrt_pxe_hosts | default([]))) | to_json }}
+
+    release_re = re.compile(r"^(\d{8})(?:-(rpi[0-9]+(?:-clone)?))?$")
+    board_hash_re = re.compile(r"^[0-9A-Fa-f]{8}$")
+    safe_re = re.compile(r"^[0-9A-Za-z._-]+$")
+    root_arg_re = re.compile(r"/gentoo/([^/\s,]+)/nfs(?:[\s,]|$)")
+
+    def clean_release(value):
+      value = str(value or "").strip()
+      if not value or not safe_re.match(value):
+        return ""
+      return value
+
+    protected = set()
+    protected_sources = {}
+
+    def add_protected(value, source):
+      release = clean_release(value)
+      if not release:
+        return
+      protected.add(release)
+      protected_sources.setdefault(release, set()).add(source)
+
+    for release in explicit_protected:
+      add_protected(release, "explicit")
+    for release in configured_releases:
+      add_protected(release, "inventory-release")
+    for host in pxe_hosts:
+      if not isinstance(host, dict):
+        continue
+      rootfs_release = clean_release(host.get("rootfs_release"))
+      if rootfs_release:
+        add_protected(rootfs_release, "inventory-pxe-host")
+      else:
+        add_protected(host.get("tftp_release"), "inventory-pxe-host-fallback")
+
+    active = set()
+    if os.path.isdir(tftp_root):
+      for entry in sorted(os.listdir(tftp_root)):
+        if not board_hash_re.match(entry):
+          continue
+        path = os.path.join(tftp_root, entry, "cmdline.txt")
+        if not os.path.isfile(path):
+          continue
+        try:
+          with open(path, "r", encoding="utf-8", errors="replace") as fh:
+            text = fh.read()
+        except OSError as exc:
+          print(f"WARN cmdline_read_failed path={path} error={exc}")
+          continue
+        for match in root_arg_re.finditer(text):
+          release = clean_release(match.group(1))
+          if release:
+            active.add(release)
+            add_protected(release, "active-cmdline")
+
+    mount_points = []
+    try:
+      with open("/proc/mounts", "r", encoding="utf-8", errors="replace") as fh:
+        for line in fh:
+          parts = line.split()
+          if len(parts) >= 2:
+            mount_points.append(parts[1].replace("\\040", " "))
+    except OSError as exc:
+      print(f"WARN mount_read_failed error={exc}")
+
+    def has_mount_under(path):
+      path = os.path.abspath(path)
+      prefix = path + os.sep
+      return any(mp == path or mp.startswith(prefix) for mp in mount_points)
+
+    releases_by_variant = {}
+    skipped = []
+    if not os.path.isdir(root):
+      print(f"ERROR missing root={root}", file=sys.stderr)
+      sys.exit(1)
+
+    for name in sorted(os.listdir(root)):
+      path = os.path.join(root, name)
+      nfs_path = os.path.join(path, "nfs")
+      if not os.path.isdir(path) or not os.path.isdir(nfs_path):
+        continue
+      match = release_re.match(name)
+      if not match:
+        skipped.append((name, "unrecognized-release-name"))
+        continue
+      try:
+        release_date = _dt.datetime.strptime(match.group(1), "%Y%m%d").date()
+      except ValueError:
+        skipped.append((name, "invalid-release-date"))
+        continue
+      variant = match.group(2) or "base"
+      releases_by_variant.setdefault(variant, []).append(
+        {
+          "name": name,
+          "path": path,
+          "date": release_date,
+          "variant": variant,
+        }
+      )
+
+    today = _dt.date.today()
+    candidates = []
+    deleted = []
+
+    print(
+      "MODE apply={apply} keep_generations={keep} min_release_age_days={age}".format(
+        apply=str(apply).lower(),
+        keep=keep_generations,
+        age=min_release_age_days,
+      )
+    )
+    if protected:
+      print("PROTECTED " + " ".join(sorted(protected)))
+    else:
+      print("PROTECTED none")
+    if active:
+      print("ACTIVE " + " ".join(sorted(active)))
+    else:
+      print("ACTIVE none")
+
+    for name, reason in skipped:
+      print(f"KEEP release={name} reason={reason}")
+
+    for variant in sorted(releases_by_variant):
+      entries = sorted(
+        releases_by_variant[variant],
+        key=lambda item: (item["date"], item["name"]),
+        reverse=True,
+      )
+      for index, item in enumerate(entries, start=1):
+        release = item["name"]
+        age_days = (today - item["date"]).days
+        reasons = []
+        if index <= keep_generations:
+          reasons.append(f"generation-rank={index}")
+        if min_release_age_days > 0 and age_days < min_release_age_days:
+          reasons.append(f"release-age-days={age_days}<min={min_release_age_days}")
+        if release in protected:
+          sources = ",".join(sorted(protected_sources.get(release, [])))
+          reasons.append(f"protected={sources}")
+        if has_mount_under(item["path"]):
+          reasons.append("mounted")
+
+        if reasons:
+          print(
+            "KEEP variant={variant} rank={rank} release={release} age_days={age} reason={reason}".format(
+              variant=variant,
+              rank=index,
+              release=release,
+              age=age_days,
+              reason=";".join(reasons),
+            )
+          )
+          continue
+
+        candidates.append(item)
+        print(
+          "CANDIDATE variant={variant} rank={rank} release={release} age_days={age} path={path}".format(
+            variant=variant,
+            rank=index,
+            release=release,
+            age=age_days,
+            path=item["path"],
+          )
+        )
+        if apply:
+          shutil.rmtree(item["path"])
+          deleted.append(item)
+          print(f"DELETE release={release} path={item['path']}")
+
+    print(f"SUMMARY candidates={len(candidates)} deleted={len(deleted)}")
+    PY
+  args:
+    executable: /bin/ash
+  register: openwrt_gentoo_rootfs_prune_result
+  changed_when:
+    - openwrt_gentoo_rootfs_prune_apply | bool
+    - "'DELETE ' in (openwrt_gentoo_rootfs_prune_result.stdout | default(''))"
+  when: openwrt_gentoo_rootfs_prune_enabled | bool
+  tags:
+    - pxe_rootfs_prune
+
+- name: rootfs prune 結果を表示
+  ansible.builtin.debug:
+    var: openwrt_gentoo_rootfs_prune_result.stdout_lines
+  when:
+    - openwrt_gentoo_rootfs_prune_enabled | bool
+    - openwrt_gentoo_rootfs_prune_result is defined
+  tags:
+    - pxe_rootfs_prune

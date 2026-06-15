@@ -1,0 +1,36 @@
+
+{% for device in openwrt_wireless_devices %}
+config wifi-device '{{ device.name }}'
+	option type '{{ device.type }}'
+	option path '{{ device.path }}'
+	option band '{{ device.band }}'
+	option channel '{{ device.channel }}'
+	option htmode '{{ device.htmode }}'
+{% set device_country = device.country | default(openwrt_wireless_country_default, true) %}
+{% if device_country %}
+	option country '{{ device_country }}'
+{% endif %}
+{% if device.num_global_macaddr is defined %}
+	option num_global_macaddr '{{ device.num_global_macaddr }}'
+{% endif %}
+{% if device.cell_density is defined %}
+	option cell_density '{{ device.cell_density }}'
+{% endif %}
+
+{% endfor %}
+{% for iface in openwrt_wireless_interfaces %}
+config wifi-iface '{{ iface.name }}'
+	option device '{{ iface.device }}'
+	option network '{{ iface.network }}'
+	option mode '{{ iface.mode }}'
+	option ssid '{{ iface.ssid }}'
+	option encryption '{{ iface.encryption }}'
+	option key '{{ iface.key }}'
+{% if iface.ocv is defined %}
+	option ocv '{{ iface.ocv }}'
+{% endif %}
+{% for mac in iface.maclist | default([]) %}
+	list maclist '{{ mac }}'
+{% endfor %}
+
+{% endfor %}

@@ -1,0 +1,22 @@
+{% set consoles = ['console=serial0,115200', 'console=tty1'] %}
+{% set root_arg = openwrt_gentoo_cmdline_root_arg | default('', true) | string | trim %}
+{% set ip_arg = openwrt_gentoo_cmdline_ip | default('', true) | string | trim %}
+{% set mode_arg = 'rw' %}
+{% set extra_args = (openwrt_gentoo_cmdline_extra_args | default('', true) | string | trim).split() %}
+{% set host_args = openwrt_gentoo_cmdline_host_args | default([], true) %}
+{{ (
+  consoles
+  + [
+    root_arg,
+    ip_arg and ('ip=' ~ ip_arg) or '',
+    mode_arg
+  ]
+  + host_args
+  + extra_args
+  + [
+    'rd.info',
+    'rd.debug',
+    'rd.overlayfs=1',
+    'rd.shell'
+  ]
+) | reject('equalto', '') | join(' ') }}

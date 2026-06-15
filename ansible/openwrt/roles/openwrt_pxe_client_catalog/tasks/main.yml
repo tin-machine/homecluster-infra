@@ -1,0 +1,90 @@
+---
+- name: PXE client catalog を合成
+  ansible.builtin.set_fact:
+    openwrt_pxe_client_catalog: >-
+      {{
+        hostvars | build_openwrt_pxe_client_catalog(
+          groups,
+          inventory_hostname,
+          openwrt_pxe_hosts | default([]),
+          openwrt_pxe_boots | default([]),
+          openwrt_gentoo_overlay_clients | default([]),
+          openwrt_pxe_client_catalog_enabled | default(true),
+          openwrt_pxe_client_catalog_compare_overlay_fields | default([]),
+          openwrt_pxe_client_catalog_compare_pxe_host_fields | default([]),
+          openwrt_pxe_client_catalog_compare_pxe_boot_fields | default([]),
+          openwrt_pxe_client_catalog_dhcp_option_code | default('224'),
+          openwrt_pxe_client_catalog_default_filename | default('start4.elf'),
+          openwrt_pxe_client_catalog_default_serveraddress | default(openwrt_gentoo_server_host | default('', true), true),
+          openwrt_pxe_client_catalog_default_servername | default(openwrt_pxe_client_catalog_default_serveraddress | default(openwrt_gentoo_server_host | default('', true), true), true),
+          openwrt_pxe_client_catalog_default_force | default(1),
+          openwrt_static_dhcp_hosts | default([]),
+          openwrt_gentoo_ansible_pull_group_vars | default({})
+        )
+      }}
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  tags:
+    - always
+    - pxe_client_catalog
+
+- name: PXE effective list を設定
+  ansible.builtin.set_fact:
+    openwrt_pxe_hosts_effective: "{{ openwrt_pxe_hosts_effective_override if openwrt_pxe_hosts_effective_override is defined else openwrt_pxe_client_catalog.pxe_hosts }}"
+    openwrt_dhcp_hosts_effective: "{{ openwrt_dhcp_hosts_effective_override if openwrt_dhcp_hosts_effective_override is defined else openwrt_pxe_client_catalog.dhcp_hosts }}"
+    openwrt_pxe_boots_effective: "{{ openwrt_pxe_boots_effective_override if openwrt_pxe_boots_effective_override is defined else openwrt_pxe_client_catalog.pxe_boots }}"
+    openwrt_gentoo_overlay_clients_effective: "{{ openwrt_gentoo_overlay_clients_effective_override if openwrt_gentoo_overlay_clients_effective_override is defined else openwrt_pxe_client_catalog.overlay_clients }}"
+    openwrt_gentoo_ansible_pull_group_vars_effective: "{{ openwrt_gentoo_ansible_pull_group_vars_effective_override if openwrt_gentoo_ansible_pull_group_vars_effective_override is defined else openwrt_pxe_client_catalog.ansible_pull_group_vars }}"
+    openwrt_gentoo_ansible_pull_client_vars_effective: "{{ openwrt_gentoo_ansible_pull_client_vars_effective_override if openwrt_gentoo_ansible_pull_client_vars_effective_override is defined else openwrt_pxe_client_catalog.ansible_pull_client_vars }}"
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  tags:
+    - always
+    - pxe_client_catalog
+
+- name: hostvars ansible-pull group_vars の重複を検証
+  ansible.builtin.assert:
+    that:
+      - (openwrt_pxe_client_catalog.ansible_pull_group_var_conflicts | default([]) | length) == 0
+    fail_msg: "openwrt_pxe_client.ansible_pull.group_vars に競合があります: {{ openwrt_pxe_client_catalog.ansible_pull_group_var_conflicts | default([]) }}"
+  tags:
+    - always
+    - pxe_client_catalog
+
+- name: hostvars overlay client と legacy overlay client の一致を検証
+  ansible.builtin.assert:
+    that:
+      - (openwrt_pxe_client_catalog.overlay_legacy_mismatches | default([]) | length) == 0
+    fail_msg: "openwrt_pxe_client と legacy openwrt_gentoo_overlay_clients の内容が一致しません: {{ openwrt_pxe_client_catalog.overlay_legacy_mismatches | default([]) }}"
+  when: openwrt_pxe_client_catalog_assert_overlay_legacy_match | default(false) | bool
+  tags:
+    - always
+    - pxe_client_catalog
+
+- name: hostvars PXE host と legacy PXE host の一致を検証
+  ansible.builtin.assert:
+    that:
+      - (openwrt_pxe_client_catalog.pxe_host_legacy_mismatches | default([]) | length) == 0
+    fail_msg: "openwrt_pxe_client と legacy openwrt_pxe_hosts の内容が一致しません: {{ openwrt_pxe_client_catalog.pxe_host_legacy_mismatches | default([]) }}"
+  when: openwrt_pxe_client_catalog_assert_pxe_hosts_legacy_match | default(false) | bool
+  tags:
+    - always
+    - pxe_client_catalog
+
+- name: hostvars PXE boot と legacy PXE boot の一致を検証
+  ansible.builtin.assert:
+    that:
+      - (openwrt_pxe_client_catalog.pxe_boot_legacy_mismatches | default([]) | length) == 0
+    fail_msg: "openwrt_pxe_client と legacy openwrt_pxe_boots の内容が一致しません: {{ openwrt_pxe_client_catalog.pxe_boot_legacy_mismatches | default([]) }}"
+  when: openwrt_pxe_client_catalog_assert_pxe_boots_legacy_match | default(false) | bool
+  tags:
+    - always
+    - pxe_client_catalog
+
+- name: hostvars ansible-pull group_vars と legacy group_vars の一致を検証
+  ansible.builtin.assert:
+    that:
+      - (openwrt_pxe_client_catalog.ansible_pull_group_var_legacy_mismatches | default([]) | length) == 0
+    fail_msg: "openwrt_pxe_client.ansible_pull.group_vars と legacy openwrt_gentoo_ansible_pull_group_vars の内容が一致しません: {{ openwrt_pxe_client_catalog.ansible_pull_group_var_legacy_mismatches | default([]) }}"
+  when: openwrt_pxe_client_catalog_assert_ansible_pull_group_vars_legacy_match | default(false) | bool
+  tags:
+    - always
+    - pxe_client_catalog

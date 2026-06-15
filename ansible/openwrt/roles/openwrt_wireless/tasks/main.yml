@@ -1,0 +1,26 @@
+---
+- name: 無線インターフェースが inventory で定義されていることを確認
+  ansible.builtin.assert:
+    that:
+      - openwrt_wireless_interfaces is not none
+      - openwrt_wireless_interfaces | length > 0
+    fail_msg: "openwrt_wireless_interfaces が未定義です。inventory でアクセスポイントを設定してください"
+
+- name: 無線キーが指定されていることを確認
+  ansible.builtin.assert:
+    that:
+      - item.key | default('') | length > 0
+    fail_msg: "{{ item.name }} の暗号化キーを設定してください"
+  loop: "{{ openwrt_wireless_interfaces }}"
+  loop_control:
+    label: "{{ item.name | default(item.device | default('iface')) }}"
+
+- name: /etc/config/wireless を適用
+  ansible.builtin.template:
+    src: wireless.j2
+    dest: /etc/config/wireless
+    owner: root
+    group: root
+    mode: '0644'
+  notify:
+    - Reload wifi

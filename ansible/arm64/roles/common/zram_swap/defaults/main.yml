@@ -1,0 +1,7 @@
+---
+zram_generator_version: "1.2.1"
+zram_generator_keyword: "~arm64"
+zram_swap_fraction: 0.2
+zram_swap_max_mb: 1024
+zram_swap_compression: zstd
+zram_swap_priority: 100

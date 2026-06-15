@@ -1,0 +1,5 @@
+---
+- name: Restart frr
+  ansible.builtin.command: /etc/init.d/frr restart
+  become: true
+  changed_when: true

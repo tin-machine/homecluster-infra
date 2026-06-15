@@ -1,0 +1,24 @@
+openwrt_wireless_country_default: JP
+
+openwrt_wireless_devices:
+  - name: radio0
+    type: mac80211
+    path: platform/soc/18000000.wifi
+    band: 2g
+    channel: 6
+    htmode: HE20
+    country: JP
+    num_global_macaddr: 7
+    cell_density: 0
+  - name: radio1
+    type: mac80211
+    path: platform/soc/18000000.wifi+1
+    band: 5g
+    channel: 48
+    htmode: HE80
+    country: JP
+    num_global_macaddr: 7
+    cell_density: 0
+
+openwrt_wireless_interfaces:
+  # inventory 側で明示的に定義してください

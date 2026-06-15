@@ -1,0 +1,19 @@
+#!/bin/sh
+set -eu
+
+IW_BIN="$(command -v iw || echo /usr/sbin/iw)"
+IFACE="{{ k3s_wifi_iface_resolved }}"
+
+if [ ! -x "$IW_BIN" ]; then
+  echo "iw command not found; skip disabling Wi-Fi power save." >&2
+  exit 0
+fi
+
+if [ ! -d "/sys/class/net/${IFACE}" ]; then
+  echo "Interface ${IFACE} not present; skip disabling Wi-Fi power save." >&2
+  exit 0
+fi
+
+if ! "$IW_BIN" dev "$IFACE" set power_save off; then
+  echo "Failed to disable Wi-Fi power save on ${IFACE}; leaving interface unchanged." >&2
+fi

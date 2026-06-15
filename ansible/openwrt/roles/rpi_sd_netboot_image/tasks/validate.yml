@@ -1,0 +1,59 @@
+---
+- name: Build list of expected boot files
+  ansible.builtin.set_fact:
+    rpi_expected_boot_files: >-
+      {{
+        (
+          ['config.txt', 'README.txt']
+          + rpi_generated_cmdline_files
+          + rpi_generated_initramfs_files
+          + rpi_required_firmware_files
+          + rpi_required_dtb_files_resolved
+          + rpi_required_kernel_files_resolved
+        ) | unique | list
+      }}
+
+- name: Check expected boot files
+  ansible.builtin.stat:
+    path: "{{ rpi_boot_dir }}/{{ item }}"
+  loop: "{{ rpi_expected_boot_files }}"
+  register: rpi_expected_boot_file_stats
+
+- name: Assert expected boot files exist
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+      - item.stat.isreg
+    fail_msg: "Expected boot file is missing: {{ item.stat.path }}"
+  loop: "{{ rpi_expected_boot_file_stats.results }}"
+
+- name: Check cmdline files are single line
+  ansible.builtin.command:
+    argv:
+      - wc
+      - -l
+      - "{{ rpi_boot_dir }}/{{ item }}"
+  loop: "{{ rpi_generated_cmdline_files }}"
+  register: rpi_cmdline_wc
+  changed_when: false
+
+- name: Assert cmdline files are single line
+  ansible.builtin.assert:
+    that:
+      - (item.stdout.split()[0] | int) == 1
+    fail_msg: "cmdline file must be exactly one line: {{ item.item }}"
+  loop: "{{ rpi_cmdline_wc.results }}"
+
+- name: Check overlays destination
+  ansible.builtin.stat:
+    path: "{{ rpi_boot_dir }}/overlays"
+  register: rpi_boot_overlays_stat
+
+- name: Assert overlays destination exists
+  ansible.builtin.assert:
+    that:
+      - rpi_boot_overlays_stat.stat.exists
+      - rpi_boot_overlays_stat.stat.isdir
+    fail_msg: "Expected overlays directory is missing: {{ rpi_boot_dir }}/overlays"
+  when:
+    - rpi_overlays_required | bool or rpi_overlays_dir_stat.stat.exists

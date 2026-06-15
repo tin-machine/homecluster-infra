@@ -1,0 +1,26 @@
+---
+openwrt_frr_enable_bgpd: true
+openwrt_frr_bgpd_listen_address: 0.0.0.0
+openwrt_frr_local_as: 64512
+openwrt_frr_router_id: "{{ openwrt_lan_ipaddr | default('', true) }}"
+openwrt_frr_peer_group: METALLB
+openwrt_frr_peer_remote_as: 64513
+openwrt_frr_peer_listen_range: ""
+openwrt_frr_peer_listen_limit: 20
+openwrt_frr_static_neighbors: []
+openwrt_frr_in_prefix_list: ""
+openwrt_frr_prefix_lists: []
+openwrt_frr_maximum_prefix:
+  limit: 200
+  threshold: 90
+openwrt_frr_maximum_paths: 4
+
+openwrt_frr_packages:
+  - frr
+  - frr-bgpd
+  - frr-staticd
+  - frr-watchfrr
+  - frr-zebra
+
+openwrt_frr_owner: root
+openwrt_frr_group: root

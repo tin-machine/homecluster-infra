@@ -1,0 +1,9 @@
+# Managed by Ansible (openwrt_gentoo_rootfs)
+
+FEATURES="${FEATURES} buildpkg"
+PKGDIR="{{ openwrt_gentoo_binpkg_dir }}"
+BINPKG_FORMAT="gpkg"
+BINPKG_COMPRESS="zstd"
+BINPKG_COMPRESS_FLAGS="-15"
+DISTDIR="{{ openwrt_gentoo_distfiles_dir }}"
+PORTAGE_BINHOST="{{ openwrt_gentoo_binhost }}"

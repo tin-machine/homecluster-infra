@@ -1,0 +1,34 @@
+server:
+  resources:
+    requests:
+      cpu: 200m
+      memory: 768Mi
+    limits:
+      memory: 2048Mi
+  persistentVolume:
+    size: 10Gi
+    annotations:
+      environment: staging
+  podLabels:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/instance: stg-prometheus
+    app.kubernetes.io/part-of: observability
+    environment: staging
+  service:
+    labels:
+      app.kubernetes.io/name: prometheus
+      app.kubernetes.io/instance: stg-prometheus
+      app.kubernetes.io/part-of: observability
+      environment: staging
+  remoteWrite:
+    - url: http://stg-mimir-distributor.observability-stg.svc.cluster.local:8080/api/v1/push
+      headers:
+        X-Scope-OrgID: staging
+      tls_config:
+        insecure_skip_verify: true
+
+extraScrapeConfigs: |
+  - job_name: stg-otel-collector
+    static_configs:
+      - targets:
+          - stg-otel-collector-opentelemetry-collector.observability-stg.svc.cluster.local:8889

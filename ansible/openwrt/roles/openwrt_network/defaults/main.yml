@@ -1,0 +1,16 @@
+---
+openwrt_lan_device: br-lan
+openwrt_lan_ports:
+  - eth1
+openwrt_lan_ipaddr: ""
+openwrt_lan_netmask: 255.255.255.0
+openwrt_lan_ip6assign: '60'
+openwrt_ula_prefix: ""
+
+openwrt_wan_device: eth0
+openwrt_wan_pppoe_username: ""
+openwrt_wan_pppoe_password: ""
+openwrt_wan_pppoe_ipv6: auto
+openwrt_wan_pppoe_keepalive: "0 1"
+
+openwrt_wan6_proto: dhcpv6

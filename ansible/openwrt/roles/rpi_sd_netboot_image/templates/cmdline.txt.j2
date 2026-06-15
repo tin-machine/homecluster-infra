@@ -1,0 +1,12 @@
+{%- set cmdline_args = (
+  [
+    'console=serial0,115200',
+    'console=tty1',
+    'root=nfs4:' ~ rpi_root_server ~ ':' ~ root_path ~ ',' ~ rpi_nfs_opts,
+    'ip=dhcp'
+  ]
+  + (rpi_cmdline_common_extra | trim).split()
+  + ['boot_model=' ~ boot_model, 'boot_stage=' ~ rpi_boot_stage]
+  + ((rpi_wifi_cmdline_extra | trim).split() if rpi_network_backend == 'wifi' else [])
+) -%}
+{{ cmdline_args | reject('equalto', '') | join(' ') }}

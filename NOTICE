@@ -1,0 +1,16 @@
+homecluster-infra
+Copyright 2026 tin-machine contributors
+
+This product includes or adapts third-party Grafana dashboard definitions.
+Those dashboard definitions remain under their upstream licenses.
+
+Kubernetes Nodes View
+Source: https://github.com/dotdc/grafana-dashboards-kubernetes
+License: Apache License, Version 2.0
+Included file: clusters/homelab/apps/base/grafana-dashboards/kubernetes-nodes.json
+
+Node Exporter Full
+Source: https://github.com/rfmoz/grafana-dashboards
+Dashboard: https://grafana.com/grafana/dashboards/1860
+License: Apache License, Version 2.0
+Included file: clusters/homelab/apps/base/grafana-dashboards/node-exporter-full.json

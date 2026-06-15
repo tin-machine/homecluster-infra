@@ -1,0 +1,416 @@
+---
+- name: chroot 内の resolv.conf を配置（GPG/Portage 用の固定 DNS）
+  ansible.builtin.copy:
+    dest: "{{ openwrt_gentoo_rootfs_dir }}/etc/resolv.conf"
+    owner: root
+    group: root
+    mode: '0644'
+    content: "{{ openwrt_gentoo_chroot_resolv_conf_content }}"
+  when: openwrt_gentoo_enabled | bool
+  tags:
+    - gentoo_packages
+    - gentoo_iptables_nft
+
+- name: package.use ディレクトリを作成 (iptables nft backend)
+  ansible.builtin.file:
+    path: "{{ openwrt_gentoo_rootfs_dir }}/etc/portage/package.use"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_iptables_nft_enabled | bool
+  tags:
+    - gentoo_packages
+    - gentoo_iptables_nft
+
+- name: iptables の nft backend USE フラグを設定
+  ansible.builtin.lineinfile:
+    path: "{{ openwrt_gentoo_rootfs_dir }}/etc/portage/package.use/ansible-home"
+    line: "net-firewall/iptables nftables"
+    create: true
+    owner: root
+    group: root
+    mode: '0644'
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_iptables_nft_enabled | bool
+  tags:
+    - gentoo_packages
+    - gentoo_iptables_nft
+
+- name: iptables nft backend 設定マーカーを確認
+  ansible.builtin.stat:
+    path: "{{ openwrt_gentoo_iptables_nft_marker }}"
+  register: openwrt_gentoo_iptables_nft_marker_stat
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_iptables_nft_enabled | bool
+  tags:
+    - gentoo_iptables_nft
+
+- name: iptables nft backend の実体を確認
+  ansible.builtin.shell: |
+    set -euo pipefail
+    rootfs="{{ openwrt_gentoo_rootfs_dir }}"
+
+    if [ ! -x "$rootfs/usr/bin/xtables-nft-multi" ] &&
+       [ ! -x "$rootfs/usr/sbin/xtables-nft-multi" ] &&
+       [ ! -x "$rootfs/sbin/xtables-nft-multi" ]; then
+      echo "xtables-nft-multi is missing in $rootfs" >&2
+      exit 1
+    fi
+
+    if [ ! -x "$rootfs/usr/bin/nft" ] &&
+       [ ! -x "$rootfs/usr/sbin/nft" ] &&
+       [ ! -x "$rootfs/sbin/nft" ]; then
+      echo "nft command is missing in $rootfs" >&2
+      exit 1
+    fi
+
+    iptables_target="$(readlink "$rootfs/usr/bin/iptables" 2>/dev/null || true)"
+    if [ "$iptables_target" != "xtables-nft-multi" ]; then
+      echo "/usr/bin/iptables points to '$iptables_target', expected xtables-nft-multi" >&2
+      exit 1
+    fi
+  args:
+    executable: /bin/ash
+  register: openwrt_gentoo_iptables_nft_check
+  changed_when: false
+  failed_when: false
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_iptables_nft_enabled | bool
+  tags:
+    - gentoo_iptables_nft
+
+- name: PXE 起動に不要な full ansible を world から削除
+  ansible.builtin.lineinfile:
+    path: "{{ openwrt_gentoo_rootfs_dir }}/var/lib/portage/world"
+    line: app-admin/ansible
+    state: absent
+  when:
+    - openwrt_gentoo_enabled | bool
+  tags:
+    - gentoo_packages
+    - pxe_ansible_pull
+
+- name: PXE 起動に必須のパッケージを world に保持
+  ansible.builtin.lineinfile:
+    path: "{{ openwrt_gentoo_rootfs_dir }}/var/lib/portage/world"
+    line: "{{ item }}"
+    create: true
+    owner: root
+    group: root
+    mode: '0644'
+  loop: >-
+    {{
+      [
+        'app-admin/ansible-core',
+        'dev-vcs/git',
+        'net-firewall/iptables',
+        'net-firewall/nftables'
+      ]
+      + (openwrt_gentoo_rpi_eeprom_packages if (openwrt_gentoo_rpi_eeprom_enabled | bool) else [])
+      + (openwrt_gentoo_rpi_wireless_packages if (openwrt_gentoo_rpi_wireless_enabled | bool) else [])
+    }}
+  loop_control:
+    label: "{{ item }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+  tags:
+    - gentoo_packages
+    - gentoo_iptables_nft
+    - pxe_ansible_pull
+    - rpi_eeprom
+    - rpi_wireless
+
+- name: rpi-eeprom 無効時は world から削除
+  ansible.builtin.lineinfile:
+    path: "{{ openwrt_gentoo_rootfs_dir }}/var/lib/portage/world"
+    line: "{{ item }}"
+    state: absent
+  loop: "{{ openwrt_gentoo_rpi_eeprom_packages }}"
+  loop_control:
+    label: "{{ item }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - not (openwrt_gentoo_rpi_eeprom_enabled | bool)
+  tags:
+    - gentoo_packages
+    - rpi_eeprom
+
+- name: Raspberry Pi wireless の obsolete world entry を削除
+  ansible.builtin.lineinfile:
+    path: "{{ openwrt_gentoo_rootfs_dir }}/var/lib/portage/world"
+    line: "{{ item }}"
+    state: absent
+  loop: "{{ openwrt_gentoo_rpi_wireless_obsolete_world_packages }}"
+  loop_control:
+    label: "{{ item }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_rpi_wireless_enabled | bool
+  tags:
+    - gentoo_packages
+    - rpi_wireless
+
+- name: PXE クライアントユーザー作成が必要か判定
+  ansible.builtin.set_fact:
+    openwrt_gentoo_pxe_users_required: "{{ (openwrt_gentoo_pxe_users | default([])) | length > 0 }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+  tags:
+    - pxe_users
+    - pxe_ssh_keys
+
+- name: rpi-eeprom-update 導入済み候補 path を確認
+  ansible.builtin.stat:
+    path: "{{ openwrt_gentoo_rootfs_dir }}/{{ item }}"
+  loop:
+    - usr/sbin/rpi-eeprom-update
+    - usr/bin/rpi-eeprom-update
+  loop_control:
+    label: "{{ item }}"
+  register: openwrt_gentoo_rpi_eeprom_update_path_stats
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_rpi_eeprom_enabled | bool
+  tags:
+    - gentoo_packages
+    - rpi_eeprom
+
+- name: rpi-eeprom-update 導入済みか判定
+  ansible.builtin.set_fact:
+    openwrt_gentoo_rpi_eeprom_update_stat:
+      stat:
+        exists: >-
+          {{
+            (
+              openwrt_gentoo_rpi_eeprom_update_path_stats.results | default([])
+              | selectattr('stat.exists')
+              | list
+              | length
+            ) > 0
+          }}
+        path: >-
+          {{
+            (
+              openwrt_gentoo_rpi_eeprom_update_path_stats.results | default([])
+              | selectattr('stat.exists')
+              | map(attribute='stat.path')
+              | first
+            ) | default('')
+          }}
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_rpi_eeprom_enabled | bool
+  tags:
+    - gentoo_packages
+    - rpi_eeprom
+
+- name: binpkg 形式とパスを GenPi64 (gpkg) に固定
+  ansible.builtin.set_fact:
+    openwrt_gentoo_binpkg_dir: "/srv/gentoo/binpkgs/{{ openwrt_gentoo_arch }}/{{ openwrt_gentoo_chost }}/{{ openwrt_gentoo_profile_name }}"
+    openwrt_gentoo_binhost: "file:///srv/gentoo/binpkgs/{{ openwrt_gentoo_arch }}/{{ openwrt_gentoo_chost }}/{{ openwrt_gentoo_profile_name }}"
+  when: openwrt_gentoo_enabled | bool
+  tags:
+    - portage_config
+
+- name: Portage profile の存在を確認
+  ansible.builtin.stat:
+    path: "{{ openwrt_gentoo_rootfs_dir }}{{ openwrt_gentoo_portage_profile }}"
+  register: openwrt_gentoo_portage_profile_stat
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_portage_init | bool
+  tags:
+    - portage_config
+
+- name: Portage sync が必要か判定
+  ansible.builtin.set_fact:
+    openwrt_gentoo_portage_sync_required: >-
+      {{
+        openwrt_gentoo_portage_init_force | bool
+        or not (openwrt_gentoo_portage_profile_stat.stat.exists | default(false))
+      }}
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_portage_init | bool
+  tags:
+    - portage_config
+
+- name: Gentoo chroot 作業が必要か判定
+  ansible.builtin.set_fact:
+    openwrt_gentoo_chroot_work_required: >-
+      {{
+        (openwrt_gentoo_nfs_utils_required | default(false))
+        or (openwrt_gentoo_sudo_required | default(false))
+        or (openwrt_gentoo_pxe_users_required | default(false))
+        or (openwrt_gentoo_portage_sync_required | default(false))
+        or (openwrt_gentoo_ansible_pull_required | default(false))
+        or (
+          (openwrt_gentoo_official_binhost_enabled | bool)
+          and ((openwrt_gentoo_official_binhost_packages | default([])) | length > 0)
+        )
+        or (openwrt_gentoo_distcc_enabled | bool)
+        or (openwrt_gentoo_rpi_eeprom_enabled | bool)
+        or (openwrt_gentoo_rpi_wireless_enabled | bool)
+      }}
+  when:
+    - openwrt_gentoo_enabled | bool
+  tags:
+    - gentoo_packages
+    - rpi_eeprom
+    - pxe_users
+    - pxe_ssh_keys
+    - portage_config
+    - official_binhost
+    - rpi_wireless
+
+- name: PXE rootfs package.use ディレクトリを作成
+  ansible.builtin.file:
+    path: "{{ openwrt_gentoo_rootfs_dir }}/etc/portage/package.use"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  when: openwrt_gentoo_enabled | bool
+  tags:
+    - gentoo_packages
+    - gentoo_iptables_nft
+    - rpi_eeprom
+    - rpi_wireless
+
+- name: PXE rootfs package.use を配置
+  ansible.builtin.copy:
+    dest: "{{ openwrt_gentoo_rootfs_dir }}/etc/portage/package.use/ansible-home"
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      app-admin/sudo {{ openwrt_gentoo_sudo_use_flags }}
+      net-firewall/iptables nftables
+      {% if openwrt_gentoo_rpi_eeprom_enabled | bool %}
+      dev-embedded/rpi-eeprom {{ openwrt_gentoo_rpi_eeprom_package_use_flags }}
+      {% endif %}
+      {% if openwrt_gentoo_rpi_wireless_enabled | bool %}
+      {% for line in openwrt_gentoo_rpi_wireless_package_use %}
+      {{ line }}
+      {% endfor %}
+      {% endif %}
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_sudo_use_flags is defined
+    - (openwrt_gentoo_sudo_use_flags | string | length) > 0
+  tags:
+    - gentoo_packages
+    - gentoo_iptables_nft
+    - rpi_eeprom
+    - rpi_wireless
+
+- name: PXE rootfs package.accept_keywords ディレクトリを作成
+  ansible.builtin.file:
+    path: "{{ openwrt_gentoo_rootfs_dir }}/etc/portage/package.accept_keywords"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  when: openwrt_gentoo_enabled | bool
+  tags:
+    - gentoo_packages
+    - rpi_eeprom
+    - rpi_wireless
+
+- name: PXE rootfs autofs の ~arm64 を許可
+  ansible.builtin.lineinfile:
+    path: "{{ openwrt_gentoo_rootfs_dir }}/etc/portage/package.accept_keywords/autofs"
+    line: "net-fs/autofs ~arm64"
+    create: true
+    owner: root
+    group: root
+    mode: '0644'
+  when: openwrt_gentoo_enabled | bool
+  tags:
+    - gentoo_packages
+
+- name: PXE rootfs rpi-eeprom の ~arm64 を許可
+  ansible.builtin.lineinfile:
+    path: "{{ openwrt_gentoo_rootfs_dir }}/etc/portage/package.accept_keywords/rpi-eeprom"
+    line: "dev-embedded/rpi-eeprom ~arm64"
+    create: true
+    owner: root
+    group: root
+    mode: '0644'
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_rpi_eeprom_enabled | bool
+  tags:
+    - gentoo_packages
+    - rpi_eeprom
+    - rpi_wireless
+
+- name: PXE rootfs Raspberry Pi wireless の ~arm64 を許可
+  ansible.builtin.lineinfile:
+    path: "{{ openwrt_gentoo_rootfs_dir }}/etc/portage/package.accept_keywords/rpi-wireless"
+    line: "{{ item }}"
+    create: true
+    owner: root
+    group: root
+    mode: '0644'
+  loop: "{{ openwrt_gentoo_rpi_wireless_package_accept_keywords }}"
+  loop_control:
+    label: "{{ item }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_rpi_wireless_enabled | bool
+  tags:
+    - gentoo_packages
+    - rpi_wireless
+
+- name: PXE rootfs package.license ディレクトリを作成
+  ansible.builtin.file:
+    path: "{{ openwrt_gentoo_rootfs_dir }}/etc/portage/package.license"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  when: openwrt_gentoo_enabled | bool
+  tags:
+    - gentoo_packages
+    - rpi_eeprom
+    - rpi_wireless
+
+- name: PXE rootfs rpi-eeprom license を許可
+  ansible.builtin.lineinfile:
+    path: "{{ openwrt_gentoo_rootfs_dir }}/etc/portage/package.license/rpi-eeprom"
+    line: "dev-embedded/rpi-eeprom rpi-eeprom"
+    create: true
+    owner: root
+    group: root
+    mode: '0644'
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_rpi_eeprom_enabled | bool
+  tags:
+    - gentoo_packages
+    - rpi_eeprom
+
+- name: PXE rootfs Raspberry Pi wireless firmware license を許可
+  ansible.builtin.lineinfile:
+    path: "{{ openwrt_gentoo_rootfs_dir }}/etc/portage/package.license/rpi-wireless"
+    line: "{{ item }}"
+    create: true
+    owner: root
+    group: root
+    mode: '0644'
+  loop: "{{ openwrt_gentoo_rpi_wireless_package_license }}"
+  loop_control:
+    label: "{{ item }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_rpi_wireless_enabled | bool
+  tags:
+    - gentoo_packages
+    - rpi_wireless

@@ -1,0 +1,5 @@
+---
+- name: Reload network
+  ansible.builtin.command: /etc/init.d/network reload
+  become: true
+  changed_when: true

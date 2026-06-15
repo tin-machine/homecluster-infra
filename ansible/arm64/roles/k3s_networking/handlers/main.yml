@@ -1,0 +1,45 @@
+---
+- name: Reload systemd
+  become: true
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Restart k3s service
+  become: true
+  ansible.builtin.service:
+    name: >-
+      {{
+        'k3s'
+        if (
+          ansible_facts.services is defined and
+          'k3s.service' in ansible_facts.services and
+          'k3s-agent.service' not in ansible_facts.services
+        )
+        else (k3s_service_name | default((k3s_control_node | default(false) | bool) | ternary('k3s', 'k3s-agent')))
+      }}
+    state: restarted
+  when: not (k3s_defer_service_restart | default(false) | bool)
+
+- name: Restart systemd-networkd
+  become: true
+  ansible.builtin.service:
+    name: systemd-networkd
+    state: restarted
+  when: (k3s_wifi_backend | default('networkmanager')) == 'systemd-networkd'
+
+- name: Restart wpa_supplicant
+  become: true
+  ansible.builtin.service:
+    name: "wpa_supplicant@{{ k3s_wifi_iface_resolved }}"
+    state: restarted
+    enabled: true
+  when: (k3s_wifi_backend | default('networkmanager')) == 'systemd-networkd'
+
+- name: Restart NetworkManager
+  become: true
+  ansible.builtin.service:
+    name: NetworkManager
+    state: restarted
+  when:
+    - ansible_facts.services is defined
+    - "'NetworkManager.service' in ansible_facts.services"

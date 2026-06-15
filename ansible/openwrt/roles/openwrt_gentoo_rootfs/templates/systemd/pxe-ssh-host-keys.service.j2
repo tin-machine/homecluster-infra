@@ -1,0 +1,15 @@
+[Unit]
+Description=Prepare persistent PXE SSH host keys
+DefaultDependencies=yes
+Wants=network-online.target {{ openwrt_gentoo_networkd_role_service }} pxe-bootstrap.service
+After=network-online.target {{ openwrt_gentoo_networkd_role_service }} pxe-bootstrap.service
+Before={{ openwrt_gentoo_ssh_service }}
+ConditionPathExists={{ openwrt_gentoo_role_env_output_path }}
+
+[Service]
+Type=oneshot
+ExecStart={{ openwrt_gentoo_ssh_host_keys_script_path }}
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

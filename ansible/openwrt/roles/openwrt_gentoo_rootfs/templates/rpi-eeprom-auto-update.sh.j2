@@ -1,0 +1,79 @@
+#!/bin/sh
+set -eu
+
+LOG_TAG="rpi-eeprom-auto-update"
+MAX_LOAD_1MIN="{{ openwrt_gentoo_rpi_eeprom_update_max_load_1min }}"
+LOCK_DIR="/run/${LOG_TAG}.lock"
+STATUS_FILE="/run/${LOG_TAG}.status.$$"
+APPLY_FILE="/run/${LOG_TAG}.apply.$$"
+AFTER_FILE="/run/${LOG_TAG}.after.$$"
+
+log() {
+  logger -t "$LOG_TAG" "$*"
+  printf '%s\n' "$*"
+}
+
+if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+  log "skip: another update process is running"
+  exit 0
+fi
+trap 'rm -f "$STATUS_FILE" "$APPLY_FILE" "$AFTER_FILE"; rmdir "$LOCK_DIR" 2>/dev/null || true' EXIT INT TERM
+
+for cmd in rpi-eeprom-update awk cat grep logger rm tr; do
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    log "skip: missing command=$cmd"
+    exit 0
+  fi
+done
+
+if [ -r /proc/device-tree/model ]; then
+  model="$(tr -d '\0' < /proc/device-tree/model)"
+else
+  model="unknown"
+fi
+
+case "$model" in
+  *"Raspberry Pi"*) ;;
+  *)
+    log "skip: unsupported model=$model"
+    exit 0
+    ;;
+esac
+
+if [ -r /proc/loadavg ] && [ -n "$MAX_LOAD_1MIN" ]; then
+  load_1min="$(awk '{ print $1 }' /proc/loadavg)"
+  if awk -v load="$load_1min" -v max="$MAX_LOAD_1MIN" 'BEGIN { exit !(load > max) }'; then
+    log "skip: load_1min=${load_1min} exceeds max=${MAX_LOAD_1MIN}"
+    exit 0
+  fi
+fi
+
+log "model=$model"
+if ! rpi-eeprom-update > "$STATUS_FILE" 2>&1; then
+  :
+fi
+status="$(cat "$STATUS_FILE")"
+printf '%s\n' "$status" | while IFS= read -r line; do log "status: $line"; done
+
+if ! printf '%s\n' "$status" | grep -qi 'update available'; then
+  log "skip: no update available"
+  exit 0
+fi
+
+log "apply: rpi-eeprom-update -a"
+if rpi-eeprom-update -a > "$APPLY_FILE" 2>&1; then
+  apply_rc=0
+else
+  apply_rc=$?
+fi
+while IFS= read -r line; do log "apply: $line"; done < "$APPLY_FILE"
+if [ "$apply_rc" -ne 0 ]; then
+  log "apply: failed rc=$apply_rc"
+  exit "$apply_rc"
+fi
+
+log "after: rpi-eeprom-update"
+if ! rpi-eeprom-update > "$AFTER_FILE" 2>&1; then
+  :
+fi
+while IFS= read -r line; do log "after: $line"; done < "$AFTER_FILE"

@@ -1,0 +1,13 @@
+---
+- name: Reexport NFS shares
+  ansible.builtin.shell: |
+    exportfs -ra
+    /etc/init.d/nfsd restart
+  args:
+    executable: /bin/ash
+  become: true
+  changed_when: true
+  tags:
+    - pxe
+    - pxe_nfs
+    - backup_share

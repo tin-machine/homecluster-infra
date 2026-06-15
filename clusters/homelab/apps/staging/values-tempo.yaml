@@ -1,0 +1,40 @@
+podLabels:
+  app.kubernetes.io/name: tempo
+  app.kubernetes.io/instance: stg-tempo
+  app.kubernetes.io/component: traces
+  app.kubernetes.io/part-of: observability
+  environment: staging
+service:
+  labels:
+    app.kubernetes.io/name: tempo
+    app.kubernetes.io/instance: stg-tempo
+    app.kubernetes.io/component: traces
+    app.kubernetes.io/part-of: observability
+    environment: staging
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    memory: 512Mi
+tempo:
+  storage:
+    trace:
+      local:
+        path: /var/tempo/traces
+  distributor:
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+            tls:
+              enabled: false
+          http:
+            endpoint: 0.0.0.0:4318
+            tls:
+              enabled: false
+persistence:
+  size: 20Gi
+  annotations:
+    environment: staging

@@ -1,0 +1,59 @@
+---
+# OpenWrt ストレージ初期化ロール デフォルト値
+
+openwrt_storage_device: /dev/sda
+openwrt_storage_boot_partition: "{{ openwrt_storage_device }}1"
+openwrt_storage_data_partition: "{{ openwrt_storage_device }}2"
+
+openwrt_storage_block_info_globs:
+  - /dev/sd*
+  - /dev/mmcblk*
+  - /dev/nvme*n*
+
+# Legacy default layout: FAT32 500MiB + f2fs remaining.
+# New disk migrations should prefer openwrt_storage_partition_map.
+openwrt_storage_boot_size_mib: 500
+openwrt_storage_boot_label: OWRT_BOOT
+openwrt_storage_data_label: GENTOO_SRV
+
+openwrt_storage_boot_mount: /srv/boot
+openwrt_storage_data_mount: /srv
+openwrt_storage_boot_mount_mode: '0777'
+openwrt_storage_data_mount_mode: '0755'
+
+openwrt_storage_boot_fstype: vfat
+openwrt_storage_data_fstype: f2fs
+
+openwrt_storage_boot_mount_options: rw,sync,noatime
+openwrt_storage_data_mount_options: rw,noatime,noacl
+openwrt_iscsi_backing_dir: /srv/iscsi
+
+# 再パーティション／フォーマットは危険操作のため明示的に true を指定した時だけ実行する
+openwrt_storage_force_repartition: false
+openwrt_storage_force_format: false
+openwrt_storage_destructive_confirm: ""
+openwrt_storage_expected_model: ""
+openwrt_storage_expected_serial: ""
+openwrt_storage_protected_mounts: []
+
+# Empty list keeps the legacy two-partition layout.
+openwrt_storage_partition_map: []
+
+# Set false for "prepare new disk only" phases where fstab cutover must wait
+# until data copy and rollback evidence are complete.
+openwrt_storage_manage_fstab: true
+openwrt_storage_swap_identifier_mode: auto
+
+# block mount を即時適用するかどうか
+openwrt_storage_apply_mounts: true
+
+openwrt_storage_packages:
+  - fdisk
+  - parted
+  - block-mount
+  - f2fs-tools
+  - kmod-fs-f2fs
+  - dosfstools
+  - kmod-fs-vfat
+  - kmod-nls-cp437
+  - kmod-nls-iso8859-1

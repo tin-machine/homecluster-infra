@@ -1,0 +1,9 @@
+---
+- name: Build Raspberry Pi SD-assisted netboot image
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  roles:
+    - role: rpi_sd_netboot_image
+      tags:
+        - rpi_sd_netboot_image

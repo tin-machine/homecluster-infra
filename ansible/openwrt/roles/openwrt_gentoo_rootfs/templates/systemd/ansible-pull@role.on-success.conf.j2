@@ -1,0 +1,3 @@
+[Unit]
+{% set dependency = ansible_pull_role_dependency | default(item) %}
+OnSuccess=ansible-pull@{{ dependency.key }}.service

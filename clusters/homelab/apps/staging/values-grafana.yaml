@@ -1,0 +1,60 @@
+podLabels:
+  app.kubernetes.io/name: grafana
+  app.kubernetes.io/instance: stg-grafana
+  app.kubernetes.io/component: dashboards
+  app.kubernetes.io/part-of: observability
+  environment: staging
+service:
+  type: LoadBalancer
+  labels:
+    app.kubernetes.io/name: grafana
+    app.kubernetes.io/instance: stg-grafana
+    app.kubernetes.io/component: dashboards
+    app.kubernetes.io/part-of: observability
+    environment: staging
+admin:
+  existingSecret: stg-grafana-admin
+  userKey: admin-user
+  passwordKey: admin-password
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    memory: 256Mi
+persistence:
+  size: 5Gi
+datasources:
+  datasources.yaml:
+    apiVersion: 1
+    datasources:
+      - name: Mimir
+        uid: mimir
+        type: prometheus
+        access: proxy
+        url: http://stg-mimir-query-frontend.observability-stg.svc.cluster.local:8080/prometheus
+        isDefault: true
+        jsonData:
+          timeInterval: 30s
+          httpMethod: POST
+          httpHeaderName1: X-Scope-OrgID
+        secureJsonData:
+          httpHeaderValue1: staging
+        basicAuth: false
+        editable: true
+      - name: Prometheus
+        uid: prometheus
+        type: prometheus
+        access: proxy
+        url: http://stg-prometheus-server.observability-stg.svc.cluster.local
+        isDefault: false
+      - name: Loki
+        uid: loki
+        type: loki
+        access: proxy
+        url: http://loki-gateway.observability-stg.svc.cluster.local
+      - name: Tempo
+        uid: tempo
+        type: tempo
+        access: proxy
+        url: http://stg-tempo.observability-stg.svc.cluster.local:3200

@@ -1,0 +1,150 @@
+---
+- name: rootfs clone 設定を表示
+  ansible.builtin.debug:
+    msg: "openwrt_gentoo_rootfs_clone_enabled=false のため rootfs clone は実行しません"
+  when: not (openwrt_gentoo_rootfs_clone_enabled | bool)
+  tags:
+    - pxe_rootfs_clone
+
+- name: rootfs clone 定義件数を検証
+  ansible.builtin.assert:
+    that:
+      - (openwrt_gentoo_rootfs_clones | default([]) | length) > 0
+    fail_msg: "openwrt_gentoo_rootfs_clone_enabled=true の場合、openwrt_gentoo_rootfs_clones を 1 件以上指定してください"
+  when: openwrt_gentoo_rootfs_clone_enabled | bool
+  tags:
+    - pxe_rootfs_clone
+
+- name: rootfs clone 定義を検証
+  ansible.builtin.assert:
+    that:
+      - item.src_release is defined
+      - (item.src_release | string | trim) | length > 0
+      - item.dest_release is defined
+      - (item.dest_release | string | trim) | length > 0
+      - (item.src_release | string | trim) != (item.dest_release | string | trim)
+      - (item.src_release | string | trim) is match('^[0-9A-Za-z._-]+$')
+      - (item.dest_release | string | trim) is match('^[0-9A-Za-z._-]+$')
+    fail_msg: "rootfs clone は src_release / dest_release を安全な release 名で指定してください"
+  loop: "{{ openwrt_gentoo_rootfs_clones | default([]) }}"
+  loop_control:
+    label: "{{ item.name | default(item.dest_release | default('rootfs-clone')) }}"
+  when: openwrt_gentoo_rootfs_clone_enabled | bool
+  tags:
+    - pxe_rootfs_clone
+
+- name: rootfs clone の source を確認
+  ansible.builtin.stat:
+    path: "/srv/gentoo/{{ item.src_release | string | trim }}/nfs"
+  register: openwrt_gentoo_rootfs_clone_source_stats
+  loop: "{{ openwrt_gentoo_rootfs_clones | default([]) }}"
+  loop_control:
+    label: "{{ item.name | default(item.dest_release) }}"
+  when: openwrt_gentoo_rootfs_clone_enabled | bool
+  tags:
+    - pxe_rootfs_clone
+
+- name: rootfs clone の destination を確認
+  ansible.builtin.stat:
+    path: "/srv/gentoo/{{ item.dest_release | string | trim }}/nfs"
+  register: openwrt_gentoo_rootfs_clone_dest_stats
+  loop: "{{ openwrt_gentoo_rootfs_clones | default([]) }}"
+  loop_control:
+    label: "{{ item.name | default(item.dest_release) }}"
+  when: openwrt_gentoo_rootfs_clone_enabled | bool
+  tags:
+    - pxe_rootfs_clone
+
+- name: rootfs clone の marker を確認
+  ansible.builtin.stat:
+    path: "/srv/gentoo/{{ item.dest_release | string | trim }}/{{ openwrt_gentoo_rootfs_clone_marker_name }}"
+  register: openwrt_gentoo_rootfs_clone_marker_stats
+  loop: "{{ openwrt_gentoo_rootfs_clones | default([]) }}"
+  loop_control:
+    label: "{{ item.name | default(item.dest_release) }}"
+  when: openwrt_gentoo_rootfs_clone_enabled | bool
+  tags:
+    - pxe_rootfs_clone
+
+- name: rootfs clone の状態を検証
+  ansible.builtin.assert:
+    that:
+      - openwrt_gentoo_rootfs_clone_source_stats.results[idx].stat.isdir | default(false)
+      - >-
+        not (openwrt_gentoo_rootfs_clone_dest_stats.results[idx].stat.exists | default(false))
+        or
+        (openwrt_gentoo_rootfs_clone_marker_stats.results[idx].stat.exists | default(false))
+    fail_msg: >-
+      {{ item.name | default(item.dest_release) }} の source rootfs が無いか、
+      destination rootfs が marker なしで既に存在します。
+      既存 rootfs を上書きしないため、手動で状態確認してください。
+  loop: "{{ openwrt_gentoo_rootfs_clones | default([]) }}"
+  loop_control:
+    index_var: idx
+    label: "{{ item.name | default(item.dest_release) }}"
+  when: openwrt_gentoo_rootfs_clone_enabled | bool
+  tags:
+    - pxe_rootfs_clone
+
+- name: rootfs を clone
+  ansible.builtin.shell: |
+    set -euo pipefail
+    src="/srv/gentoo/{{ item.src_release | string | trim }}/nfs"
+    src_release_dir="/srv/gentoo/{{ item.src_release | string | trim }}"
+    dest_release_dir="/srv/gentoo/{{ item.dest_release | string | trim }}"
+    dest="${dest_release_dir}/nfs"
+    marker="${dest_release_dir}/{{ openwrt_gentoo_rootfs_clone_marker_name }}"
+    tmp="${dest_release_dir}/.nfs.clone.$$"
+
+    if [ -d "${dest}" ] && [ -f "${marker}" ]; then
+      exit 0
+    fi
+
+    mkdir -p "${dest_release_dir}"
+    mkdir "${tmp}"
+    trap 'rm -rf "${tmp}"' EXIT HUP INT TERM
+
+    rsync -aHAX --numeric-ids --one-file-system "${src}/" "${tmp}/"
+
+    # PXE client ごとの k3s node identity は clone 先 rootfs に持ち越さない。
+    rm -f \
+      "${tmp}/etc/rancher/node/password" \
+      "${tmp}/var/lib/rancher/k3s/.state/node-password" \
+      "${tmp}/var/lib/rancher/k3s/.state/server-ca-hash" \
+      "${tmp}/var/lib/rancher/k3s/agent"/client-*.crt \
+      "${tmp}/var/lib/rancher/k3s/agent"/client-*.key \
+      "${tmp}/var/lib/rancher/k3s/agent/serving-kubelet.crt" \
+      "${tmp}/var/lib/rancher/k3s/agent/serving-kubelet.key" \
+      "${tmp}/var/lib/rancher/k3s/agent/server-ca.crt" \
+      "${tmp}/var/lib/rancher/k3s/agent"/*.kubeconfig \
+      "${tmp}/var/lib/rancher/k3s/agent/etc/k3s-agent-load-balancer.json"
+
+    if [ -f "${src_release_dir}/.stage3_applied" ]; then
+      cp -p "${src_release_dir}/.stage3_applied" "${dest_release_dir}/.stage3_applied"
+    else
+      printf 'source_release=%s\n' "{{ item.src_release | string | trim }}" > "${dest_release_dir}/.stage3_applied"
+    fi
+
+    {
+      printf 'source_release=%s\n' "{{ item.src_release | string | trim }}"
+      printf 'dest_release=%s\n' "{{ item.dest_release | string | trim }}"
+      printf 'method=rsync -aHAX --numeric-ids --one-file-system\n'
+      date '+created_at=%Y-%m-%dT%H:%M:%S%z'
+    } > "${marker}"
+
+    mv "${tmp}" "${dest}"
+    trap - EXIT HUP INT TERM
+    echo changed
+  args:
+    executable: /bin/ash
+  register: openwrt_gentoo_rootfs_clone_result
+  changed_when: "'changed' in (openwrt_gentoo_rootfs_clone_result.stdout | default(''))"
+  loop: "{{ openwrt_gentoo_rootfs_clones | default([]) }}"
+  loop_control:
+    index_var: idx
+    label: "{{ item.name | default(item.dest_release) }}"
+  when:
+    - openwrt_gentoo_rootfs_clone_enabled | bool
+    - not (openwrt_gentoo_rootfs_clone_dest_stats.results[idx].stat.exists | default(false))
+  tags:
+    - pxe_rootfs_clone

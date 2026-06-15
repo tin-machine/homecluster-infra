@@ -1,0 +1,44 @@
+---
+- name: OpenWrt NTP 設定を適用
+  ansible.builtin.shell: |
+    set -eu
+    changed=0
+
+    set_uci() {
+      key="$1"
+      value="$2"
+      current="$(uci -q get "$key" 2>/dev/null || true)"
+      if [ "$current" != "$value" ]; then
+        uci set "$key=$value"
+        changed=1
+      fi
+    }
+
+    set_uci system.ntp timeserver
+    set_uci system.ntp.enabled '{{ (openwrt_ntp_enabled | bool) | ternary("1", "0") }}'
+    set_uci system.ntp.enable_server '{{ (openwrt_ntp_enable_server | bool) | ternary("1", "0") }}'
+
+    current_servers="$(uci -q get system.ntp.server 2>/dev/null || true)"
+    desired_servers="{{ openwrt_ntp_servers | join(' ') }}"
+    if [ "$current_servers" != "$desired_servers" ]; then
+      uci -q delete system.ntp.server || true
+    {% for server in openwrt_ntp_servers %}
+      uci add_list system.ntp.server="{{ server }}"
+    {% endfor %}
+      changed=1
+    fi
+
+    if [ "$changed" -eq 1 ]; then
+      uci commit system
+      /etc/init.d/{{ openwrt_ntp_service }} restart
+      echo changed
+    else
+      echo ok
+    fi
+  args:
+    executable: /bin/sh
+  register: openwrt_ntp_apply
+  changed_when: "'changed' in openwrt_ntp_apply.stdout"
+  tags:
+    - ntp
+    - openwrt_ntp

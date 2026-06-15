@@ -1,0 +1,10 @@
+---
+ansible_user: ansible
+ansible_become: true
+
+# CPU part (from /proc/cpuinfo) -> mcpu base name
+cpu_part_to_mcpu_map:
+  "0xd08": "cortex-a72"
+  "0xd0b": "cortex-a76"
+# Unknown CPU part fallback
+cpu_part_unknown_fallback: "armv8-a"

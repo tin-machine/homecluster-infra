@@ -1,0 +1,20 @@
+# --- Disable bundled subcharts ---
+prometheus-pushgateway:
+  enabled: false
+prometheus-node-exporter:
+  enabled: false
+kube-state-metrics:
+  enabled: false
+
+alertmanager:
+  enabled: false
+server:
+  persistentVolume:
+    enabled: true
+    storageClass: nfs-client
+    accessModes: [ReadWriteOnce]
+    size: 20Gi
+  podLabels:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/instance: prometheus
+    app.kubernetes.io/part-of: observability

@@ -1,0 +1,5 @@
+---
+k3s_journald_storage: volatile
+k3s_journald_runtime_max_use: 64M
+k3s_journald_runtime_max_file_size: 16M
+k3s_journald_runtime_max_files: 8

@@ -1,0 +1,264 @@
+#!/bin/sh
+set -eu
+
+LOG_TAG="rpi-eeprom-boot-order"
+ENV_FILE="{{ openwrt_gentoo_rpi_eeprom_env_path }}"
+
+log() {
+  logger -t "$LOG_TAG" "$*"
+  printf '%s\n' "$*"
+}
+
+for cmd in rpi-eeprom-update rpi-eeprom-config awk cmp; do
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    log "skip: missing command=$cmd"
+    exit 0
+  fi
+done
+
+if [ -r "$ENV_FILE" ]; then
+  # shellcheck disable=SC1090
+  . "$ENV_FILE"
+fi
+
+RPI_EEPROM_BOOT_ORDER="${RPI_EEPROM_BOOT_ORDER:-{{ openwrt_gentoo_rpi_eeprom_boot_order }}}"
+RPI_EEPROM_MANAGE_BOOT_ORDER="${RPI_EEPROM_MANAGE_BOOT_ORDER:-1}"
+RPI_EEPROM_MANAGE_CONFIG="${RPI_EEPROM_MANAGE_CONFIG:-$RPI_EEPROM_MANAGE_BOOT_ORDER}"
+RPI_EEPROM_APPLY_LATEST_UPDATE="${RPI_EEPROM_APPLY_LATEST_UPDATE:-0}"
+RPI_EEPROM_BOARD_FAMILY="${RPI_EEPROM_BOARD_FAMILY:-auto}"
+RPI_EEPROM_BOOTFS_AUTO="${RPI_EEPROM_BOOTFS_AUTO:-1}"
+RPI_EEPROM_BOOTFS_SERVER="${RPI_EEPROM_BOOTFS_SERVER:-}"
+RPI_EEPROM_BOOTFS_EXPORT_BASE="${RPI_EEPROM_BOOTFS_EXPORT_BASE:-/gentoo/tftp-root}"
+RPI_EEPROM_BOOTFS_MOUNTPOINT="${RPI_EEPROM_BOOTFS_MOUNTPOINT:-/run/rpi-eeprom-bootfs}"
+RPI_EEPROM_BOOTFS_MOUNT_OPTIONS="${RPI_EEPROM_BOOTFS_MOUNT_OPTIONS:-vers=4.2,proto=tcp,rw,hard,timeo=600,retrans=2}"
+RPI_EEPROM_TFTP_HOSTS="${RPI_EEPROM_TFTP_HOSTS:-}"
+RPI_EEPROM_CONFIG_KEYS="${RPI_EEPROM_CONFIG_KEYS:-}"
+
+if [ -z "$RPI_EEPROM_CONFIG_KEYS" ] && [ -n "$RPI_EEPROM_BOOT_ORDER" ]; then
+  RPI_EEPROM_CONFIG_KEYS="BOOT_ORDER"
+  RPI_EEPROM_CONFIG_BOOT_ORDER="$RPI_EEPROM_BOOT_ORDER"
+fi
+
+if [ -r /proc/device-tree/model ]; then
+  model="$(tr -d '\0' < /proc/device-tree/model)"
+else
+  model="unknown"
+fi
+
+case "$model" in
+  *"Raspberry Pi"*) ;;
+  *)
+    log "skip: unsupported model=$model"
+    exit 0
+    ;;
+esac
+
+is_pi4() {
+  case "${RPI_EEPROM_BOARD_FAMILY}:$model" in
+    pi4:*|*:*"Raspberry Pi 4"*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+cmdline_arg() {
+  wanted="$1"
+  cmdline=""
+  if [ -r /proc/cmdline ]; then
+    IFS= read -r cmdline < /proc/cmdline || true
+  fi
+  for arg in $cmdline; do
+    case "$arg" in
+      "$wanted"=*)
+        printf '%s\n' "${arg#*=}"
+        return 0
+        ;;
+    esac
+  done
+  return 1
+}
+
+role_env_value() {
+  wanted="$1"
+  file="/run/dhcp/role.env"
+  [ -r "$file" ] || return 1
+  while IFS='=' read -r key value; do
+    if [ "$key" = "$wanted" ]; then
+      printf '%s\n' "$value"
+      return 0
+    fi
+  done < "$file"
+  return 1
+}
+
+tftp_hash_for_overlay_id() {
+  overlay_id="$1"
+  [ -n "$overlay_id" ] || return 1
+  for pair in $RPI_EEPROM_TFTP_HOSTS; do
+    case "$pair" in
+      "$overlay_id"=*)
+        printf '%s\n' "${pair#*=}"
+        return 0
+        ;;
+    esac
+  done
+  return 1
+}
+
+setup_pi4_bootfs() {
+  is_pi4 || return 0
+
+  if [ "$RPI_EEPROM_BOOTFS_AUTO" != "1" ]; then
+    log "bootfs: auto mount disabled for pi4"
+    return 1
+  fi
+
+  if [ -z "$RPI_EEPROM_BOOTFS_SERVER" ]; then
+    log "bootfs: missing RPI_EEPROM_BOOTFS_SERVER"
+    return 1
+  fi
+
+  tftp_hash="$(cmdline_arg rpi_tftp_board_hash || true)"
+  if [ -z "$tftp_hash" ]; then
+    overlay_id="$(role_env_value OVERLAY_ID || true)"
+    tftp_hash="$(tftp_hash_for_overlay_id "$overlay_id" || true)"
+  fi
+
+  case "$tftp_hash" in
+    ""|*[!A-Za-z0-9_-]*)
+      log "bootfs: missing or invalid tftp board hash"
+      return 1
+      ;;
+  esac
+
+  mountpoint="$RPI_EEPROM_BOOTFS_MOUNTPOINT"
+  bootfs_dir="$mountpoint/$tftp_hash"
+  source="${RPI_EEPROM_BOOTFS_SERVER}:${RPI_EEPROM_BOOTFS_EXPORT_BASE%/}"
+  mkdir -p "$mountpoint"
+
+  if command -v mountpoint >/dev/null 2>&1 && mountpoint -q "$mountpoint"; then
+    log "bootfs: already mounted mountpoint=$mountpoint"
+  elif command -v findmnt >/dev/null 2>&1 && findmnt -rn -M "$mountpoint" >/dev/null 2>&1; then
+    log "bootfs: already mounted mountpoint=$mountpoint"
+  else
+    log "bootfs: mount source=$source mountpoint=$mountpoint"
+    if ! mount -t nfs4 -o "$RPI_EEPROM_BOOTFS_MOUNT_OPTIONS" "$source" "$mountpoint"; then
+      log "bootfs: mount failed source=$source"
+      return 1
+    fi
+  fi
+
+  if [ ! -e "$bootfs_dir/config.txt" ]; then
+    log "bootfs: config.txt not found in $bootfs_dir"
+    return 1
+  fi
+  if [ ! -e "$bootfs_dir/start4.elf" ] && [ ! -e "$bootfs_dir/start.elf" ]; then
+    log "bootfs: firmware elf not found in $bootfs_dir"
+    return 1
+  fi
+
+  testfile="$bootfs_dir/.rpi-eeprom-write-test.$$"
+  if ! : > "$testfile" 2>/dev/null; then
+    log "bootfs: not writable bootfs=$bootfs_dir"
+    return 1
+  fi
+  rm -f "$testfile"
+
+  export BOOTFS="$bootfs_dir"
+  log "bootfs: using BOOTFS=$BOOTFS"
+  return 0
+}
+
+log "model=$model"
+bootfs_ready=1
+if ! setup_pi4_bootfs; then
+  bootfs_ready=0
+fi
+
+log "before: rpi-eeprom-update"
+rpi-eeprom-update 2>&1 | while IFS= read -r line; do log "before-update: $line"; done
+
+if [ "$RPI_EEPROM_MANAGE_CONFIG" = "1" ]; then
+  current_config="/run/rpi-eeprom-current.conf"
+  desired_config="/run/rpi-eeprom-desired.conf"
+  desired_pairs="/run/rpi-eeprom-desired.pairs"
+  : > "$desired_pairs"
+
+  for key in $RPI_EEPROM_CONFIG_KEYS; do
+    case "$key" in
+      ""|*[!A-Z0-9_]*)
+        log "skip: invalid config key=$key"
+        continue
+        ;;
+    esac
+
+    value_var="RPI_EEPROM_CONFIG_$key"
+    value_is_set="$(eval "printf '%s' \"\${$value_var+x}\"")"
+    if [ "$value_is_set" != "x" ]; then
+      log "skip: missing desired value key=$key"
+      continue
+    fi
+    value="$(eval "printf '%s' \"\${$value_var}\"")"
+    printf '%s=%s\n' "$key" "$value" >> "$desired_pairs"
+    log "desired-config: $key=$value"
+  done
+
+  if [ ! -s "$desired_pairs" ]; then
+    log "skip: no desired EEPROM config keys"
+    exit 0
+  fi
+
+  rpi-eeprom-config > "$current_config"
+
+  log "before: rpi-eeprom-config"
+  while IFS= read -r line; do log "before-config: $line"; done < "$current_config"
+
+  awk -F= '
+    NR == FNR {
+      key = $1
+      desired[key] = $0
+      if (!(key in wanted)) {
+        keys[++n] = key
+        wanted[key] = 1
+      }
+      next
+    }
+    /^[A-Z0-9_]+=/ {
+      key = $1
+      if (key in desired) {
+        print desired[key]
+        seen[key] = 1
+        next
+      }
+    }
+    { print }
+    END {
+      for (i = 1; i <= n; i++) {
+        key = keys[i]
+        if (!(key in seen)) {
+          print desired[key]
+        }
+      }
+    }
+  ' "$desired_pairs" "$current_config" > "$desired_config"
+
+  log "after: staged rpi-eeprom-config"
+  while IFS= read -r line; do log "after-config: $line"; done < "$desired_config"
+
+  if ! cmp -s "$current_config" "$desired_config"; then
+    if is_pi4 && [ "$bootfs_ready" != "1" ]; then
+      log "apply-config: skipped because Pi4 requires writable TFTP BOOTFS"
+      exit 0
+    fi
+    rpi-eeprom-config --apply "$desired_config" 2>&1 | while IFS= read -r line; do log "apply-config: $line"; done
+  else
+    log "apply-config: unchanged"
+  fi
+fi
+
+if [ "$RPI_EEPROM_APPLY_LATEST_UPDATE" = "1" ]; then
+  log "apply: rpi-eeprom-update -a"
+  rpi-eeprom-update -a 2>&1 | while IFS= read -r line; do log "apply-update: $line"; done
+fi
+
+log "after: rpi-eeprom-update"
+rpi-eeprom-update 2>&1 | while IFS= read -r line; do log "after-update: $line"; done

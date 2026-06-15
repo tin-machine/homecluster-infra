@@ -1,0 +1,5 @@
+---
+- name: Reload wifi
+  ansible.builtin.command: wifi reload
+  become: true
+  changed_when: true

@@ -1,0 +1,41 @@
+---
+- name: /etc/openwrt_release を取得
+  ansible.builtin.slurp:
+    path: /etc/openwrt_release
+  register: openwrt_release_slurp
+  check_mode: false
+
+- name: DISTRIB_TARGET を抽出
+  ansible.builtin.shell: "grep ^DISTRIB_TARGET= /etc/openwrt_release | cut -d\"'\" -f2"
+  register: distrib_target
+  changed_when: false
+  check_mode: false
+
+- name: DISTRIB_RELEASE を抽出
+  ansible.builtin.shell: "grep ^DISTRIB_RELEASE= /etc/openwrt_release | cut -d\"'\" -f2"
+  register: distrib_release
+  changed_when: false
+  check_mode: false
+
+- name: ボード名を取得
+  ansible.builtin.slurp:
+    path: /tmp/sysinfo/board_name
+  register: board_name_slurp
+  check_mode: false
+
+- name: 基本情報を Fact 化
+  ansible.builtin.set_fact:
+    owrt_release_raw: "{{ openwrt_release_slurp.content | b64decode }}"
+    owrt_target: "{{ (distrib_target.stdout | default('') | trim).split('/')[0] | default('') }}"
+    owrt_subtarget: "{{ (distrib_target.stdout | default('') | trim).split('/')[1] | default('') }}"
+    owrt_device_raw: "{{ board_name_slurp.content | b64decode | trim }}"
+    owrt_device: "{{ (board_name_slurp.content | b64decode | trim) | regex_replace('[^A-Za-z0-9._-]', '_') }}"
+    owrt_current_release: "{{ distrib_release.stdout | trim }}"
+
+- name: チェックモード時に情報を表示
+  ansible.builtin.debug:
+    msg:
+      target: "{{ owrt_target }}"
+      subtarget: "{{ owrt_subtarget }}"
+      device: "{{ owrt_device }}"
+      current_release: "{{ owrt_current_release }}"

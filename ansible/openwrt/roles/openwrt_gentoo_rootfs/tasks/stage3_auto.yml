@@ -1,0 +1,154 @@
+---
+- name: Stage3 latest を取得 (wget)
+  ansible.builtin.shell: |
+    set -euo pipefail
+    wget -qO- "{{ openwrt_gentoo_stage3_autobuilds_base_url.rstrip('/') }}/{{ openwrt_gentoo_stage3_latest_filename }}" \
+      | awk '/stage3-.*tar.xz/ {print $1; exit}'
+  args:
+    executable: /bin/ash
+  register: openwrt_gentoo_stage3_latest_cmd
+  changed_when: false
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_stage3_auto | bool
+    - (openwrt_gentoo_stage3_url | default('', true) | string | trim) | length == 0
+  tags:
+    - gentoo_stage3_auto
+
+- name: Stage3 latest エントリを設定
+  ansible.builtin.set_fact:
+    openwrt_gentoo_stage3_latest_entry: "{{ openwrt_gentoo_stage3_latest_cmd.stdout | default('') | trim }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_stage3_auto | bool
+    - openwrt_gentoo_stage3_latest_cmd is defined
+    - (openwrt_gentoo_stage3_url | default('', true) | string | trim) | length == 0
+  tags:
+    - gentoo_stage3_auto
+
+- name: Stage3 latest エントリの存在を検証
+  ansible.builtin.assert:
+    that:
+      - (openwrt_gentoo_stage3_latest_entry | string | trim) | length > 0
+    fail_msg: "latest-stage3 の取得に失敗しました。URL: {{ openwrt_gentoo_stage3_autobuilds_base_url }}/{{ openwrt_gentoo_stage3_latest_filename }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_stage3_auto | bool
+    - openwrt_gentoo_stage3_latest_cmd is defined
+    - (openwrt_gentoo_stage3_url | default('', true) | string | trim) | length == 0
+  tags:
+    - gentoo_stage3_auto
+
+- name: Stage3 URL を自動設定
+  ansible.builtin.set_fact:
+    openwrt_gentoo_stage3_url: "{{ openwrt_gentoo_stage3_autobuilds_base_url.rstrip('/') }}/{{ openwrt_gentoo_stage3_latest_entry }}"
+    openwrt_gentoo_stage3_filename: "{{ openwrt_gentoo_stage3_latest_entry | regex_replace('.*/', '') }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_stage3_auto | bool
+    - (openwrt_gentoo_stage3_url | default('', true) | string | trim) | length == 0
+  tags:
+    - gentoo_stage3_auto
+
+- name: Stage3 DIGESTS を取得
+  ansible.builtin.uri:
+    url: "{{ openwrt_gentoo_stage3_url }}.DIGESTS"
+    return_content: true
+  register: openwrt_gentoo_stage3_digests
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_stage3_auto | bool
+    - (openwrt_gentoo_stage3_sha256 | default('', true) | string | trim) | length == 0
+    - (openwrt_gentoo_stage3_url | default('', true) | string | trim) | length > 0
+  tags:
+    - gentoo_stage3_auto
+
+- name: Stage3 checksum を取得 (wget)
+  ansible.builtin.shell: |
+    set -euo pipefail
+    fname="{{ openwrt_gentoo_stage3_filename }}"
+    wget -qO- "{{ openwrt_gentoo_stage3_url }}.DIGESTS" | awk -v f="$fname" '
+      /^# SHA256 HASH/ {mode="sha256"; next}
+      /^# SHA512 HASH/ {mode="sha512"; next}
+      /^#/ {next}
+      mode=="sha256" && $2 == f && $1 ~ /^[0-9a-f]{64}$/ {print "sha256:"$1; exit}
+      mode=="sha512" && $2 == f && $1 ~ /^[0-9a-f]{128}$/ {print "sha512:"$1; exit}
+    '
+  args:
+    executable: /bin/ash
+  register: openwrt_gentoo_stage3_checksum_cmd
+  changed_when: false
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_stage3_auto | bool
+    - (openwrt_gentoo_stage3_url | default('', true) | string | trim) | length > 0
+  tags:
+    - gentoo_stage3_auto
+
+- name: Stage3 SHA256 を抽出
+  ansible.builtin.set_fact:
+    openwrt_gentoo_stage3_sha256: >-
+      {%- set fname = (openwrt_gentoo_stage3_filename | default(openwrt_gentoo_stage3_url | regex_replace('.*/', ''))) -%}
+      {%- set lines = (openwrt_gentoo_stage3_digests.content | string).splitlines() | map('trim') | list -%}
+      {%- set pattern = '^([0-9a-f]{64})\\s+' ~ (fname | regex_escape) ~ '$' -%}
+      {%- set matches = lines | map('regex_search', pattern, '\\1') | select('string') | list -%}
+      {{ (matches | first | default('')) }}
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_stage3_auto | bool
+    - openwrt_gentoo_stage3_digests is defined
+  tags:
+    - gentoo_stage3_auto
+
+- name: Stage3 SHA512 を抽出
+  ansible.builtin.set_fact:
+    openwrt_gentoo_stage3_sha512: >-
+      {%- set fname = (openwrt_gentoo_stage3_filename | default(openwrt_gentoo_stage3_url | regex_replace('.*/', ''))) -%}
+      {%- set lines = (openwrt_gentoo_stage3_digests.content | string).splitlines() | map('trim') | list -%}
+      {%- set pattern = '^([0-9a-f]{128})\\s+' ~ (fname | regex_escape) ~ '$' -%}
+      {%- set matches = lines | map('regex_search', pattern, '\\1') | select('string') | list -%}
+      {{ (matches | first | default('')) }}
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_stage3_auto | bool
+    - openwrt_gentoo_stage3_digests is defined
+  tags:
+    - gentoo_stage3_auto
+
+- name: Stage3 checksum を決定
+  ansible.builtin.set_fact:
+    openwrt_gentoo_stage3_checksum_algo: >-
+      {%- if (openwrt_gentoo_stage3_checksum_cmd.stdout | default('', true) | string | trim) | length > 0 -%}
+      {{ (openwrt_gentoo_stage3_checksum_cmd.stdout | string).split(':')[0] }}
+      {%- elif (openwrt_gentoo_stage3_sha256 | default('', true) | string | trim) | length > 0 -%}
+      sha256
+      {%- elif (openwrt_gentoo_stage3_sha512 | default('', true) | string | trim) | length > 0 -%}
+      sha512
+      {%- else -%}
+      {{ '' }}
+      {%- endif -%}
+    openwrt_gentoo_stage3_checksum_value: >-
+      {%- if (openwrt_gentoo_stage3_checksum_cmd.stdout | default('', true) | string | trim) | length > 0 -%}
+      {{ (openwrt_gentoo_stage3_checksum_cmd.stdout | string).split(':')[1] }}
+      {%- elif (openwrt_gentoo_stage3_sha256 | default('', true) | string | trim) | length > 0 -%}
+      {{ openwrt_gentoo_stage3_sha256 }}
+      {%- elif (openwrt_gentoo_stage3_sha512 | default('', true) | string | trim) | length > 0 -%}
+      {{ openwrt_gentoo_stage3_sha512 }}
+      {%- else -%}
+      {{ '' }}
+      {%- endif -%}
+  when: openwrt_gentoo_enabled | bool
+  tags:
+    - gentoo_stage3_auto
+
+- name: Stage3 checksum の抽出結果を検証
+  ansible.builtin.assert:
+    that:
+      - (openwrt_gentoo_stage3_checksum_value | default('', true) | string | trim) | length > 0
+    fail_msg: "Stage3 DIGESTS から checksum を抽出できませんでした。URL: {{ openwrt_gentoo_stage3_url }}.DIGESTS"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_stage3_auto | bool
+    - openwrt_gentoo_stage3_digests is defined
+  tags:
+    - gentoo_stage3_auto

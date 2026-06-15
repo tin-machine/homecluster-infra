@@ -1,0 +1,41 @@
+#!/bin/bash
+
+# {{ ansible_managed }}
+
+# PXE 用 overlay マウントを rootovl トリガーで実行する。
+# pre-pivot フェーズで /sysroot を対象に pxe-bootstrap.sh を呼び出し、
+# NFS ルートを overlay 化する。
+
+type getargbool >/dev/null 2>&1 || . /lib/dracut-lib.sh
+
+log() {
+    echo "pxe-overlay: $*"
+}
+
+if ! getargbool 0 rootovl; then
+    log "rootovl not set; skip pxe-overlay"
+    exit 0
+fi
+
+ROOT_MNT="${NEWROOT:-${rootmnt:-/sysroot}}"
+BOOTSTRAP_BIN="${ROOT_MNT}/usr/local/sbin/pxe-bootstrap.sh"
+
+if [ ! -x "$BOOTSTRAP_BIN" ]; then
+    log "pxe-bootstrap.sh not found at ${BOOTSTRAP_BIN}; skip"
+    exit 0
+fi
+
+export PXE_BOOTSTRAP_ROOT_PREFIX_OVERRIDE="$ROOT_MNT"
+export PXE_BOOTSTRAP_RUN_PREFIX_OVERRIDE="$ROOT_MNT"
+
+log "invoking pxe-bootstrap.sh (rootmnt=${ROOT_MNT})"
+if ! "$BOOTSTRAP_BIN"; then
+    log "pxe-bootstrap failed"
+    exit 1
+fi
+
+touch "$ROOT_MNT/run/.pxe_overlay_done" 2>/dev/null || true
+
+log "pxe-overlay: bootstrap completed"
+
+exit 0

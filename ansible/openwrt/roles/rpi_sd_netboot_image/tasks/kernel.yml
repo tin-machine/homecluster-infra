@@ -1,0 +1,22 @@
+---
+- name: Check required kernel files
+  ansible.builtin.stat:
+    path: "{{ rpi_tftp_release_dir_effective }}/{{ item }}"
+  loop: "{{ rpi_required_kernel_files_resolved }}"
+  register: rpi_kernel_file_stats
+
+- name: Assert required kernel files exist
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+      - item.stat.isreg
+    fail_msg: "Required kernel file is missing: {{ item.stat.path }}"
+  loop: "{{ rpi_kernel_file_stats.results }}"
+
+- name: Copy required kernel files
+  ansible.builtin.copy:
+    src: "{{ rpi_tftp_release_dir_effective }}/{{ item }}"
+    dest: "{{ rpi_boot_dir }}/{{ item }}"
+    mode: "0644"
+    remote_src: true
+  loop: "{{ rpi_required_kernel_files_resolved }}"

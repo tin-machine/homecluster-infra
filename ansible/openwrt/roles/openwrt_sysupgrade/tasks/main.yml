@@ -1,0 +1,76 @@
+---
+- name: branch_type が正しい値か検証
+  ansible.builtin.assert:
+    that:
+      - branch_type in ["releases", "snapshots"]
+    fail_msg: "branch_type には releases または snapshots を指定してください。"
+
+- name: OpenWrt 情報を取得
+  ansible.builtin.import_tasks: detect.yml
+
+- name: release_version 未設定時は現在のバージョンを使用
+  when: branch_type == "releases" and (
+          release_version is not defined
+          or release_version is none
+          or ((release_version | string | trim) | length == 0)
+        )
+  ansible.builtin.set_fact:
+    release_version: "{{ owrt_current_release }}"
+    owrt_release_version_inferred: true
+
+- name: release_version を正規化
+  when: branch_type == "releases"
+  ansible.builtin.set_fact:
+    owrt_release_version_normalized: "{{ release_version | default('', true) | string | trim }}"
+
+- name: リリースバージョンを Fact 化
+  when: branch_type == "releases"
+  ansible.builtin.set_fact:
+    owrt_branch_version: "{{ owrt_release_version_normalized }}"
+
+- name: ダウンロード URL を組み立て
+  ansible.builtin.import_tasks: build_url.yml
+
+- name: アップグレード必要性を計算
+  ansible.builtin.set_fact:
+    owrt_upgrade_target: >-
+      {{ (branch_type == 'releases')
+          | ternary(owrt_release_version_normalized | default('', true), 'SNAPSHOT') }}
+    owrt_upgrade_required: >-
+      {{ (branch_type == 'releases')
+          | ternary( (owrt_release_version_normalized | default('', true) | length > 0) and (owrt_current_release != owrt_release_version_normalized),
+                     true ) }}
+
+- name: アップグレードサマリを表示
+  ansible.builtin.debug:
+    msg:
+      current_release: "{{ owrt_current_release }}"
+      target: "{{ owrt_upgrade_target }}"
+      image_url: "{{ owrt_image_url }}"
+      upgrade_required: "{{ owrt_upgrade_required }}"
+      release_version_inferred: "{{ owrt_release_version_inferred | default(false) }}"
+
+- name: ターゲットバージョンに到達済み
+  ansible.builtin.debug:
+    msg: "ターゲット {{ owrt_upgrade_target }} に到達済みのため sysupgrade は実行しません。"
+  when:
+    - perform_upgrade | bool
+    - not owrt_upgrade_required
+
+- name: sysupgrade の検証とダウンロード
+  when:
+    - perform_upgrade | bool
+    - owrt_upgrade_required
+  ansible.builtin.import_tasks: verify.yml
+
+- name: バックアップを取得
+  when:
+    - perform_upgrade | bool
+    - owrt_upgrade_required
+  ansible.builtin.import_tasks: backup.yml
+
+- name: sysupgrade を実行
+  when:
+    - perform_upgrade | bool
+    - owrt_upgrade_required
+  ansible.builtin.import_tasks: upgrade.yml

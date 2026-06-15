@@ -1,0 +1,223 @@
+---
+- name: sshd_config の root/password login policy を調整
+  ansible.builtin.blockinfile:
+    path: "{{ openwrt_gentoo_rootfs_dir }}{{ openwrt_gentoo_ssh_config_path }}"
+    create: true
+    marker: "# {mark} ANSIBLE MANAGED SSH"
+    block: |
+      PermitRootLogin {{ 'yes' if openwrt_gentoo_ssh_allow_root_login | bool else 'no' }}
+      PasswordAuthentication {{ 'yes' if openwrt_gentoo_ssh_allow_password_auth | bool else 'no' }}
+  when: openwrt_gentoo_enabled | bool
+
+- name: systemd-networkd/resolved サービスを有効化
+  ansible.builtin.file:
+    dest: "{{ openwrt_gentoo_rootfs_dir }}/etc/systemd/system/multi-user.target.wants/{{ item.unit }}"
+    src: "{{ item.src }}"
+    state: link
+    force: true
+    follow: false
+  loop:
+    - { unit: "{{ openwrt_gentoo_networkd_unit }}", src: "/lib/systemd/system/{{ openwrt_gentoo_networkd_unit }}" }
+    - { unit: "{{ openwrt_gentoo_resolved_unit }}", src: "/lib/systemd/system/{{ openwrt_gentoo_resolved_unit }}" }
+    - { unit: "{{ openwrt_gentoo_networkd_role_service }}", src: "/etc/systemd/system/{{ openwrt_gentoo_networkd_role_service }}" }
+    - { unit: "{{ openwrt_gentoo_networkd_role_path_unit }}", src: "/etc/systemd/system/{{ openwrt_gentoo_networkd_role_path_unit }}" }
+    - { unit: "{{ openwrt_gentoo_ssh_service }}", src: "/lib/systemd/system/{{ openwrt_gentoo_ssh_service }}" }
+  loop_control:
+    label: "{{ item.unit }}"
+  when: openwrt_gentoo_enabled | bool
+
+- name: TFTP cmdline から起動対象 rootfs release を検出
+  ansible.builtin.shell: |
+    set -eu
+    for f in /srv/gentoo/tftp-root/*/cmdline.txt; do
+      [ -r "$f" ] || continue
+      sed -n 's#.*root=nfs4:[^ ]*:/gentoo/\([^/ ]*\)/nfs.*#\1#p' "$f"
+    done | sort -u
+  args:
+    executable: /bin/sh
+  register: openwrt_gentoo_active_rootfs_releases
+  changed_when: false
+  failed_when: false
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_timesyncd_enabled | bool
+  tags:
+    - pxe_timesync
+
+- name: 時刻同期を反映する rootfs 候補を作成
+  ansible.builtin.set_fact:
+    openwrt_gentoo_timesync_rootfs_dir_candidates: >-
+      {%- set dirs = [] -%}
+      {%- if openwrt_gentoo_rootfs_include_base_candidate | default(true) | bool -%}
+        {%- set _ = dirs.append(openwrt_gentoo_rootfs_dir) -%}
+      {%- endif -%}
+      {%- set stage_dates = openwrt_gentoo_release_bundle_stage_dates | default({}, true) -%}
+      {%- set configured_target_stages = openwrt_gentoo_rootfs_target_stages | default([]) | map('string') | map('trim') | reject('equalto', '') | list -%}
+      {%- set target_stages = configured_target_stages if (configured_target_stages | length) > 0 else (stage_dates.keys() | list | map('string') | list) -%}
+      {%- for host in openwrt_pxe_hosts_effective | default(openwrt_pxe_hosts | default([])) -%}
+        {%- set stage = host.tftp_stage | default(host.stage | default('', true), true) | string | trim -%}
+        {%- set r = host.rootfs_release | default('', true) | string | trim -%}
+        {%- if r and ((target_stages | length) == 0 or stage in target_stages) -%}
+          {%- set _ = dirs.append('/srv/gentoo/' ~ r ~ '/nfs') -%}
+        {%- endif -%}
+      {%- endfor -%}
+      {%- if (target_stages | length) == 0 -%}
+        {%- for release in openwrt_gentoo_active_rootfs_releases.stdout_lines | default([]) -%}
+          {%- set r = release | string | trim -%}
+          {%- if r -%}
+            {%- set _ = dirs.append('/srv/gentoo/' ~ r ~ '/nfs') -%}
+          {%- endif -%}
+        {%- endfor -%}
+      {%- endif -%}
+      {%- set fallback_to_base = openwrt_gentoo_rootfs_candidate_fallback_to_base | default(openwrt_gentoo_rootfs_include_base_candidate | default(true)) | bool -%}
+      {{ (dirs | unique | list) if (dirs | length) > 0 else ([openwrt_gentoo_rootfs_dir] if fallback_to_base else []) }}
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_timesyncd_enabled | bool
+  tags:
+    - pxe_timesync
+
+- name: 時刻同期を反映する rootfs の存在を確認
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop: "{{ openwrt_gentoo_timesync_rootfs_dir_candidates | default([openwrt_gentoo_rootfs_dir]) }}"
+  loop_control:
+    label: "{{ item }}"
+  register: openwrt_gentoo_timesync_rootfs_dir_stats
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_timesyncd_enabled | bool
+  tags:
+    - pxe_timesync
+
+- name: 時刻同期を反映する rootfs を確定
+  ansible.builtin.set_fact:
+    openwrt_gentoo_timesync_rootfs_dirs: >-
+      {{
+        openwrt_gentoo_timesync_rootfs_dir_stats.results
+        | default([])
+        | selectattr('stat.isdir', 'defined')
+        | selectattr('stat.isdir')
+        | map(attribute='item')
+        | unique
+        | list
+      }}
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_timesyncd_enabled | bool
+  tags:
+    - pxe_timesync
+
+- name: systemd-timesyncd 設定ディレクトリを作成
+  ansible.builtin.file:
+    path: "{{ item }}/etc/systemd/timesyncd.conf.d"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop: "{{ openwrt_gentoo_timesync_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+  loop_control:
+    label: "{{ item }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_timesyncd_enabled | bool
+  tags:
+    - pxe_timesync
+
+- name: systemd-timesyncd を IP 優先で設定
+  ansible.builtin.template:
+    src: systemd/timesyncd.conf.j2
+    dest: "{{ item }}/etc/systemd/timesyncd.conf.d/timesyncd.conf"
+    owner: root
+    group: root
+    mode: '0644'
+  loop: "{{ openwrt_gentoo_timesync_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+  loop_control:
+    label: "{{ item }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_timesyncd_enabled | bool
+  tags:
+    - pxe_timesync
+
+- name: systemd-timesyncd enable 先ディレクトリを作成
+  ansible.builtin.file:
+    path: "{{ item }}/etc/systemd/system/sysinit.target.wants"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop: "{{ openwrt_gentoo_timesync_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+  loop_control:
+    label: "{{ item }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_timesyncd_enabled | bool
+  tags:
+    - pxe_timesync
+
+- name: systemd-timesyncd サービスを有効化
+  ansible.builtin.file:
+    dest: "{{ item }}/etc/systemd/system/sysinit.target.wants/{{ openwrt_gentoo_timesyncd_unit }}"
+    src: "/lib/systemd/system/{{ openwrt_gentoo_timesyncd_unit }}"
+    state: link
+    force: true
+    follow: false
+  loop: "{{ openwrt_gentoo_timesync_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+  loop_control:
+    label: "{{ item }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_timesyncd_enabled | bool
+  tags:
+    - pxe_timesync
+
+- name: systemd-time-wait-sync drop-in ディレクトリを作成
+  ansible.builtin.file:
+    path: "{{ item }}/etc/systemd/system/{{ openwrt_gentoo_time_wait_sync_unit }}.d"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop: "{{ openwrt_gentoo_timesync_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+  loop_control:
+    label: "{{ item }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_timesyncd_enabled | bool
+  tags:
+    - pxe_timesync
+
+- name: systemd-time-wait-sync の待ち時間を有限化
+  ansible.builtin.template:
+    src: systemd/time-wait-sync-timeout.conf.j2
+    dest: "{{ item }}/etc/systemd/system/{{ openwrt_gentoo_time_wait_sync_unit }}.d/timeout.conf"
+    owner: root
+    group: root
+    mode: '0644'
+  loop: "{{ openwrt_gentoo_timesync_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+  loop_control:
+    label: "{{ item }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_timesyncd_enabled | bool
+  tags:
+    - pxe_timesync
+
+- name: systemd-resolved D-Bus alias を作成
+  ansible.builtin.file:
+    dest: "{{ openwrt_gentoo_rootfs_dir }}/etc/systemd/system/dbus-org.freedesktop.resolve1.service"
+    src: "/lib/systemd/system/{{ openwrt_gentoo_resolved_unit }}"
+    state: link
+    force: true
+    follow: false
+  when: openwrt_gentoo_enabled | bool
+
+- name: resolv.conf を systemd-resolved にリンク
+  ansible.builtin.file:
+    dest: "{{ openwrt_gentoo_rootfs_dir }}/etc/resolv.conf"
+    src: "{{ openwrt_gentoo_resolv_conf_target }}"
+    state: link
+    force: true
+    follow: false
+  when: openwrt_gentoo_enabled | bool

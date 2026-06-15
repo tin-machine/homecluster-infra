@@ -1,0 +1,91 @@
+---
+- name: Slack 通知クライアント定義を整形
+  ansible.builtin.set_fact:
+    openwrt_pxe_slack_clients_effective: >-
+      {%- set clients = {} -%}
+      {%- set default_bot_token = openwrt_pxe_slack_default_bot_token | default('') | string | trim -%}
+      {%- set default_channel_id = openwrt_pxe_slack_default_channel_id | default('') | string | trim -%}
+      {%- set auto_ids = openwrt_pxe_slack_auto_overlay_client_ids | default([]) -%}
+      {%- if (openwrt_pxe_slack_auto_overlay_clients | bool) and default_bot_token and default_channel_id -%}
+        {%- for item in (openwrt_gentoo_overlay_clients_effective | default(openwrt_gentoo_overlay_clients | default([]))) -%}
+          {%- set overlay_id = item.id | default('') | string | trim -%}
+          {%- if overlay_id and ((auto_ids | length) == 0 or overlay_id in auto_ids) -%}
+            {%- set _ = clients.update({
+              overlay_id: {
+                'overlay_id': overlay_id,
+                'bot_token': default_bot_token,
+                'channel_id': default_channel_id
+              }
+            }) -%}
+          {%- endif -%}
+        {%- endfor -%}
+      {%- endif -%}
+      {%- for item in (openwrt_pxe_slack_clients | default([])) -%}
+        {%- set overlay_id = item.overlay_id | default(item.id | default('')) | string | trim -%}
+        {%- if overlay_id -%}
+          {%- set _ = clients.update({
+            overlay_id: {
+              'overlay_id': overlay_id,
+              'bot_token': item.bot_token | default(default_bot_token) | string | trim,
+              'channel_id': item.channel_id | default(default_channel_id) | string | trim
+            }
+          }) -%}
+        {%- endif -%}
+      {%- endfor -%}
+      {{ clients.values() | list }}
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_overlay_remote_enabled | bool
+    - openwrt_pxe_slack_enabled | bool
+  no_log: true
+
+- name: Slack 通知クライアント定義を検証
+  ansible.builtin.assert:
+    that:
+      - item.overlay_id is defined
+      - (item.overlay_id | string | trim) | length > 0
+      - (item.bot_token | string | trim) | length > 0
+      - (item.channel_id | string | trim) | length > 0
+    fail_msg: "openwrt_pxe_slack_clients は overlay_id と bot_token と channel_id を必須で指定してください。"
+  loop: "{{ openwrt_pxe_slack_clients_effective | default([]) }}"
+  loop_control:
+    label: "{{ item.overlay_id | default('unknown') }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_overlay_remote_enabled | bool
+    - (openwrt_pxe_slack_clients_effective | default([])) | length > 0
+  no_log: true
+
+- name: Slack 通知用ディレクトリを作成
+  ansible.builtin.file:
+    path: "/srv/nfs/overlay/{{ item.overlay_id }}/etc/pxe"
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+  loop: "{{ openwrt_pxe_slack_clients_effective | default([]) }}"
+  loop_control:
+    label: "{{ item.overlay_id }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_overlay_remote_enabled | bool
+    - (openwrt_pxe_slack_clients_effective | default([])) | length > 0
+  no_log: true
+
+- name: Slack 通知用 env を配置
+  ansible.builtin.copy:
+    dest: "/srv/nfs/overlay/{{ item.overlay_id }}/etc/pxe/slack.env"
+    owner: root
+    group: root
+    mode: '0600'
+    content: |
+      SLACK_BOT_TOKEN={{ item.bot_token }}
+      SLACK_CHANNEL_ID={{ item.channel_id }}
+  loop: "{{ openwrt_pxe_slack_clients_effective | default([]) }}"
+  loop_control:
+    label: "{{ item.overlay_id }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_overlay_remote_enabled | bool
+    - (openwrt_pxe_slack_clients_effective | default([])) | length > 0
+  no_log: true

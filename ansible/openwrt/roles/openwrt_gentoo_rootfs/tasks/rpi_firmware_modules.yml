@@ -1,0 +1,40 @@
+---
+- name: Raspberry Pi firmware リポジトリを取得
+  ansible.builtin.git:
+    repo: "{{ openwrt_gentoo_rpi_firmware_repo }}"
+    dest: "{{ openwrt_gentoo_firmware_checkout_dir }}"
+    version: "{{ openwrt_gentoo_rpi_firmware_version }}"
+    depth: "{{ openwrt_gentoo_rpi_firmware_depth if openwrt_gentoo_rpi_firmware_depth is not none else omit }}"
+    force: "{{ openwrt_gentoo_rpi_firmware_force | bool }}"
+    update: true
+    accept_hostkey: true
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_copy_rpi_modules | bool
+
+- name: Gentoo rootfs の modules ディレクトリを準備
+  ansible.builtin.file:
+    path: "{{ openwrt_gentoo_rootfs_dir }}/lib/modules"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_copy_rpi_modules | bool
+
+- name: Raspberry Pi カーネルモジュールを Gentoo rootfs へ同期
+  ansible.builtin.command:
+    cmd: >
+      rsync -a --itemize-changes{{ ' --delete' if openwrt_gentoo_rpi_modules_delete_extra | bool else '' }}
+      {{ openwrt_gentoo_firmware_checkout_dir }}/modules/
+      {{ openwrt_gentoo_rootfs_dir }}/lib/modules/
+  register: openwrt_gentoo_rpi_modules_sync
+  changed_when: >
+    (
+      openwrt_gentoo_rpi_modules_sync.stdout_lines | default([]) |
+      select('match', '^[<>ch\\*].*') | list | length
+    ) > 0
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_copy_rpi_modules | bool

@@ -1,0 +1,108 @@
+- name: emerge sync をスキップ（PXE 初期構築時に実施済み）
+  ansible.builtin.debug:
+    msg: "emerge --sync をスキップします"
+
+- name: Ensure systemd unit directory exists
+  become: true
+  ansible.builtin.file:
+    path: /etc/systemd/system
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Ensure world update log file exists
+  become: true
+  ansible.builtin.file:
+    path: /var/log/gentoo-world-update.log
+    state: touch
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: PXE 起動に不要な full ansible を world から削除
+  become: true
+  ansible.builtin.lineinfile:
+    path: /var/lib/portage/world
+    line: app-admin/ansible
+    state: absent
+  tags:
+    - emerge_world_update
+
+- name: ansible-pull と k3s が必要とするパッケージを world に保持
+  become: true
+  ansible.builtin.lineinfile:
+    path: /var/lib/portage/world
+    line: "{{ item }}"
+    create: true
+    owner: root
+    group: root
+    mode: '0644'
+  loop:
+    - app-admin/ansible-core
+    - dev-vcs/git
+    - net-firewall/iptables
+    - net-firewall/nftables
+    - sys-fs/f2fs-tools
+  loop_control:
+    label: "{{ item }}"
+
+- name: Install gentoo world update systemd service
+  become: true
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/gentoo-world-update.service
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      [Unit]
+      Description=Gentoo world update (auto)
+      Wants=network-online.target
+      After=network-online.target
+
+      [Service]
+      Type=oneshot
+      WorkingDirectory=/root
+      ExecStart=/bin/sh -c 'sed -i "\\#^app-admin/ansible$#d" /var/lib/portage/world; for pkg in app-admin/ansible-core dev-vcs/git net-firewall/iptables net-firewall/nftables sys-fs/f2fs-tools; do grep -qxF "$pkg" /var/lib/portage/world || printf "%s\n" "$pkg" >> /var/lib/portage/world; done'
+      ExecStart=/usr/bin/emerge --sync
+      ExecStart=/usr/bin/emerge --noreplace app-admin/ansible-core dev-vcs/git net-firewall/iptables net-firewall/nftables sys-fs/f2fs-tools
+      ExecStart=/usr/bin/emerge -uDN --with-bdeps=y --ask=n --verbose --backtrack=100 --keep-going @world
+      ExecStart=/usr/bin/emerge @preserved-rebuild
+      ExecStart=/usr/bin/emerge --depclean --ask=n
+      StandardOutput=append:/var/log/gentoo-world-update.log
+      StandardError=append:/var/log/gentoo-world-update.log
+
+      [Install]
+      WantedBy=multi-user.target
+
+- name: Install gentoo world update systemd timer
+  become: true
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/gentoo-world-update.timer
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      [Unit]
+      Description=Weekly Gentoo world update
+
+      [Timer]
+      OnCalendar=Wed *-*-* 17:00:00
+      Persistent=true
+
+      [Install]
+      WantedBy=timers.target
+
+- name: Reload systemd units
+  become: true
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Enable and start gentoo world update timer
+  become: true
+  ansible.builtin.systemd:
+    name: gentoo-world-update.timer
+    enabled: true
+    state: started
+  tags:
+    - emerge_world_update

@@ -1,0 +1,23 @@
+---
+- name: networkd 設定用 rootfs パスを設定
+  ansible.builtin.set_fact:
+    openwrt_gentoo_rootfs_dir: "/srv/gentoo/{{ openwrt_gentoo_release }}/nfs"
+  when: openwrt_gentoo_enabled | bool
+
+- name: systemd-networkd 設定ディレクトリを作成
+  ansible.builtin.file:
+    path: "{{ openwrt_gentoo_rootfs_dir }}{{ openwrt_gentoo_network_unit_path | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  when: openwrt_gentoo_enabled | bool
+
+- name: systemd-networkd .network を配置
+  ansible.builtin.template:
+    src: networkd/10-wired-dhcp.network.j2
+    dest: "{{ openwrt_gentoo_rootfs_dir }}{{ openwrt_gentoo_network_unit_path }}"
+    owner: root
+    group: root
+    mode: '0644'
+  when: openwrt_gentoo_enabled | bool

@@ -1,0 +1,193 @@
+---
+- name: バックアップディスク共有をスキップ
+  ansible.builtin.debug:
+    msg: "openwrt_backup_share_enabled=false のためバックアップディスク共有は設定しません"
+  when: not openwrt_backup_share_enabled | bool
+
+- name: バックアップディスク mount 情報を確認
+  ansible.builtin.command: block info
+  register: openwrt_backup_share_block_info
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  when: openwrt_backup_share_enabled | bool
+
+- name: バックアップディスク検出状態を記録
+  ansible.builtin.set_fact:
+    openwrt_backup_share_present: >-
+      {{ (openwrt_backup_share_uuid | string | length > 0)
+         and (openwrt_backup_share_uuid in (openwrt_backup_share_block_info.stdout | default(''))) }}
+  when: openwrt_backup_share_enabled | bool
+
+- name: バックアップディスク未接続時は案内
+  ansible.builtin.debug:
+    msg: "{{ openwrt_backup_share_uuid }} が block info に見つからないため、バックアップディスク共有の mount/export 更新をスキップします"
+  when:
+    - openwrt_backup_share_enabled | bool
+    - not (openwrt_backup_share_present | default(false) | bool)
+
+- name: バックアップディスク UUID を確認
+  ansible.builtin.assert:
+    that:
+      - openwrt_backup_share_present | default(false) | bool
+    fail_msg: "{{ openwrt_backup_share_source }} が期待した UUID {{ openwrt_backup_share_uuid }} で見つかりません"
+  when:
+    - openwrt_backup_share_enabled | bool
+    - openwrt_backup_share_require_present | bool
+
+- name: バックアップディスク NFS export を追加
+  vars:
+    current_export_paths: "{{ (openwrt_nfs_extra_exports | default([])) | map(attribute='path') | list }}"
+  ansible.builtin.set_fact:
+    openwrt_nfs_extra_exports: "{{ (openwrt_nfs_extra_exports | default([])) + [openwrt_backup_share_nfs_export] }}"
+  when:
+    - openwrt_backup_share_enabled | bool
+    - openwrt_backup_share_export_enabled | bool
+    - openwrt_backup_share_present | default(false) | bool
+    - openwrt_backup_share_nfs_export.path not in current_export_paths
+
+- name: バックアップディスク bind mount 状態を確認
+  ansible.builtin.shell: |
+    grep -qs " {{ openwrt_backup_share_bind_target }} " /proc/mounts
+  args:
+    executable: /bin/ash
+  register: openwrt_backup_share_bind_mounted
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  when:
+    - openwrt_backup_share_enabled | bool
+    - openwrt_backup_share_present | default(false) | bool
+
+- name: バックアップディスク source mount point を作成
+  ansible.builtin.file:
+    path: "{{ openwrt_backup_share_source }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0777'
+  when:
+    - openwrt_backup_share_enabled | bool
+    - openwrt_backup_share_present | default(false) | bool
+
+- name: バックアップディスク bind mount point を作成
+  ansible.builtin.file:
+    path: "{{ openwrt_backup_share_bind_target }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  when:
+    - openwrt_backup_share_enabled | bool
+    - openwrt_backup_share_present | default(false) | bool
+    - openwrt_backup_share_bind_mounted.rc | default(1) != 0
+
+- name: バックアップディスク bind mount point は mount 済みのため mode 管理をスキップ
+  ansible.builtin.debug:
+    msg: "{{ openwrt_backup_share_bind_target }} は bind mount 済みのため、bind 先の chmod は実ディスク側へ波及するのでスキップします"
+  when:
+    - openwrt_backup_share_enabled | bool
+    - openwrt_backup_share_present | default(false) | bool
+    - openwrt_backup_share_bind_mounted.rc | default(1) == 0
+
+- name: バックアップディスク fstab を設定
+  ansible.builtin.shell: |
+    set -e
+    section='backup_disk'
+    changed=0
+    if ! uci -q get fstab.${section} >/dev/null; then
+      uci set fstab.${section}=mount
+      changed=1
+    fi
+    set_if_diff() {
+      key="$1"
+      value="$2"
+      current="$(uci -q get "fstab.${section}.${key}" 2>/dev/null || true)"
+      if [ "$current" != "$value" ]; then
+        uci set "fstab.${section}.${key}=${value}"
+        changed=1
+      fi
+    }
+    set_if_diff target "{{ openwrt_backup_share_source }}"
+    set_if_diff uuid "{{ openwrt_backup_share_uuid }}"
+    set_if_diff fstype "{{ openwrt_backup_share_fstype }}"
+    set_if_diff options "{{ openwrt_backup_share_mount_options }}"
+    set_if_diff enabled "1"
+    set_if_diff enabled_fsck "0"
+    if [ "$changed" -eq 1 ]; then
+      uci commit fstab
+      echo changed
+    fi
+  args:
+    executable: /bin/ash
+  register: openwrt_backup_share_fstab
+  changed_when: "'changed' in openwrt_backup_share_fstab.stdout"
+  when:
+    - openwrt_backup_share_enabled | bool
+    - openwrt_backup_share_present | default(false) | bool
+
+- name: バックアップディスクを mount
+  ansible.builtin.shell: |
+    set -e
+    if grep -qs " {{ openwrt_backup_share_source }} " /proc/mounts; then
+      exit 0
+    fi
+    block mount
+    if ! grep -qs " {{ openwrt_backup_share_source }} " /proc/mounts; then
+      mount "{{ openwrt_backup_share_source }}"
+    fi
+    echo changed
+  args:
+    executable: /bin/ash
+  register: openwrt_backup_share_mount
+  changed_when: "'changed' in openwrt_backup_share_mount.stdout"
+  when:
+    - openwrt_backup_share_enabled | bool
+    - openwrt_backup_share_present | default(false) | bool
+    - not ansible_check_mode
+
+- name: バックアップディスク bind mount init を配置
+  ansible.builtin.template:
+    src: external-disk-bind.init.j2
+    dest: "/etc/init.d/{{ openwrt_backup_share_init_name }}"
+    owner: root
+    group: root
+    mode: '0755'
+  when:
+    - openwrt_backup_share_enabled | bool
+    - openwrt_backup_share_present | default(false) | bool
+
+- name: バックアップディスク bind mount init を有効化
+  ansible.builtin.shell: |
+    if /etc/init.d/{{ openwrt_backup_share_init_name }} enabled; then
+      exit 0
+    fi
+    /etc/init.d/{{ openwrt_backup_share_init_name }} enable
+    echo changed
+  args:
+    executable: /bin/ash
+  register: openwrt_backup_share_init_enable
+  changed_when: "'changed' in openwrt_backup_share_init_enable.stdout"
+  when:
+    - openwrt_backup_share_enabled | bool
+    - openwrt_backup_share_present | default(false) | bool
+
+- name: バックアップディスク bind mount を適用
+  ansible.builtin.command: "/etc/init.d/{{ openwrt_backup_share_init_name }} start"
+  register: openwrt_backup_share_bind_start
+  changed_when: "'mounted' in openwrt_backup_share_bind_start.stdout"
+  when:
+    - openwrt_backup_share_enabled | bool
+    - openwrt_backup_share_present | default(false) | bool
+    - not ansible_check_mode
+
+- name: バックアップディスク bind mount を確認
+  ansible.builtin.shell: |
+    grep -qs " {{ openwrt_backup_share_bind_target }} " /proc/mounts
+  args:
+    executable: /bin/ash
+  changed_when: false
+  when:
+    - openwrt_backup_share_enabled | bool
+    - openwrt_backup_share_present | default(false) | bool
+    - not ansible_check_mode

@@ -1,0 +1,26 @@
+---
+- name: ベース URL を決定
+  ansible.builtin.set_fact:
+    owrt_base_url: >-
+      {{ (branch_type == 'releases')
+          | ternary(base_url_releases ~ '/' ~ owrt_branch_version, base_url_snapshots) }}
+
+- name: ターゲットディレクトリ URL を算出
+  ansible.builtin.set_fact:
+    owrt_dir_url: "{{ owrt_base_url ~ '/targets/' ~ owrt_target ~ '/' ~ owrt_subtarget }}"
+
+- name: バージョン token を決定
+  ansible.builtin.set_fact:
+    owrt_version_token: "{{ (branch_type == 'releases') | ternary(owrt_branch_version, owrt_target) }}"
+
+- name: イメージファイル名を作成
+  ansible.builtin.set_fact:
+    owrt_image_filename: >-
+      openwrt-{{ owrt_version_token }}-{{ owrt_target }}-{{ owrt_subtarget }}-{{ owrt_device }}-{{ image_fs_type }}-{{ image_kind }}.{{ image_ext }}
+
+- name: ダウンロード関連パスを Fact 化
+  ansible.builtin.set_fact:
+    owrt_image_url: "{{ owrt_dir_url ~ '/' ~ owrt_image_filename }}"
+    owrt_sha256_url: "{{ owrt_dir_url ~ '/sha256sums' }}"
+    owrt_md5_url: "{{ owrt_dir_url ~ '/md5sums' }}"
+    owrt_local_image: "{{ download_dir }}/{{ owrt_image_filename }}"

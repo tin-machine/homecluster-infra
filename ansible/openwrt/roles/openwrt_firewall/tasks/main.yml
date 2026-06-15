@@ -1,0 +1,29 @@
+---
+- name: /etc/config/firewall を適用
+  ansible.builtin.template:
+    src: firewall.j2
+    dest: /etc/config/firewall
+    owner: root
+    group: root
+    mode: '0644'
+  notify:
+    - Reload firewall
+
+- name: firewall 設定を検証
+  ansible.builtin.shell: |
+    if /etc/init.d/firewall status >/dev/null 2>&1; then
+      /etc/init.d/firewall status
+    else
+      fw3 print
+    fi
+  args:
+    executable: /bin/ash
+  register: openwrt_firewall_status
+  changed_when: false
+  failed_when: openwrt_firewall_status.rc != 0
+  when: not ansible_check_mode
+
+- name: firewall 検証コマンドの案内
+  ansible.builtin.debug:
+    msg: "/etc/init.d/firewall status（または fw3 print）で手動検証してください"
+  when: ansible_check_mode

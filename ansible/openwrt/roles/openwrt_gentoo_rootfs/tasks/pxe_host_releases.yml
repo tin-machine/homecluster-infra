@@ -1,0 +1,141 @@
+---
+- name: PXE client catalog を合成
+  ansible.builtin.include_role:
+    name: openwrt_pxe_client_catalog
+    apply:
+      tags:
+        - always
+  tags:
+    - always
+
+- name: PXE release bundle stage date を検証
+  ansible.builtin.assert:
+    that:
+      - item.key | string | trim | length > 0
+      - (item.value | string | trim) is match('^[0-9]{8}$')
+    fail_msg: "openwrt_gentoo_release_bundle_stage_dates は stage: YYYYMMDD の map で指定してください。"
+  loop: "{{ (openwrt_gentoo_release_bundle_stage_dates | default({})) | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}={{ item.value }}"
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  when: openwrt_gentoo_enabled | bool
+  tags:
+    - pxe
+    - tftp
+    - tftp_hosts
+    - pxe_tftp_switch
+    - pxe_release_bundle
+    - pxe_rootfs_prune
+    - pxe_timesync
+    - pxe_bootstrap
+    - official_binhost
+
+- name: PXE host release を stage date から解決
+  ansible.builtin.set_fact:
+    openwrt_pxe_hosts_effective: >-
+      {%- set result = [] -%}
+      {%- set stage_dates = openwrt_gentoo_release_bundle_stage_dates | default({}, true) -%}
+      {%- for host in openwrt_pxe_hosts_effective | default(openwrt_pxe_hosts | default([])) -%}
+        {%- set name = host.name | default(host.board_hash | default('host')) | string | trim -%}
+        {%- set stage = host.tftp_stage | default(host.stage | default('', true), true) | string | trim -%}
+        {%- set explicit_tftp_release = host.tftp_release | default('', true) | string | trim -%}
+        {%- set explicit_rootfs_release = host.rootfs_release | default('', true) | string | trim -%}
+        {%- set ns = namespace(generation='', release_suffix='', stage_date='', tftp_release='') -%}
+        {%- if explicit_tftp_release -%}
+          {%- set ns.tftp_release = explicit_tftp_release -%}
+        {%- elif stage and stage_dates[stage] is defined -%}
+          {%- set ns.stage_date = stage_dates[stage] | string | trim -%}
+          {%- for generation in openwrt_gentoo_release_bundle_generations | default([]) -%}
+            {%- set generation_name = generation.name | string | trim -%}
+            {%- set host_name_regex = generation.host_name_regex | default('', true) | string | trim -%}
+            {%- if not ns.generation and host_name_regex and ((name | string) | regex_search(host_name_regex)) is not none -%}
+              {%- set ns.generation = generation_name -%}
+              {%- set ns.release_suffix = generation.release_suffix | default(generation_name, true) | string | trim -%}
+              {%- set ns.tftp_release = ns.stage_date ~ '-' ~ ns.release_suffix -%}
+            {%- endif -%}
+          {%- endfor -%}
+        {%- endif -%}
+        {%- set rootfs_release = explicit_rootfs_release if explicit_rootfs_release else ns.tftp_release -%}
+        {%- set _ = result.append(host | combine({
+          'name': name,
+          'tftp_stage': stage,
+          'tftp_release': ns.tftp_release,
+          'rootfs_release': rootfs_release,
+          'release_bundle_stage_date': ns.stage_date,
+          'release_bundle_generation': ns.generation
+        })) -%}
+      {%- endfor -%}
+      {{ result }}
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  when: openwrt_gentoo_enabled | bool
+  tags:
+    - pxe
+    - tftp
+    - tftp_hosts
+    - pxe_tftp_switch
+    - pxe_release_bundle
+    - pxe_rootfs_prune
+    - pxe_timesync
+    - pxe_bootstrap
+    - pxe_users
+    - pxe_ssh_keys
+    - pxe_ansible_pull
+    - official_binhost
+
+- name: PXE host release 未解決を拒否
+  ansible.builtin.assert:
+    that:
+      - (item.tftp_release | default('', true) | string | trim | length) > 0
+      - (item.tftp_release | default('', true) | string | trim) is match('^[0-9]{8}-[0-9A-Za-z._-]+$')
+      - (item.rootfs_release | default('', true) | string | trim) == (item.tftp_release | default('', true) | string | trim)
+    fail_msg: >-
+      {{ item.name | default(item.board_hash | default('host')) }} の PXE release を解決できません。
+      openwrt_gentoo_release_bundle_stage_dates.{{ item.tftp_stage | default(item.stage | default('stage')) }}=YYYYMMDD
+      を指定するか、canary / rollback 用の tftp_release / rootfs_release を paired clean release 名で明示してください。
+  loop: "{{ openwrt_pxe_hosts_effective | default([]) }}"
+  loop_control:
+    label: "{{ item.name | default(item.board_hash | default('host')) }}"
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  when: openwrt_gentoo_enabled | bool
+  tags:
+    - pxe
+    - tftp
+    - tftp_hosts
+    - pxe_tftp_switch
+    - pxe_release_bundle
+    - pxe_rootfs_prune
+    - pxe_timesync
+    - pxe_bootstrap
+    - pxe_users
+    - pxe_ssh_keys
+    - pxe_ansible_pull
+    - official_binhost
+
+- name: stage date 指定 host の世代判定を検証
+  ansible.builtin.assert:
+    that:
+      - (item.release_bundle_generation | default('', true) | string | trim | length) > 0
+      - (item.tftp_release | default('', true) | string | trim) is match('^[0-9]{8}-[0-9A-Za-z._-]+$')
+      - (item.rootfs_release | default('', true) | string | trim) == (item.tftp_release | default('', true) | string | trim)
+    fail_msg: >-
+      {{ item.name }} は tftp_stage={{ item.tftp_stage }} の stage date
+      {{ item.release_bundle_stage_date }} から release を導出する対象ですが、
+      Pi 世代を判定できない、または rootfs_release と tftp_release が一致していません。
+      host 名が openwrt_gentoo_release_bundle_generations[].host_name_regex に合うことを確認してください。
+  loop: "{{ openwrt_pxe_hosts_effective | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - (item.release_bundle_stage_date | default('', true) | string | trim | length) > 0
+  tags:
+    - pxe
+    - tftp
+    - tftp_hosts
+    - pxe_tftp_switch
+    - pxe_release_bundle
+    - pxe_rootfs_prune
+    - pxe_timesync
+    - pxe_bootstrap
+    - official_binhost

@@ -1,0 +1,28 @@
+# The staticd,watchfrr and zebra daemons are always started.
+#
+{% if openwrt_frr_enable_bgpd %}
+bgpd=yes
+{% else %}
+bgpd=no
+{% endif %}
+ospfd=no
+ospf6d=no
+ripd=no
+ripngd=no
+isisd=no
+pimd=no
+ldpd=no
+nhrpd=no
+eigrpd=no
+babeld=no
+sharpd=no
+pathd=no
+pbrd=no
+bfdd=no
+fabricd=no
+vrrpd=no
+
+vtysh_enable=no
+zebra_options="  -A 127.0.0.1 -s 90000000"
+mgmtd_options="  -A 127.0.0.1"
+{% if openwrt_frr_enable_bgpd %}bgpd_options="   -A {{ openwrt_frr_bgpd_listen_address }}"{% endif %}

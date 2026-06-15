@@ -1,0 +1,84 @@
+---
+- name: ブートストラップ用ランディレクトリを作成
+  ansible.builtin.file:
+    path: "{{ item }}{{ openwrt_gentoo_bootstrap_run_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop: "{{ openwrt_gentoo_pxe_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+  loop_control:
+    label: "{{ item }}"
+  no_log: true
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_bootstrap_enabled | bool
+
+- name: PXE ブートストラップ設定を配置
+  ansible.builtin.template:
+    src: pxe-bootstrap.conf.j2
+    dest: "{{ item }}/etc/pxe-bootstrap.conf"
+    owner: root
+    group: root
+    mode: '0644'
+  loop: "{{ openwrt_gentoo_pxe_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+  loop_control:
+    label: "{{ item }}"
+  no_log: true
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_bootstrap_enabled | bool
+
+- name: PXE ブートストラップスクリプトを配置
+  ansible.builtin.template:
+    src: pxe-bootstrap.sh.j2
+    dest: "{{ item }}/usr/local/sbin/pxe-bootstrap.sh"
+    owner: root
+    group: root
+    mode: '0755'
+  loop: "{{ openwrt_gentoo_pxe_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+  loop_control:
+    label: "{{ item }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_bootstrap_enabled | bool
+
+- name: systemd ユニットディレクトリを作成
+  ansible.builtin.file:
+    path: "{{ item }}/etc/systemd/system/multi-user.target.wants"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop: "{{ openwrt_gentoo_pxe_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+  loop_control:
+    label: "{{ item }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_bootstrap_enabled | bool
+
+- name: PXE ブートストラップ用 systemd ユニットを配置
+  ansible.builtin.template:
+    src: pxe-bootstrap.service.j2
+    dest: "{{ item }}/etc/systemd/system/pxe-bootstrap.service"
+    owner: root
+    group: root
+    mode: '0644'
+  loop: "{{ openwrt_gentoo_pxe_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+  loop_control:
+    label: "{{ item }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_bootstrap_enabled | bool
+
+- name: PXE ブートストラップ systemd ユニットを有効化
+  ansible.builtin.file:
+    src: "../pxe-bootstrap.service"
+    dest: "{{ item }}/etc/systemd/system/multi-user.target.wants/pxe-bootstrap.service"
+    state: link
+  loop: "{{ openwrt_gentoo_pxe_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+  loop_control:
+    label: "{{ item }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_bootstrap_enabled | bool

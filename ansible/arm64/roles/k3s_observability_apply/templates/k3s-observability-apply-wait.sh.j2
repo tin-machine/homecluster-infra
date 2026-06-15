@@ -1,0 +1,50 @@
+#!/bin/sh
+
+set -eu
+
+KUBECONFIG_PATH="{{ k3s_observability_apply_kubeconfig_path }}"
+DONE_MARKER="{{ k3s_observability_apply_run_root }}/{{ k3s_observability_apply_stage_name }}.done"
+TIMEOUT_SECS="{{ k3s_observability_apply_wait_timeout_secs }}"
+RETRY_SECS="{{ k3s_observability_apply_retry_secs }}"
+POST_READY_SETTLE_SECS="{{ k3s_observability_apply_post_ready_settle_secs }}"
+NODE_NAME="$(hostnamectl --static 2>/dev/null || hostname)"
+
+if [ -e "${DONE_MARKER}" ]; then
+  echo "k3s observability apply already completed for this boot: ${DONE_MARKER}"
+  exit 0
+fi
+
+now_epoch() {
+  date +%s
+}
+
+deadline=$(( $(now_epoch) + TIMEOUT_SECS ))
+
+while ! systemctl is-active --quiet k3s; do
+  if [ "$(now_epoch)" -ge "${deadline}" ]; then
+    echo "timed out waiting for k3s.service to become active" >&2
+    exit 1
+  fi
+  sleep "${RETRY_SECS}"
+done
+
+while ! /usr/local/bin/k3s kubectl --kubeconfig="${KUBECONFIG_PATH}" get --raw=/readyz >/dev/null 2>&1; do
+  if [ "$(now_epoch)" -ge "${deadline}" ]; then
+    echo "timed out waiting for k3s readyz" >&2
+    exit 1
+  fi
+  sleep "${RETRY_SECS}"
+done
+
+while ! /usr/local/bin/k3s kubectl --kubeconfig="${KUBECONFIG_PATH}" wait --for=condition=Ready "node/${NODE_NAME}" --timeout=10s >/dev/null 2>&1; do
+  if [ "$(now_epoch)" -ge "${deadline}" ]; then
+    echo "timed out waiting for node/${NODE_NAME} to become Ready" >&2
+    exit 1
+  fi
+  sleep "${RETRY_SECS}"
+done
+
+if [ "${POST_READY_SETTLE_SECS}" -gt 0 ]; then
+  echo "waiting ${POST_READY_SETTLE_SECS}s after k3s Ready before Terraform apply"
+  sleep "${POST_READY_SETTLE_SECS}"
+fi

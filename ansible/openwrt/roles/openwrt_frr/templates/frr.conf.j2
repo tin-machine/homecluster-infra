@@ -1,0 +1,41 @@
+service integrated-vtysh-config
+
+frr defaults traditional
+hostname {{ inventory_hostname | default('openwrt') }}
+log syslog informational
+
+{% for prefix in openwrt_frr_prefix_lists %}
+{%   for entry in prefix.entries %}
+{{
+  ('ip prefix-list %s seq %s %s %s' % (prefix.name, entry.seq, entry.action, entry.prefix))
+  ~ (entry.ge is defined and (' ge %s' % entry.ge) or '')
+  ~ (entry.le is defined and (' le %s' % entry.le) or '')
+}}
+{%   endfor %}
+{% endfor %}
+
+router bgp {{ openwrt_frr_local_as }}
+ bgp router-id {{ openwrt_frr_router_id }}
+ no bgp default ipv4-unicast
+ no bgp ebgp-requires-policy
+
+ neighbor {{ openwrt_frr_peer_group }} peer-group
+ neighbor {{ openwrt_frr_peer_group }} remote-as {{ openwrt_frr_peer_remote_as }}
+ neighbor {{ openwrt_frr_peer_group }} timers 10 30
+
+{% if openwrt_frr_peer_listen_range | default('') | string | trim | length > 0 %}
+ bgp listen range {{ openwrt_frr_peer_listen_range }} peer-group {{ openwrt_frr_peer_group }}
+ bgp listen limit {{ openwrt_frr_peer_listen_limit }}
+{% endif %}
+{% for neighbor in openwrt_frr_static_neighbors %}
+ neighbor {{ neighbor }} peer-group {{ openwrt_frr_peer_group }}
+{% endfor %}
+
+ address-family ipv4 unicast
+  neighbor {{ openwrt_frr_peer_group }} activate
+{% if openwrt_frr_in_prefix_list %}
+  neighbor {{ openwrt_frr_peer_group }} prefix-list {{ openwrt_frr_in_prefix_list }} in
+{% endif %}
+  neighbor {{ openwrt_frr_peer_group }} maximum-prefix {{ openwrt_frr_maximum_prefix.limit }} {{ openwrt_frr_maximum_prefix.threshold }}
+  maximum-paths {{ openwrt_frr_maximum_paths }}
+ exit-address-family

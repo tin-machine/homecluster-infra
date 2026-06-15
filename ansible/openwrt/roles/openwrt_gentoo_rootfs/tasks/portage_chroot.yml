@@ -1,0 +1,1955 @@
+- block:
+    - name: chroot バインドマウント追跡を初期化
+      ansible.builtin.set_fact:
+        openwrt_gentoo_chroot_bind_targets: []
+      tags:
+        - gentoo_packages
+        - official_binhost
+        - pxe_users
+        - pxe_ssh_keys
+        - rpi_eeprom
+        - rpi_wireless
+
+    - name: Gentoo chroot 用 bind mount を準備
+      ansible.builtin.shell: |
+        set -euo pipefail
+        target="{{ item.0 }}/{{ item.1.target }}"
+        if grep -qs " $target " /proc/mounts; then
+          exit 0
+        fi
+        mkdir -p "$target"
+        mount --bind {{ item.1.source }} "$target"
+        echo "$target"
+      args:
+        executable: /bin/ash
+      register: openwrt_gentoo_chroot_bind_results
+      changed_when: false
+      loop: "{{ (openwrt_gentoo_pxe_rootfs_dirs | default([openwrt_gentoo_rootfs_dir])) | product(openwrt_gentoo_chroot_bind_mounts) | list }}"
+      loop_control:
+        label: "{{ item.1.source }} -> {{ item.0 }}/{{ item.1.target }}"
+      tags:
+        - gentoo_packages
+        - official_binhost
+        - pxe_users
+        - pxe_ssh_keys
+        - rpi_eeprom
+        - rpi_wireless
+
+    - name: 作成した bind mount を記録
+      ansible.builtin.set_fact:
+        openwrt_gentoo_chroot_bind_targets: >-
+          {{
+            (openwrt_gentoo_chroot_bind_results.results | default([]))
+            | selectattr('stdout', 'defined')
+            | map(attribute='stdout')
+            | map('trim')
+            | reject('equalto', '')
+            | list
+          }}
+      tags:
+        - gentoo_packages
+        - official_binhost
+        - pxe_users
+        - pxe_ssh_keys
+        - rpi_eeprom
+        - rpi_wireless
+
+    - name: Portage repos ディレクトリを作成
+      ansible.builtin.file:
+        path: "{{ openwrt_gentoo_rootfs_dir.rstrip('/') }}{{ openwrt_gentoo_portage_repo_path }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      when: openwrt_gentoo_portage_init | bool
+
+    - name: repos.conf ディレクトリを作成
+      ansible.builtin.file:
+        path: "{{ openwrt_gentoo_rootfs_dir }}/etc/portage/repos.conf"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      when: openwrt_gentoo_portage_init | bool
+
+    - name: gentoo repos.conf を配置 (git sync-depth=1)
+      ansible.builtin.template:
+        src: portage/gentoo.conf.j2
+        dest: "{{ openwrt_gentoo_rootfs_dir }}/etc/portage/repos.conf/gentoo.conf"
+        owner: root
+        group: root
+        mode: '0644'
+      when: openwrt_gentoo_portage_init | bool
+
+    - name: Portage repo が git 管理か確認
+      ansible.builtin.stat:
+        path: "{{ openwrt_gentoo_rootfs_dir.rstrip('/') }}{{ openwrt_gentoo_portage_repo_path }}/.git"
+      register: openwrt_gentoo_portage_git_stat
+      when: openwrt_gentoo_portage_init | bool
+
+    - name: git 管理でなければ Portage repo を初期化
+      ansible.builtin.file:
+        path: "{{ openwrt_gentoo_rootfs_dir.rstrip('/') }}{{ openwrt_gentoo_portage_repo_path }}"
+        state: absent
+      when:
+        - openwrt_gentoo_portage_init | bool
+        - not (openwrt_gentoo_portage_git_stat.stat.exists | default(false))
+
+    - name: Portage repo ディレクトリを再作成 (git 用)
+      ansible.builtin.file:
+        path: "{{ openwrt_gentoo_rootfs_dir.rstrip('/') }}{{ openwrt_gentoo_portage_repo_path }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      when:
+        - openwrt_gentoo_portage_init | bool
+        - not (openwrt_gentoo_portage_git_stat.stat.exists | default(false))
+
+    - name: Portage 取得用に git を導入 (OpenWrt 側)
+      ansible.builtin.opkg:
+        name: git
+        state: present
+        update_cache: "{{ openwrt_opkg_update | default(true) }}"
+      when:
+        - openwrt_gentoo_enabled | bool
+        - openwrt_gentoo_portage_init | bool
+        - >
+          (not (openwrt_gentoo_portage_git_stat.stat.exists | default(false)))
+          or (openwrt_gentoo_portage_sync_required | default(false))
+      tags:
+        - gentoo_portage_git_bootstrap
+
+    - name: Portage tree 取得前にストレージ書き込みを同期
+      ansible.builtin.command: sync
+      changed_when: false
+      when:
+        - openwrt_gentoo_enabled | bool
+        - openwrt_gentoo_portage_init | bool
+        - >
+          (not (openwrt_gentoo_portage_git_stat.stat.exists | default(false)))
+          or (openwrt_gentoo_portage_sync_required | default(false))
+      tags:
+        - gentoo_portage_git_bootstrap
+
+    - name: Portage tree を git で初期取得
+      ansible.builtin.git:
+        repo: "https://github.com/gentoo-mirror/gentoo.git"
+        dest: "{{ openwrt_gentoo_rootfs_dir.rstrip('/') }}{{ openwrt_gentoo_portage_repo_path }}"
+        version: master
+        depth: 1
+        update: true
+      when:
+        - openwrt_gentoo_enabled | bool
+        - openwrt_gentoo_portage_init | bool
+        - not (openwrt_gentoo_portage_git_stat.stat.exists | default(false))
+      tags:
+        - gentoo_portage_git_bootstrap
+
+    - name: Portage tree を git で更新
+      ansible.builtin.git:
+        repo: "https://github.com/gentoo-mirror/gentoo.git"
+        dest: "{{ openwrt_gentoo_rootfs_dir.rstrip('/') }}{{ openwrt_gentoo_portage_repo_path }}"
+        version: master
+        depth: 1
+        update: true
+        force: true
+      when:
+        - openwrt_gentoo_enabled | bool
+        - openwrt_gentoo_portage_init | bool
+        - openwrt_gentoo_portage_sync_required | default(true)
+      tags:
+        - gentoo_portage_git_sync
+
+    - name: Portage profile シンボリックリンクを設定
+      ansible.builtin.file:
+        path: "{{ openwrt_gentoo_rootfs_dir }}/etc/portage/make.profile"
+        state: link
+        src: "{{ openwrt_gentoo_portage_profile }}"
+        force: true
+        follow: false
+      when: openwrt_gentoo_portage_init | bool
+
+    - name: binpkg/distfiles ディレクトリを作成
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: directory
+        owner: "{{ item.owner }}"
+        group: "{{ item.group }}"
+        mode: "{{ item.mode }}"
+      loop:
+        - path: "{{ openwrt_gentoo_binpkg_dir }}"
+          owner: root
+          group: root
+          mode: '0755'
+        - path: "{{ openwrt_gentoo_distfiles_dir }}"
+          owner: root
+          group: '250'
+          mode: '0775'
+      when:
+        - openwrt_gentoo_enabled | bool
+        - openwrt_gentoo_binpkg_enabled | bool
+
+    - name: Portage make.conf.d ディレクトリを作成
+      ansible.builtin.file:
+        path: "{{ openwrt_gentoo_rootfs_dir }}/etc/portage/make.conf.d"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      when:
+        - openwrt_gentoo_enabled | bool
+        - openwrt_gentoo_binpkg_enabled | bool
+
+    - name: Portage binpkg 設定を配置
+      ansible.builtin.template:
+        src: portage/binpkg.conf.j2
+        dest: "{{ openwrt_gentoo_rootfs_dir }}/etc/portage/make.conf.d/binpkg.conf"
+        owner: root
+        group: root
+        mode: '0644'
+      when:
+        - openwrt_gentoo_enabled | bool
+        - openwrt_gentoo_binpkg_enabled | bool
+
+    - name: Portage make.conf を配置
+      ansible.builtin.template:
+        src: portage/make.conf.j2
+        dest: "{{ item }}/etc/portage/make.conf"
+        owner: root
+        group: root
+        mode: '0644'
+      loop: "{{ openwrt_gentoo_pxe_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+      loop_control:
+        label: "{{ item }}"
+      when:
+        - openwrt_gentoo_enabled | bool
+        - openwrt_gentoo_binpkg_enabled | bool
+      tags:
+        - portage_config
+        - gentoo_distcc
+
+    - name: distcc 設定ディレクトリを作成
+      ansible.builtin.file:
+        path: "{{ item }}/etc/distcc"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      loop: "{{ openwrt_gentoo_pxe_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+      loop_control:
+        label: "{{ item }}"
+      when:
+        - openwrt_gentoo_enabled | bool
+        - openwrt_gentoo_distcc_enabled | bool
+      tags:
+        - portage_config
+        - gentoo_distcc
+
+    - name: distcc hosts を配置
+      ansible.builtin.copy:
+        dest: "{{ item }}/etc/distcc/hosts"
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          # Managed by Ansible (openwrt_gentoo_rootfs)
+          {{ openwrt_gentoo_distcc_hosts_effective | default(openwrt_gentoo_distcc_hosts) | trim }}
+      loop: "{{ openwrt_gentoo_pxe_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+      loop_control:
+        label: "{{ item }}"
+      when:
+        - openwrt_gentoo_enabled | bool
+        - openwrt_gentoo_distcc_enabled | bool
+      tags:
+        - portage_config
+        - gentoo_distcc
+
+    - name: Portage TMPDIR を作成
+      ansible.builtin.file:
+        path: "{{ openwrt_gentoo_rootfs_dir }}{{ openwrt_gentoo_portage_tmpdir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      when: openwrt_gentoo_enabled | bool
+
+    - name: Portage binpkg GPG ホームを整備
+      ansible.builtin.shell: |
+        set -euo pipefail
+        chroot {{ openwrt_gentoo_rootfs_dir }} {{ openwrt_gentoo_chroot_shell }} -lc '
+          install -d -m 700 -o {{ openwrt_gentoo_portage_gpg_owner }} -g {{ openwrt_gentoo_portage_gpg_group }} /etc/portage/gnupg
+          find /etc/portage/gnupg -mindepth 1 -maxdepth 1 -print0 | xargs -0 -r chown {{ openwrt_gentoo_portage_gpg_owner }}:{{ openwrt_gentoo_portage_gpg_group }} || true
+          chown {{ openwrt_gentoo_portage_gpg_owner }}:{{ openwrt_gentoo_portage_gpg_group }} /etc/portage/gnupg
+          chmod 700 /etc/portage/gnupg
+        '
+      args:
+        executable: /bin/ash
+      changed_when: false
+      when:
+        - openwrt_gentoo_portage_binpkg_keys | length > 0
+      tags:
+        - gentoo_portage_gpg
+
+    - name: Portage binpkg GPG 鍵を取得
+      ansible.builtin.shell: |
+        set -euo pipefail
+        chroot {{ openwrt_gentoo_rootfs_dir }} {{ openwrt_gentoo_chroot_shell }} -lc '
+          gpg --homedir /etc/portage/gnupg --keyserver hkps://keys.gentoo.org --recv-keys {{ item }}
+        '
+      args:
+        executable: /bin/ash
+      loop: "{{ openwrt_gentoo_portage_binpkg_keys }}"
+      loop_control:
+        label: "{{ item }}"
+      register: openwrt_gentoo_portage_gpg
+      changed_when: "'imported' in (openwrt_gentoo_portage_gpg.stdout | default(''))"
+      failed_when: openwrt_gentoo_portage_gpg.rc != 0
+      when:
+        - openwrt_gentoo_portage_binpkg_keys | length > 0
+      tags:
+        - gentoo_portage_gpg
+
+    - name: package.use ディレクトリを作成
+      ansible.builtin.file:
+        path: "{{ openwrt_gentoo_rootfs_dir }}/etc/portage/package.use"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      when: openwrt_gentoo_enabled | bool
+      tags:
+        - gentoo_packages
+        - rpi_eeprom
+
+    - name: sudo 用 USE フラグを設定
+      ansible.builtin.copy:
+        dest: "{{ openwrt_gentoo_rootfs_dir }}/etc/portage/package.use/ansible-home"
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          app-admin/sudo {{ openwrt_gentoo_sudo_use_flags }}
+          net-firewall/iptables nftables
+          {% if openwrt_gentoo_rpi_eeprom_enabled | bool %}
+          dev-embedded/rpi-eeprom {{ openwrt_gentoo_rpi_eeprom_package_use_flags }}
+          {% endif %}
+          {% if openwrt_gentoo_rpi_wireless_enabled | bool %}
+          {% for line in openwrt_gentoo_rpi_wireless_package_use %}
+          {{ line }}
+          {% endfor %}
+          {% endif %}
+      when:
+        - openwrt_gentoo_enabled | bool
+        - openwrt_gentoo_sudo_use_flags is defined
+        - (openwrt_gentoo_sudo_use_flags | string | length) > 0
+      tags:
+        - gentoo_packages
+        - gentoo_iptables_nft
+        - rpi_eeprom
+        - rpi_wireless
+
+    - name: locale.gen を配置
+      ansible.builtin.template:
+        src: locale.gen.j2
+        dest: "{{ openwrt_gentoo_rootfs_dir }}/etc/locale.gen"
+        owner: root
+        group: root
+        mode: '0644'
+      when:
+        - openwrt_gentoo_locale_gen_entries | length > 0
+
+    - name: ロケールを生成
+      ansible.builtin.shell: |
+        set -euo pipefail
+        chroot {{ openwrt_gentoo_rootfs_dir }} {{ openwrt_gentoo_chroot_shell }} -lc '
+          set -euo pipefail
+          env-update
+          echo env-update
+          export DEBUGINFOD_URLS=""
+          set +u
+          source /etc/profile
+          set -u
+          echo source
+          export FEATURES="${FEATURES:-} -userpriv -usersandbox"
+          echo export
+          locale-gen
+        '
+      args:
+        executable: /bin/ash
+      changed_when: true
+      when:
+        - openwrt_gentoo_locale_gen_entries | length > 0
+
+    - name: デフォルトロケールを設定
+      ansible.builtin.copy:
+        dest: "{{ openwrt_gentoo_rootfs_dir }}/etc/env.d/02locale"
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          LANG={{ openwrt_gentoo_locale }}
+          LC_ALL={{ openwrt_gentoo_locale }}
+      when:
+        - openwrt_gentoo_locale is defined
+        - (openwrt_gentoo_locale | string | length) > 0
+
+    - name: env-update を実行
+      ansible.builtin.shell: |
+        set -euo pipefail
+        chroot {{ openwrt_gentoo_rootfs_dir }} {{ openwrt_gentoo_chroot_shell }} -lc '
+          set -euo pipefail
+          env-update
+          echo env-update
+          export DEBUGINFOD_URLS=""
+          set +u
+          source /etc/profile
+          set -u
+          echo source
+          export FEATURES="${FEATURES:-} -userpriv -usersandbox"
+          echo export
+          env-update
+        '
+      args:
+        executable: /bin/ash
+      changed_when: true
+      when:
+        - openwrt_gentoo_locale is defined
+        - (openwrt_gentoo_locale | string | length) > 0
+
+    - name: package.accept_keywords ディレクトリを作成 (autofs)
+      ansible.builtin.file:
+        path: "{{ openwrt_gentoo_rootfs_dir }}/etc/portage/package.accept_keywords"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      tags:
+        - gentoo_packages
+        - rpi_eeprom
+        - rpi_wireless
+
+    - name: package.use ディレクトリを作成 (k3s base baseline / rpi wireless)
+      ansible.builtin.file:
+        path: "{{ openwrt_gentoo_rootfs_dir }}/etc/portage/package.use"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      when:
+        - openwrt_gentoo_k3s_base_baseline_enabled | bool or openwrt_gentoo_heavy_prebuilt_enabled | bool or openwrt_gentoo_rpi_wireless_enabled | bool
+      tags:
+        - gentoo_packages
+        - heavy_prebuilt
+        - k3s_base_baseline
+        - rpi_wireless
+
+    - name: k3s base baseline package.use を配置
+      ansible.builtin.copy:
+        dest: "{{ openwrt_gentoo_rootfs_dir }}/etc/portage/package.use/k3s-stg-base"
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          {% for line in k3s_base_baseline_package_use %}
+          {{ line }}
+          {% endfor %}
+      when:
+        - openwrt_gentoo_k3s_base_baseline_enabled | bool or openwrt_gentoo_heavy_prebuilt_enabled | bool
+        - k3s_base_baseline_package_use | length > 0
+      tags:
+        - gentoo_packages
+        - rpi_wireless
+        - heavy_prebuilt
+        - k3s_base_baseline
+
+    - name: k3s base baseline package.accept_keywords を配置
+      ansible.builtin.copy:
+        dest: "{{ openwrt_gentoo_rootfs_dir }}/etc/portage/package.accept_keywords/k3s-stg-base"
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          {% for line in k3s_base_baseline_package_accept_keywords | flatten %}
+          {{ line }}
+          {% endfor %}
+      when:
+        - openwrt_gentoo_k3s_base_baseline_enabled | bool
+        - (k3s_base_baseline_package_accept_keywords | flatten) | length > 0
+      tags:
+        - gentoo_packages
+        - k3s_base_baseline
+
+    - name: k3s base baseline package.env ディレクトリを作成
+      ansible.builtin.file:
+        path: "{{ openwrt_gentoo_rootfs_dir }}{{ item }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      loop:
+        - /etc/portage/env
+        - /etc/portage/package.env
+      when:
+        - openwrt_gentoo_k3s_base_baseline_enabled | bool
+        - openwrt_gentoo_k3s_base_baseline_terraform_enabled | bool
+      tags:
+        - gentoo_packages
+        - k3s_base_baseline
+
+    - name: Terraform 用 package.env override を rootfs に配置
+      ansible.builtin.copy:
+        dest: "{{ openwrt_gentoo_rootfs_dir }}/etc/portage/env/{{ openwrt_gentoo_k3s_base_baseline_terraform_env_name }}"
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          {% for line in openwrt_gentoo_k3s_base_baseline_terraform_package_env %}
+          {{ line }}
+          {% endfor %}
+      when:
+        - openwrt_gentoo_k3s_base_baseline_enabled | bool
+        - openwrt_gentoo_k3s_base_baseline_terraform_enabled | bool
+        - openwrt_gentoo_k3s_base_baseline_terraform_package_env | length > 0
+      tags:
+        - gentoo_packages
+        - k3s_base_baseline
+
+    - name: Terraform 用 package.env mapping を rootfs に配置
+      ansible.builtin.copy:
+        dest: "{{ openwrt_gentoo_rootfs_dir }}/etc/portage/package.env/k3s-stg-terraform"
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          {{ openwrt_gentoo_k3s_base_baseline_terraform_package_atom }} {{ openwrt_gentoo_k3s_base_baseline_terraform_env_name }}
+      when:
+        - openwrt_gentoo_k3s_base_baseline_enabled | bool
+        - openwrt_gentoo_k3s_base_baseline_terraform_enabled | bool
+      tags:
+        - gentoo_packages
+        - k3s_base_baseline
+
+    - name: autofs の ~arm64 を許可
+      ansible.builtin.lineinfile:
+        path: "{{ openwrt_gentoo_rootfs_dir }}/etc/portage/package.accept_keywords/autofs"
+        line: "net-fs/autofs ~arm64"
+        create: true
+        owner: root
+        group: root
+        mode: '0644'
+      tags:
+        - gentoo_packages
+
+    - name: rpi-eeprom の ~arm64 を許可
+      ansible.builtin.lineinfile:
+        path: "{{ openwrt_gentoo_rootfs_dir }}/etc/portage/package.accept_keywords/rpi-eeprom"
+        line: "dev-embedded/rpi-eeprom ~arm64"
+        create: true
+        owner: root
+        group: root
+        mode: '0644'
+      when:
+        - openwrt_gentoo_rpi_eeprom_enabled | bool
+      tags:
+        - gentoo_packages
+        - rpi_eeprom
+
+    - name: Raspberry Pi wireless の ~arm64 を許可
+      ansible.builtin.lineinfile:
+        path: "{{ openwrt_gentoo_rootfs_dir }}/etc/portage/package.accept_keywords/rpi-wireless"
+        line: "{{ item }}"
+        create: true
+        owner: root
+        group: root
+        mode: '0644'
+      loop: "{{ openwrt_gentoo_rpi_wireless_package_accept_keywords }}"
+      loop_control:
+        label: "{{ item }}"
+      when:
+        - openwrt_gentoo_rpi_wireless_enabled | bool
+      tags:
+        - gentoo_packages
+        - rpi_wireless
+
+    - name: package.license ディレクトリを作成
+      ansible.builtin.file:
+        path: "{{ openwrt_gentoo_rootfs_dir }}/etc/portage/package.license"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      tags:
+        - gentoo_packages
+        - k3s_base_baseline
+        - rpi_eeprom
+        - rpi_wireless
+
+    - name: k3s base baseline package.license を配置
+      ansible.builtin.copy:
+        dest: "{{ openwrt_gentoo_rootfs_dir }}/etc/portage/package.license/k3s-stg-base"
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          {% for line in k3s_base_baseline_package_license %}
+          {{ line }}
+          {% endfor %}
+      when:
+        - openwrt_gentoo_k3s_base_baseline_enabled | bool
+        - k3s_base_baseline_package_license | length > 0
+      tags:
+        - gentoo_packages
+        - k3s_base_baseline
+
+    - name: rpi-eeprom license を許可
+      ansible.builtin.lineinfile:
+        path: "{{ openwrt_gentoo_rootfs_dir }}/etc/portage/package.license/rpi-eeprom"
+        line: "dev-embedded/rpi-eeprom rpi-eeprom"
+        create: true
+        owner: root
+        group: root
+        mode: '0644'
+      when:
+        - openwrt_gentoo_rpi_eeprom_enabled | bool
+      tags:
+        - gentoo_packages
+        - rpi_eeprom
+
+    - name: Raspberry Pi wireless firmware license を許可
+      ansible.builtin.lineinfile:
+        path: "{{ openwrt_gentoo_rootfs_dir }}/etc/portage/package.license/rpi-wireless"
+        line: "{{ item }}"
+        create: true
+        owner: root
+        group: root
+        mode: '0644'
+      loop: "{{ openwrt_gentoo_rpi_wireless_package_license }}"
+      loop_control:
+        label: "{{ item }}"
+      when:
+        - openwrt_gentoo_rpi_wireless_enabled | bool
+      tags:
+        - gentoo_packages
+        - rpi_wireless
+
+    - name: official binhost 設定を検証
+      ansible.builtin.assert:
+        that:
+          - (openwrt_gentoo_official_binhost_name | string | trim | length) > 0
+          - (openwrt_gentoo_official_binhost_uri | string | trim | length) > 0
+          - (openwrt_gentoo_official_binhost_location | string | trim | length) > 0
+          - openwrt_gentoo_official_binhost_name is match('^[A-Za-z0-9_.-]+$')
+          - openwrt_gentoo_official_binhost_uri is match('^https?://[A-Za-z0-9._~:/?#@!&()*+,;=%-]+$')
+          - openwrt_gentoo_official_binhost_location is match('^/[A-Za-z0-9._/+@-]+$')
+          - openwrt_gentoo_official_binhost_emerge_args is iterable
+          - openwrt_gentoo_official_binhost_emerge_args is not string
+          - >-
+            (
+              openwrt_gentoo_official_binhost_emerge_args
+              | select('match', '^[-A-Za-z0-9_=,:./+]+$')
+              | list
+              | length
+            ) == (openwrt_gentoo_official_binhost_emerge_args | length)
+          - openwrt_gentoo_official_binhost_packages is iterable
+          - openwrt_gentoo_official_binhost_packages is not string
+          - >-
+            (
+              openwrt_gentoo_official_binhost_packages
+              | select('match', '^[A-Za-z0-9+_.:@/<>=~-]+$')
+              | list
+              | length
+            ) == (openwrt_gentoo_official_binhost_packages | length)
+        fail_msg: "openwrt_gentoo_official_binhost_enabled=true の場合、name / uri / location / emerge_args / packages は shell-safe な値で指定してください"
+      when:
+        - openwrt_gentoo_official_binhost_enabled | bool
+        - (openwrt_gentoo_official_binhost_packages | default([])) | length > 0
+      tags:
+        - gentoo_packages
+        - official_binhost
+        - heavy_prebuilt
+        - k3s_base_baseline
+
+    - name: official binhost 対象 rootfs の存在を確認
+      ansible.builtin.stat:
+        path: "{{ item }}/etc/portage"
+      loop: "{{ openwrt_gentoo_pxe_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+      loop_control:
+        label: "{{ item }}"
+      register: openwrt_gentoo_official_binhost_rootfs_stats
+      when:
+        - openwrt_gentoo_official_binhost_enabled | bool
+        - (openwrt_gentoo_official_binhost_packages | default([])) | length > 0
+      tags:
+        - gentoo_packages
+        - official_binhost
+        - heavy_prebuilt
+        - k3s_base_baseline
+
+    - name: official binhost 対象 rootfs の存在を検証
+      ansible.builtin.assert:
+        that:
+          - (openwrt_gentoo_pxe_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) | length) > 0
+          - >-
+            (
+              openwrt_gentoo_official_binhost_rootfs_stats.results
+              | default([])
+              | selectattr('stat.isdir', 'defined')
+              | selectattr('stat.isdir')
+              | list
+              | length
+            ) == (openwrt_gentoo_pxe_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) | length)
+        fail_msg: "official binhost package を導入する前に対象 rootfs の /etc/portage が存在している必要があります"
+      when:
+        - openwrt_gentoo_official_binhost_enabled | bool
+        - (openwrt_gentoo_official_binhost_packages | default([])) | length > 0
+      tags:
+        - gentoo_packages
+        - official_binhost
+        - heavy_prebuilt
+        - k3s_base_baseline
+
+    - name: official binhost binrepos.conf ディレクトリを作成
+      ansible.builtin.file:
+        path: "{{ item }}/etc/portage/binrepos.conf"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      loop: "{{ openwrt_gentoo_pxe_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+      loop_control:
+        label: "{{ item }}"
+      when:
+        - openwrt_gentoo_official_binhost_enabled | bool
+        - (openwrt_gentoo_official_binhost_packages | default([])) | length > 0
+      tags:
+        - gentoo_packages
+        - official_binhost
+        - heavy_prebuilt
+        - k3s_base_baseline
+
+    - name: official binhost binrepos.conf を配置
+      ansible.builtin.copy:
+        dest: "{{ item }}/etc/portage/binrepos.conf/{{ openwrt_gentoo_official_binhost_name | regex_replace('[^A-Za-z0-9_.-]', '_') }}.conf"
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          [{{ openwrt_gentoo_official_binhost_name }}]
+          priority = 1
+          sync-uri = {{ openwrt_gentoo_official_binhost_uri }}
+          location = {{ openwrt_gentoo_official_binhost_location }}
+          verify-signature = {{ (openwrt_gentoo_official_binhost_verify_signature | bool) | ternary('true', 'false') }}
+      loop: "{{ openwrt_gentoo_pxe_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+      loop_control:
+        label: "{{ item }}"
+      when:
+        - openwrt_gentoo_official_binhost_enabled | bool
+        - (openwrt_gentoo_official_binhost_packages | default([])) | length > 0
+      tags:
+        - gentoo_packages
+        - official_binhost
+        - heavy_prebuilt
+        - k3s_base_baseline
+
+    - name: PXE rootfs runtime package list を作成
+      ansible.builtin.set_fact:
+        openwrt_gentoo_rootfs_runtime_packages: >-
+          {{
+            [
+              'app-admin/sudo',
+              'net-fs/nfs-utils',
+              'net-fs/autofs',
+              'net-misc/openssh',
+              'dev-vcs/git',
+              'app-admin/ansible-core',
+              'sys-apps/portage',
+              'sys-kernel/dracut',
+              'net-firewall/iptables',
+              'net-firewall/nftables'
+            ]
+            + ((openwrt_gentoo_rpi_eeprom_packages | default([])) if (openwrt_gentoo_rpi_eeprom_enabled | bool) else [])
+            + ((openwrt_gentoo_rpi_wireless_packages | default([])) if (openwrt_gentoo_rpi_wireless_enabled | bool) else [])
+          }}
+      tags:
+        - gentoo_packages
+        - gentoo_iptables_nft
+        - rpi_eeprom
+        - rpi_wireless
+        - firmware
+        - boot_order
+
+    - name: official binhost パッケージを rootfs に事前導入
+      ansible.builtin.shell: |
+        set -euo pipefail
+        chroot {{ item }} {{ openwrt_gentoo_chroot_shell }} -lc '
+          set -euo pipefail
+          env-update
+          echo env-update
+          export DEBUGINFOD_URLS=""
+          set +u
+          source /etc/profile
+          set -u
+          echo source
+          export FEATURES="${FEATURES:-} -userpriv -usersandbox"
+          export PORTAGE_BINHOST="{{ openwrt_gentoo_official_binhost_uri }}"
+          echo export
+          emaint --fix cleanresume >/dev/null 2>&1 || true
+          PKGS="{{ openwrt_gentoo_official_binhost_packages | join(' ') }}"
+          MISSING=0
+          for PKG in ${PKGS}; do
+            if portageq has_version / "${PKG}"; then
+              echo "OFFICIAL_BINHOST_HAS_VERSION=${PKG}"
+            else
+              echo "OFFICIAL_BINHOST_MISSING=${PKG}"
+              MISSING=1
+            fi
+          done
+          if [ "${MISSING}" -eq 0 ]; then
+            echo OFFICIAL_BINHOST_CHANGED=0
+          else
+            emerge {{ openwrt_gentoo_official_binhost_emerge_args | join(' ') }} ${PKGS}
+            echo OFFICIAL_BINHOST_CHANGED=1
+          fi
+          emaint --fix cleanresume >/dev/null 2>&1 || true
+        '
+      args:
+        executable: /bin/ash
+      register: openwrt_gentoo_official_binhost_emerge_result
+      changed_when: "'OFFICIAL_BINHOST_CHANGED=1' in openwrt_gentoo_official_binhost_emerge_result.stdout"
+      loop: "{{ openwrt_gentoo_pxe_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+      loop_control:
+        label: "{{ item }}"
+      when:
+        - openwrt_gentoo_official_binhost_enabled | bool
+        - openwrt_gentoo_official_binhost_packages | length > 0
+      tags:
+        - gentoo_packages
+        - official_binhost
+        - heavy_prebuilt
+        - k3s_base_baseline
+
+    - name: Gentoo Portage を profile default Python 対応へ先行移行
+      ansible.builtin.shell: |
+        set -euo pipefail
+        chroot {{ openwrt_gentoo_rootfs_dir }} {{ openwrt_gentoo_chroot_shell }} -lc '
+          set -euo pipefail
+          env-update
+          export DEBUGINFOD_URLS=""
+          set +u
+          source /etc/profile
+          set -u
+          export FEATURES="${FEATURES:-} -userpriv -usersandbox"
+          emaint --fix cleanresume >/dev/null 2>&1 || true
+          PORTAGE_PYTHON=""
+          for candidate in /usr/bin/python3 /usr/bin/python3.*; do
+            if [ ! -x "$candidate" ]; then
+              continue
+            fi
+            if "$candidate" - <<'"'"'PY'"'"' >/dev/null 2>&1
+        import portage
+        PY
+            then
+              PORTAGE_PYTHON="$candidate"
+              break
+            fi
+          done
+          if [ -z "$PORTAGE_PYTHON" ]; then
+            echo "python_target_portage_bootstrap=no-portage-python" >&2
+            exit 1
+          fi
+          if /usr/bin/python3 - <<'"'"'PY'"'"' >/dev/null 2>&1
+        import portage
+        PY
+          then
+            echo "python_target_portage_bootstrap=up-to-date"
+            exit 0
+          fi
+          PROFILE_PYTHON_TARGETS="$("$PORTAGE_PYTHON" - <<'"'"'PY'"'"'
+        import portage
+        print(portage.settings.get("PYTHON_TARGETS", "").strip())
+        PY
+          )"
+          PROFILE_PYTHON_SINGLE_TARGET="$("$PORTAGE_PYTHON" - <<'"'"'PY'"'"'
+        import portage
+        print(portage.settings.get("PYTHON_SINGLE_TARGET", "").strip())
+        PY
+          )"
+          PORTAGE_PYTHON_TARGET=""
+          case "${PORTAGE_PYTHON##*/}" in
+            python3.*) PORTAGE_PYTHON_TARGET="${PORTAGE_PYTHON##*/}"; PORTAGE_PYTHON_TARGET="${PORTAGE_PYTHON_TARGET//./_}" ;;
+          esac
+          PORTAGE_BOOTSTRAP_TARGETS="$PROFILE_PYTHON_TARGETS"
+          if [ -n "$PORTAGE_PYTHON_TARGET" ]; then
+            case " $PORTAGE_BOOTSTRAP_TARGETS " in
+              *" $PORTAGE_PYTHON_TARGET "*) ;;
+              *) PORTAGE_BOOTSTRAP_TARGETS="$PORTAGE_BOOTSTRAP_TARGETS $PORTAGE_PYTHON_TARGET" ;;
+            esac
+          fi
+          echo "python_target_portage_bootstrap=merge portage_python=${PORTAGE_PYTHON}"
+          USE="{{ openwrt_gentoo_sudo_use_flags }}" \
+            PYTHON_TARGETS="$PORTAGE_BOOTSTRAP_TARGETS" \
+            PYTHON_SINGLE_TARGET="$PROFILE_PYTHON_SINGLE_TARGET" \
+            emerge {{ openwrt_gentoo_python_target_portage_bootstrap_emerge_args }} sys-apps/portage
+          emaint --fix cleanresume >/dev/null 2>&1 || true
+        '
+      args:
+        executable: /bin/ash
+      changed_when: "'python_target_portage_bootstrap=merge' in (openwrt_gentoo_python_target_portage_bootstrap.stdout | default(''))"
+      register: openwrt_gentoo_python_target_portage_bootstrap
+      when:
+        - openwrt_gentoo_python_target_migration_enabled | bool
+      tags:
+        - gentoo_packages
+        - heavy_prebuilt
+        - k3s_base_baseline
+        - rpi_wireless
+
+    - name: Gentoo Python target を profile default へ移行
+      ansible.builtin.shell: |
+        set -euo pipefail
+        chroot {{ openwrt_gentoo_rootfs_dir }} {{ openwrt_gentoo_chroot_shell }} -lc '
+          set -euo pipefail
+          env-update
+          export DEBUGINFOD_URLS=""
+          set +u
+          source /etc/profile
+          set -u
+          export FEATURES="${FEATURES:-} -userpriv -usersandbox"
+          emaint --fix cleanresume >/dev/null 2>&1 || true
+          PORTAGE_PYTHON=""
+          for candidate in /usr/bin/python3 /usr/bin/python3.*; do
+            if [ ! -x "$candidate" ]; then
+              continue
+            fi
+            if "$candidate" - <<'"'"'PY'"'"' >/dev/null 2>&1
+        import portage
+        PY
+            then
+              PORTAGE_PYTHON="$candidate"
+              break
+            fi
+          done
+          if [ -z "$PORTAGE_PYTHON" ]; then
+            echo "python_target_migration=no-portage-python" >&2
+            exit 1
+          fi
+          DEFAULT_PYTHON_PORTAGE_OK=0
+          if /usr/bin/python3 - <<'"'"'PY'"'"' >/dev/null 2>&1
+        import portage
+        PY
+          then
+            DEFAULT_PYTHON_PORTAGE_OK=1
+          fi
+          mapfile -t STALE_PYTHON_TARGET_PKGS < <("$PORTAGE_PYTHON" - <<'"'"'PY'"'"'
+        import os
+        import portage
+        from portage.versions import pkgsplit
+
+        root = "/var/db/pkg"
+        default_targets = {
+            f"python_targets_{target}"
+            for target in portage.settings.get("PYTHON_TARGETS", "").split()
+        }
+        default_single = portage.settings.get("PYTHON_SINGLE_TARGET", "").strip()
+        default_single_flag = (
+            f"python_single_target_{default_single}" if default_single else ""
+        )
+        atoms = set()
+
+        def clean_iuse(flag):
+            return flag.strip("+-")
+
+        for category in sorted(os.listdir(root)):
+            category_path = os.path.join(root, category)
+            if not os.path.isdir(category_path):
+                continue
+            for pf in sorted(os.listdir(category_path)):
+                package_path = os.path.join(category_path, pf)
+                if not os.path.isdir(package_path):
+                    continue
+                try:
+                    with open(os.path.join(package_path, "USE"), encoding="utf-8") as use_file:
+                        use = set(use_file.read().split())
+                    with open(os.path.join(package_path, "IUSE"), encoding="utf-8") as iuse_file:
+                        iuse = {clean_iuse(flag) for flag in iuse_file.read().split()}
+                except FileNotFoundError:
+                    continue
+
+                target_iuse = {flag for flag in iuse if flag.startswith("python_targets_")}
+                single_iuse = {flag for flag in iuse if flag.startswith("python_single_target_")}
+                expected_targets = default_targets & target_iuse
+                expected_single = (
+                    {default_single_flag}
+                    if default_single_flag and default_single_flag in single_iuse
+                    else set()
+                )
+
+                target_drift = bool(target_iuse) and ((use & target_iuse) != expected_targets)
+                single_drift = bool(single_iuse) and ((use & single_iuse) != expected_single)
+                if not target_drift and not single_drift:
+                    continue
+
+                split = pkgsplit(pf)
+                if split:
+                    atoms.add(f"{category}/{split[0]}")
+
+        for atom in sorted(atoms):
+            print(atom)
+        PY
+          )
+          EXTRA_PKGS="{{ (
+            (openwrt_gentoo_rootfs_runtime_packages | default([]))
+          ) | unique | join(' ') }}"
+          read -r -a EXTRA_PKG_ARRAY <<< "$EXTRA_PKGS"
+          if [ "$DEFAULT_PYTHON_PORTAGE_OK" -eq 0 ]; then
+            EXTRA_PKG_ARRAY+=("sys-apps/portage")
+          fi
+          stale_count=0
+          for _pkg in "${STALE_PYTHON_TARGET_PKGS[@]}"; do
+            stale_count=$((stale_count + 1))
+          done
+          extra_count=0
+          for _pkg in "${EXTRA_PKG_ARRAY[@]}"; do
+            extra_count=$((extra_count + 1))
+          done
+          if [ "$stale_count" -eq 0 ] && [ "$DEFAULT_PYTHON_PORTAGE_OK" -eq 1 ]; then
+            echo "python_target_migration=up-to-date"
+            exit 0
+          fi
+          echo "python_target_migration=merge count=${stale_count} extra=${extra_count} portage_python=${PORTAGE_PYTHON} default_portage_ok=${DEFAULT_PYTHON_PORTAGE_OK}"
+          USE="{{ openwrt_gentoo_sudo_use_flags }}" emerge {{ openwrt_gentoo_python_target_migration_emerge_args }} "${STALE_PYTHON_TARGET_PKGS[@]}" "${EXTRA_PKG_ARRAY[@]}"
+        '
+      args:
+        executable: /bin/ash
+      changed_when: "'python_target_migration=merge' in (openwrt_gentoo_python_target_migration.stdout | default(''))"
+      register: openwrt_gentoo_python_target_migration
+      when:
+        - openwrt_gentoo_python_target_migration_enabled | bool
+      tags:
+        - gentoo_packages
+        - heavy_prebuilt
+        - k3s_base_baseline
+        - rpi_wireless
+
+    - name: Gentoo パッケージをインストール (sudo / nfs-utils / openssh / ansible-pull / dracut / rpi-eeprom / rpi-wireless)
+      ansible.builtin.shell: |
+        set -euo pipefail
+        chroot {{ openwrt_gentoo_rootfs_dir }} {{ openwrt_gentoo_chroot_shell }} -lc '
+          set -euo pipefail
+          env-update
+          echo env-update
+          export DEBUGINFOD_URLS=""
+          set +u
+          source /etc/profile
+          set -u
+          echo source
+          export FEATURES="${FEATURES:-} -userpriv -usersandbox"
+          echo export
+          PKGS="{{ openwrt_gentoo_rootfs_runtime_packages | join(' ') }}"
+          USE="{{ openwrt_gentoo_sudo_use_flags }}" emerge {{ openwrt_gentoo_rpi_wireless_emerge_args if (openwrt_gentoo_rpi_wireless_enabled | bool) else '--usepkg --quiet-build=y' }} ${PKGS}
+        '
+      args:
+        executable: /bin/ash
+      changed_when: true
+      tags:
+        - gentoo_packages
+        - gentoo_iptables_nft
+        - rpi_eeprom
+        - rpi_wireless
+        - firmware
+        - boot_order
+
+    - name: Raspberry Pi wireless systemd unit ディレクトリを rootfs に作成
+      ansible.builtin.file:
+        path: "{{ openwrt_gentoo_rootfs_dir }}{{ item }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      loop:
+        - /etc/systemd/system
+        - /etc/systemd/system/bluetooth.target.wants
+      when:
+        - openwrt_gentoo_enabled | bool
+        - openwrt_gentoo_rpi_wireless_enabled | bool
+        - openwrt_gentoo_rpi_wireless_bluetooth_service_enabled | bool
+      tags:
+        - rpi_wireless
+
+    - name: Bluetooth service を rootfs で disable
+      ansible.builtin.file:
+        path: "{{ openwrt_gentoo_rootfs_dir }}{{ item }}"
+        state: absent
+      loop:
+        - /etc/systemd/system/bluetooth.target.wants/bluetooth.service
+        - /etc/systemd/system/dbus-org.bluez.service
+      when:
+        - openwrt_gentoo_enabled | bool
+        - openwrt_gentoo_rpi_wireless_enabled | bool
+        - not (openwrt_gentoo_rpi_wireless_bluetooth_service_enabled | bool)
+      tags:
+        - rpi_wireless
+
+    - name: Bluetooth service を rootfs で enable
+      ansible.builtin.file:
+        src: "/usr/lib/systemd/system/bluetooth.service"
+        dest: "{{ openwrt_gentoo_rootfs_dir }}{{ item }}"
+        state: link
+        force: true
+        follow: false
+      loop:
+        - /etc/systemd/system/bluetooth.target.wants/bluetooth.service
+        - /etc/systemd/system/dbus-org.bluez.service
+      when:
+        - openwrt_gentoo_enabled | bool
+        - openwrt_gentoo_rpi_wireless_enabled | bool
+        - openwrt_gentoo_rpi_wireless_bluetooth_service_enabled | bool
+      tags:
+        - rpi_wireless
+
+    - name: source build 版 Rust が prebuilt package list に混入していないことを確認
+      ansible.builtin.assert:
+        that:
+          - >-
+            (
+              (openwrt_gentoo_heavy_prebuilt_packages | default([]))
+              + k3s_base_baseline_packages
+            )
+            | select('match', '^(=|~|<=|>=)?dev-lang/rust($|[:\\[]|-[0-9])')
+            | list
+            | length == 0
+        fail_msg: "dev-lang/rust は source build 版なので rootfs package list に入れず、dev-lang/rust-bin を使ってください"
+      when:
+        - openwrt_gentoo_heavy_prebuilt_enabled | bool or openwrt_gentoo_k3s_base_baseline_enabled | bool
+      tags:
+        - gentoo_packages
+        - heavy_prebuilt
+        - k3s_base_baseline
+
+    - name: source build 版 Rust を world から外す
+      ansible.builtin.lineinfile:
+        path: "{{ openwrt_gentoo_rootfs_dir }}/var/lib/portage/world"
+        regexp: '^(=|~|<=|>=)?dev-lang/rust($|[:\[]|-[0-9]).*$'
+        state: absent
+      when:
+        - openwrt_gentoo_heavy_prebuilt_enabled | bool
+      tags:
+        - gentoo_packages
+        - heavy_prebuilt
+        - k3s_base_baseline
+
+    - name: heavy prebuilt パッケージを local binpkg cache から事前導入
+      ansible.builtin.shell: |
+        set -euo pipefail
+        chroot {{ openwrt_gentoo_rootfs_dir }} {{ openwrt_gentoo_chroot_shell }} -lc '
+          set -euo pipefail
+          env-update
+          echo env-update
+          export DEBUGINFOD_URLS=""
+          set +u
+          source /etc/profile
+          set -u
+          echo source
+          export FEATURES="${FEATURES:-} -userpriv -usersandbox"
+          echo export
+          PKGS="{{ openwrt_gentoo_heavy_prebuilt_packages | join(' ') }}"
+          emerge {{ openwrt_gentoo_heavy_prebuilt_emerge_args }} ${PKGS}
+        '
+      args:
+        executable: /bin/ash
+      changed_when: true
+      when:
+        - openwrt_gentoo_heavy_prebuilt_enabled | bool
+        - openwrt_gentoo_heavy_prebuilt_packages | length > 0
+      tags:
+        - gentoo_packages
+        - heavy_prebuilt
+        - k3s_base_baseline
+
+    - name: k3s staging base baseline パッケージを lower rootfs に事前導入
+      ansible.builtin.shell: |
+        set -euo pipefail
+        chroot {{ openwrt_gentoo_rootfs_dir }} {{ openwrt_gentoo_chroot_shell }} -lc '
+          set -euo pipefail
+          env-update
+          echo env-update
+          export DEBUGINFOD_URLS=""
+          set +u
+          source /etc/profile
+          set -u
+          echo source
+          export FEATURES="${FEATURES:-} -userpriv -usersandbox"
+          echo export
+          PKGS="{{ k3s_base_baseline_packages | join(' ') }}"
+          emerge {{ openwrt_gentoo_k3s_base_baseline_emerge_args }} ${PKGS}
+        '
+      args:
+        executable: /bin/ash
+      changed_when: true
+      when:
+        - openwrt_gentoo_k3s_base_baseline_enabled | bool
+        - k3s_base_baseline_packages | length > 0
+      tags:
+        - gentoo_packages
+        - k3s_base_baseline
+
+    - name: rpi-eeprom 設定ディレクトリを rootfs に作成
+      ansible.builtin.file:
+        path: "{{ openwrt_gentoo_rootfs_dir }}{{ openwrt_gentoo_rpi_eeprom_env_path | dirname }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      when:
+        - openwrt_gentoo_enabled | bool
+        - openwrt_gentoo_rpi_eeprom_enabled | bool
+      tags:
+        - rpi_eeprom
+        - firmware
+        - boot_order
+        - eeprom_config
+
+    - name: rpi-eeprom config env を rootfs に配置
+      ansible.builtin.template:
+        src: rpi-eeprom-boot-order.env.j2
+        dest: "{{ openwrt_gentoo_rootfs_dir }}{{ openwrt_gentoo_rpi_eeprom_env_path }}"
+        owner: root
+        group: root
+        mode: '0644'
+      when:
+        - openwrt_gentoo_enabled | bool
+        - openwrt_gentoo_rpi_eeprom_enabled | bool
+      tags:
+        - rpi_eeprom
+        - firmware
+        - boot_order
+        - eeprom_config
+
+    - name: rpi-eeprom systemd unit ディレクトリを rootfs に作成
+      ansible.builtin.file:
+        path: "{{ openwrt_gentoo_rootfs_dir }}{{ item }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      loop:
+        - /etc/systemd/system
+        - /etc/systemd/system/multi-user.target.wants
+        - /etc/systemd/system/timers.target.wants
+      when:
+        - openwrt_gentoo_enabled | bool
+        - openwrt_gentoo_rpi_eeprom_enabled | bool
+      tags:
+        - rpi_eeprom
+        - firmware
+        - boot_order
+        - eeprom_config
+
+    - name: rpi-eeprom config service を rootfs で disable
+      ansible.builtin.file:
+        path: "{{ openwrt_gentoo_rootfs_dir }}/etc/systemd/system/multi-user.target.wants/{{ openwrt_gentoo_rpi_eeprom_service_name }}"
+        state: absent
+      when:
+        - openwrt_gentoo_enabled | bool
+        - openwrt_gentoo_rpi_eeprom_enabled | bool
+        - not (openwrt_gentoo_rpi_eeprom_service_enabled | bool)
+      tags:
+        - rpi_eeprom
+        - firmware
+        - boot_order
+        - eeprom_config
+
+    - name: rpi-eeprom config apply script を rootfs に配置
+      ansible.builtin.template:
+        src: rpi-eeprom-boot-order-apply.sh.j2
+        dest: "{{ openwrt_gentoo_rootfs_dir }}{{ openwrt_gentoo_rpi_eeprom_script_path }}"
+        owner: root
+        group: root
+        mode: '0755'
+      when:
+        - openwrt_gentoo_enabled | bool
+        - openwrt_gentoo_rpi_eeprom_enabled | bool
+      tags:
+        - rpi_eeprom
+        - firmware
+        - boot_order
+        - eeprom_config
+
+    - name: rpi-eeprom config service を rootfs に配置
+      ansible.builtin.template:
+        src: systemd/rpi-eeprom-boot-order.service.j2
+        dest: "{{ openwrt_gentoo_rootfs_dir }}/etc/systemd/system/{{ openwrt_gentoo_rpi_eeprom_service_name }}"
+        owner: root
+        group: root
+        mode: '0644'
+      when:
+        - openwrt_gentoo_enabled | bool
+        - openwrt_gentoo_rpi_eeprom_enabled | bool
+      tags:
+        - rpi_eeprom
+        - firmware
+        - boot_order
+        - eeprom_config
+
+    - name: rpi-eeprom config service を rootfs で enable
+      ansible.builtin.file:
+        src: "../{{ openwrt_gentoo_rpi_eeprom_service_name }}"
+        dest: "{{ openwrt_gentoo_rootfs_dir }}/etc/systemd/system/multi-user.target.wants/{{ openwrt_gentoo_rpi_eeprom_service_name }}"
+        state: link
+        force: true
+      when:
+        - openwrt_gentoo_enabled | bool
+        - openwrt_gentoo_rpi_eeprom_enabled | bool
+        - openwrt_gentoo_rpi_eeprom_service_enabled | bool
+      tags:
+        - rpi_eeprom
+        - firmware
+        - boot_order
+        - eeprom_config
+
+    - name: rpi-eeprom auto update script を rootfs に配置
+      ansible.builtin.template:
+        src: rpi-eeprom-auto-update.sh.j2
+        dest: "{{ openwrt_gentoo_rootfs_dir }}{{ openwrt_gentoo_rpi_eeprom_update_script_path }}"
+        owner: root
+        group: root
+        mode: '0755'
+      when:
+        - openwrt_gentoo_enabled | bool
+        - openwrt_gentoo_rpi_eeprom_enabled | bool
+      tags:
+        - rpi_eeprom
+        - firmware
+        - eeprom_update
+
+    - name: rpi-eeprom auto update service を rootfs に配置
+      ansible.builtin.template:
+        src: systemd/rpi-eeprom-auto-update.service.j2
+        dest: "{{ openwrt_gentoo_rootfs_dir }}/etc/systemd/system/{{ openwrt_gentoo_rpi_eeprom_update_service_name }}"
+        owner: root
+        group: root
+        mode: '0644'
+      when:
+        - openwrt_gentoo_enabled | bool
+        - openwrt_gentoo_rpi_eeprom_enabled | bool
+      tags:
+        - rpi_eeprom
+        - firmware
+        - eeprom_update
+
+    - name: rpi-eeprom auto update timer を rootfs に配置
+      ansible.builtin.template:
+        src: systemd/rpi-eeprom-auto-update.timer.j2
+        dest: "{{ openwrt_gentoo_rootfs_dir }}/etc/systemd/system/{{ openwrt_gentoo_rpi_eeprom_update_timer_name }}"
+        owner: root
+        group: root
+        mode: '0644'
+      when:
+        - openwrt_gentoo_enabled | bool
+        - openwrt_gentoo_rpi_eeprom_enabled | bool
+      tags:
+        - rpi_eeprom
+        - firmware
+        - eeprom_update
+
+    - name: rpi-eeprom auto update timer を rootfs で disable
+      ansible.builtin.file:
+        path: "{{ openwrt_gentoo_rootfs_dir }}/etc/systemd/system/timers.target.wants/{{ openwrt_gentoo_rpi_eeprom_update_timer_name }}"
+        state: absent
+      when:
+        - openwrt_gentoo_enabled | bool
+        - openwrt_gentoo_rpi_eeprom_enabled | bool
+        - not (openwrt_gentoo_rpi_eeprom_update_timer_enabled | bool)
+      tags:
+        - rpi_eeprom
+        - firmware
+        - eeprom_update
+
+    - name: rpi-eeprom auto update timer を rootfs で enable
+      ansible.builtin.file:
+        src: "../{{ openwrt_gentoo_rpi_eeprom_update_timer_name }}"
+        dest: "{{ openwrt_gentoo_rootfs_dir }}/etc/systemd/system/timers.target.wants/{{ openwrt_gentoo_rpi_eeprom_update_timer_name }}"
+        state: link
+        force: true
+      when:
+        - openwrt_gentoo_enabled | bool
+        - openwrt_gentoo_rpi_eeprom_enabled | bool
+        - openwrt_gentoo_rpi_eeprom_update_timer_enabled | bool
+      tags:
+        - rpi_eeprom
+        - firmware
+        - eeprom_update
+
+    - name: distcc 導入済み package db を確認
+      ansible.builtin.find:
+        paths: "{{ item }}/var/db/pkg/sys-devel"
+        patterns: "distcc-*"
+        file_type: directory
+      loop: "{{ openwrt_gentoo_pxe_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+      loop_control:
+        label: "{{ item }}"
+      register: openwrt_gentoo_distcc_pkg_dirs
+      when:
+        - openwrt_gentoo_distcc_enabled | bool
+      tags:
+        - gentoo_distcc
+
+    - name: distcc を導入
+      ansible.builtin.shell: |
+        set -euo pipefail
+        chroot {{ item.item }} {{ openwrt_gentoo_chroot_shell }} -lc '
+          set -euo pipefail
+          env-update
+          echo env-update
+          export DEBUGINFOD_URLS=""
+          set +u
+          source /etc/profile
+          set -u
+          echo source
+          export FEATURES="${FEATURES:-} -userpriv -usersandbox"
+          echo export
+          PKGS="sys-devel/distcc"
+          emerge --usepkg --oneshot --quiet-build=y ${PKGS}
+        '
+      args:
+        executable: /bin/ash
+      changed_when: true
+      loop: "{{ openwrt_gentoo_distcc_pkg_dirs.results | default([]) }}"
+      loop_control:
+        label: "{{ item.item | default('unknown') }}"
+      when:
+        - openwrt_gentoo_distcc_enabled | bool
+        - (item.matched | default(0) | int) == 0
+      tags:
+        - gentoo_distcc
+
+    - name: ansible ユーザを事前作成（UID/GID 固定）
+      ansible.builtin.shell: |
+        set -euo pipefail
+        chroot {{ item }} {{ openwrt_gentoo_chroot_shell }} -lc '
+          name="{{ openwrt_gentoo_ansible_user_name }}"
+          uid="{{ openwrt_gentoo_ansible_user_uid }}"
+          gid="{{ openwrt_gentoo_ansible_user_gid }}"
+          shell="{{ openwrt_gentoo_ansible_user_shell }}"
+          changed=0
+          primary_group=""
+          if getent group "$name" >/dev/null 2>&1; then
+            current_gid="$(getent group "$name" | cut -d: -f3 || true)"
+            if [ -n "$current_gid" ] && [ "$current_gid" != "$gid" ]; then
+              groupmod -g "$gid" "$name"
+              changed=1
+            fi
+            primary_group="$name"
+          else
+            existing_group="$(getent group "$gid" | cut -d: -f1 || true)"
+            if [ -n "$existing_group" ]; then
+              primary_group="$existing_group"
+            else
+              groupadd -g "$gid" "$name"
+              changed=1
+              primary_group="$name"
+            fi
+          fi
+          if ! getent group wheel >/dev/null 2>&1; then
+            groupadd wheel
+            changed=1
+          fi
+          if id "$name" >/dev/null 2>&1; then
+            passwd_entry="$(getent passwd "$name")"
+            current_uid="$(printf "%s\n" "$passwd_entry" | cut -d: -f3)"
+            current_shell="$(printf "%s\n" "$passwd_entry" | cut -d: -f7)"
+            if [ "$current_shell" != "$shell" ]; then
+              chsh -s "$shell" "$name" || true
+              changed=1
+            fi
+            if [ "$current_uid" != "$uid" ]; then
+              usermod -u "$uid" "$name"
+              changed=1
+            fi
+            if [ -n "$primary_group" ]; then
+              current_primary_gid="$(id -g "$name")"
+              desired_primary_gid="$(getent group "$primary_group" | cut -d: -f3)"
+              if [ -n "$desired_primary_gid" ] && [ "$current_primary_gid" != "$desired_primary_gid" ]; then
+                usermod -g "$primary_group" "$name"
+                changed=1
+              fi
+            fi
+            if ! id -nG "$name" | tr " " "\n" | grep -qx wheel; then
+              usermod -a -G wheel "$name"
+              changed=1
+            fi
+          else
+            useradd -m -s "$shell" -u "$uid" -g "$primary_group" -G wheel "$name"
+            changed=1
+          fi
+          if [ "$changed" -eq 1 ]; then
+            echo changed
+          else
+            echo unchanged
+          fi
+        '
+      args:
+        executable: /bin/ash
+      register: openwrt_gentoo_ansible_user_create
+      changed_when: "'changed' in (openwrt_gentoo_ansible_user_create.stdout_lines | default([]))"
+      loop: "{{ openwrt_gentoo_pxe_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+      loop_control:
+        label: "{{ item }}"
+      when:
+        - openwrt_gentoo_ansible_user_enabled | bool
+      tags:
+        - pxe_users
+
+    - name: PXE クライアントユーザーを作成
+      ansible.builtin.shell: |
+        set -euo pipefail
+        chroot {{ item.0 }} {{ openwrt_gentoo_chroot_shell }} -lc '
+          name="{{ item.1.name }}"
+          shell="{{ item.1.shell | default("/bin/bash") }}"
+          groups="{{ (item.1.groups | default([])) | join(",") }}"
+          uid="{{ item.1.uid | default("") }}"
+          gid="{{ item.1.gid | default("") }}"
+          home="{{ item.1.home | default("") }}"
+          create_home="{{ item.1.create_home | default(true) | ternary("1", "0") }}"
+          changed=0
+          primary_group=""
+          if [ -n "$gid" ]; then
+            existing_group="$(getent group "$gid" | cut -d: -f1 || true)"
+            if [ -n "$existing_group" ]; then
+              primary_group="$existing_group"
+            else
+              groupadd -g "$gid" "$name"
+              changed=1
+              primary_group="$name"
+            fi
+          fi
+          if id "$name" >/dev/null 2>&1; then
+            passwd_entry="$(getent passwd "$name")"
+            current_uid="$(printf "%s\n" "$passwd_entry" | cut -d: -f3)"
+            current_home="$(printf "%s\n" "$passwd_entry" | cut -d: -f6)"
+            current_shell="$(printf "%s\n" "$passwd_entry" | cut -d: -f7)"
+            if [ "$current_shell" != "$shell" ]; then
+              chsh -s "$shell" "$name" || true
+              changed=1
+            fi
+            if [ -n "$groups" ]; then
+              missing_groups=""
+              IFS=,
+              for group in $groups; do
+                group="$(printf "%s" "$group" | xargs)"
+                [ -n "$group" ] || continue
+                if ! id -nG "$name" | tr " " "\n" | grep -qx "$group"; then
+                  if [ -n "$missing_groups" ]; then
+                    missing_groups="$missing_groups,$group"
+                  else
+                    missing_groups="$group"
+                  fi
+                fi
+              done
+              unset IFS
+              if [ -n "$missing_groups" ]; then
+                usermod -a -G "$missing_groups" "$name"
+                changed=1
+              fi
+            fi
+            if [ -n "$uid" ] && [ "$current_uid" != "$uid" ]; then
+              usermod -u "$uid" "$name"
+              changed=1
+            fi
+            if [ -n "$primary_group" ]; then
+              current_primary_gid="$(id -g "$name")"
+              desired_primary_gid="$(getent group "$primary_group" | cut -d: -f3)"
+              if [ -n "$desired_primary_gid" ] && [ "$current_primary_gid" != "$desired_primary_gid" ]; then
+                usermod -g "$primary_group" "$name"
+                changed=1
+              fi
+            fi
+            if [ -n "$home" ] && [ "$current_home" != "$home" ]; then
+              usermod -d "$home" "$name"
+              changed=1
+            fi
+          else
+            if [ "$create_home" = "1" ]; then
+              useradd_args="-m -s \"$shell\""
+            else
+              useradd_args="-M -s \"$shell\""
+            fi
+            if [ -n "$uid" ]; then
+              useradd_args="$useradd_args -u \"$uid\""
+            fi
+            if [ -n "$primary_group" ]; then
+              useradd_args="$useradd_args -g \"$primary_group\""
+            fi
+            if [ -n "$groups" ]; then
+              useradd_args="$useradd_args -G \"$groups\""
+            fi
+            if [ -n "$home" ]; then
+              useradd_args="$useradd_args -d \"$home\""
+            fi
+            if [ -n "$useradd_args" ]; then
+              eval "useradd $useradd_args \"$name\""
+            else
+              useradd -m -s "$shell" "$name"
+            fi
+            changed=1
+          fi
+          if [ "$changed" -eq 1 ]; then
+            echo changed
+          else
+            echo unchanged
+          fi
+        '
+      args:
+        executable: /bin/ash
+      register: openwrt_gentoo_pxe_user_create
+      changed_when: "'changed' in (openwrt_gentoo_pxe_user_create.stdout_lines | default([]))"
+      loop: "{{ (openwrt_gentoo_pxe_rootfs_dirs | default([openwrt_gentoo_rootfs_dir])) | product(openwrt_gentoo_pxe_users | default([])) | list }}"
+      loop_control:
+        label: "{{ item.0 }}:{{ item.1.name }}"
+      when:
+        - openwrt_gentoo_pxe_users_required | default(false)
+      tags:
+        - pxe_users
+
+    - name: PXE クライアントユーザー用 sshd authorized_keys ディレクトリを作成
+      ansible.builtin.file:
+        path: "{{ item }}/etc/ssh/authorized_keys"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      loop: "{{ openwrt_gentoo_pxe_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+      loop_control:
+        label: "{{ item }}"
+      when:
+        - openwrt_gentoo_pxe_users_required | default(false)
+      tags:
+        - pxe_users
+        - pxe_ssh_keys
+
+    - name: PXE rootfs sshd_config に system authorized_keys を許可
+      ansible.builtin.lineinfile:
+        path: "{{ item }}/etc/ssh/sshd_config"
+        regexp: '^\s*AuthorizedKeysFile\s+'
+        line: "AuthorizedKeysFile .ssh/authorized_keys /etc/ssh/authorized_keys/%u"
+        create: true
+        owner: root
+        group: root
+        mode: '0644'
+      loop: "{{ openwrt_gentoo_pxe_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+      loop_control:
+        label: "{{ item }}"
+      when:
+        - openwrt_gentoo_pxe_users_required | default(false)
+      tags:
+        - pxe_users
+        - pxe_ssh_keys
+
+    - name: PXE クライアントユーザーの authorized_keys を配置
+      ansible.builtin.shell: |
+        set -euo pipefail
+        PXE_USER={{ item.1.0.name | quote }} \
+        PXE_AUTHORIZED_KEY={{ item.1.1 | quote }} \
+        PXE_AUTHORIZED_KEYS_FILE={{ item.1.0.authorized_keys_file | default("") | quote }} \
+        chroot {{ item.0 }} {{ openwrt_gentoo_chroot_shell }} -lc '
+          set -euo pipefail
+          user="$PXE_USER"
+          key="$PXE_AUTHORIZED_KEY"
+          auth_file="$PXE_AUTHORIZED_KEYS_FILE"
+          changed=0
+          if [ -n "$auth_file" ]; then
+            install -d -m 755 "$(dirname "$auth_file")"
+            touch "$auth_file"
+            if ! grep -qxF "$key" "$auth_file"; then
+              printf "%s\n" "$key" >> "$auth_file"
+              changed=1
+            fi
+            chown root:root "$auth_file"
+            chmod 644 "$auth_file"
+            if [ "$changed" -eq 1 ]; then echo changed; else echo unchanged; fi
+            exit 0
+          fi
+          home_dir="$(getent passwd "$user" | cut -d: -f6)"
+          if [ -z "$home_dir" ]; then
+            exit 1
+          fi
+          install -d -m 700 "$home_dir/.ssh"
+          touch "$home_dir/.ssh/authorized_keys"
+          if ! grep -qxF "$key" "$home_dir/.ssh/authorized_keys"; then
+            printf "%s\n" "$key" >> "$home_dir/.ssh/authorized_keys"
+            changed=1
+          fi
+          chown -R "$user":"$user" "$home_dir/.ssh"
+          chmod 700 "$home_dir/.ssh"
+          chmod 600 "$home_dir/.ssh/authorized_keys"
+          if [ "$changed" -eq 1 ]; then echo changed; else echo unchanged; fi
+        '
+      args:
+        executable: /bin/ash
+      register: openwrt_gentoo_pxe_user_authorized_keys
+      changed_when: "'changed' in (openwrt_gentoo_pxe_user_authorized_keys.stdout_lines | default([]))"
+      loop: "{{ (openwrt_gentoo_pxe_rootfs_dirs | default([openwrt_gentoo_rootfs_dir])) | product(openwrt_gentoo_pxe_users | default([]) | subelements('authorized_keys', skip_missing=True)) | list }}"
+      loop_control:
+        label: "{{ item.0 }}:{{ item.1.0.name }}"
+      no_log: true
+      when:
+        - openwrt_gentoo_pxe_users_required | default(false)
+      tags:
+        - pxe_users
+        - pxe_ssh_keys
+
+    - name: PXE クライアントユーザーの authorized_keys エントリを検証
+      ansible.builtin.shell: |
+        set -euo pipefail
+        PXE_USER={{ item.1.0.name | quote }} \
+        PXE_AUTHORIZED_KEY={{ item.1.1 | quote }} \
+        PXE_AUTHORIZED_KEYS_FILE={{ item.1.0.authorized_keys_file | default("") | quote }} \
+        chroot {{ item.0 }} {{ openwrt_gentoo_chroot_shell }} -lc '
+          set -euo pipefail
+          user="$PXE_USER"
+          key="$PXE_AUTHORIZED_KEY"
+          auth_file="$PXE_AUTHORIZED_KEYS_FILE"
+          if [ -n "$auth_file" ]; then
+            if [ ! -f "$auth_file" ]; then
+              echo "user=$user authorized_keys=missing path=$auth_file"
+              exit 1
+            fi
+            if ! grep -qxF "$key" "$auth_file"; then
+              echo "user=$user authorized_key=missing path=$auth_file"
+              exit 1
+            fi
+            echo "user=$user authorized_key=present path=$auth_file"
+            exit 0
+          fi
+          home_dir="$(getent passwd "$user" | cut -d: -f6)"
+          if [ -z "$home_dir" ]; then
+            echo "user=$user home=missing"
+            exit 1
+          fi
+          if [ ! -d "$home_dir/.ssh" ]; then
+            echo "user=$user ssh_dir=missing"
+            exit 1
+          fi
+          if [ ! -f "$home_dir/.ssh/authorized_keys" ]; then
+            echo "user=$user authorized_keys=missing"
+            exit 1
+          fi
+          if ! grep -qxF "$key" "$home_dir/.ssh/authorized_keys"; then
+            echo "user=$user authorized_key=missing"
+            exit 1
+          fi
+          echo "user=$user authorized_key=present"
+        '
+      args:
+        executable: /bin/ash
+      changed_when: false
+      loop: "{{ (openwrt_gentoo_pxe_rootfs_dirs | default([openwrt_gentoo_rootfs_dir])) | product(openwrt_gentoo_pxe_users | default([]) | subelements('authorized_keys', skip_missing=True)) | list }}"
+      loop_control:
+        label: "{{ item.0 }}:{{ item.1.0.name }}"
+      no_log: true
+      when:
+        - openwrt_gentoo_pxe_users_required | default(false)
+      tags:
+        - pxe_users
+        - pxe_ssh_keys
+
+    - name: controller の authorized_keys を読み込み
+      ansible.builtin.set_fact:
+        openwrt_gentoo_ansible_user_controller_authorized_keys: >-
+          {{
+            lookup(
+              'ansible.builtin.file',
+              openwrt_gentoo_ansible_user_authorized_keys_file,
+              errors='ignore'
+            ).splitlines()
+            | map('trim')
+            | reject('equalto', '')
+            | reject('match', '^#')
+            | list
+          }}
+      no_log: true
+      when:
+        - openwrt_gentoo_ansible_user_enabled | bool
+        - openwrt_gentoo_ansible_user_authorized_keys_from_controller | bool
+      tags:
+        - pxe_users
+        - pxe_ssh_keys
+
+    - name: ansible ユーザに controller authorized_keys を追加
+      ansible.builtin.shell: |
+        set -euo pipefail
+        PXE_USER={{ openwrt_gentoo_ansible_user_name | quote }} \
+        PXE_AUTHORIZED_KEY={{ item.1 | quote }} \
+        chroot {{ item.0 }} {{ openwrt_gentoo_chroot_shell }} -lc '
+          set -euo pipefail
+          user="$PXE_USER"
+          key="$PXE_AUTHORIZED_KEY"
+          changed=0
+          home_dir="$(getent passwd "$user" | cut -d: -f6)"
+          if [ -z "$home_dir" ]; then
+            exit 1
+          fi
+          install -d -m 700 "$home_dir/.ssh"
+          touch "$home_dir/.ssh/authorized_keys"
+          if ! grep -qxF "$key" "$home_dir/.ssh/authorized_keys"; then
+            printf "%s\n" "$key" >> "$home_dir/.ssh/authorized_keys"
+            changed=1
+          fi
+          chown -R "$user":"$user" "$home_dir/.ssh"
+          chmod 700 "$home_dir/.ssh"
+          chmod 600 "$home_dir/.ssh/authorized_keys"
+          if [ "$changed" -eq 1 ]; then echo changed; else echo unchanged; fi
+        '
+      args:
+        executable: /bin/ash
+      register: openwrt_gentoo_ansible_user_authorized_keys
+      changed_when: "'changed' in (openwrt_gentoo_ansible_user_authorized_keys.stdout_lines | default([]))"
+      loop: "{{ (openwrt_gentoo_pxe_rootfs_dirs | default([openwrt_gentoo_rootfs_dir])) | product(openwrt_gentoo_ansible_user_controller_authorized_keys | default([])) | list }}"
+      loop_control:
+        label: "{{ item.0 }}:{{ openwrt_gentoo_ansible_user_name }}"
+      no_log: true
+      when:
+        - openwrt_gentoo_ansible_user_enabled | bool
+        - openwrt_gentoo_ansible_user_authorized_keys_from_controller | bool
+        - (openwrt_gentoo_ansible_user_controller_authorized_keys | default([])) | length > 0
+      tags:
+        - pxe_users
+        - pxe_ssh_keys
+
+    - name: ansible ユーザの controller authorized_keys エントリを検証
+      ansible.builtin.shell: |
+        set -euo pipefail
+        PXE_USER={{ openwrt_gentoo_ansible_user_name | quote }} \
+        PXE_AUTHORIZED_KEY={{ item.1 | quote }} \
+        chroot {{ item.0 }} {{ openwrt_gentoo_chroot_shell }} -lc '
+          set -euo pipefail
+          user="$PXE_USER"
+          key="$PXE_AUTHORIZED_KEY"
+          home_dir="$(getent passwd "$user" | cut -d: -f6)"
+          if [ -z "$home_dir" ]; then
+            echo "user=$user home=missing"
+            exit 1
+          fi
+          if [ ! -f "$home_dir/.ssh/authorized_keys" ]; then
+            echo "user=$user authorized_keys=missing"
+            exit 1
+          fi
+          if ! grep -qxF "$key" "$home_dir/.ssh/authorized_keys"; then
+            echo "user=$user authorized_key=missing"
+            exit 1
+          fi
+          echo "user=$user authorized_key=present"
+        '
+      args:
+        executable: /bin/ash
+      changed_when: false
+      loop: "{{ (openwrt_gentoo_pxe_rootfs_dirs | default([openwrt_gentoo_rootfs_dir])) | product(openwrt_gentoo_ansible_user_controller_authorized_keys | default([])) | list }}"
+      loop_control:
+        label: "{{ item.0 }}:{{ openwrt_gentoo_ansible_user_name }}"
+      no_log: true
+      when:
+        - openwrt_gentoo_ansible_user_enabled | bool
+        - openwrt_gentoo_ansible_user_authorized_keys_from_controller | bool
+        - (openwrt_gentoo_ansible_user_controller_authorized_keys | default([])) | length > 0
+      tags:
+        - pxe_users
+        - pxe_ssh_keys
+
+    - name: wheel グループにパスワードなし sudo を付与
+      ansible.builtin.shell: |
+        set -euo pipefail
+        chroot {{ item }} {{ openwrt_gentoo_chroot_shell }} -lc '
+          line="%wheel ALL=(ALL:ALL) NOPASSWD: ALL"
+          changed=0
+          if [ ! -f /etc/sudoers ]; then
+            echo "# sudoers (created by ansible)" > /etc/sudoers
+            chmod 0440 /etc/sudoers
+            changed=1
+          fi
+          if ! grep -q "^%wheel .*NOPASSWD" /etc/sudoers; then
+            echo "$line" >> /etc/sudoers
+            chmod 0440 /etc/sudoers
+            changed=1
+          fi
+          if [ "$changed" -eq 1 ]; then echo changed; else echo unchanged; fi
+        '
+      args:
+        executable: /bin/ash
+      register: openwrt_gentoo_wheel_sudoers
+      changed_when: "'changed' in (openwrt_gentoo_wheel_sudoers.stdout_lines | default([]))"
+      loop: "{{ openwrt_gentoo_pxe_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+      loop_control:
+        label: "{{ item }}"
+      when:
+        - (openwrt_gentoo_pxe_users_required | default(false)) or (openwrt_gentoo_ansible_user_enabled | bool)
+      tags:
+        - pxe_users
+
+  vars:
+    k3s_base_baseline_packages:
+      - app-admin/ansible-core
+      - app-admin/logrotate
+      - app-admin/rsyslog
+      - app-editors/neovim
+      - app-misc/jq
+      - app-misc/resolve-march-native
+      - app-misc/tmux
+      - app-portage/gentoolkit
+      - app-shells/fish
+      - app-shells/fzf
+      - app-vim/vim-tmux
+      - dev-vcs/git
+      - net-analyzer/netcat
+      - net-dns/bind-tools
+      - net-firewall/iptables
+      - net-firewall/nftables
+      - net-fs/nfs-utils
+      - net-libs/nodejs
+      - net-wireless/iw
+      - sys-apps/bubblewrap
+      - sys-apps/ripgrep
+      - sys-apps/zram-generator
+      - sys-cluster/kubectl
+      - sys-devel/distcc
+      - sys-fs/f2fs-tools
+      - sys-process/cronie
+      - "{{ openwrt_gentoo_k3s_base_baseline_terraform_package_atom }}"
+    k3s_base_baseline_package_use:
+      - "net-libs/nodejs npm"
+      - "net-firewall/iptables nftables"
+    k3s_base_baseline_package_accept_keywords:
+      - "app-shells/fzf **"
+      - "sys-cluster/kubectl ~arm64"
+      - "=sys-apps/zram-generator-1.2.1 ~arm64"
+      - "{{ openwrt_gentoo_k3s_base_baseline_terraform_package_accept_keywords }}"
+    k3s_base_baseline_package_license: "{{ openwrt_gentoo_k3s_base_baseline_terraform_package_license }}"
+
+  always:
+    - name: Gentoo chroot 用 bind mount を解除
+      ansible.builtin.shell: |
+        set -euo pipefail
+        target="{{ item }}"
+        if grep -qs " $target " /proc/mounts; then
+          umount -l "$target" || umount "$target" || true
+        fi
+      args:
+        executable: /bin/ash
+      changed_when: false
+      loop: "{{ (openwrt_gentoo_chroot_bind_targets | default([])) | reverse | list }}"
+      loop_control:
+        label: "{{ item }}"
+      when: (openwrt_gentoo_chroot_bind_targets | default([])) | length > 0
+      tags:
+        - gentoo_packages
+        - official_binhost
+        - pxe_users
+        - pxe_ssh_keys
+        - rpi_eeprom
+        - rpi_wireless
+
+  when:
+    - openwrt_gentoo_enabled | bool
+    - >
+      (openwrt_gentoo_chroot_work_required | default(false) | bool)
+      or ('eeprom_config' in (ansible_run_tags | default([])))

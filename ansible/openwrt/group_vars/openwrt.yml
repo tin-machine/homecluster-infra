@@ -1,0 +1,34 @@
+---
+# OpenWrt inventory defaults for public examples.
+# Real host addresses, storage exports, PPPoE credentials, Wi-Fi secrets, and
+# sysupgrade versions must be supplied by the external inventory.
+
+ansible_user: root
+ansible_become: false
+ansible_connection: ssh
+ansible_python_interpreter: /usr/bin/python3
+ansible_ssh_transfer_method: scp
+ansible_scp_extra_args: '-O'
+ansible_ssh_extra_args: '-o ControlMaster=no -o ControlPersist=0'
+ansible_ssh_pipelining: true
+ansible_remote_tmp: /tmp
+
+openwrt_opkg_update: true
+
+# PXE clients use this address for rootfs, bootstrap logs, token exchange, and NTP.
+# Keep this explicit in the site inventory because fresh rootfs build playbooks
+# may run with gather_facts=false. Public defaults intentionally leave it empty:
+# documentation/example addresses must not become operational PXE endpoints.
+# Do not define openwrt_gentoo_server_host here. This file is loaded through
+# vars_files by OpenWrt playbooks, so it has higher precedence than the external
+# site inventory and would mask the real PXE endpoint.
+
+# Storage and export policy are site-specific. Public examples keep this empty.
+openwrt_enable_storage: false
+openwrt_nfs_extra_exports: []
+
+# Optional services are opt-in for public examples.
+openwrt_enable_wireless: false
+openwrt_enable_frr: false
+openwrt_enable_prometheus_exporter: false
+openwrt_syslog_remote_enabled: false

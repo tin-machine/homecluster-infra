@@ -1,0 +1,57 @@
+---
+- name: FRR の site 値を検証
+  ansible.builtin.assert:
+    that:
+      - (openwrt_frr_router_id | string | trim) | length > 0
+      - (openwrt_frr_router_id | string) is not match('^(192\.0\.2\.|198\.51\.100\.|203\.0\.113\.)')
+      - >-
+        (((openwrt_frr_peer_listen_range | default('') | string | trim) | length) == 0)
+        or
+        ((openwrt_frr_peer_listen_range | string) is not match('^(192\.0\.2\.|198\.51\.100\.|203\.0\.113\.)'))
+      - >-
+        ((openwrt_frr_static_neighbors | default([]) | map('string') | select('match', '^(192\.0\.2\.|198\.51\.100\.|203\.0\.113\.)') | list) | length) == 0
+      - >-
+        ((openwrt_frr_prefix_lists | default([]) | map(attribute='entries') | flatten | map(attribute='prefix') | map('string') | select('match', '^(192\.0\.2\.|198\.51\.100\.|203\.0\.113\.)') | list) | length) == 0
+      - >-
+        (((openwrt_frr_in_prefix_list | default('') | string | trim) | length) == 0)
+        or
+        ((openwrt_frr_in_prefix_list | string | trim) in (openwrt_frr_prefix_lists | default([]) | map(attribute='name') | list))
+    fail_msg: "FRR の router-id/listen range/prefix-list を external inventory で指定してください。documentation IP range は live apply で使えません。"
+
+- name: BGP ピア受け入れ条件が定義されているか確認
+  ansible.builtin.assert:
+    that:
+      - >-
+        (openwrt_frr_peer_listen_range | default('') | string | trim | length > 0)
+        or
+        (openwrt_frr_static_neighbors | default([]) | length > 0)
+    fail_msg: "FRR の BGP listen range または static BGP peer IP を指定してください"
+
+- name: FRR 必須パッケージを導入
+  ansible.builtin.opkg:
+    name: "{{ item }}"
+    state: present
+    update_cache: "{{ openwrt_opkg_update | default(true) }}"
+  loop: "{{ openwrt_frr_packages }}"
+  loop_control:
+    label: "{{ item }}"
+
+- name: /etc/frr/daemons を配備
+  ansible.builtin.template:
+    src: daemons.j2
+    dest: /etc/frr/daemons
+    owner: "{{ openwrt_frr_owner }}"
+    group: "{{ openwrt_frr_group }}"
+    mode: '0640'
+  notify:
+    - Restart frr
+
+- name: /etc/frr/frr.conf を配備
+  ansible.builtin.template:
+    src: frr.conf.j2
+    dest: /etc/frr/frr.conf
+    owner: "{{ openwrt_frr_owner }}"
+    group: "{{ openwrt_frr_group }}"
+    mode: '0640'
+  notify:
+    - Restart frr

@@ -1,0 +1,63 @@
+---
+- name: PXE release bundle default generation を設定
+  ansible.builtin.set_fact:
+    pxe_release_bundle_default_generations:
+      - name: rpi4
+        release_suffix: rpi4
+        host_name_regex: "^rpi4-"
+      - name: rpi5
+        release_suffix: rpi5
+        host_name_regex: "^rpi5-"
+  when: pxe_release_bundle_default_generations is not defined
+  tags:
+    - pxe_release_bundle
+    - pxe_release_bundle_build
+
+- name: PXE release bundle build 日付を決定
+  ansible.builtin.set_fact:
+    pxe_release_bundle_effective_date: >-
+      {{
+        pxe_release_bundle_date
+        | default(openwrt_gentoo_release_bundle_date | default('', true), true)
+        | string
+        | trim
+      }}
+    pxe_release_bundle_effective_generations: >-
+      {{
+        pxe_release_bundle_generations
+        | default(openwrt_gentoo_release_bundle_generations | default(pxe_release_bundle_default_generations, true), true)
+      }}
+  tags:
+    - pxe_release_bundle
+    - pxe_release_bundle_build
+
+- name: PXE release bundle build 入力を検証
+  ansible.builtin.assert:
+    that:
+      - pxe_release_bundle_effective_date is match('^[0-9]{8}$')
+      - pxe_release_bundle_effective_generations is iterable
+      - (pxe_release_bundle_effective_generations | length) > 0
+    fail_msg: >-
+      pxe_release_bundle_date=YYYYMMDD を指定するか、
+      staging playbook では外部 inventory.yml の
+      openwrt_gentoo_release_bundle_stage_dates.<stage> を更新してください。
+  tags:
+    - pxe_release_bundle
+    - pxe_release_bundle_build
+
+- name: PXE release bundle build 対象 release を作成
+  ansible.builtin.set_fact:
+    pxe_release_bundle_build_items: >-
+      {%- set result = [] -%}
+      {%- for item in pxe_release_bundle_effective_generations -%}
+        {%- set name = item.name | string | trim -%}
+        {%- set suffix = item.release_suffix | default(name, true) | string | trim -%}
+        {%- set _ = result.append({
+          'name': name,
+          'release': pxe_release_bundle_effective_date ~ '-' ~ suffix
+        }) -%}
+      {%- endfor -%}
+      {{ result }}
+  tags:
+    - pxe_release_bundle
+    - pxe_release_bundle_build

@@ -1,0 +1,13 @@
+[Unit]
+Description=PXE bootstrap overlay handler
+DefaultDependencies=yes
+After=network-online.target remote-fs.target {{ openwrt_gentoo_networkd_role_service }}
+Wants=network-online.target {{ openwrt_gentoo_networkd_role_service }}
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/pxe-bootstrap.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

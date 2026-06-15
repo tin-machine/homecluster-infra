@@ -1,0 +1,7 @@
+---
+k3s_registries_config_path: /etc/rancher/k3s/registries.yaml
+k3s_registries_restart_service: false
+k3s_registries_service_name: k3s
+
+k3s_registries_mirrors: {}
+k3s_registries_configs: {}

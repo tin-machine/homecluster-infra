@@ -1,0 +1,25 @@
+[Unit]
+Description=Run ansible-pull for role %i
+Wants=network-online.target time-sync.target systemd-time-wait-sync.service
+After=network-online.target time-sync.target systemd-time-wait-sync.service
+# role.env を生成するサービスがあるなら After= に追記する
+After=pxe-write-role.service
+ConditionPathExists=/run/dhcp/role.env
+StartLimitIntervalSec=900
+StartLimitBurst=3
+
+[Service]
+Type=oneshot
+Restart=on-failure
+RestartSec=60
+EnvironmentFile=-/run/dhcp/role.env
+Environment=ROLE=%i
+Environment=REPO_URL={{ openwrt_gentoo_ansible_pull_repo_url }}
+Environment=DEST=/var/lib/ansible-pull
+ExecStart=/usr/bin/flock /run/ansible-pull.lock /usr/local/sbin/pxe-ansible-pull-wrapper.sh "%i"
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=3d
+
+[Install]
+WantedBy=multi-user.target

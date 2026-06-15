@@ -1,0 +1,12 @@
+[Unit]
+Description=Publish short-lived k3s staging agent join token
+Wants=network-online.target
+After=network-online.target pxe-bootstrap.service ansible-pull@k3s_stg_server.service k3s.service
+ConditionPathExists=/run/dhcp/role.env
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/pxe-k3s-stg-token.sh
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec={{ openwrt_gentoo_k3s_stg_token_wait_seconds + 120 }}

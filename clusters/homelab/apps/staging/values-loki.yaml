@@ -1,0 +1,117 @@
+loki:
+  schemaConfig:
+    configs:
+      - from: 2024-01-01
+        store: boltdb-shipper
+        object_store: aws
+        schema: v12
+        index:
+          prefix: stg_index_
+          period: 24h
+  storage_config:
+    aws:
+      bucketnames: stg-loki
+      endpoint: http://stg-minio.object-storage-stg.svc.cluster.local:9000
+      region: homelab
+      s3forcepathstyle: true
+      insecure: true
+    boltdb_shipper:
+      shared_store: aws
+  rulerConfig:
+    storage:
+      s3:
+        bucketnames: stg-loki-ruler
+        endpoint: http://stg-minio.object-storage-stg.svc.cluster.local:9000
+        region: homelab
+        s3forcepathstyle: true
+        insecure: true
+
+read:
+  persistence:
+    size: 5Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
+  podLabels:
+    app.kubernetes.io/name: loki
+    app.kubernetes.io/instance: stg-loki
+    app.kubernetes.io/component: read
+    app.kubernetes.io/part-of: observability
+    environment: staging
+  service:
+    labels:
+      app.kubernetes.io/name: loki
+      app.kubernetes.io/instance: stg-loki
+      app.kubernetes.io/component: read
+      app.kubernetes.io/part-of: observability
+      environment: staging
+
+write:
+  persistence:
+    size: 10Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
+  podLabels:
+    app.kubernetes.io/name: loki
+    app.kubernetes.io/instance: stg-loki
+    app.kubernetes.io/component: write
+    app.kubernetes.io/part-of: observability
+    environment: staging
+  service:
+    labels:
+      app.kubernetes.io/name: loki
+      app.kubernetes.io/instance: stg-loki
+      app.kubernetes.io/component: write
+      app.kubernetes.io/part-of: observability
+      environment: staging
+
+backend:
+  persistence:
+    size: 20Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 768Mi
+  podLabels:
+    app.kubernetes.io/name: loki
+    app.kubernetes.io/instance: stg-loki
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/part-of: observability
+    environment: staging
+  service:
+    labels:
+      app.kubernetes.io/name: loki
+      app.kubernetes.io/instance: stg-loki
+      app.kubernetes.io/component: backend
+      app.kubernetes.io/part-of: observability
+      environment: staging
+
+gateway:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 128Mi
+  podLabels:
+    app.kubernetes.io/name: loki
+    app.kubernetes.io/instance: stg-loki
+    app.kubernetes.io/component: gateway
+    app.kubernetes.io/part-of: observability
+    environment: staging
+  service:
+    labels:
+      app.kubernetes.io/name: loki
+      app.kubernetes.io/instance: stg-loki
+      app.kubernetes.io/component: gateway
+      app.kubernetes.io/part-of: observability
+      environment: staging

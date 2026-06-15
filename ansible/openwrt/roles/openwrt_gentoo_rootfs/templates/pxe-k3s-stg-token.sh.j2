@@ -1,0 +1,112 @@
+#!/bin/sh
+# Managed by Ansible (openwrt_gentoo_rootfs)
+
+set -eu
+
+ROLE_ENV="/run/dhcp/role.env"
+TOKEN_FILE="/run/pxe-bootstrap/logs/k3s-stg/agent-token"
+TOKEN_MOUNTPOINT="/run/pxe-bootstrap/logs"
+TOKEN_TTL="{{ openwrt_gentoo_k3s_stg_token_ttl }}"
+WAIT_SECONDS="{{ openwrt_gentoo_k3s_stg_token_wait_seconds }}"
+SERVER_API_URL="{{ openwrt_gentoo_k3s_stg_server_api_url }}"
+LOCAL_API_URL="https://127.0.0.1:6443"
+DESCRIPTION="pxe-stg-agent-join"
+
+now_epoch() {
+  date +%s 2>/dev/null || echo 0
+}
+
+server_readyz_ok() {
+  command -v k3s >/dev/null 2>&1 || return 1
+  k3s kubectl get --raw=/readyz >/dev/null 2>&1
+}
+
+fetch_ca_hash() {
+  api_url="${1%/}"
+  curl -skf "${api_url}/cacerts" | sha256sum | awk '{print $1}'
+}
+
+secure_token_ca_hash() {
+  token_value="$1"
+  case "${token_value}" in
+    K10*::*)
+      remainder="${token_value#K10}"
+      printf '%s\n' "${remainder%%::*}"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+has_role() {
+  role_name="$1"
+  roles_value="${ROLES:-${ROLE:-}}"
+  case ",${roles_value}," in
+    *",${role_name},"*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+if [ -f "${ROLE_ENV}" ]; then
+  # shellcheck disable=SC1090
+  . "${ROLE_ENV}"
+fi
+
+if ! has_role k3s_stg_server; then
+  echo "skip k3s stg token publish: ROLES=${ROLES:-${ROLE:-unknown}}"
+  exit 0
+fi
+
+if [ -z "${SERVER_API_URL}" ]; then
+  echo "k3s stg server api url is empty" >&2
+  exit 1
+fi
+
+deadline=$(( $(now_epoch) + WAIT_SECONDS ))
+while :; do
+  current_ca_hash=""
+  if command -v k3s >/dev/null 2>&1 \
+    && systemctl is-active --quiet k3s \
+    && server_readyz_ok \
+    && findmnt -n -T "${TOKEN_MOUNTPOINT}" 2>/dev/null | grep -q ' nfs' \
+    && current_ca_hash="$(fetch_ca_hash "${LOCAL_API_URL}" 2>/dev/null)" \
+    && [ -n "${current_ca_hash}" ]; then
+    break
+  fi
+  if [ "$(now_epoch)" -ge "${deadline}" ]; then
+    echo "k3s readyz or NFS logs mount not ready for token publish" >&2
+    exit 1
+  fi
+  sleep 10
+done
+
+mkdir -p "$(dirname "${TOKEN_FILE}")"
+tmp="${TOKEN_FILE}.tmp.$$"
+umask 0077
+k3s token create --ttl "${TOKEN_TTL}" --description "${DESCRIPTION}" > "${tmp}"
+token_value="$(tr -d '\r\n' < "${tmp}")"
+token_ca_hash="$(secure_token_ca_hash "${token_value}" 2>/dev/null || true)"
+if [ -z "${token_ca_hash}" ]; then
+  rm -f "${tmp}"
+  echo "published token is not a secure token" >&2
+  exit 1
+fi
+if [ "${token_ca_hash}" != "${current_ca_hash}" ]; then
+  rm -f "${tmp}"
+  echo "published token CA hash does not match current server CA hash" >&2
+  exit 1
+fi
+chmod 0600 "${tmp}"
+mv "${tmp}" "${TOKEN_FILE}"
+cat > "${TOKEN_FILE}.meta" <<EOF
+created_at=$(date -Iseconds 2>/dev/null || date)
+ttl=${TOKEN_TTL}
+description=${DESCRIPTION}
+publisher=${OVERLAY_ID:-unknown}
+api_url=${SERVER_API_URL}
+ca_hash=${current_ca_hash}
+token_ca_hash=${token_ca_hash}
+EOF
+chmod 0644 "${TOKEN_FILE}.meta"
+echo "published k3s stg agent token: ${TOKEN_FILE}"

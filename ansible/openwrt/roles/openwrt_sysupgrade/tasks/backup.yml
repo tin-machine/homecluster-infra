@@ -1,0 +1,15 @@
+---
+- name: sysupgrade バックアップを作成
+  ansible.builtin.shell: |
+    set -e
+    backup_path="{{ download_dir }}/backup-$(date +%Y%m%d-%H%M%S).tar.gz"
+    sysupgrade -b "$backup_path"
+    echo "$backup_path"
+  args:
+    executable: /bin/ash
+  register: sysupgrade_backup
+  changed_when: true
+
+- name: バックアップパスを記録
+  ansible.builtin.set_fact:
+    owrt_backup_path: "{{ (sysupgrade_backup.stdout_lines | default(['']))[-1] | trim }}"

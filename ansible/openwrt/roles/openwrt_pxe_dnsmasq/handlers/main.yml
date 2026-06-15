@@ -1,0 +1,13 @@
+---
+- name: Restart dnsmasq
+  ansible.builtin.shell: |
+    set -eu
+    for config in /var/etc/dnsmasq.conf.*; do
+      [ -f "$config" ] || continue
+      dnsmasq --test -C "$config"
+    done
+    /etc/init.d/dnsmasq restart
+  args:
+    executable: /bin/ash
+  become: true
+  changed_when: true

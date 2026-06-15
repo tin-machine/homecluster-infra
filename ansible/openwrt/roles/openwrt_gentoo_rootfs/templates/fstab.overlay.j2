@@ -1,0 +1,4 @@
+# Managed by Ansible (openwrt_gentoo_rootfs)
+#
+# __OVERLAY_ID__ はクライアント側のブートストラップスクリプトで実際の overlay ID に置換されます。
+overlayfs / overlayfs defaults,lowerdir={{ openwrt_gentoo_overlay_lowerdir }},upperdir={{ openwrt_gentoo_overlay_upperdir }},workdir={{ openwrt_gentoo_overlay_workdir }} 0 0

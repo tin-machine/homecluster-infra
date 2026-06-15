@@ -1,0 +1,19 @@
+fullnameOverride: kube-state-metrics
+podLabels:
+  app.kubernetes.io/name: kube-state-metrics
+  app.kubernetes.io/instance: kube-state-metrics
+  app.kubernetes.io/part-of: observability
+customLabels:
+  app.kubernetes.io/name: kube-state-metrics
+  app.kubernetes.io/instance: kube-state-metrics
+  app.kubernetes.io/part-of: observability
+service:
+  type: ClusterIP
+
+resources:
+  requests:
+    cpu: 150m
+    memory: 256Mi
+  limits:
+    cpu: 300m
+    memory: 512Mi

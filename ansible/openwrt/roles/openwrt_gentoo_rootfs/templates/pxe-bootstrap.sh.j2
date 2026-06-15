@@ -1,0 +1,442 @@
+#!/bin/sh
+# Managed by Ansible (openwrt_gentoo_rootfs)
+
+set -eu
+
+CONFIG_FILE="/etc/pxe-bootstrap.conf"
+ROLE_FILE="{{ openwrt_gentoo_role_output_path }}"
+ROLE_ENV_FILE="{{ openwrt_gentoo_role_env_output_path }}"
+
+PXE_BOOTSTRAP_ROOT_PREFIX_OVERRIDE="${PXE_BOOTSTRAP_ROOT_PREFIX_OVERRIDE:-}"
+PXE_BOOTSTRAP_RUN_PREFIX_OVERRIDE="${PXE_BOOTSTRAP_RUN_PREFIX_OVERRIDE:-}"
+
+apply_prefix_with() {
+  prefix="$1"
+  path="$2"
+  if [ -z "$prefix" ]; then
+    printf '%s' "$path"
+    return 0
+  fi
+  if [ "$path" = "/" ]; then
+    printf '%s' "$prefix"
+  else
+    printf '%s%s' "$prefix" "$path"
+  fi
+  return 0
+}
+
+CONFIG_FILE_PATH="$(apply_prefix_with "$PXE_BOOTSTRAP_ROOT_PREFIX_OVERRIDE" "$CONFIG_FILE")"
+
+if [ ! -r "$CONFIG_FILE_PATH" ]; then
+  echo "PXE bootstrap config $CONFIG_FILE_PATH not found" >&2
+  exit 1
+fi
+
+# shellcheck source=/dev/null
+. "$CONFIG_FILE_PATH"
+
+PXE_ROOT_PREFIX="${PXE_BOOTSTRAP_ROOT_PREFIX_OVERRIDE:-${PXE_BOOTSTRAP_ROOT_PREFIX:-}}"
+PXE_RUN_PREFIX="${PXE_BOOTSTRAP_RUN_PREFIX_OVERRIDE:-${PXE_BOOTSTRAP_RUN_PREFIX:-}}"
+
+prefixed_path() {
+  apply_prefix_with "$PXE_ROOT_PREFIX" "$1"
+}
+
+prefixed_run_path() {
+  apply_prefix_with "$PXE_RUN_PREFIX" "$1"
+}
+
+ROLE_FILE_PATH="$(prefixed_run_path "$ROLE_FILE")"
+ROLE_ENV_FILE_PATH="$(prefixed_run_path "$ROLE_ENV_FILE")"
+PXE_BOOTSTRAP_RUN_DIR_PATH="$(prefixed_run_path "$PXE_BOOTSTRAP_RUN_DIR")"
+PXE_BOOTSTRAP_ROOT_MOUNTPOINT_PATH="$(prefixed_run_path "$PXE_BOOTSTRAP_ROOT_MOUNTPOINT")"
+PXE_BOOTSTRAP_ROOT_LOWER_MOUNTPOINT_PATH="$(prefixed_run_path "$PXE_BOOTSTRAP_ROOT_LOWER_MOUNTPOINT")"
+PXE_BOOTSTRAP_OVERLAY_MOUNTPOINT_PATH="$(prefixed_run_path "$PXE_BOOTSTRAP_OVERLAY_MOUNTPOINT")"
+PXE_BOOTSTRAP_LOGS_MOUNTPOINT_PATH="$(prefixed_run_path "$PXE_BOOTSTRAP_LOGS_MOUNTPOINT")"
+# shellcheck disable=SC2034
+PXE_LOG_FILE_PATH=""
+PXE_DATE_BIN="$(command -v date || true)"
+PXE_BUSYBOX_BIN="$(command -v busybox || true)"
+PXE_DIRNAME_BIN="$(command -v dirname || true)"
+PXE_MODPROBE_BIN="$(command -v modprobe || true)"
+PXE_MOUNTPOINT_BIN="$(command -v mountpoint || true)"
+PXE_INSMOD_BIN="$(command -v insmod || true)"
+PXE_FIND_BIN="$(command -v find || true)"
+PXE_UNAME_BIN="$(command -v uname || true)"
+PXE_SYSROOT_PREFIX="${PXE_ROOT_PREFIX:-}"
+PXE_SYSROOT_LIB_MODULES="$(prefixed_path "/lib/modules")"
+
+rm_leading_trailing_spaces() {
+  # busybox には xargs -r が無いため printf/awk を使用
+  printf '%s' "$1" | awk '{$1=$1;print}'
+}
+
+current_timestamp() {
+  if [ -n "$PXE_DATE_BIN" ]; then
+    if "$PXE_DATE_BIN" -u '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null; then
+      return 0
+    fi
+    if "$PXE_DATE_BIN" '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null; then
+      return 0
+    fi
+  fi
+  if [ -n "$PXE_BUSYBOX_BIN" ]; then
+    if "$PXE_BUSYBOX_BIN" date -u '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null; then
+      return 0
+    fi
+    if "$PXE_BUSYBOX_BIN" date '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null; then
+      return 0
+    fi
+  fi
+  printf '%s\n' "1970-01-01T00:00:00Z"
+}
+
+find_kernel_module_path() {
+  module="$1"
+  kernel_release=""
+  if [ -n "$PXE_UNAME_BIN" ]; then
+    kernel_release="$("$PXE_UNAME_BIN" -r 2>/dev/null || true)"
+  else
+    kernel_release="$(uname -r 2>/dev/null || true)"
+  fi
+  if [ -z "$kernel_release" ]; then
+    return 1
+  fi
+  module_root="/lib/modules/$kernel_release"
+  candidate_paths="
+$module_root/kernel/fs/${module}/${module}.ko
+$module_root/kernel/fs/${module}fs/${module}.ko
+$module_root/kernel/fs/${module}/${module}.ko.xz
+$module_root/kernel/fs/${module}fs/${module}.ko.xz
+"
+  if [ "$module" = "overlay" ]; then
+    candidate_paths="
+$module_root/kernel/fs/overlayfs/overlay.ko
+$module_root/kernel/fs/overlayfs/overlay.ko.xz
+$candidate_paths
+"
+  fi
+  for candidate in $candidate_paths; do
+    if [ -f "$candidate" ]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+  if [ -d "$module_root" ]; then
+    if [ -n "$PXE_FIND_BIN" ]; then
+      found="$("$PXE_FIND_BIN" "$module_root" -name "${module}.ko" -print -quit 2>/dev/null || true)"
+    elif [ -n "$PXE_BUSYBOX_BIN" ]; then
+      found="$("$PXE_BUSYBOX_BIN" find "$module_root" -name "${module}.ko" -print -quit 2>/dev/null || true)"
+    else
+      found=""
+    fi
+    if [ -n "$found" ]; then
+      printf '%s\n' "$found"
+      return 0
+    fi
+  fi
+  return 1
+}
+
+load_kernel_module() {
+  module="$1"
+  if [ -n "$PXE_MODPROBE_BIN" ]; then
+    if [ -n "$PXE_ROOT_PREFIX" ]; then
+      if "$PXE_MODPROBE_BIN" -d "$PXE_ROOT_PREFIX" "$module" >/dev/null 2>&1; then
+        return 0
+      fi
+    fi
+    "$PXE_MODPROBE_BIN" -d / "$module" >/dev/null 2>&1 && return 0
+  fi
+  if [ -n "$PXE_BUSYBOX_BIN" ]; then
+    if [ -n "$PXE_ROOT_PREFIX" ]; then
+      if "$PXE_BUSYBOX_BIN" modprobe -d "$PXE_ROOT_PREFIX" "$module" >/dev/null 2>&1; then
+        return 0
+      fi
+    fi
+    "$PXE_BUSYBOX_BIN" modprobe -d / "$module" >/dev/null 2>&1 && return 0
+  fi
+  module_path="$(find_kernel_module_path "$module" || true)"
+  if [ -n "$module_path" ]; then
+    if [ -n "$PXE_INSMOD_BIN" ]; then
+      "$PXE_INSMOD_BIN" "$module_path" >/dev/null 2>&1 && return 0
+    fi
+    if [ -n "$PXE_BUSYBOX_BIN" ]; then
+      "$PXE_BUSYBOX_BIN" insmod "$module_path" >/dev/null 2>&1 && return 0
+    fi
+  fi
+  return 1
+}
+
+ensure_overlay_supported() {
+  if grep -q '^overlay' /proc/filesystems 2>/dev/null; then
+    return 0
+  fi
+  load_kernel_module overlay || true
+  grep -q '^overlay' /proc/filesystems 2>/dev/null || true
+}
+
+is_mountpoint() {
+  target="$1"
+  if [ -n "$PXE_MOUNTPOINT_BIN" ]; then
+    if "$PXE_MOUNTPOINT_BIN" -q "$target" 2>/dev/null; then
+      return 0
+    fi
+  fi
+  if [ -n "$PXE_BUSYBOX_BIN" ]; then
+    if "$PXE_BUSYBOX_BIN" mountpoint "$target" 2>/dev/null; then
+      return 0
+    fi
+  fi
+  grep -E -q "^[^ ]+ $target " /proc/mounts 2>/dev/null
+}
+
+log() {
+  timestamp="$(current_timestamp)"
+  message="$1"
+  if [ -n "$PXE_LOG_FILE_PATH" ]; then
+    (
+      umask 0077
+      log_dirname() {
+        target="$1"
+        if [ -n "$PXE_DIRNAME_BIN" ]; then
+          "$PXE_DIRNAME_BIN" "$target" 2>/dev/null && return 0
+        fi
+        if [ -n "$PXE_BUSYBOX_BIN" ]; then
+          "$PXE_BUSYBOX_BIN" dirname "$target" 2>/dev/null && return 0
+        fi
+        case "$target" in
+          */*)
+            printf '%s\n' "${target%/*}"
+            ;;
+          *)
+            printf '.\n'
+            ;;
+        esac
+        return 0
+      }
+      mkdir -p "$(log_dirname "$PXE_LOG_FILE_PATH")"
+      printf '%s %s\n' "$timestamp" "$message" >> "$PXE_LOG_FILE_PATH"
+    )
+  fi
+  printf '%s %s\n' "$timestamp" "$message"
+}
+
+set_overlay_context() {
+  id="$1"
+  role="$2"
+  extra="$3"
+  if [ -z "${PXE_OVERLAY_ID:-}" ]; then
+    PXE_OVERLAY_ID="$id"
+  fi
+  if [ -z "${PXE_OVERLAY_ROLE:-}" ] && [ -n "$role" ]; then
+    PXE_OVERLAY_ROLE="$role"
+  fi
+  if [ -z "${PXE_OVERLAY_EXTRA_VARS:-}" ] && [ -n "$extra" ]; then
+    PXE_OVERLAY_EXTRA_VARS="$extra"
+  fi
+  return 0
+}
+
+resolve_overlay_from_id() {
+  value="$1"
+  case "$value" in
+{% for client in openwrt_gentoo_overlay_clients_effective | default(openwrt_gentoo_overlay_clients | default([])) %}
+  {{ client.id | quote }})
+    set_overlay_context '{{ client.id }}' '{{ client.role | default('') }}' '{{ client.ansible_extra_vars | default('') | replace("'", "'\"'\"'") }}'
+    return 0
+    ;;
+{% endfor %}
+  esac
+  return 1
+}
+
+resolve_overlay_from_role() {
+  value="$1"
+  case "$value" in
+{% for client in openwrt_gentoo_overlay_clients_effective | default(openwrt_gentoo_overlay_clients | default([])) if client.role is defined %}
+  {{ client.role | quote }})
+    set_overlay_context '{{ client.id }}' '{{ client.role }}' '{{ client.ansible_extra_vars | default('') | replace("'", "'\"'\"'") }}'
+    return 0
+    ;;
+{% endfor %}
+  esac
+  return 1
+}
+
+resolve_overlay_from_option() {
+  value="$1"
+  case "$value" in
+{% for client in openwrt_gentoo_overlay_clients_effective | default(openwrt_gentoo_overlay_clients | default([])) if client.option_value is defined %}
+  {{ client.option_value | quote }})
+    set_overlay_context '{{ client.id }}' '{{ client.role | default('') }}' '{{ client.ansible_extra_vars | default('') | replace("'", "'\"'\"'") }}'
+    return 0
+    ;;
+{% endfor %}
+  esac
+  return 1
+}
+
+render_template_path() {
+  template_value="$1"
+  overlay_id="$2"
+  token="{{ openwrt_gentoo_overlay_token }}"
+  printf '%s' "$template_value" | sed "s%$token%$overlay_id%g"
+}
+
+mount_nfs_if_needed() {
+  server_path="$1"
+  mountpoint="$2"
+  options="$3"
+  if is_mountpoint "$mountpoint"; then
+    return 0
+  fi
+  mkdir -p "$mountpoint"
+  if [ -n "$options" ]; then
+    mount -t nfs -o "$options" "$server_path" "$mountpoint"
+  else
+    mount -t nfs "$server_path" "$mountpoint"
+  fi
+}
+
+if [ -z "$PXE_BOOTSTRAP_SERVER" ]; then
+  log "PXE_BOOTSTRAP_SERVER is not defined"
+  exit 1
+fi
+
+if [ -z "$PXE_BOOTSTRAP_LOG_EXPORT" ]; then
+  log "log export path is not defined"
+  exit 1
+fi
+
+if [ "${PXE_BOOTSTRAP_OVERLAY_REMOTE_ENABLED:-0}" -eq 1 ] && [ -z "${PXE_BOOTSTRAP_OVERLAY_EXPORT:-}" ]; then
+  log "overlay export path is not defined while remote overlay is enabled"
+  exit 1
+fi
+
+mkdir -p "$PXE_BOOTSTRAP_RUN_DIR_PATH"
+mkdir -p "$PXE_BOOTSTRAP_ROOT_MOUNTPOINT_PATH"
+mkdir -p "$PXE_BOOTSTRAP_ROOT_LOWER_MOUNTPOINT_PATH"
+mkdir -p "$PXE_BOOTSTRAP_OVERLAY_MOUNTPOINT_PATH"
+mkdir -p "$PXE_BOOTSTRAP_LOGS_MOUNTPOINT_PATH"
+
+PXE_RAW_OPTION=""
+if [ -n "$ROLE_FILE" ] && [ -f "$ROLE_FILE_PATH" ]; then
+  PXE_RAW_OPTION="$(cat "$ROLE_FILE_PATH" 2>/dev/null || true)"
+  PXE_RAW_OPTION="$(rm_leading_trailing_spaces "$PXE_RAW_OPTION")"
+fi
+
+PXE_OVERLAY_ID=""
+PXE_OVERLAY_ROLE=""
+PXE_OVERLAY_STAGE=""
+PXE_OVERLAY_EXTRA_VARS=""
+PXE_ENV_OVERLAY_ID=""
+PXE_ENV_ROLE=""
+PXE_ENV_STAGE=""
+
+if [ -z "$PXE_RAW_OPTION" ] && [ -n "$ROLE_ENV_FILE" ] && [ -f "$ROLE_ENV_FILE_PATH" ]; then
+  while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    case "$line" in
+      OVERLAY_ID=*)
+        PXE_ENV_OVERLAY_ID="${line#OVERLAY_ID=}"
+        ;;
+      ROLE=*)
+        PXE_ENV_ROLE="${line#ROLE=}"
+        ;;
+      STAGE=*)
+        PXE_ENV_STAGE="${line#STAGE=}"
+        ;;
+      RAW_OPTION_224=*)
+        PXE_RAW_OPTION="$(printf '%s' "${line#RAW_OPTION_224=}" | rm_leading_trailing_spaces)"
+        ;;
+    esac
+  done < "$ROLE_ENV_FILE_PATH"
+fi
+
+if [ -z "$PXE_OVERLAY_ID" ] && [ -n "$PXE_ENV_OVERLAY_ID" ]; then
+  PXE_OVERLAY_ID="$PXE_ENV_OVERLAY_ID"
+fi
+if [ -z "$PXE_OVERLAY_ROLE" ] && [ -n "$PXE_ENV_ROLE" ]; then
+  PXE_OVERLAY_ROLE="$PXE_ENV_ROLE"
+fi
+if [ -z "$PXE_OVERLAY_STAGE" ] && [ -n "$PXE_ENV_STAGE" ]; then
+  PXE_OVERLAY_STAGE="$PXE_ENV_STAGE"
+fi
+
+if [ -n "$PXE_RAW_OPTION" ]; then
+  resolve_overlay_from_option "$PXE_RAW_OPTION" || true
+  if [ -z "$PXE_OVERLAY_ID" ]; then
+    formatted="$(printf '%s' "$PXE_RAW_OPTION" | tr "$PXE_BOOTSTRAP_OPTION_SEPARATOR" '\n')"
+    for entry in $formatted; do
+      entry="$(rm_leading_trailing_spaces "$entry")"
+      case "$entry" in
+        *=*)
+          key="$(printf '%s' "${entry%%=*}" | awk '{print tolower($0)}')"
+          value="${entry#*=}"
+          if [ "$key" = "$PXE_BOOTSTRAP_OPTION_OVERLAY_KEY" ]; then
+            resolve_overlay_from_id "$value" || set_overlay_context "$value" "" ""
+          elif [ "$key" = "$PXE_BOOTSTRAP_OPTION_ROLE_KEY" ]; then
+            PXE_OVERLAY_ROLE="$value"
+            resolve_overlay_from_role "$value" || true
+          else
+            resolve_overlay_from_id "$value" || resolve_overlay_from_role "$value" || true
+          fi
+          ;;
+        *)
+          PXE_OVERLAY_ROLE="$entry"
+          resolve_overlay_from_role "$entry" || resolve_overlay_from_id "$entry" || true
+          ;;
+      esac
+    done
+  fi
+fi
+
+if [ -z "$PXE_OVERLAY_ID" ] && [ -n "$PXE_OVERLAY_ROLE" ]; then
+  resolve_overlay_from_role "$PXE_OVERLAY_ROLE" || true
+fi
+
+if [ -z "$PXE_OVERLAY_ID" ] && [ -n "$PXE_BOOTSTRAP_DEFAULT_ROLE" ]; then
+  resolve_overlay_from_role "$PXE_BOOTSTRAP_DEFAULT_ROLE" || resolve_overlay_from_id "$PXE_BOOTSTRAP_DEFAULT_ROLE" || true
+fi
+
+if [ -z "$PXE_OVERLAY_ID" ]; then
+  log "overlay ID could not be resolved (option='$PXE_RAW_OPTION')"
+  exit 1
+fi
+
+LOWER_TEMPLATE="$(render_template_path "$PXE_BOOTSTRAP_OVERLAY_LOWER_TEMPLATE" "$PXE_OVERLAY_ID")"
+UPPER_TEMPLATE="$(render_template_path "$PXE_BOOTSTRAP_OVERLAY_UPPER_TEMPLATE" "$PXE_OVERLAY_ID")"
+WORK_TEMPLATE="$(render_template_path "$PXE_BOOTSTRAP_OVERLAY_WORK_TEMPLATE" "$PXE_OVERLAY_ID")"
+LOG_DIR_TEMPLATE="$(render_template_path "$PXE_BOOTSTRAP_LOG_TEMPLATE" "$PXE_OVERLAY_ID")"
+PXE_LOG_FILE_TEMPLATE="$(render_template_path "$PXE_BOOTSTRAP_LOG_FILE_TEMPLATE" "$PXE_OVERLAY_ID")"
+
+LOWER_PATH="$(prefixed_run_path "$LOWER_TEMPLATE")"
+UPPER_PATH="$(prefixed_run_path "$UPPER_TEMPLATE")"
+WORK_PATH="$(prefixed_run_path "$WORK_TEMPLATE")"
+LOG_DIR_PATH="$(prefixed_run_path "$LOG_DIR_TEMPLATE")"
+PXE_LOG_FILE_PATH="$(prefixed_run_path "$PXE_LOG_FILE_TEMPLATE")"
+
+log "resolved overlay ID: $PXE_OVERLAY_ID role: ${PXE_OVERLAY_ROLE:-unknown}"
+
+if [ "${PXE_BOOTSTRAP_OVERLAY_REMOTE_ENABLED:-0}" -eq 1 ]; then
+  if [ -z "${PXE_BOOTSTRAP_OVERLAY_EXPORT:-}" ]; then
+    log "overlay export path is not defined while remote overlay is enabled"
+    exit 1
+  fi
+  mount_nfs_if_needed "${PXE_BOOTSTRAP_SERVER}:${PXE_BOOTSTRAP_OVERLAY_EXPORT}" "$PXE_BOOTSTRAP_OVERLAY_MOUNTPOINT_PATH" "$PXE_BOOTSTRAP_OVERLAY_MOUNT_OPTIONS"
+else
+  mkdir -p "$PXE_BOOTSTRAP_OVERLAY_MOUNTPOINT_PATH"
+fi
+
+mount_nfs_if_needed "${PXE_BOOTSTRAP_SERVER}:${PXE_BOOTSTRAP_LOG_EXPORT}" "$PXE_BOOTSTRAP_LOGS_MOUNTPOINT_PATH" "$PXE_BOOTSTRAP_LOGS_MOUNT_OPTIONS"
+
+PXE_COMBINED_EXTRA="pxe_overlay_id=$PXE_OVERLAY_ID"
+if [ -n "$PXE_OVERLAY_EXTRA_VARS" ]; then
+  PXE_COMBINED_EXTRA="$PXE_COMBINED_EXTRA $PXE_OVERLAY_EXTRA_VARS"
+fi
+export PXE_EXTRA_VARS="$PXE_COMBINED_EXTRA"
+
+log "pxe bootstrap completed"
+
+exit 0

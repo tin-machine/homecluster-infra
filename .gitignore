@@ -1,0 +1,20 @@
+# Terraform local state and caches
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+
+# Local overrides / secrets
+override.tf
+override.tf.json
+*.tfvars
+*.tfvars.json
+
+# Ansible runtime artifacts
+*.retry
+**/.ansible/
+
+# Python bytecode
+__pycache__/
+*.py[cod]

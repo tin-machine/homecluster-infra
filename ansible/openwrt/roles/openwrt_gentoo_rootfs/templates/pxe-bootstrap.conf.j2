@@ -1,0 +1,27 @@
+# Managed by Ansible (openwrt_gentoo_rootfs)
+
+PXE_BOOTSTRAP_SERVER="{{ openwrt_gentoo_server_host }}"
+PXE_BOOTSTRAP_OPTION_SEPARATOR="{{ openwrt_gentoo_option_separator }}"
+PXE_BOOTSTRAP_OPTION_OVERLAY_KEY="{{ openwrt_gentoo_option_overlay_key }}"
+PXE_BOOTSTRAP_OPTION_ROLE_KEY="{{ openwrt_gentoo_option_role_key }}"
+PXE_BOOTSTRAP_DEFAULT_ROLE="{{ openwrt_gentoo_default_role }}"
+
+PXE_BOOTSTRAP_RUN_DIR="{{ openwrt_gentoo_bootstrap_run_dir }}"
+PXE_BOOTSTRAP_ROOT_PREFIX="{{ openwrt_gentoo_bootstrap_root_prefix }}"
+PXE_BOOTSTRAP_ROOT_LOWER_MOUNTPOINT="{{ openwrt_gentoo_bootstrap_root_lower_mountpoint }}"
+PXE_BOOTSTRAP_ROOT_MOUNTPOINT="{{ openwrt_gentoo_bootstrap_root_mountpoint }}"
+PXE_BOOTSTRAP_OVERLAY_MOUNTPOINT="{{ openwrt_gentoo_bootstrap_overlay_mountpoint }}"
+PXE_BOOTSTRAP_LOGS_MOUNTPOINT="{{ openwrt_gentoo_bootstrap_logs_mountpoint }}"
+
+PXE_BOOTSTRAP_OVERLAY_REMOTE_ENABLED="{{ 1 if openwrt_gentoo_overlay_remote_enabled | bool else 0 }}"
+PXE_BOOTSTRAP_OVERLAY_EXPORT="{{ openwrt_gentoo_overlay_remote_enabled | bool | ternary(openwrt_gentoo_overlay_export_path, '') }}"
+PXE_BOOTSTRAP_LOG_EXPORT="{{ openwrt_gentoo_logs_export_path }}"
+
+PXE_BOOTSTRAP_OVERLAY_MOUNT_OPTIONS="{{ openwrt_gentoo_bootstrap_overlay_mount_options }}"
+PXE_BOOTSTRAP_LOGS_MOUNT_OPTIONS="{{ openwrt_gentoo_bootstrap_logs_mount_options }}"
+
+PXE_BOOTSTRAP_OVERLAY_LOWER_TEMPLATE="{{ openwrt_gentoo_overlay_lowerdir }}"
+PXE_BOOTSTRAP_OVERLAY_UPPER_TEMPLATE="{{ openwrt_gentoo_overlay_upperdir }}"
+PXE_BOOTSTRAP_OVERLAY_WORK_TEMPLATE="{{ openwrt_gentoo_overlay_workdir }}"
+PXE_BOOTSTRAP_LOG_TEMPLATE="{{ openwrt_gentoo_logs_dir_template }}"
+PXE_BOOTSTRAP_LOG_FILE_TEMPLATE="{{ openwrt_gentoo_bootstrap_log_file_template }}"

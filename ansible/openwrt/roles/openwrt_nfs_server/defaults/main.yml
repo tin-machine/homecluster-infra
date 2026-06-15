@@ -1,0 +1,56 @@
+---
+# OpenWrt NFS サーバーロールのデフォルト値
+
+openwrt_nfs_server_enabled: true
+
+openwrt_nfs_packages:
+  - nfs-kernel-server
+  - rpcbind
+  - kmod-fs-nfs
+  - kmod-fs-nfs-common
+  - kmod-fs-nfs-v4
+  - kmod-fs-nfsd
+  - kmod-fs-exportfs
+
+# /srv/gentoo を RW で公開するかなどの切り替えに使用（fsid=0 は /srv/gentoo に付与）
+openwrt_nfs_gentoo_export_options: ro,nohide,no_subtree_check,no_root_squash,fsid=0
+
+# エクスポート設定。clients は exports の末尾に追加されるホスト指定（例: "*", "192.0.2.0/24"）
+openwrt_nfs_exports:
+  # 擬似ルート（fsid=0）は /srv/gentoo に付与し、/srv は通常エクスポートのみとする。
+  - path: /srv
+    ensure_dir: true
+    clients:
+      - host: "*"
+        options: rw,crossmnt,no_subtree_check,no_root_squash
+  - path: /srv/gentoo
+    ensure_dir: true
+    clients:
+      - host: "*"
+        options: "{{ openwrt_nfs_gentoo_export_options }}"
+  - path: /srv/nfs/overlay
+    ensure_dir: true
+    clients:
+      - host: "*"
+        options: rw,no_subtree_check,no_root_squash
+  - path: /srv/nfs/ansible-logs
+    ensure_dir: true
+    clients:
+      - host: "*"
+        options: rw,no_subtree_check,no_root_squash
+  - path: /srv/nfs/terraform-state
+    ensure_dir: true
+    clients:
+      - host: "*"
+        options: rw,no_subtree_check,no_root_squash
+
+# /etc/exports に追加で記述したい行がある場合に使用
+openwrt_nfs_extra_lines: []
+
+# export item 側で owner/group/mode を省略した場合のパス別ディレクトリ属性。
+# /srv/gentoo/distfiles は Portage cache として group write を維持する。
+openwrt_nfs_export_dir_defaults:
+  /srv/gentoo/distfiles:
+    owner: root
+    group: '250'
+    mode: '0775'

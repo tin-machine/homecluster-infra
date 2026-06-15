@@ -1,0 +1,11 @@
+[Unit]
+Description=Trigger PXE role write on DHCP lease changes
+StartLimitIntervalSec=0
+StartLimitBurst=0
+
+[Path]
+PathChanged={{ openwrt_gentoo_networkd_lease_dir }}/*
+Unit={{ openwrt_gentoo_networkd_role_service }}
+
+[Install]
+WantedBy=multi-user.target
