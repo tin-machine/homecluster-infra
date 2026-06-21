@@ -13,3 +13,48 @@
 - name: バックアップパスを記録
   ansible.builtin.set_fact:
     owrt_backup_path: "{{ (sysupgrade_backup.stdout_lines | default(['']))[-1] | trim }}"
+
+- name: backup fetch destination を正規化
+  ansible.builtin.set_fact:
+    owrt_backup_fetch_dir: "{{ backup_dest | expanduser }}/{{ inventory_hostname }}"
+    owrt_backup_fetch_path: "{{ backup_dest | expanduser }}/{{ inventory_hostname }}/{{ owrt_backup_path | basename }}"
+  when: backup_fetch_enabled | bool
+
+- name: backup fetch destination を作成
+  ansible.builtin.file:
+    path: "{{ owrt_backup_fetch_dir }}"
+    state: directory
+    mode: "0700"
+  delegate_to: localhost
+  when: backup_fetch_enabled | bool
+
+- name: sysupgrade backup を control node へ fetch
+  ansible.builtin.fetch:
+    src: "{{ owrt_backup_path }}"
+    dest: "{{ owrt_backup_fetch_path }}"
+    flat: true
+  when: backup_fetch_enabled | bool
+
+- name: fetched backup metadata を取得
+  ansible.builtin.stat:
+    path: "{{ owrt_backup_fetch_path }}"
+    get_checksum: true
+    checksum_algorithm: sha256
+  register: owrt_backup_fetch_stat
+  delegate_to: localhost
+  when: backup_fetch_enabled | bool
+
+- name: fetched backup metadata を記録
+  ansible.builtin.set_fact:
+    owrt_backup_fetch_size: "{{ owrt_backup_fetch_stat.stat.size }}"
+    owrt_backup_fetch_sha256: "{{ owrt_backup_fetch_stat.stat.checksum }}"
+  when: backup_fetch_enabled | bool
+
+- name: fetched backup summary を表示
+  ansible.builtin.debug:
+    msg:
+      router_backup_path: "{{ owrt_backup_path }}"
+      fetched_backup_path: "{{ owrt_backup_fetch_path }}"
+      fetched_backup_size: "{{ owrt_backup_fetch_size }}"
+      fetched_backup_sha256: "{{ owrt_backup_fetch_sha256 }}"
+  when: backup_fetch_enabled | bool
