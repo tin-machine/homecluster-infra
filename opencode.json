@@ -1,0 +1,15 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "permission": {
+    "skill": {
+      "*": "ask",
+      "homecluster-ansible-implementer": "allow"
+    },
+    "external_directory": {
+      "~/ghq/**/homecluster-runbook/docs/operation/**": "allow"
+    },
+    "edit": {
+      "~/ghq/**/homecluster-runbook/docs/operation/**": "deny"
+    }
+  }
+}

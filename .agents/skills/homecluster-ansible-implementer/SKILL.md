@@ -22,10 +22,13 @@ Use this skill for Ansible implementation work in `homecluster-infra`.
    - `docs/full-execution-validation.md` for verification expectations
 4. Read [references/ansible-implementation-rules.md](references/ansible-implementation-rules.md)
    before making changes. It contains the local Ansible conventions and guardrails.
-5. Inspect the nearest existing role/playbook and copy its style before adding new structure.
-6. Keep changes scoped. Update docs or runbooks when the behavior, operator gate, or verification
+5. For local LLM or OpenCode implementation runs, also read
+   [references/local-llm-review-checklist.md](references/local-llm-review-checklist.md). It is a
+   low-freedom checklist for the failure modes seen in this repository.
+6. Inspect the nearest existing role/playbook and copy its style before adding new structure.
+7. Keep changes scoped. Update docs or runbooks when the behavior, operator gate, or verification
    path changes.
-7. Verify with syntax/static checks appropriate to the changed entrypoints. Treat `--check` as
+8. Verify with syntax/static checks appropriate to the changed entrypoints. Treat `--check` as
    potentially state-touching, not as a read-only proof.
 
 ## Design Priorities
@@ -50,6 +53,7 @@ Prefer these checks after implementation, adjusted to the changed entrypoint:
 bash scripts/ci/static-check.sh
 RUN_ANSIBLE_SYNTAX=1 RUN_ANSIBLE_LIST_TASKS=1 RUN_TERRAFORM_VALIDATE=1 \
   bash scripts/ci/static-check.sh
+./.agents/skills/homecluster-ansible-implementer/scripts/review_changed_ansible.sh
 ansible-playbook -i ../inventory.yml \
   ansible/openwrt/site.yml -l <host> --syntax-check
 ansible-playbook -i ../inventory.yml \
