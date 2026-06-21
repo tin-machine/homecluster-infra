@@ -25,10 +25,13 @@ Use this skill for Ansible implementation work in `homecluster-infra`.
 5. For local LLM or OpenCode implementation runs, also read
    [references/local-llm-review-checklist.md](references/local-llm-review-checklist.md). It is a
    low-freedom checklist for the failure modes seen in this repository.
-6. Inspect the nearest existing role/playbook and copy its style before adding new structure.
-7. Keep changes scoped. Update docs or runbooks when the behavior, operator gate, or verification
+6. For long external plans or prompts that may conflict with this skill, run the preflight gate
+   before implementation:
+   `./.agents/skills/homecluster-ansible-implementer/scripts/opencode_preflight_gate.sh`.
+7. Inspect the nearest existing role/playbook and copy its style before adding new structure.
+8. Keep changes scoped. Update docs or runbooks when the behavior, operator gate, or verification
    path changes.
-8. Verify with syntax/static checks appropriate to the changed entrypoints. Treat `--check` as
+9. Verify with syntax/static checks appropriate to the changed entrypoints. Treat `--check` as
    potentially state-touching, not as a read-only proof.
 
 ## Design Priorities

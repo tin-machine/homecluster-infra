@@ -3,9 +3,17 @@ set -euo pipefail
 
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
+failures=0
+
+record_failure() {
+  failures=$((failures + 1))
+  echo "FAILED: $*" >&2
+}
 
 echo "== skill review: diff whitespace =="
-git diff --check
+if ! git diff --check; then
+  record_failure "git diff --check reported whitespace or patch formatting issues"
+fi
 
 echo
 echo "== skill review: changed files =="
@@ -46,8 +54,7 @@ if ((${#public_files[@]} > 0)); then
   )
   for pattern in "${redaction_patterns[@]}"; do
     if rg -n "$pattern" "${public_files[@]}"; then
-      echo "public redaction pattern found in changed files" >&2
-      exit 1
+      record_failure "public redaction pattern found in changed files"
     fi
   done
 else
@@ -74,14 +81,133 @@ if [[ -f "$defaults_file" ]]; then
     wait_for_reconnect
     wait_for_reconnect_delay
     wait_for_reconnect_timeout
+    backup_fetch_enabled
+    backup_dest
+    sysupgrade_confirm
   )
   for key in "${required_keys[@]}"; do
     if ! rg -q "^${key}:" "$defaults_file"; then
-      echo "missing required existing default key: ${key}" >&2
-      exit 1
+      record_failure "missing required existing default key: ${key}"
     fi
   done
-  echo "openwrt_sysupgrade defaults keys present"
+  if ((failures == 0)); then
+    echo "openwrt_sysupgrade defaults keys present"
+  else
+    echo "openwrt_sysupgrade defaults key check completed with failures"
+  fi
+fi
+
+echo
+echo "== skill review: openwrt_sysupgrade README public variables =="
+sysupgrade_readme="ansible/openwrt/roles/openwrt_sysupgrade/README.md"
+if [[ -f "$sysupgrade_readme" ]]; then
+  readme_required_patterns=(
+    "openwrt_sysupgrade_backup_fetch_enabled"
+    "openwrt_sysupgrade_backup_dest"
+    "openwrt_sysupgrade_confirm"
+    "router.example"
+    "SHA256"
+  )
+  for pattern in "${readme_required_patterns[@]}"; do
+    if ! rg -q "$pattern" "$sysupgrade_readme"; then
+      record_failure "openwrt_sysupgrade README lost expected public documentation pattern: ${pattern}"
+    fi
+  done
+fi
+
+echo
+echo "== skill review: OpenWrt site entrypoint preservation =="
+site_file="ansible/openwrt/site.yml"
+if [[ -f "$site_file" ]]; then
+  site_required_patterns=(
+    "^- name: OpenWrt PXE infrastructure$"
+    "^  hosts: openwrt$"
+    "^  gather_facts: false$"
+    "^  become: false$"
+    "^    - role: bootstrap_python$"
+    "^    - role: openwrt_storage$"
+    "^    - role: openwrt_pxe_client_catalog$"
+    "^    - role: openwrt_gentoo_rootfs$"
+    "^    - role: openwrt_backup_share$"
+    "^    - role: openwrt_nfs_server$"
+    "^    - role: openwrt_network$"
+    "^    - role: openwrt_ntp$"
+    "^    - role: openwrt_firewall$"
+    "^    - role: openwrt_banip$"
+    "^    - role: openwrt_dhcp$"
+    "^    - role: openwrt_pxe_dnsmasq$"
+    "^    - role: openwrt_wireless$"
+    "^    - role: openwrt_sysupgrade$"
+    "^    - role: openwrt_frr$"
+    "^    - role: openwrt_prometheus_exporter$"
+    "^    - role: openwrt_syslog_remote$"
+    "^  tasks:$"
+    "tasks_from: tftp_switch"
+    "tasks_from: networkd_config"
+    "tasks_from: rootfs_clone"
+    "tasks_from: rootfs_prune"
+  )
+  for pattern in "${site_required_patterns[@]}"; do
+    if ! rg -q "$pattern" "$site_file"; then
+      record_failure "OpenWrt site entrypoint lost expected pattern: ${pattern}"
+    fi
+  done
+fi
+
+echo
+echo "== skill review: openwrt_sysupgrade backup and confirmation flow =="
+backup_tasks_file="ansible/openwrt/roles/openwrt_sysupgrade/tasks/backup.yml"
+main_tasks_file="ansible/openwrt/roles/openwrt_sysupgrade/tasks/main.yml"
+if [[ -f "$backup_tasks_file" && -f "$main_tasks_file" ]]; then
+  flow_required_patterns=(
+    "owrt_backup_path:"
+    "ansible.builtin.fetch:"
+    "checksum_algorithm: sha256"
+    "fetched_backup_sha256:"
+    "owrt_sysupgrade_confirm_expected:"
+    "ansible.builtin.assert:"
+    "ansible.builtin.import_tasks: upgrade.yml"
+  )
+  for pattern in "${flow_required_patterns[@]}"; do
+    if ! rg -q "$pattern" "$backup_tasks_file" "$main_tasks_file"; then
+      record_failure "openwrt_sysupgrade flow lost expected pattern: ${pattern}"
+    fi
+  done
+
+  backup_import_line="$(rg -n "ansible.builtin.import_tasks: backup.yml" "$main_tasks_file" | head -n1 | cut -d: -f1 || true)"
+  confirm_assert_line="$(rg -n "sysupgrade 実行 confirmation を検証" "$main_tasks_file" | head -n1 | cut -d: -f1 || true)"
+  upgrade_import_line="$(rg -n "ansible.builtin.import_tasks: upgrade.yml" "$main_tasks_file" | head -n1 | cut -d: -f1 || true)"
+  if [[ -n "$backup_import_line" && -n "$confirm_assert_line" && -n "$upgrade_import_line" ]]; then
+    if ! ((backup_import_line < confirm_assert_line && confirm_assert_line < upgrade_import_line)); then
+      record_failure "openwrt_sysupgrade confirmation guard must be after backup.yml and before upgrade.yml"
+    fi
+  else
+    record_failure "openwrt_sysupgrade flow line ordering could not be determined"
+  fi
+fi
+
+echo
+echo "== skill review: runbook read-only boundary =="
+if [[ "${SKIP_RUNBOOK_DIRTY_CHECK:-0}" != "1" ]]; then
+  runbook_dir="$(cd "$repo_root/../homecluster-runbook" 2>/dev/null && pwd || true)"
+  runbook_scope="docs/operation"
+  if [[ -n "$runbook_dir" && -d "$runbook_dir/.git" && -d "$runbook_dir/$runbook_scope" ]]; then
+    if ! git -C "$runbook_dir" diff --quiet -- "$runbook_scope"; then
+      echo "tracked runbook files changed during an infra implementation run: $runbook_scope" >&2
+      echo "Revert it or report proposed wording instead. Set SKIP_RUNBOOK_DIRTY_CHECK=1 only when explicitly editing the runbook." >&2
+      record_failure "tracked runbook operation docs changed during an infra implementation run"
+    fi
+  else
+    echo "sibling runbook repository not found; skipping"
+  fi
+else
+  echo "skipped by SKIP_RUNBOOK_DIRTY_CHECK=1"
+fi
+
+if ((failures > 0)); then
+  echo
+  echo "skill review failed before repository static checks; fix the failures above and rerun this script." >&2
+  exit 1
 fi
 
 echo

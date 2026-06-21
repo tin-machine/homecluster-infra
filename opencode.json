@@ -6,10 +6,32 @@
       "homecluster-ansible-implementer": "allow"
     },
     "external_directory": {
-      "~/ghq/**/homecluster-runbook/docs/operation/**": "allow"
+      "~/ghq/**/homecluster-runbook/docs/operation/**": "allow",
+      "/home/*/ghq/**/homecluster-runbook/docs/operation/**": "allow"
     },
     "edit": {
-      "~/ghq/**/homecluster-runbook/docs/operation/**": "deny"
+      "*": "allow",
+      "~/ghq/**/homecluster-runbook/docs/operation/**": "deny",
+      "/home/*/ghq/**/homecluster-runbook/docs/operation/**": "deny"
+    },
+    "bash": {
+      "*": "ask",
+      "git status*": "allow",
+      "git branch --show-current": "allow",
+      "git rev-parse*": "allow",
+      "git diff*": "allow",
+      "git show*": "allow",
+      "git ls-files*": "allow",
+      "ls *": "allow",
+      "rg *": "allow",
+      "sed -n *": "allow",
+      "bash scripts/ci/static-check.sh": "allow",
+      "./.agents/skills/homecluster-ansible-implementer/scripts/opencode_preflight_gate.sh *": "allow",
+      "./.agents/skills/homecluster-ansible-implementer/scripts/review_changed_ansible.sh": "allow",
+      "ansible-playbook *examples/inventory.yml*": "allow",
+      "ansible-playbook *../inventory.yml*": "deny",
+      "ansible-playbook */home/*/ghq/*/inventory.yml*": "deny",
+      "ansible-playbook *homecluster-inventory*": "deny"
     }
   }
 }
