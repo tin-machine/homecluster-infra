@@ -1,0 +1,4 @@
+interface:
+  display_name: "Homecluster Ansible Implementer"
+  short_description: "Implement homecluster-infra Ansible changes"
+  default_prompt: "Use $homecluster-ansible-implementer to implement an Ansible role change in homecluster-infra following local repository conventions."
