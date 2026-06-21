@@ -49,6 +49,12 @@
       sysupgrade_confirm: "{{ openwrt_sysupgrade_confirm | default('') }}"
       verify_sha256: "{{ openwrt_verify_sha256 | default(true) }}"
       verify_md5: "{{ openwrt_verify_md5 | default(true) }}"
+      sysupgrade_mode: >-
+        {{ openwrt_sysupgrade_mode
+           | default((openwrt_perform_upgrade | default(false) | bool) | ternary('upgrade', 'detect')) }}
+      recovery_file_ready: "{{ openwrt_sysupgrade_recovery_file_ready | default(false) }}"
+      serial_or_usb_recovery_ready: "{{ openwrt_sysupgrade_serial_or_usb_recovery_ready | default(false) }}"
+      k3s_baseline_ready: "{{ openwrt_sysupgrade_k3s_baseline_ready | default(false) }}"
     - role: openwrt_frr
       tags: ['frr', 'openwrt_frr']
       when: openwrt_enable_frr | default(false)

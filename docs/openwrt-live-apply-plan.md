@@ -202,28 +202,44 @@ ssh root@router.example 'for config in /var/etc/dnsmasq.conf.*; do dnsmasq --tes
 --tags sysupgrade
 ```
 
-detect-only 確認では `openwrt_perform_upgrade=false` を明示する。
+detect-only 確認では `openwrt_sysupgrade_mode=detect` を明示する。互換用に
+`openwrt_perform_upgrade=false` でも detect-only を明示できる。
 
 ```bash
 ansible-playbook -i /path/to/site-inventory.yml \
   ansible/openwrt/site.yml -l router.example --tags sysupgrade \
-  -e openwrt_perform_upgrade=false
+  -e openwrt_sysupgrade_mode=detect
 ```
 
-upgrade を行う場合は、直前に private backup と recovery path を確認してから `openwrt_perform_upgrade=true` で実行する。
+`prepare` は image verify、router config backup 作成、control node への fetch、size/SHA256 表示までを
+行い、実 sysupgrade には進まない。
+
+```bash
+ansible-playbook -i /path/to/site-inventory.yml \
+  ansible/openwrt/site.yml -l router.example --tags sysupgrade \
+  -e openwrt_sysupgrade_mode=prepare
+```
+
+upgrade を行う場合は、直前に private backup、recovery path、k3s baseline を確認してから
+`openwrt_sysupgrade_mode=upgrade` で実行する。
 
 ```bash
 ssh root@router.example 'cat /etc/openwrt_release; sysupgrade -l | sort'
 
 ansible-playbook -i /path/to/site-inventory.yml \
   ansible/openwrt/site.yml -l router.example --tags sysupgrade \
-  -e openwrt_perform_upgrade=true
+  -e openwrt_sysupgrade_mode=upgrade \
+  -e openwrt_sysupgrade_recovery_file_ready=true \
+  -e openwrt_sysupgrade_serial_or_usb_recovery_ready=true \
+  -e openwrt_sysupgrade_k3s_baseline_ready=true \
+  -e openwrt_sysupgrade_confirm='router.example 24.10.6'
 ```
 
 stop 条件:
 
 - router config backup を private storage へ取得していない。
 - OpenWrt recovery、serial console、または物理 access のいずれも確認できない。
+- `openwrt_sysupgrade_mode=upgrade` なのに recovery readiness flags が揃っていない。
 - target release / image URL / checksum が review されていない。
 - upgrade 後の management IP、host key continuity、DHCP renew 手順が未確認。
 

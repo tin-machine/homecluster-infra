@@ -5,6 +5,21 @@
       - branch_type in ["releases", "snapshots"]
     fail_msg: "branch_type には releases または snapshots を指定してください。"
 
+- name: sysupgrade mode を決定
+  ansible.builtin.set_fact:
+    owrt_sysupgrade_mode: >-
+      {{
+        ((sysupgrade_mode | default('', true) | string | trim) | length > 0)
+        | ternary(sysupgrade_mode | string | trim,
+                  (perform_upgrade | default(false) | bool) | ternary('upgrade', 'detect'))
+      }}
+
+- name: sysupgrade mode が正しい値か検証
+  ansible.builtin.assert:
+    that:
+      - owrt_sysupgrade_mode in ["detect", "prepare", "upgrade"]
+    fail_msg: "sysupgrade mode には detect, prepare, upgrade のいずれかを指定してください。"
+
 - name: OpenWrt 情報を取得
   ansible.builtin.import_tasks: detect.yml
 
@@ -47,6 +62,7 @@
       current_release: "{{ owrt_current_release }}"
       target: "{{ owrt_upgrade_target }}"
       image_url: "{{ owrt_image_url }}"
+      sysupgrade_mode: "{{ owrt_sysupgrade_mode }}"
       upgrade_required: "{{ owrt_upgrade_required }}"
       release_version_inferred: "{{ owrt_release_version_inferred | default(false) }}"
 
@@ -54,31 +70,31 @@
   ansible.builtin.debug:
     msg: "ターゲット {{ owrt_upgrade_target }} に到達済みのため sysupgrade は実行しません。"
   when:
-    - perform_upgrade | bool
+    - owrt_sysupgrade_mode in ["prepare", "upgrade"]
     - not owrt_upgrade_required
 
 - name: sysupgrade の検証とダウンロード
   when:
-    - perform_upgrade | bool
+    - owrt_sysupgrade_mode in ["prepare", "upgrade"]
     - owrt_upgrade_required
   ansible.builtin.import_tasks: verify.yml
 
 - name: バックアップを取得
   when:
-    - perform_upgrade | bool
+    - owrt_sysupgrade_mode in ["prepare", "upgrade"]
     - owrt_upgrade_required
   ansible.builtin.import_tasks: backup.yml
 
 - name: sysupgrade confirmation token を計算
   when:
-    - perform_upgrade | bool
+    - owrt_sysupgrade_mode == "upgrade"
     - owrt_upgrade_required
   ansible.builtin.set_fact:
     owrt_sysupgrade_confirm_expected: "{{ inventory_hostname }} {{ owrt_upgrade_target }}"
 
 - name: sysupgrade confirmation requirement を表示
   when:
-    - perform_upgrade | bool
+    - owrt_sysupgrade_mode == "upgrade"
     - owrt_upgrade_required
   ansible.builtin.debug:
     msg:
@@ -87,9 +103,22 @@
       backup_fetch_enabled: "{{ backup_fetch_enabled | bool }}"
       fetched_backup_path: "{{ owrt_backup_fetch_path | default('not-fetched') }}"
 
+- name: sysupgrade recovery readiness を検証
+  when:
+    - owrt_sysupgrade_mode == "upgrade"
+    - owrt_upgrade_required
+  ansible.builtin.assert:
+    that:
+      - recovery_file_ready | bool
+      - serial_or_usb_recovery_ready | bool
+      - k3s_baseline_ready | bool
+    fail_msg: >-
+      sysupgrade upgrade mode requires recovery_file_ready,
+      serial_or_usb_recovery_ready, and k3s_baseline_ready.
+
 - name: sysupgrade 実行 confirmation を検証
   when:
-    - perform_upgrade | bool
+    - owrt_sysupgrade_mode == "upgrade"
     - owrt_upgrade_required
   ansible.builtin.assert:
     that:
@@ -102,6 +131,6 @@
 
 - name: sysupgrade を実行
   when:
-    - perform_upgrade | bool
+    - owrt_sysupgrade_mode == "upgrade"
     - owrt_upgrade_required
   ansible.builtin.import_tasks: upgrade.yml
