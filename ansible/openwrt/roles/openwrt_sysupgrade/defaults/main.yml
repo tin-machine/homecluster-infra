@@ -15,3 +15,7 @@ base_url_snapshots: "https://downloads.openwrt.org/snapshots"
 wait_for_reconnect: true
 wait_for_reconnect_delay: 30    # 秒
 wait_for_reconnect_timeout: 600 # 秒（10分）
+
+backup_fetch_enabled: true
+backup_dest: "~/.local/state/homecluster/openwrt-sysupgrade-backups"
+sysupgrade_confirm: ""

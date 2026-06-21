@@ -44,6 +44,9 @@
       perform_upgrade: "{{ openwrt_perform_upgrade | default(false) }}"
       preserve_settings: "{{ openwrt_preserve_settings | default(true) }}"
       download_dir: "{{ openwrt_download_dir | default('/tmp') }}"
+      backup_fetch_enabled: "{{ openwrt_sysupgrade_backup_fetch_enabled | default(true) }}"
+      backup_dest: "{{ openwrt_sysupgrade_backup_dest | default('~/.local/state/homecluster/openwrt-sysupgrade-backups') }}"
+      sysupgrade_confirm: "{{ openwrt_sysupgrade_confirm | default('') }}"
       verify_sha256: "{{ openwrt_verify_sha256 | default(true) }}"
       verify_md5: "{{ openwrt_verify_md5 | default(true) }}"
     - role: openwrt_frr

@@ -17,3 +17,6 @@
       download_dir: "{{ hostvars[inventory_hostname].openwrt_download_dir | default('/tmp') }}"
       verify_sha256: "{{ hostvars[inventory_hostname].openwrt_verify_sha256 | default(true) }}"
       verify_md5: "{{ hostvars[inventory_hostname].openwrt_verify_md5 | default(true) }}"
+      backup_fetch_enabled: "{{ hostvars[inventory_hostname].openwrt_sysupgrade_backup_fetch_enabled | default(true) }}"
+      backup_dest: "{{ hostvars[inventory_hostname].openwrt_sysupgrade_backup_dest | default('~/.local/state/homecluster/openwrt-sysupgrade-backups') }}"
+      sysupgrade_confirm: "{{ hostvars[inventory_hostname].openwrt_sysupgrade_confirm | default('') }}"

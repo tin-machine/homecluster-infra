@@ -69,6 +69,37 @@
     - owrt_upgrade_required
   ansible.builtin.import_tasks: backup.yml
 
+- name: sysupgrade confirmation token を計算
+  when:
+    - perform_upgrade | bool
+    - owrt_upgrade_required
+  ansible.builtin.set_fact:
+    owrt_sysupgrade_confirm_expected: "{{ inventory_hostname }} {{ owrt_upgrade_target }}"
+
+- name: sysupgrade confirmation requirement を表示
+  when:
+    - perform_upgrade | bool
+    - owrt_upgrade_required
+  ansible.builtin.debug:
+    msg:
+      expected_confirmation: "{{ owrt_sysupgrade_confirm_expected }}"
+      provided_confirmation_matches: "{{ (sysupgrade_confirm | string) == (owrt_sysupgrade_confirm_expected | string) }}"
+      backup_fetch_enabled: "{{ backup_fetch_enabled | bool }}"
+      fetched_backup_path: "{{ owrt_backup_fetch_path | default('not-fetched') }}"
+
+- name: sysupgrade 実行 confirmation を検証
+  when:
+    - perform_upgrade | bool
+    - owrt_upgrade_required
+  ansible.builtin.assert:
+    that:
+      - (sysupgrade_confirm | string) == (owrt_sysupgrade_confirm_expected | string)
+    fail_msg: >-
+      sysupgrade を実行するには
+      -e openwrt_sysupgrade_confirm='{{ owrt_sysupgrade_confirm_expected }}'
+      を明示してください。backup={{ owrt_backup_path | default('not-created') }},
+      fetched={{ owrt_backup_fetch_path | default('not-fetched') }}.
+
 - name: sysupgrade を実行
   when:
     - perform_upgrade | bool
