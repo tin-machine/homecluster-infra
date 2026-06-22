@@ -19,3 +19,7 @@ wait_for_reconnect_timeout: 600 # 秒（10分）
 backup_fetch_enabled: true
 backup_dest: "~/.local/state/homecluster/openwrt-sysupgrade-backups"
 sysupgrade_confirm: ""
+sysupgrade_mode: null
+recovery_file_ready: false
+serial_or_usb_recovery_ready: false
+k3s_baseline_ready: false

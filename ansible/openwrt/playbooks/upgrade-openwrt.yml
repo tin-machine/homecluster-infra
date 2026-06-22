@@ -20,3 +20,9 @@
       backup_fetch_enabled: "{{ hostvars[inventory_hostname].openwrt_sysupgrade_backup_fetch_enabled | default(true) }}"
       backup_dest: "{{ hostvars[inventory_hostname].openwrt_sysupgrade_backup_dest | default('~/.local/state/homecluster/openwrt-sysupgrade-backups') }}"
       sysupgrade_confirm: "{{ hostvars[inventory_hostname].openwrt_sysupgrade_confirm | default('') }}"
+      sysupgrade_mode: >-
+        {{ hostvars[inventory_hostname].openwrt_sysupgrade_mode
+           | default((hostvars[inventory_hostname].openwrt_perform_upgrade | default(false) | bool) | ternary('upgrade', 'detect')) }}
+      recovery_file_ready: "{{ hostvars[inventory_hostname].openwrt_sysupgrade_recovery_file_ready | default(false) }}"
+      serial_or_usb_recovery_ready: "{{ hostvars[inventory_hostname].openwrt_sysupgrade_serial_or_usb_recovery_ready | default(false) }}"
+      k3s_baseline_ready: "{{ hostvars[inventory_hostname].openwrt_sysupgrade_k3s_baseline_ready | default(false) }}"
