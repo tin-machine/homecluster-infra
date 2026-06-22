@@ -17,14 +17,23 @@ fi
 
 echo
 echo "== skill review: changed files =="
+base_ref="${HOMECLUSTER_REVIEW_BASE_REF:-origin/main}"
+base_commit=""
+if git rev-parse --verify --quiet "$base_ref" >/dev/null; then
+  base_commit="$(git merge-base "$base_ref" HEAD)"
+fi
+
 mapfile -t changed_files < <(
   {
+    if [[ -n "$base_commit" ]]; then
+      git diff --name-only --diff-filter=ACMRT "${base_commit}..HEAD" --
+    fi
     git diff --name-only --diff-filter=ACMRT HEAD --
     git ls-files --others --exclude-standard
   } | sort -u
 )
 if ((${#changed_files[@]} == 0)); then
-  echo "no tracked file changes"
+  echo "no changed files"
 else
   printf '%s\n' "${changed_files[@]}"
 fi
@@ -34,7 +43,7 @@ echo "== skill review: public redaction patterns =="
 public_files=()
 for path in "${changed_files[@]}"; do
   case "$path" in
-    *.md|README|README.*|docs/*|.agents/skills/*/SKILL.md|.agents/skills/*/references/*.md|ansible/*/roles/*/README.md|opencode.json)
+    *.md|README|README.*|docs/*|opencode.json)
       if [[ -f "$path" ]]; then
         public_files+=("$path")
       fi
@@ -44,7 +53,7 @@ done
 
 if ((${#public_files[@]} > 0)); then
   redaction_patterns=(
-    "/"home"/[A-Za-z0-9._-]+"
+    "/home/[A-Za-z0-9._-]+"
     "10\\.[0-9]+\\.[0-9]+\\.[0-9]+"
     "192\\.168\\."
     "home""-router"
@@ -84,6 +93,10 @@ if [[ -f "$defaults_file" ]]; then
     backup_fetch_enabled
     backup_dest
     sysupgrade_confirm
+    sysupgrade_mode
+    recovery_file_ready
+    serial_or_usb_recovery_ready
+    k3s_baseline_ready
   )
   for key in "${required_keys[@]}"; do
     if ! rg -q "^${key}:" "$defaults_file"; then
@@ -105,6 +118,13 @@ if [[ -f "$sysupgrade_readme" ]]; then
     "openwrt_sysupgrade_backup_fetch_enabled"
     "openwrt_sysupgrade_backup_dest"
     "openwrt_sysupgrade_confirm"
+    "openwrt_sysupgrade_mode"
+    "openwrt_sysupgrade_recovery_file_ready"
+    "openwrt_sysupgrade_serial_or_usb_recovery_ready"
+    "openwrt_sysupgrade_k3s_baseline_ready"
+    "detect"
+    "prepare"
+    "upgrade"
     "router.example"
     "SHA256"
   )
@@ -164,7 +184,12 @@ if [[ -f "$backup_tasks_file" && -f "$main_tasks_file" ]]; then
     "ansible.builtin.fetch:"
     "checksum_algorithm: sha256"
     "fetched_backup_sha256:"
+    "owrt_sysupgrade_mode:"
+    "owrt_sysupgrade_mode in \\[\"detect\", \"prepare\", \"upgrade\"\\]"
     "owrt_sysupgrade_confirm_expected:"
+    "recovery_file_ready | bool"
+    "serial_or_usb_recovery_ready | bool"
+    "k3s_baseline_ready | bool"
     "ansible.builtin.assert:"
     "ansible.builtin.import_tasks: upgrade.yml"
   )
@@ -174,12 +199,14 @@ if [[ -f "$backup_tasks_file" && -f "$main_tasks_file" ]]; then
     fi
   done
 
+  verify_import_line="$(rg -n "ansible.builtin.import_tasks: verify.yml" "$main_tasks_file" | head -n1 | cut -d: -f1 || true)"
   backup_import_line="$(rg -n "ansible.builtin.import_tasks: backup.yml" "$main_tasks_file" | head -n1 | cut -d: -f1 || true)"
+  recovery_assert_line="$(rg -n "sysupgrade recovery readiness を検証" "$main_tasks_file" | head -n1 | cut -d: -f1 || true)"
   confirm_assert_line="$(rg -n "sysupgrade 実行 confirmation を検証" "$main_tasks_file" | head -n1 | cut -d: -f1 || true)"
   upgrade_import_line="$(rg -n "ansible.builtin.import_tasks: upgrade.yml" "$main_tasks_file" | head -n1 | cut -d: -f1 || true)"
-  if [[ -n "$backup_import_line" && -n "$confirm_assert_line" && -n "$upgrade_import_line" ]]; then
-    if ! ((backup_import_line < confirm_assert_line && confirm_assert_line < upgrade_import_line)); then
-      record_failure "openwrt_sysupgrade confirmation guard must be after backup.yml and before upgrade.yml"
+  if [[ -n "$verify_import_line" && -n "$backup_import_line" && -n "$recovery_assert_line" && -n "$confirm_assert_line" && -n "$upgrade_import_line" ]]; then
+    if ! ((verify_import_line < backup_import_line && backup_import_line < recovery_assert_line && recovery_assert_line < confirm_assert_line && confirm_assert_line < upgrade_import_line)); then
+      record_failure "openwrt_sysupgrade flow must be verify.yml -> backup.yml -> recovery readiness -> confirmation -> upgrade.yml"
     fi
   else
     record_failure "openwrt_sysupgrade flow line ordering could not be determined"
