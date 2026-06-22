@@ -99,6 +99,10 @@ For the backup fetch / confirmation guard feature, the new role-default keys are
 - `backup_fetch_enabled`
 - `backup_dest`
 - `sysupgrade_confirm`
+- `sysupgrade_mode`
+- `recovery_file_ready`
+- `serial_or_usb_recovery_ready`
+- `k3s_baseline_ready`
 
 When adding defaults near the end of the file, preserve the anchor line you edit around. For
 example, if inserting after `wait_for_reconnect_timeout`, the new text must include the original
@@ -113,20 +117,26 @@ only the `openwrt_sysupgrade` role block.
 
 ## Sysupgrade Flow
 
-For `openwrt_sysupgrade`, preserve this ordering when adding backup fetch and confirmation:
+For `openwrt_sysupgrade`, preserve this ordering when adding backup fetch, recovery readiness, and
+confirmation:
 
 1. `verify.yml`
 2. `backup.yml`
-3. confirmation token calculation/debug/assert
-4. `upgrade.yml`
+3. recovery readiness assert
+4. confirmation token calculation/debug/assert
+5. `upgrade.yml`
 
 `backup.yml` must keep `owrt_backup_path`, fetch the tarball when enabled, and collect SHA256/size
 metadata without printing backup contents.
 
 The role README must document the public inventory-facing variables with placeholder examples:
 `openwrt_sysupgrade_backup_fetch_enabled`, `openwrt_sysupgrade_backup_dest`, and
-`openwrt_sysupgrade_confirm`. Use `router.example` or another placeholder host selector, not a live
-site hostname.
+`openwrt_sysupgrade_confirm`, plus `openwrt_sysupgrade_mode` and the three recovery readiness
+booleans. Use `router.example` or another placeholder host selector, not a live site hostname.
+
+`detect` must remain the non-mutating default. `prepare` may verify/download and create/fetch the
+backup but must not import `upgrade.yml`. `upgrade` must require recovery readiness and confirmation
+before importing `upgrade.yml`.
 
 ## Runbook Wording
 
