@@ -1,0 +1,4 @@
+interface:
+  display_name: "Homecluster Convergence Monitor"
+  short_description: "Monitor k3s staging convergence safely"
+  default_prompt: "Use $homecluster-convergence-monitor to watch a k3s staging reboot converge with read-only checks."
