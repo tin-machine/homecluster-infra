@@ -56,6 +56,7 @@
       - /usr/bin/test
       - -b
       - "{{ k3s_local_storage_device }}"
+  check_mode: false
   changed_when: false
   when: k3s_local_storage_enabled | bool
 
@@ -69,6 +70,7 @@
       - TYPE
       - "{{ k3s_local_storage_device }}"
   register: k3s_local_storage_device_type
+  check_mode: false
   changed_when: false
   when: k3s_local_storage_enabled | bool
 
@@ -90,6 +92,7 @@
       - -o
       - TARGET
   register: k3s_local_storage_existing_mounts
+  check_mode: false
   changed_when: false
   failed_when: false
   when: k3s_local_storage_enabled | bool
@@ -135,6 +138,7 @@
       - value
       - "{{ k3s_local_storage_device }}"
   register: k3s_local_storage_blkid_type
+  check_mode: false
   changed_when: false
   failed_when: false
   when: k3s_local_storage_enabled | bool
@@ -286,6 +290,15 @@
     - k3s_local_storage_enabled | bool
     - k3s_local_storage_node_password_sync_enabled | bool
 
+- name: k3s node password sync drop-in を削除
+  become: true
+  ansible.builtin.file:
+    path: "/etc/systemd/system/{{ k3s_local_storage_node_password_sync_service_name }}.service.d/{{ k3s_local_storage_node_password_sync_dropin_name }}"
+    state: absent
+  when:
+    - k3s_local_storage_enabled | bool
+    - not (k3s_local_storage_node_password_sync_enabled | bool)
+
 - name: local storage device の UUID を確認
   become: true
   ansible.builtin.command:
@@ -297,6 +310,7 @@
       - value
       - "{{ k3s_local_storage_device }}"
   register: k3s_local_storage_uuid
+  check_mode: false
   changed_when: false
   when: k3s_local_storage_enabled | bool
 
@@ -349,4 +363,5 @@
   when:
     - k3s_local_storage_enabled | bool
     - k3s_local_storage_node_password_sync_enabled | bool
+    - not ansible_check_mode
     - k3s_local_storage_node_password_file.stat.exists | default(false)

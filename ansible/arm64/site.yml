@@ -103,6 +103,10 @@
     - role: k3s_iptables_nft
       tags:
         - k3s_iptables_nft
+    - role: k3s_local_storage
+      tags:
+        - k3s_local_storage
+      when: k3s_local_storage_enabled | default(false)
     - role: xanmanning.k3s
     - role: k3s_networking
       tags:
