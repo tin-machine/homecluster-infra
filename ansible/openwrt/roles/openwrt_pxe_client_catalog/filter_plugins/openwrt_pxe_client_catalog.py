@@ -228,6 +228,44 @@ def _option_value_for_client(
     return ",".join(parts)
 
 
+def _build_k3s_local_storage_vars(
+    hv: Mapping[str, Any],
+    default_ephemeral_agent_data: bool,
+    default_node_password_sync_enabled: bool | None = None,
+) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "k3s_local_storage_enabled": _as_bool(
+            _first_present(hv.get("k3s_local_storage_enabled"), False)
+        ),
+        "k3s_local_storage_mountpoint": "/var/lib/rancher/k3s",
+        "k3s_local_storage_filesystem_type": "ext4",
+        "k3s_local_storage_mount_options": "defaults,noatime,lazytime,nodiscard,errors=remount-ro",
+        "k3s_local_storage_allow_format": True,
+        "k3s_local_storage_force_format": False,
+        "k3s_local_storage_ephemeral_agent_data": _as_bool(
+            _first_present(
+                hv.get("k3s_local_storage_ephemeral_agent_data"),
+                default_ephemeral_agent_data,
+            )
+        ),
+    }
+
+    if default_node_password_sync_enabled is not None or (
+        "k3s_local_storage_node_password_sync_enabled" in hv
+    ):
+        result["k3s_local_storage_node_password_sync_enabled"] = _as_bool(
+            _first_present(
+                hv.get("k3s_local_storage_node_password_sync_enabled"),
+                default_node_password_sync_enabled,
+            )
+        )
+
+    device = _clean_string(hv.get("k3s_local_storage_device"))
+    if device:
+        result["k3s_local_storage_device"] = device
+    return result
+
+
 def _build_k3s_stg_agent_vars(
     hostname: str,
     hv: Mapping[str, Any],
@@ -254,17 +292,6 @@ def _build_k3s_stg_agent_vars(
         labels = ["example.com/k3s-workload=true"]
 
     result: dict[str, Any] = {
-        "k3s_local_storage_enabled": _as_bool(
-            _first_present(hv.get("k3s_local_storage_enabled"), False)
-        ),
-        "k3s_local_storage_mountpoint": "/var/lib/rancher/k3s",
-        "k3s_local_storage_filesystem_type": "ext4",
-        "k3s_local_storage_mount_options": "defaults,noatime,lazytime,nodiscard,errors=remount-ro",
-        "k3s_local_storage_allow_format": True,
-        "k3s_local_storage_force_format": False,
-        "k3s_local_storage_ephemeral_agent_data": _as_bool(
-            _first_present(hv.get("k3s_local_storage_ephemeral_agent_data"), True)
-        ),
         "k3s_agent": {
             "node-ip": node_ip,
             "node-name": overlay_id or hostname,
@@ -278,10 +305,12 @@ def _build_k3s_stg_agent_vars(
         "k3s_control_delegate": "k3s_stg_server",
         "k3s_controller_list": ["k3s_stg_server"],
     }
-
-    device = _clean_string(hv.get("k3s_local_storage_device"))
-    if device:
-        result["k3s_local_storage_device"] = device
+    result.update(
+        _build_k3s_local_storage_vars(
+            hv,
+            default_ephemeral_agent_data=True,
+        )
+    )
     return result
 
 
@@ -312,6 +341,13 @@ def _build_k3s_stg_server_vars(
             "write-kubeconfig-mode": "0644",
         },
     }
+    result.update(
+        _build_k3s_local_storage_vars(
+            hv,
+            default_ephemeral_agent_data=False,
+            default_node_password_sync_enabled=False,
+        )
+    )
     return result
 
 
