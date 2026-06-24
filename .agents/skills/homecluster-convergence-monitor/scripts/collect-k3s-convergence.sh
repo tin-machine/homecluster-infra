@@ -131,7 +131,7 @@ if [ -n "$NODE_SSH_LIST" ]; then
     tmp="$(mktemp)"
     for target in $NODE_SSH_LIST; do
       capture_ssh_json "$target" \
-        'printf "host="; hostname; printf " uptime="; uptime -p 2>/dev/null || true; printf "\nmount="; findmnt -rn /var/lib/rancher/k3s 2>/dev/null || true; printf "\nrootfs="; df -h / /run /var/lib/rancher/k3s 2>/dev/null || true; printf "\nunits="; systemctl is-active ansible-pull@base k3s 2>/dev/null || true' >> "$tmp"
+        'printf "host="; hostname; printf " uptime="; uptime -p 2>/dev/null || true; printf "\nmount="; findmnt -rn /var/lib/rancher/k3s 2>/dev/null || true; printf "\nrootfs="; df -h / /run /var/lib/rancher/k3s 2>/dev/null || true; printf "\nunits="; systemctl is-active ansible-pull@base.service ansible-pull@k3s_stg_server.service ansible-pull@k3s_stg_agent.service k3s.service k3s-agent.service 2>/dev/null || true' >> "$tmp"
       printf '\n' >> "$tmp"
     done
     jq -s '.' "$tmp"
@@ -211,6 +211,11 @@ jq -n \
   ($node_exporter_items | map(select(.kind == "DaemonSet")) | .[0] // {}) as $node_exporter_ds |
   ($node_exporter_items | map(select(.kind == "Pod")) |
     map({namespace:.metadata.namespace,name:.metadata.name,phase:.status.phase,node:(.spec.nodeName // ""),ready:(pod_ready(.).text)})) as $node_exporter_pods |
+  ($node_exporter_items | map(select(.kind == "Pod" and .status.phase == "Running")) |
+    map(pod_ready(.)) |
+    map(select(.total > 0 and .ready == .total)) |
+    length) as $node_exporter_ready_pod_count |
+  ([($node_exporter_ds.status.desiredNumberScheduled // 0), $expected_node_exporter_n] | max) as $node_exporter_desired |
 
   (($events_tail_raw.output // "") | split("\n") |
     map(select(test("Node password|hash does not match|authorization|DiskPressure|ImagePullBackOff|CrashLoopBackOff|Evicted|NodeNotReady|TaintManagerEviction|Failed|Unhealthy"; "i"))) |
@@ -231,7 +236,7 @@ jq -n \
     (if ($nodes | map(select(.disk_pressure == "True" or .memory_pressure == "True" or .pid_pressure == "True")) | length) > 0 then "node_pressure" else empty end),
     (if ($non_running | length) > 0 then "non_running_pods" else empty end),
     (if ($running_not_ready | length) > 0 then "running_pods_not_ready" else empty end),
-    (if (($node_exporter_ds.status.numberReady // 0) < $expected_node_exporter_n) then "node_exporter_not_ready" else empty end),
+    (if $node_exporter_ready_pod_count < $expected_node_exporter_n then "node_exporter_not_ready" else empty end),
     (if ($signals | map(select((.line // "" | test("Node password|hash does not match|authorization"; "i")))) | length) > 0 then "node_identity_signal" else empty end),
     (if ($diagnostic_outputs | map(select((. // "") | test("ssh_host_key_(changed|verification_failed)"))) | length) > 0 then "ssh_host_key_problem" else empty end)
   ]) as $issues |
@@ -261,8 +266,8 @@ jq -n \
     },
     node_exporter:{
       api_ok:$node_exporter_raw.ok,
-      desired:($node_exporter_ds.status.desiredNumberScheduled // null),
-      ready:($node_exporter_ds.status.numberReady // null),
+      desired:$node_exporter_desired,
+      ready:$node_exporter_ready_pod_count,
       pods:$node_exporter_pods
     },
     node_checks:$node_checks,
