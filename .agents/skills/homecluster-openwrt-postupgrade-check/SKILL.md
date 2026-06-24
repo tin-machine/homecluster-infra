@@ -84,8 +84,3 @@ Detailed JSON field descriptions are in `references/postupgrade-output-schema.md
 
 For delegation to OpenCode/local LLM, use the template in
 `references/opencode-task-prompt.md`.
-**Appropriate for:** Templates, boilerplate code, document templates, images, icons, fonts, or any files meant to be copied or used in the final output.
-
----
-
-**Not every skill requires all three types of resources.**

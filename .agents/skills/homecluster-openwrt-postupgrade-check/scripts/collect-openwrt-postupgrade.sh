@@ -105,14 +105,14 @@ generated_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 board_raw="$(run_router 'ubus call system board')"
 release_raw="$(run_router 'cat /etc/openwrt_release')"
-pkg_mgr_raw="$(run_router 'for c in opkg apk; do command -v "$c" >/dev/null 2>&1 && echo "$c"; done')"
+pkg_mgr_raw="$(run_router 'for c in opkg apk; do command -v "$c" >/dev/null 2>&1 && echo "$c"; done; true')"
 packages_raw="$(run_router 'if command -v opkg >/dev/null 2>&1; then opkg list-installed | cut -d" " -f1; elif command -v apk >/dev/null 2>&1; then apk info; else true; fi')"
-services_raw="$(run_router 'for s in network firewall dnsmasq rpcbind nfsd frr banip prometheus-node-exporter-lua uhttpd log; do printf "SERVICE %s " "$s"; if [ -x "/etc/init.d/$s" ]; then /etc/init.d/$s status 2>&1 | head -n 3 | tr "\n" " "; else printf "missing"; fi; printf "\n"; done')"
+services_raw="$(run_router 'for s in network firewall dnsmasq rpcbind nfsd frr banip prometheus-node-exporter-lua uhttpd log; do printf "SERVICE %s " "$s"; if [ ! -x "/etc/init.d/$s" ]; then printf "missing"; elif [ "$s" = frr ]; then if pgrep -f "/usr/sbin/(watchfrr|zebra|bgpd|staticd)" >/dev/null 2>&1; then printf "running"; else printf "present_not_running"; fi; else /etc/init.d/$s status 2>&1 | head -n 3 | tr "\n" " "; fi; printf "\n"; done')"
 mounts_raw="$(run_router 'mount')"
 df_raw="$(run_router 'df -h')"
 fstab_raw="$(run_router 'uci -q show fstab 2>/dev/null | sed -E "s/(uuid=).*/\1<redacted>/; s/(password=).*/\1<redacted>/; s/(key=).*/\1<redacted>/" || true')"
 fw_raw="$(run_router 'if command -v fw4 >/dev/null 2>&1; then fw4 check; else echo fw4_missing; fi')"
-pxe_raw="$(run_router 'printf "enable_tftp="; uci -q get dnsmasq.@dnsmasq[0].enable_tftp 2>/dev/null || true; printf "\ntftp_root="; uci -q get dnsmasq.@dnsmasq[0].tftp_root 2>/dev/null || true; printf "\nexportfs="; if command -v exportfs >/dev/null 2>&1; then exportfs -v 2>/dev/null | wc -l; else echo missing; fi')"
+pxe_raw="$(run_router 'printf "enable_tftp="; uci -q get dhcp.@dnsmasq[0].enable_tftp 2>/dev/null || true; printf "\ntftp_root="; uci -q get dhcp.@dnsmasq[0].tftp_root 2>/dev/null || true; printf "\nexportfs="; if command -v exportfs >/dev/null 2>&1; then exportfs -v 2>/dev/null | wc -l; else echo missing; fi')"
 bgp_raw="$(run_router 'if command -v vtysh >/dev/null 2>&1; then vtysh -c "show bgp summary" 2>&1 | sed -n "1,120p"; else echo vtysh_missing; fi')"
 
 route_raw="$(
@@ -129,6 +129,24 @@ k3s_nodes_raw="$(run_k3s 'get nodes -o json')"
 k3s_pods_raw="$(run_k3s 'get pods -A --field-selector=status.phase!=Running,status.phase!=Succeeded --no-headers -o custom-columns=NAMESPACE:.metadata.namespace,NAME:.metadata.name,PHASE:.status.phase,NODE:.spec.nodeName')"
 k3s_obs_raw="$(run_k3s "-n ${OBS_NAMESPACE} get svc,endpoints,pods,ds,deploy,sts -o json")"
 
+tmpdir="$(mktemp -d)"
+trap 'rm -rf "$tmpdir"' EXIT
+printf '%s' "$board_raw" > "$tmpdir/board_raw.json"
+printf '%s' "$release_raw" > "$tmpdir/release_raw.json"
+printf '%s' "$pkg_mgr_raw" > "$tmpdir/pkg_mgr_raw.json"
+printf '%s' "$packages_raw" > "$tmpdir/packages_raw.json"
+printf '%s' "$services_raw" > "$tmpdir/services_raw.json"
+printf '%s' "$mounts_raw" > "$tmpdir/mounts_raw.json"
+printf '%s' "$df_raw" > "$tmpdir/df_raw.json"
+printf '%s' "$fstab_raw" > "$tmpdir/fstab_raw.json"
+printf '%s' "$fw_raw" > "$tmpdir/fw_raw.json"
+printf '%s' "$pxe_raw" > "$tmpdir/pxe_raw.json"
+printf '%s' "$bgp_raw" > "$tmpdir/bgp_raw.json"
+printf '%s' "$route_raw" > "$tmpdir/route_raw.json"
+printf '%s' "$k3s_nodes_raw" > "$tmpdir/k3s_nodes_raw.json"
+printf '%s' "$k3s_pods_raw" > "$tmpdir/k3s_pods_raw.json"
+printf '%s' "$k3s_obs_raw" > "$tmpdir/k3s_obs_raw.json"
+
 jq -n \
   --arg generated_at "$generated_at" \
   --arg version "$VERSION" \
@@ -141,21 +159,37 @@ jq -n \
   --arg router_ssh_set "$([ -n "$ROUTER_SSH" ] && printf true || printf false)" \
   --arg k3s_control_ssh_set "$([ -n "$K3S_CONTROL_SSH" ] && printf true || printf false)" \
   --arg obs_namespace "$OBS_NAMESPACE" \
-  --argjson board_raw "$board_raw" \
-  --argjson release_raw "$release_raw" \
-  --argjson pkg_mgr_raw "$pkg_mgr_raw" \
-  --argjson packages_raw "$packages_raw" \
-  --argjson services_raw "$services_raw" \
-  --argjson mounts_raw "$mounts_raw" \
-  --argjson df_raw "$df_raw" \
-  --argjson fstab_raw "$fstab_raw" \
-  --argjson fw_raw "$fw_raw" \
-  --argjson pxe_raw "$pxe_raw" \
-  --argjson bgp_raw "$bgp_raw" \
-  --argjson route_raw "$route_raw" \
-  --argjson k3s_nodes_raw "$k3s_nodes_raw" \
-  --argjson k3s_pods_raw "$k3s_pods_raw" \
-  --argjson k3s_obs_raw "$k3s_obs_raw" '
+  --slurpfile board_raw_file "$tmpdir/board_raw.json" \
+  --slurpfile release_raw_file "$tmpdir/release_raw.json" \
+  --slurpfile pkg_mgr_raw_file "$tmpdir/pkg_mgr_raw.json" \
+  --slurpfile packages_raw_file "$tmpdir/packages_raw.json" \
+  --slurpfile services_raw_file "$tmpdir/services_raw.json" \
+  --slurpfile mounts_raw_file "$tmpdir/mounts_raw.json" \
+  --slurpfile df_raw_file "$tmpdir/df_raw.json" \
+  --slurpfile fstab_raw_file "$tmpdir/fstab_raw.json" \
+  --slurpfile fw_raw_file "$tmpdir/fw_raw.json" \
+  --slurpfile pxe_raw_file "$tmpdir/pxe_raw.json" \
+  --slurpfile bgp_raw_file "$tmpdir/bgp_raw.json" \
+  --slurpfile route_raw_file "$tmpdir/route_raw.json" \
+  --slurpfile k3s_nodes_raw_file "$tmpdir/k3s_nodes_raw.json" \
+  --slurpfile k3s_pods_raw_file "$tmpdir/k3s_pods_raw.json" \
+  --slurpfile k3s_obs_raw_file "$tmpdir/k3s_obs_raw.json" '
+  ($board_raw_file[0]) as $board_raw |
+  ($release_raw_file[0]) as $release_raw |
+  ($pkg_mgr_raw_file[0]) as $pkg_mgr_raw |
+  ($packages_raw_file[0]) as $packages_raw |
+  ($services_raw_file[0]) as $services_raw |
+  ($mounts_raw_file[0]) as $mounts_raw |
+  ($df_raw_file[0]) as $df_raw |
+  ($fstab_raw_file[0]) as $fstab_raw |
+  ($fw_raw_file[0]) as $fw_raw |
+  ($pxe_raw_file[0]) as $pxe_raw |
+  ($bgp_raw_file[0]) as $bgp_raw |
+  ($route_raw_file[0]) as $route_raw |
+  ($k3s_nodes_raw_file[0]) as $k3s_nodes_raw |
+  ($k3s_pods_raw_file[0]) as $k3s_pods_raw |
+  ($k3s_obs_raw_file[0]) as $k3s_obs_raw |
+
   def words($s): ($s | split(" ") | map(select(length > 0)));
   def lines($s): (($s // "") | split("\n") | map(select(length > 0)));
   def parse_json($raw): if $raw.ok then ($raw.output | fromjson? // null) else null end;

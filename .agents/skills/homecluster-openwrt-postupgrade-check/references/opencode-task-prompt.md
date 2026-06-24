@@ -11,7 +11,9 @@ Use $homecluster-openwrt-postupgrade-check to classify the current OpenWrt post-
 
 Scope:
 - Read-only monitoring only.
-- Run the collector script and interpret its JSON output.
+- Run the collector script exactly once first and interpret its JSON output.
+- Do not inspect environment variables before running the collector; they are already provided by
+  the operator.
 - Do not run Ansible live apply, sysupgrade, reboot, SwitchBot, package install, service restart,
   kubectl delete, rm, filesystem format, or any other mutating command.
 - Do not print token, kubeconfig, tfvars, password, private key, backup contents, or secret values.

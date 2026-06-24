@@ -55,3 +55,34 @@
     mode: '0640'
   notify:
     - Restart frr
+
+- name: FRR を自動起動に設定
+  ansible.builtin.shell: |
+    if /etc/init.d/frr enabled; then
+      exit 0
+    fi
+    /etc/init.d/frr enable
+    echo enabled
+  args:
+    executable: /bin/ash
+  register: openwrt_frr_enable
+  changed_when: "'enabled' in openwrt_frr_enable.stdout"
+
+- name: FRR を起動
+  ansible.builtin.shell: |
+    if ps w | grep -Eq '[w]atchfrr|[z]ebra|[b]gpd|[s]taticd'; then
+      exit 0
+    fi
+    /etc/init.d/frr start
+    echo started
+  args:
+    executable: /bin/ash
+  register: openwrt_frr_start
+  changed_when: "'started' in openwrt_frr_start.stdout"
+
+- name: FRR daemon 起動状態を確認
+  ansible.builtin.shell: |
+    ps w | grep -Eq '[w]atchfrr'
+  args:
+    executable: /bin/ash
+  changed_when: false

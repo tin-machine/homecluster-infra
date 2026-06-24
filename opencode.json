@@ -4,7 +4,8 @@
     "skill": {
       "*": "ask",
       "homecluster-ansible-implementer": "allow",
-      "homecluster-convergence-monitor": "allow"
+      "homecluster-convergence-monitor": "allow",
+      "homecluster-openwrt-postupgrade-check": "allow"
     },
     "external_directory": {
       "~/ghq/**/homecluster-runbook/docs/operation/**": "allow",
@@ -26,12 +27,18 @@
       "ls *": "allow",
       "rg *": "allow",
       "sed -n *": "allow",
+      "env | grep OPENWRT_CHECK*": "allow",
       "bash scripts/ci/static-check.sh": "allow",
       "./.agents/skills/homecluster-ansible-implementer/scripts/opencode_preflight_gate.sh *": "allow",
       "./.agents/skills/homecluster-ansible-implementer/scripts/review_changed_ansible.sh": "allow",
       "./.agents/skills/homecluster-convergence-monitor/scripts/collect-k3s-convergence.sh": "allow",
       "./.agents/skills/homecluster-convergence-monitor/scripts/collect-k3s-convergence.sh *": "allow",
+      "bash .agents/skills/homecluster-convergence-monitor/scripts/collect-k3s-convergence.sh": "allow",
+      "bash .agents/skills/homecluster-convergence-monitor/scripts/collect-k3s-convergence.sh *": "allow",
       "MONITOR_* ./.agents/skills/homecluster-convergence-monitor/scripts/collect-k3s-convergence.sh*": "allow",
+      "./.agents/skills/homecluster-openwrt-postupgrade-check/scripts/collect-openwrt-postupgrade.sh": "allow",
+      "./.agents/skills/homecluster-openwrt-postupgrade-check/scripts/collect-openwrt-postupgrade.sh *": "allow",
+      "OPENWRT_CHECK_* ./.agents/skills/homecluster-openwrt-postupgrade-check/scripts/collect-openwrt-postupgrade.sh*": "allow",
       "ansible-playbook *examples/inventory.yml*": "allow",
       "ansible-playbook *../inventory.yml*": "deny",
       "ansible-playbook */home/*/ghq/*/inventory.yml*": "deny",
