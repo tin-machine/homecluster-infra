@@ -171,6 +171,7 @@ fi
 print_section "python syntax"
 if command -v python3 >/dev/null 2>&1; then
   python3 -m py_compile ansible/openwrt/roles/openwrt_pxe_client_catalog/filter_plugins/openwrt_pxe_client_catalog.py
+  python3 scripts/ci/check-openwrt-pxe-client-catalog.py
   scripts/docs/context_hygiene_check.py
 else
   echo "python3 not found; skipping py_compile"
