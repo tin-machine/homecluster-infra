@@ -193,6 +193,52 @@ if [[ -f "$detect_tasks_file" ]]; then
       record_failure "openwrt_detect lost expected package-manager coexistence pattern: ${pattern}"
     fi
   done
+
+  if rg -n "openwrt_pkg_managers_available[[:space:]]*\\|[[:space:]]*length[[:space:]]*==[[:space:]]*2" "$detect_tasks_file"; then
+    record_failure "openwrt_detect consistency asserts must not only fail when both package managers are present"
+  fi
+
+  if ! rg -q ">= 25 and openwrt_pkg_manager != 'apk'" "$detect_tasks_file"; then
+    record_failure "openwrt_detect must fail closed for OpenWrt 25.x+ unless apk is selected"
+  fi
+  if ! rg -q "> 0 and .*< 25 and openwrt_pkg_manager != 'opkg'" "$detect_tasks_file"; then
+    record_failure "openwrt_detect must fail closed for OpenWrt 1.x-24.x unless opkg is selected"
+  fi
+
+  python3 - <<'PY'
+cases = [
+    ("24", ("opkg",), "opkg", True),
+    ("24", ("apk",), "apk", False),
+    ("24", ("apk", "opkg"), "opkg", True),
+    ("25", ("apk",), "apk", True),
+    ("25", ("opkg",), "opkg", False),
+    ("25", ("apk", "opkg"), "apk", True),
+    ("", ("opkg",), "opkg", True),
+    ("", ("apk",), "apk", True),
+    ("", (), "", False),
+]
+
+def expected_ok(release_major, managers, selected):
+    major = int(release_major or "0")
+    if not managers or selected not in ("opkg", "apk"):
+        return False
+    if major >= 25 and selected != "apk":
+        return False
+    if 0 < major < 25 and selected != "opkg":
+        return False
+    return True
+
+for release_major, managers, selected, expected in cases:
+    actual = expected_ok(release_major, managers, selected)
+    if actual != expected:
+        raise SystemExit(
+            "package-manager truth table mismatch: "
+            f"release_major={release_major!r} managers={managers!r} "
+            f"selected={selected!r} expected={expected!r} actual={actual!r}"
+        )
+
+print("package-manager fail-closed truth table ok")
+PY
 fi
 if [[ -f "$package_tasks_file" ]]; then
   package_required_patterns=(

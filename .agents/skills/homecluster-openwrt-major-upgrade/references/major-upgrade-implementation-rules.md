@@ -23,6 +23,9 @@ run is allowed in this source-only workflow; actually running those tasks agains
 - Fail closed if no supported package manager exists.
 - Warn or fail on inconsistent states, for example 25.x release with only `opkg`, or 24.x release
   with only `apk`. In examples/static checks, keep this parseable without real hosts.
+- Do not weaken the consistency check so that it only runs when both `apk` and `opkg` are present.
+  Single-manager mismatches such as OpenWrt 24.x with only `apk` or OpenWrt 25.x with only `opkg`
+  must still fail closed.
 - When both `apk` and `opkg` are present, select the package manager by release major, not by probe
   order: OpenWrt 24.x uses `opkg`; OpenWrt 25.x and later uses `apk`. This preserves the coexistence
   period where both commands may be installed.
