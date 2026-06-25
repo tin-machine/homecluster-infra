@@ -238,7 +238,7 @@ if [[ "$opencode_exit" -ne 0 ]]; then
   exit "$opencode_exit"
 fi
 
-if grep -Eiq 'Invalid Tool|invalid tool' "$events_log" "$session_export_log"; then
+if grep -Eiq 'Invalid Tool:|invalid tool:|"tool"[[:space:]]*:[[:space:]]*"invalid"' "$events_log" "$session_export_log"; then
   emit_result false invalid-tool 1 "OpenCode emitted an invalid tool event"
   exit 1
 fi
