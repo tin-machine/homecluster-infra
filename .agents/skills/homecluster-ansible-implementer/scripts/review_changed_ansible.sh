@@ -305,6 +305,69 @@ for path in "${changed_files[@]}"; do
   esac
 done
 if ((${#openwrt_package_task_files[@]} > 0)); then
+  if ! python3 - "${openwrt_package_task_files[@]}" <<'PY'
+import sys
+from pathlib import Path
+
+import yaml
+
+failures = []
+
+for file_name in sys.argv[1:]:
+    path = Path(file_name)
+    try:
+        tasks = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except Exception as exc:  # noqa: BLE001 - review script should report parse context.
+        failures.append(f"{path}: YAML parse failed while checking openwrt_package include vars: {exc}")
+        continue
+
+    if not isinstance(tasks, list):
+        continue
+
+    for index, task in enumerate(tasks, start=1):
+        if not isinstance(task, dict):
+            continue
+
+        include_role = task.get("ansible.builtin.include_role")
+        if not isinstance(include_role, dict):
+            continue
+        if include_role.get("name") != "openwrt_package":
+            continue
+
+        task_name = task.get("name", f"task #{index}")
+        vars_value = task.get("vars")
+        if not isinstance(vars_value, dict):
+            failures.append(f"{path}: {task_name}: openwrt_package include must use task-level vars")
+            continue
+
+        for key in include_role:
+            if key == "name":
+                continue
+            if key == "vars" or key.startswith("openwrt_package_"):
+                failures.append(
+                    f"{path}: {task_name}: {key} is nested under include_role; move it to task-level vars"
+                )
+
+        for key in task:
+            if key.startswith("openwrt_package_"):
+                failures.append(
+                    f"{path}: {task_name}: {key} is a task-level key; move it under task-level vars"
+                )
+
+        if "openwrt_package_names" not in vars_value:
+            failures.append(f"{path}: {task_name}: task-level vars must define openwrt_package_names")
+
+if failures:
+    for failure in failures:
+        print(f"FAILED: {failure}", file=sys.stderr)
+    raise SystemExit(1)
+
+print("openwrt_package include vars structure ok")
+PY
+  then
+    record_failure "openwrt_package include vars structure check failed"
+  fi
+
   if rg -n '^\s*openwrt_package_names:\s*openwrt_[A-Za-z0-9_]+_packages\s*$' "${openwrt_package_task_files[@]}"; then
     record_failure "openwrt_package_names must pass list variables with Jinja, e.g. {{ openwrt_example_packages }}, not a bare string literal"
   fi
