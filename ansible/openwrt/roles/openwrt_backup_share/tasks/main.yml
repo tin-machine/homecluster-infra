@@ -4,6 +4,16 @@
     msg: "openwrt_backup_share_enabled=false のためバックアップディスク共有は設定しません"
   when: not openwrt_backup_share_enabled | bool
 
+- name: バックアップディスク用パッケージを導入
+  ansible.builtin.opkg:
+    name: "{{ item }}"
+    state: present
+    update_cache: "{{ openwrt_opkg_update | default(true) }}"
+  loop: "{{ openwrt_backup_share_packages }}"
+  loop_control:
+    label: "{{ item }}"
+  when: openwrt_backup_share_enabled | bool
+
 - name: バックアップディスク mount 情報を確認
   ansible.builtin.command: block info
   register: openwrt_backup_share_block_info
