@@ -5,13 +5,12 @@
   when: not openwrt_backup_share_enabled | bool
 
 - name: バックアップディスク用パッケージを導入
-  ansible.builtin.opkg:
-    name: "{{ item }}"
-    state: present
-    update_cache: "{{ openwrt_opkg_update | default(true) }}"
-  loop: "{{ openwrt_backup_share_packages }}"
-  loop_control:
-    label: "{{ item }}"
+  ansible.builtin.include_role:
+    name: openwrt_package
+  vars:
+    openwrt_package_names: "{{ openwrt_backup_share_packages }}"
+    openwrt_package_state: present
+    openwrt_package_update_cache: "{{ openwrt_opkg_update | default(true) }}"
   when: openwrt_backup_share_enabled | bool
 
 - name: バックアップディスク mount 情報を確認

@@ -168,13 +168,6 @@ else:
     if start >= 0 and end > start:
         candidate = candidate[start:end + 1]
 
-try:
-    data = json.loads(candidate)
-except json.JSONDecodeError as exc:
-    print("failed to parse preflight JSON: %s" % exc, file=sys.stderr)
-    print(candidate[:2000], file=sys.stderr)
-    sys.exit(65)
-
 required = {
     "skill_task_conflicts": list,
     "plan_task_conflicts": list,
@@ -184,6 +177,36 @@ required = {
     "blocking_reason": str,
     "resolution_notes": list,
 }
+
+def object_has_schema(obj):
+    return isinstance(obj, dict) and all(key in obj for key in required)
+
+def decode_schema_object(text):
+    decoder = json.JSONDecoder()
+    try:
+        obj = json.loads(text)
+        if object_has_schema(obj):
+            return obj
+    except json.JSONDecodeError:
+        pass
+
+    for match in re.finditer(r"{", text):
+        try:
+            obj, _ = decoder.raw_decode(text[match.start():])
+        except json.JSONDecodeError:
+            continue
+        if object_has_schema(obj):
+            return obj
+    return None
+
+data = decode_schema_object(candidate)
+if data is None:
+    data = decode_schema_object(raw)
+if data is None:
+    print("failed to parse preflight JSON with required schema", file=sys.stderr)
+    print(candidate[:2000], file=sys.stderr)
+    sys.exit(65)
+
 for key, typ in required.items():
     if key not in data:
         print("missing preflight key: %s" % key, file=sys.stderr)

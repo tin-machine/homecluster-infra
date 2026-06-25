@@ -53,10 +53,7 @@ Use this skill for Ansible implementation work in `homecluster-infra`.
 Prefer these checks after implementation, adjusted to the changed entrypoint:
 
 ```bash
-bash scripts/ci/static-check.sh
-RUN_ANSIBLE_SYNTAX=1 RUN_ANSIBLE_LIST_TASKS=1 RUN_TERRAFORM_VALIDATE=1 \
-  bash scripts/ci/static-check.sh
-./.agents/skills/homecluster-ansible-implementer/scripts/review_changed_ansible.sh
+./.agents/skills/homecluster-ansible-implementer/scripts/opencode_validation_gate.sh
 ansible-playbook -i ../inventory.yml \
   ansible/openwrt/site.yml -l <host> --syntax-check
 ansible-playbook -i ../inventory.yml \
