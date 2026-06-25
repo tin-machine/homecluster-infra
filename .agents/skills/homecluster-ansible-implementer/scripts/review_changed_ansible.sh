@@ -335,6 +335,12 @@ for file_name in sys.argv[1:]:
             continue
 
         task_name = task.get("name", f"task #{index}")
+        for forbidden_key in ("loop", "loop_control"):
+            if forbidden_key in task:
+                failures.append(
+                    f"{path}: {task_name}: openwrt_package include must not keep {forbidden_key}"
+                )
+
         vars_value = task.get("vars")
         if not isinstance(vars_value, dict):
             failures.append(f"{path}: {task_name}: openwrt_package include must use task-level vars")
@@ -356,6 +362,31 @@ for file_name in sys.argv[1:]:
 
         if "openwrt_package_names" not in vars_value:
             failures.append(f"{path}: {task_name}: task-level vars must define openwrt_package_names")
+        else:
+            package_names = vars_value.get("openwrt_package_names")
+            if isinstance(package_names, str):
+                stripped = package_names.strip()
+                if not (stripped.startswith("{{") and stripped.endswith("}}")):
+                    failures.append(
+                        f"{path}: {task_name}: openwrt_package_names string must render a Jinja expression"
+                    )
+            elif not isinstance(package_names, list):
+                failures.append(
+                    f"{path}: {task_name}: openwrt_package_names must be a list or rendered Jinja list expression"
+                )
+
+        if vars_value.get("openwrt_package_state") not in {"present", "absent"}:
+            failures.append(
+                f"{path}: {task_name}: task-level vars must set openwrt_package_state to present or absent"
+            )
+
+        if (
+            vars_value.get("openwrt_package_state") == "present"
+            and "openwrt_package_update_cache" not in vars_value
+        ):
+            failures.append(
+                f"{path}: {task_name}: present package tasks must set openwrt_package_update_cache"
+            )
 
 if failures:
     for failure in failures:

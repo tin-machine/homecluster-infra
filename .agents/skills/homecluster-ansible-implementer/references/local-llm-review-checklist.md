@@ -158,12 +158,18 @@ When OpenCode is asked to implement code, Codex should start it through the impl
   --model local-gemma4/gemma-4-12b-it-qat-q4_0.gguf \
   --config ~/.config/opencode/local-gemma4.json \
   --agent homecluster-ansible-patch \
+  --edit-only \
   --task "<one narrow implementation task>"
 ```
 
-The wrapper output is authoritative. Treat `finish-length`, `invalid-tool`, `diff-gate`, and
-`validation-gate` as failed implementation attempts even when the OpenCode process itself exited
-zero. Do not summarize the run as successful unless the wrapper returns `ok: true`.
+For local Gemma4, keep implementation and validation separate. The first OpenCode run should edit
+only and stop. Codex runs `opencode_validation_gate.sh` after the edit. This avoids spending the
+model's output budget on long validation logs and multi-step repair.
+
+The wrapper output is authoritative. Treat `finish-length`, `invalid-tool`, and `diff-gate` as
+failed implementation attempts even when the OpenCode process itself exited zero. If validation is
+enabled for a run, also treat `validation-gate` as authoritative. Do not summarize the run as
+successful unless the wrapper returns `ok: true`.
 
 Before final response, run:
 
@@ -175,6 +181,11 @@ The gate prints one compact JSON object. Report validation as passed only when `
 If `ok` is `false`, treat `failed_step`, `summary`, and `commands_not_run` as authoritative, fix the
 reported issue, and rerun the same gate. Do not summarize a long command log yourself when the gate
 already returned JSON.
+
+If Codex asks OpenCode to repair a validation failure, pass only the compact validation JSON through
+`--repair-json`. The repair prompt must require OpenCode to re-read the current target file from
+disk before editing. Do not ask OpenCode to inspect the full validation log unless the compact JSON
+is insufficient.
 
 Use the script path exactly as shown. Do not read or execute `/.agents/...`; that is an absolute path
 outside the repository and is wrong.
