@@ -1,0 +1,85 @@
+---
+- name: /etc/openwrt_release を raw で取得
+  ansible.builtin.raw: cat /etc/openwrt_release
+  register: openwrt_detect_release_raw
+  changed_when: false
+  check_mode: false
+
+- name: ボード名を raw で取得
+  ansible.builtin.raw: cat /tmp/sysinfo/board_name
+  register: openwrt_detect_board_name_raw
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: apk の有無を raw で確認
+  ansible.builtin.raw: command -v apk
+  register: openwrt_detect_apk
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: opkg の有無を raw で確認
+  ansible.builtin.raw: command -v opkg
+  register: openwrt_detect_opkg
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: OpenWrt release 値を抽出
+  ansible.builtin.set_fact:
+    openwrt_detect_distrib_target: >-
+      {{
+        openwrt_detect_release_raw.stdout
+        | default('', true)
+        | regex_findall("(?m)^DISTRIB_TARGET='([^']+)'")
+        | default([], true)
+        | first
+        | default('', true)
+      }}
+    openwrt_detect_distrib_release: >-
+      {{
+        openwrt_detect_release_raw.stdout
+        | default('', true)
+        | regex_findall("(?m)^DISTRIB_RELEASE='([^']+)'")
+        | default([], true)
+        | first
+        | default('', true)
+      }}
+
+- name: OpenWrt 検出 fact を設定
+  ansible.builtin.set_fact:
+    owrt_release_raw: "{{ openwrt_detect_release_raw.stdout | default('', true) }}"
+    owrt_target: "{{ (openwrt_detect_distrib_target | trim).split('/')[0] | default('', true) }}"
+    owrt_subtarget: "{{ (openwrt_detect_distrib_target | trim).split('/')[1] | default('', true) }}"
+    owrt_device_raw: "{{ openwrt_detect_board_name_raw.stdout | default('', true) | trim }}"
+    owrt_device: "{{ (openwrt_detect_board_name_raw.stdout | default('', true) | trim) | regex_replace('[^A-Za-z0-9._-]', '_') }}"
+    owrt_current_release: "{{ openwrt_detect_distrib_release | trim }}"
+    owrt_release_major: "{{ (openwrt_detect_distrib_release | trim).split('.')[0] | default('', true) }}"
+    openwrt_release_major: "{{ (openwrt_detect_distrib_release | trim).split('.')[0] | default('', true) }}"
+    openwrt_pkg_manager: >-
+      {{
+        'apk' if openwrt_detect_apk.rc == 0
+        else ('opkg' if openwrt_detect_opkg.rc == 0 else '')
+      }}
+    openwrt_pkg_manager_command: >-
+      {{
+        (openwrt_detect_apk.stdout | trim) if openwrt_detect_apk.rc == 0
+        else ((openwrt_detect_opkg.stdout | trim) if openwrt_detect_opkg.rc == 0 else '')
+      }}
+
+- name: package manager の存在を検証
+  ansible.builtin.assert:
+    that:
+      - openwrt_pkg_manager in ['opkg', 'apk']
+      - openwrt_pkg_manager_command | length > 0
+    fail_msg: "OpenWrt target に対応 package manager (opkg/apk) が見つかりません"
+
+- name: release major と package manager の整合性を検証
+  ansible.builtin.assert:
+    that:
+      - not ((openwrt_release_major | default('0', true) | int) >= 25 and openwrt_pkg_manager != 'apk')
+      - not ((openwrt_release_major | default('0', true) | int) > 0 and (openwrt_release_major | int) < 25 and openwrt_pkg_manager != 'opkg')
+    fail_msg: >-
+      OpenWrt release major={{ openwrt_release_major | default('unknown', true) }} と
+      package manager={{ openwrt_pkg_manager }} の組み合わせが想定外です

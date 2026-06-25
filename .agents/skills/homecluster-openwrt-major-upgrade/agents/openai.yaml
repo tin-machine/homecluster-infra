@@ -1,0 +1,4 @@
+interface:
+  display_name: "Homecluster OpenWrt Major Upgrade"
+  short_description: "Guard OpenWrt 25.x Ansible changes"
+  default_prompt: "Use $homecluster-openwrt-major-upgrade to implement a narrow OpenWrt major-upgrade preparation task."
