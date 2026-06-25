@@ -5,6 +5,7 @@
       "*": "ask",
       "homecluster-ansible-implementer": "allow",
       "homecluster-convergence-monitor": "allow",
+      "homecluster-openwrt-major-upgrade": "allow",
       "homecluster-openwrt-postupgrade-check": "allow"
     },
     "external_directory": {
@@ -27,6 +28,8 @@
       "ls *": "allow",
       "rg *": "allow",
       "sed -n *": "allow",
+      "mkdir -p ansible/openwrt/roles/openwrt_detect*": "allow",
+      "mkdir -p */ansible/openwrt/roles/openwrt_detect*": "allow",
       "env | grep OPENWRT_CHECK*": "allow",
       "bash scripts/ci/static-check.sh": "allow",
       "RUN_ANSIBLE_SYNTAX=1 bash scripts/ci/static-check.sh": "allow",

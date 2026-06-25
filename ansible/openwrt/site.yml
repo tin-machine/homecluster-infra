@@ -7,8 +7,11 @@
   gather_facts: false
   become: false
   roles:
+    - role: openwrt_detect
+      tags: ['always']
     - role: bootstrap_python
       tags: ['never', 'bootstrap']
+
     - role: openwrt_storage
       tags: ['never', 'openwrt_storage']
       when: openwrt_enable_storage | default(false)
