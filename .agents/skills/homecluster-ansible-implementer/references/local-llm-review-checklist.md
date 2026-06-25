@@ -183,7 +183,44 @@ Any nonzero exit from the validation gate means validation failed. Do not call i
 "successful", and do not replace it with ad hoc syntax checks. Fix the reported failures, rerun the
 same gate, and only then summarize verification as passed.
 
+If the validation gate reports an Ansible syntax error, fix the YAML/task structure directly and run
+the same gate again. Do not branch into unrelated direct commands such as `ansible --version`; the
+wrapper may reject those permission requests, and they do not prove the changed task is correct.
+
 When converting package tasks to `openwrt_package`, pass list variables with Jinja. This is correct:
+
+```yaml
+- name: Example packages を導入
+  ansible.builtin.include_role:
+    name: openwrt_package
+  vars:
+    openwrt_package_names: "{{ openwrt_example_packages }}"
+    openwrt_package_state: present
+    openwrt_package_update_cache: "{{ openwrt_opkg_update | default(true) }}"
+```
+
+`vars:` is a task-level key at the same indentation as `ansible.builtin.include_role` and `when`.
+Do not put role variables under `ansible.builtin.include_role`; Ansible treats them as invalid
+module options.
+
+This is wrong because `openwrt_package_names` is nested under the module:
+
+```yaml
+ansible.builtin.include_role:
+  name: openwrt_package
+  openwrt_package_names: "{{ openwrt_example_packages }}"
+```
+
+This is also wrong because `vars` is nested under the module:
+
+```yaml
+ansible.builtin.include_role:
+  name: openwrt_package
+  vars:
+    openwrt_package_names: "{{ openwrt_example_packages }}"
+```
+
+When passing only the variable value, the list variable must still be rendered with Jinja:
 
 ```yaml
 openwrt_package_names: "{{ openwrt_example_packages }}"

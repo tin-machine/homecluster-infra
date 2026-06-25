@@ -81,6 +81,10 @@ Use:
     openwrt_package_update_cache: "{{ openwrt_opkg_update | default(true) }}"
 ```
 
+`vars:` belongs to the task, at the same indentation as `ansible.builtin.include_role` and `when`.
+Do not place `openwrt_package_names` or `vars` under `ansible.builtin.include_role`; those become
+invalid module options.
+
 Do not use:
 
 ```yaml
