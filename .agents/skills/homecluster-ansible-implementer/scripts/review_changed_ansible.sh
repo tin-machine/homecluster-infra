@@ -175,6 +175,39 @@ if [[ -f "$site_file" ]]; then
 fi
 
 echo
+echo "== skill review: openwrt_detect package-manager coexistence facts =="
+detect_tasks_file="ansible/openwrt/roles/openwrt_detect/tasks/main.yml"
+package_tasks_file="ansible/openwrt/roles/openwrt_package/tasks/main.yml"
+if [[ -f "$detect_tasks_file" ]]; then
+  detect_required_patterns=(
+    "openwrt_pkg_managers_available:"
+    "openwrt_pkg_manager_preferred:"
+    "openwrt_pkg_manager_preferred \\| string \\| trim"
+    "openwrt_detect_apk.rc == 0"
+    "openwrt_detect_opkg.rc == 0"
+    "openwrt_release_major.*>= 25"
+    "openwrt_release_major.*< 25"
+  )
+  for pattern in "${detect_required_patterns[@]}"; do
+    if ! rg -q "$pattern" "$detect_tasks_file"; then
+      record_failure "openwrt_detect lost expected package-manager coexistence pattern: ${pattern}"
+    fi
+  done
+fi
+if [[ -f "$package_tasks_file" ]]; then
+  package_required_patterns=(
+    "openwrt_package_manager_effective:"
+    "openwrt_pkg_manager_preferred"
+    "default\\(openwrt_pkg_manager"
+  )
+  for pattern in "${package_required_patterns[@]}"; do
+    if ! rg -q "$pattern" "$package_tasks_file"; then
+      record_failure "openwrt_package lost expected preferred-manager fallback pattern: ${pattern}"
+    fi
+  done
+fi
+
+echo
 echo "== skill review: openwrt_sysupgrade backup and confirmation flow =="
 backup_tasks_file="ansible/openwrt/roles/openwrt_sysupgrade/tasks/backup.yml"
 main_tasks_file="ansible/openwrt/roles/openwrt_sysupgrade/tasks/main.yml"
