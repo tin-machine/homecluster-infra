@@ -5,6 +5,8 @@
 This reference covers public-safe Ansible source changes for preparing OpenWrt 25.x or later.
 It does not authorize live upgrade, live apply, real inventory execution, package installation on a
 router, sysupgrade, SwitchBot power actions, Terraform apply, or secret access.
+Adding or reviewing Ansible source files that would install packages during a future approved playbook
+run is allowed in this source-only workflow; actually running those tasks against a router is not.
 
 ## Design Rules
 

@@ -1,0 +1,71 @@
+---
+- name: OpenWrt package role の入力を正規化
+  ansible.builtin.set_fact:
+    openwrt_package_manager_effective: "{{ openwrt_pkg_manager | default('', true) | string | trim }}"
+    openwrt_package_state_effective: "{{ openwrt_package_state | default('present', true) | string | trim }}"
+    openwrt_package_update_cache_effective: "{{ openwrt_package_update_cache | default(openwrt_opkg_update | default(true)) | bool }}"
+
+- name: OpenWrt package role の入力を検証
+  ansible.builtin.assert:
+    that:
+      - openwrt_package_names is list
+      - (openwrt_package_names | reject('string') | list | length) == 0
+      - openwrt_package_state_effective in ['present', 'absent']
+      - openwrt_package_manager_effective in ['opkg', 'apk']
+    fail_msg: >-
+      openwrt_package_names は string list、openwrt_package_state は present/absent、
+      openwrt_pkg_manager は opkg/apk で指定してください。
+
+- name: opkg で OpenWrt package を収束
+  ansible.builtin.opkg:
+    name: "{{ item }}"
+    state: "{{ openwrt_package_state_effective }}"
+    update_cache: "{{ openwrt_package_update_cache_effective if openwrt_package_state_effective == 'present' else false }}"
+  loop: "{{ openwrt_package_names }}"
+  loop_control:
+    label: "{{ item }}"
+  when:
+    - openwrt_package_manager_effective == 'opkg'
+
+- name: apk package index を更新
+  ansible.builtin.raw: apk update
+  changed_when: false
+  when:
+    - openwrt_package_manager_effective == 'apk'
+    - openwrt_package_state_effective == 'present'
+    - openwrt_package_update_cache_effective | bool
+    - (openwrt_package_names | length) > 0
+
+- name: apk で OpenWrt package を導入
+  ansible.builtin.raw: |
+    if apk info -e {{ item | quote }} >/dev/null 2>&1; then
+      echo "already-present"
+    else
+      apk add {{ item | quote }}
+      echo "__openwrt_package_changed__"
+    fi
+  register: openwrt_package_apk_present
+  changed_when: "'__openwrt_package_changed__' in (openwrt_package_apk_present.stdout | default(''))"
+  loop: "{{ openwrt_package_names }}"
+  loop_control:
+    label: "{{ item }}"
+  when:
+    - openwrt_package_manager_effective == 'apk'
+    - openwrt_package_state_effective == 'present'
+
+- name: apk で OpenWrt package を削除
+  ansible.builtin.raw: |
+    if apk info -e {{ item | quote }} >/dev/null 2>&1; then
+      apk del {{ item | quote }}
+      echo "__openwrt_package_changed__"
+    else
+      echo "already-absent"
+    fi
+  register: openwrt_package_apk_absent
+  changed_when: "'__openwrt_package_changed__' in (openwrt_package_apk_absent.stdout | default(''))"
+  loop: "{{ openwrt_package_names }}"
+  loop_control:
+    label: "{{ item }}"
+  when:
+    - openwrt_package_manager_effective == 'apk'
+    - openwrt_package_state_effective == 'absent'
