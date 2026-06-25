@@ -169,6 +169,18 @@ Any nonzero exit from the validation gate means validation failed. Do not call i
 "successful", and do not replace it with ad hoc syntax checks. Fix the reported failures, rerun the
 same gate, and only then summarize verification as passed.
 
+When converting package tasks to `openwrt_package`, pass list variables with Jinja. This is correct:
+
+```yaml
+openwrt_package_names: "{{ openwrt_example_packages }}"
+```
+
+This is wrong because it passes a string literal:
+
+```yaml
+openwrt_package_names: openwrt_example_packages
+```
+
 When editing Markdown, blank separator lines must be empty. Do not insert lines that contain only a
 space. Keep one final newline at end of file, not an extra blank line.
 

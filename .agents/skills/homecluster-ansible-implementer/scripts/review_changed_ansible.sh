@@ -214,6 +214,26 @@ if [[ -f "$backup_tasks_file" && -f "$main_tasks_file" ]]; then
 fi
 
 echo
+echo "== skill review: openwrt_package include vars =="
+openwrt_package_task_files=()
+for path in "${changed_files[@]}"; do
+  case "$path" in
+    ansible/openwrt/roles/*/tasks/*.yml|ansible/openwrt/roles/*/tasks/*.yaml)
+      if [[ -f "$path" ]]; then
+        openwrt_package_task_files+=("$path")
+      fi
+      ;;
+  esac
+done
+if ((${#openwrt_package_task_files[@]} > 0)); then
+  if rg -n '^\s*openwrt_package_names:\s*openwrt_[A-Za-z0-9_]+_packages\s*$' "${openwrt_package_task_files[@]}"; then
+    record_failure "openwrt_package_names must pass list variables with Jinja, e.g. {{ openwrt_example_packages }}, not a bare string literal"
+  fi
+else
+  echo "no changed OpenWrt task files"
+fi
+
+echo
 echo "== skill review: runbook read-only boundary =="
 if [[ "${SKIP_RUNBOOK_DIRTY_CHECK:-0}" != "1" ]]; then
   runbook_dir="$(cd "$repo_root/../homecluster-runbook" 2>/dev/null && pwd || true)"

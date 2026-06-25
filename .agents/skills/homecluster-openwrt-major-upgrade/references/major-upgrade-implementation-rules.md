@@ -57,6 +57,28 @@ prefer a small raw-command path until OpenWrt `apk` module compatibility is veri
 Convert one role at a time. Start with low-risk package-only roles before roles that remove packages
 or mutate service state.
 
+When passing an existing package-list variable into `openwrt_package`, render the variable value with
+Jinja. A bare variable name becomes a string literal in Ansible and will not pass a list value.
+
+Use:
+
+```yaml
+- name: Example packages を導入
+  ansible.builtin.include_role:
+    name: openwrt_package
+  vars:
+    openwrt_package_names: "{{ openwrt_example_packages }}"
+    openwrt_package_state: present
+    openwrt_package_update_cache: "{{ openwrt_opkg_update | default(true) }}"
+```
+
+Do not use:
+
+```yaml
+vars:
+  openwrt_package_names: openwrt_example_packages
+```
+
 Candidate order:
 
 1. `openwrt_backup_share`
