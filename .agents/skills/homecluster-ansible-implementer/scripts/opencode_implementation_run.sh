@@ -12,12 +12,15 @@ Options:
   --config PATH           OPENCODE_CONFIG path.
   --agent NAME            OpenCode agent name. Defaults to OPENCODE_AGENT or homecluster-ansible-patch.
   --timeout SECONDS       Timeout for opencode run. Defaults to OPENCODE_TIMEOUT or 1800.
+  --edit-only             Ask OpenCode to edit only; skip validation inside the OpenCode run.
+  --repair-json PATH      Append a compact validation failure JSON object for a repair run.
   --no-expect-diff        Do not fail when OpenCode leaves no git diff.
   --skip-validation       Do not run opencode_validation_gate.sh after OpenCode exits.
   -h, --help              Show this help.
 
 The script prints one compact JSON object and writes raw logs under /tmp. It treats finish=length,
-Invalid Tool, zero-diff implementation runs, and failed/missing validation as hard failures.
+Invalid Tool, zero-diff implementation runs, and failed/missing validation when validation is enabled
+as hard failures.
 USAGE
 }
 
@@ -35,6 +38,8 @@ agent="${OPENCODE_AGENT:-homecluster-ansible-patch}"
 timeout_seconds="${OPENCODE_TIMEOUT:-1800}"
 expect_diff=1
 run_validation=1
+edit_only=0
+repair_json_path=""
 
 while (($# > 0)); do
   case "$1" in
@@ -56,6 +61,15 @@ while (($# > 0)); do
       ;;
     --timeout)
       timeout_seconds="${2:-}"
+      shift 2
+      ;;
+    --edit-only)
+      edit_only=1
+      run_validation=0
+      shift
+      ;;
+    --repair-json)
+      repair_json_path="${2:-}"
       shift 2
       ;;
     --no-expect-diff)
@@ -91,6 +105,46 @@ fi
 if ! [[ "$timeout_seconds" =~ ^[0-9]+$ ]] || [[ "$timeout_seconds" -le 0 ]]; then
   echo "invalid --timeout: $timeout_seconds" >&2
   exit 64
+fi
+if [[ -n "$repair_json_path" && ! -f "$repair_json_path" ]]; then
+  echo "repair JSON file not found: $repair_json_path" >&2
+  exit 64
+fi
+
+if [[ "$edit_only" == "1" ]]; then
+  task="${task}
+
+Edit-only mode:
+- Do not run validation commands.
+- Stop after the minimal source edit.
+- Final output must be changed files and uncertainty only; Codex will run validation."
+fi
+
+if [[ -n "$repair_json_path" ]]; then
+  repair_json="$(python3 - "$repair_json_path" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8", errors="replace") as handle:
+    data = json.load(handle)
+
+compact = {
+    "ok": data.get("ok"),
+    "failed_step": data.get("failed_step"),
+    "summary": data.get("summary"),
+    "commands_not_run": data.get("commands_not_run", []),
+}
+print(json.dumps(compact, ensure_ascii=False, sort_keys=True))
+PY
+)"
+  task="${task}
+
+Repair input:
+${repair_json}
+
+Before repairing, re-read the current target file from disk. Do not edit from an old snapshot or an
+oldString captured before the failed validation. Make the smallest source edit that fixes the compact
+failure JSON above."
 fi
 
 log_dir="$(mktemp -d "${TMPDIR:-/tmp}/opencode-implementation-run.XXXXXX")"
@@ -287,7 +341,11 @@ PY
     exit 1
   fi
 else
-  commands_not_run+=("./.agents/skills/homecluster-ansible-implementer/scripts/opencode_validation_gate.sh: skipped by --skip-validation")
+  if [[ "$edit_only" == "1" ]]; then
+    commands_not_run+=("./.agents/skills/homecluster-ansible-implementer/scripts/opencode_validation_gate.sh: skipped by --edit-only")
+  else
+    commands_not_run+=("./.agents/skills/homecluster-ansible-implementer/scripts/opencode_validation_gate.sh: skipped by --skip-validation")
+  fi
 fi
 
 emit_result true "" 0 "OpenCode implementation run passed wrapper gates" "$validation_ok"

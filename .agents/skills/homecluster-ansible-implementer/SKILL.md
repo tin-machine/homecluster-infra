@@ -59,7 +59,22 @@ zero-diff implementation attempts, and failed validation:
   --model local-gemma4/gemma-4-12b-it-qat-q4_0.gguf \
   --config ~/.config/opencode/local-gemma4.json \
   --agent homecluster-ansible-patch \
+  --edit-only \
   --task "<one narrow implementation task>"
+```
+
+For local Gemma4, prefer edit-only runs first. Codex then runs
+`opencode_validation_gate.sh` and saves its compact JSON. If validation fails, start a second repair
+run with only that compact validation JSON:
+
+```bash
+./.agents/skills/homecluster-ansible-implementer/scripts/opencode_implementation_run.sh \
+  --model local-gemma4/gemma-4-12b-it-qat-q4_0.gguf \
+  --config ~/.config/opencode/local-gemma4.json \
+  --agent homecluster-ansible-patch \
+  --edit-only \
+  --repair-json /tmp/opencode-validation.json \
+  --task "<same narrow implementation task>"
 ```
 
 Prefer these checks after implementation, adjusted to the changed entrypoint:
