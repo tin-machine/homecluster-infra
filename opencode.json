@@ -39,6 +39,8 @@
       "RUN_ANSIBLE_SYNTAX=1 RUN_ANSIBLE_LIST_TASKS=1 bash scripts/ci/static-check.sh": "allow",
       "RUN_ANSIBLE_SYNTAX=1 RUN_ANSIBLE_LIST_TASKS=1 RUN_TERRAFORM_VALIDATE=1 bash scripts/ci/static-check.sh": "allow",
       "./.agents/skills/homecluster-ansible-implementer/scripts/opencode_preflight_gate.sh *": "allow",
+      "./.agents/skills/homecluster-ansible-implementer/scripts/opencode_validation_gate.sh": "allow",
+      "./.agents/skills/homecluster-ansible-implementer/scripts/opencode_validation_gate.sh *": "allow",
       "./.agents/skills/homecluster-ansible-implementer/scripts/review_changed_ansible.sh": "allow",
       "./.agents/skills/homecluster-convergence-monitor/scripts/collect-k3s-convergence.sh": "allow",
       "./.agents/skills/homecluster-convergence-monitor/scripts/collect-k3s-convergence.sh *": "allow",

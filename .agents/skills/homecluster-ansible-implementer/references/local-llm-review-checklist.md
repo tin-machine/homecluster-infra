@@ -14,7 +14,7 @@ Use this checklist when OpenCode or another smaller local model edits `homeclust
    permissions can bypass the project deny rules for real inventory and runbook edits.
 5. In unattended OpenCode runs, prefer the read-only commands already allowed by project config:
    `git status --short --branch`, `git branch --show-current`, `git rev-parse`, `git diff`, `git show`,
-   `git ls-files`, `rg`, `sed -n`, and the bundled review script.
+   `git ls-files`, `rg`, `sed -n`, and the bundled validation gate script.
 
 ## Preflight Gate
 
@@ -154,19 +154,20 @@ Do not write "implemented" in runbooks merely because a local model produced a d
 Before final response, run:
 
 ```bash
-git diff --check
-./.agents/skills/homecluster-ansible-implementer/scripts/review_changed_ansible.sh
+./.agents/skills/homecluster-ansible-implementer/scripts/opencode_validation_gate.sh
 ```
 
-If either command fails, fix the reported lines and rerun. Do not report static checks as passed
-until the rerun succeeds.
+The gate prints one compact JSON object. Report validation as passed only when `ok` is `true`.
+If `ok` is `false`, treat `failed_step`, `summary`, and `commands_not_run` as authoritative, fix the
+reported issue, and rerun the same gate. Do not summarize a long command log yourself when the gate
+already returned JSON.
 
 Use the script path exactly as shown. Do not read or execute `/.agents/...`; that is an absolute path
 outside the repository and is wrong.
 
-Any nonzero exit from the review script means validation failed. Do not call it "minor" or
+Any nonzero exit from the validation gate means validation failed. Do not call it "minor" or
 "successful", and do not replace it with ad hoc syntax checks. Fix the reported failures, rerun the
-same script, and only then summarize verification as passed.
+same gate, and only then summarize verification as passed.
 
 When editing Markdown, blank separator lines must be empty. Do not insert lines that contain only a
 space. Keep one final newline at end of file, not an extra blank line.
