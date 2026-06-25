@@ -50,13 +50,22 @@ Use this skill for Ansible implementation work in `homecluster-infra`.
 
 ## Verification Baseline
 
+When Codex delegates implementation to OpenCode/local LLM, run through the wrapper instead of
+calling `opencode run` directly. The wrapper rejects output-limit truncation, invalid tool calls,
+zero-diff implementation attempts, and failed validation:
+
+```bash
+./.agents/skills/homecluster-ansible-implementer/scripts/opencode_implementation_run.sh \
+  --model local-gemma4/gemma-4-12b-it-qat-q4_0.gguf \
+  --config ~/.config/opencode/local-gemma4.json \
+  --agent homecluster-ansible-patch \
+  --task "<one narrow implementation task>"
+```
+
 Prefer these checks after implementation, adjusted to the changed entrypoint:
 
 ```bash
-bash scripts/ci/static-check.sh
-RUN_ANSIBLE_SYNTAX=1 RUN_ANSIBLE_LIST_TASKS=1 RUN_TERRAFORM_VALIDATE=1 \
-  bash scripts/ci/static-check.sh
-./.agents/skills/homecluster-ansible-implementer/scripts/review_changed_ansible.sh
+./.agents/skills/homecluster-ansible-implementer/scripts/opencode_validation_gate.sh
 ansible-playbook -i ../inventory.yml \
   ansible/openwrt/site.yml -l <host> --syntax-check
 ansible-playbook -i ../inventory.yml \

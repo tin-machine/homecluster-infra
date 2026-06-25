@@ -151,6 +151,20 @@ Do not write "implemented" in runbooks merely because a local model produced a d
 
 ## Required Self Review
 
+When OpenCode is asked to implement code, Codex should start it through the implementation wrapper:
+
+```bash
+./.agents/skills/homecluster-ansible-implementer/scripts/opencode_implementation_run.sh \
+  --model local-gemma4/gemma-4-12b-it-qat-q4_0.gguf \
+  --config ~/.config/opencode/local-gemma4.json \
+  --agent homecluster-ansible-patch \
+  --task "<one narrow implementation task>"
+```
+
+The wrapper output is authoritative. Treat `finish-length`, `invalid-tool`, `diff-gate`, and
+`validation-gate` as failed implementation attempts even when the OpenCode process itself exited
+zero. Do not summarize the run as successful unless the wrapper returns `ok: true`.
+
 Before final response, run:
 
 ```bash
@@ -169,8 +183,37 @@ Any nonzero exit from the validation gate means validation failed. Do not call i
 "successful", and do not replace it with ad hoc syntax checks. Fix the reported failures, rerun the
 same gate, and only then summarize verification as passed.
 
+When converting package tasks to `openwrt_package`, pass list variables with Jinja. This is correct:
+
+```yaml
+openwrt_package_names: "{{ openwrt_example_packages }}"
+```
+
+This is wrong because it passes a string literal:
+
+```yaml
+openwrt_package_names: openwrt_example_packages
+```
+
 When editing Markdown, blank separator lines must be empty. Do not insert lines that contain only a
 space. Keep one final newline at end of file, not an extra blank line.
+
+For OpenWrt package-manager coexistence, keep the consistency assert fail-closed for single-manager
+misdetections as well as dual-manager coexistence. This is wrong because it only fails when both
+managers are present:
+
+```yaml
+- not (openwrt_pkg_managers_available | length == 2 and ...)
+```
+
+This is the expected invariant:
+
+- OpenWrt 24.x with `opkg` selected is valid.
+- OpenWrt 24.x with only `apk` selected is invalid.
+- OpenWrt 24.x with both managers present must select `opkg`.
+- OpenWrt 25.x or later with `apk` selected is valid.
+- OpenWrt 25.x or later with only `opkg` selected is invalid.
+- OpenWrt 25.x or later with both managers present must select `apk`.
 
 ## Live Inventory Commands
 

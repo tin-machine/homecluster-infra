@@ -57,20 +57,51 @@
     owrt_current_release: "{{ openwrt_detect_distrib_release | trim }}"
     owrt_release_major: "{{ (openwrt_detect_distrib_release | trim).split('.')[0] | default('', true) }}"
     openwrt_release_major: "{{ (openwrt_detect_distrib_release | trim).split('.')[0] | default('', true) }}"
-    openwrt_pkg_manager: >-
+    openwrt_pkg_managers_available: >-
       {{
-        'apk' if openwrt_detect_apk.rc == 0
-        else ('opkg' if openwrt_detect_opkg.rc == 0 else '')
+        (['apk'] if openwrt_detect_apk.rc == 0 else [])
+        + (['opkg'] if openwrt_detect_opkg.rc == 0 else [])
       }}
+
+- name: OpenWrt package manager preference を設定
+  ansible.builtin.set_fact:
+    openwrt_pkg_manager_preferred: >-
+      {{
+        'apk'
+        if (openwrt_release_major | default('0', true) | int) >= 25
+          and 'apk' in openwrt_pkg_managers_available
+        else (
+          'opkg'
+          if (openwrt_release_major | default('0', true) | int) > 0
+            and (openwrt_release_major | int) < 25
+            and 'opkg' in openwrt_pkg_managers_available
+          else (
+            'apk' if 'apk' in openwrt_pkg_managers_available
+            else ('opkg' if 'opkg' in openwrt_pkg_managers_available else '')
+          )
+        )
+      }}
+
+- name: OpenWrt package manager 互換 fact を設定
+  ansible.builtin.set_fact:
+    openwrt_pkg_manager: "{{ openwrt_pkg_manager_preferred | string | trim }}"
     openwrt_pkg_manager_command: >-
       {{
-        (openwrt_detect_apk.stdout | trim) if openwrt_detect_apk.rc == 0
-        else ((openwrt_detect_opkg.stdout | trim) if openwrt_detect_opkg.rc == 0 else '')
+        (openwrt_detect_apk.stdout | trim)
+        if (openwrt_pkg_manager_preferred | string | trim) == 'apk'
+        else (
+          (openwrt_detect_opkg.stdout | trim)
+          if (openwrt_pkg_manager_preferred | string | trim) == 'opkg'
+          else ''
+        )
       }}
 
 - name: package manager の存在を検証
   ansible.builtin.assert:
     that:
+      - openwrt_pkg_managers_available is list
+      - openwrt_pkg_managers_available | length > 0
+      - openwrt_pkg_manager_preferred in ['opkg', 'apk']
       - openwrt_pkg_manager in ['opkg', 'apk']
       - openwrt_pkg_manager_command | length > 0
     fail_msg: "OpenWrt target に対応 package manager (opkg/apk) が見つかりません"

@@ -1,5 +1,47 @@
 {
   "$schema": "https://opencode.ai/config.json",
+  "agent": {
+    "homecluster-ansible-patch": {
+      "description": "Implements one narrow homecluster-infra Ansible source patch with public/private boundary guards.",
+      "mode": "primary",
+      "prompt": "You are the homecluster-infra Ansible patch implementer. Use $homecluster-ansible-implementer first. For OpenWrt major-upgrade package-manager work also use $homecluster-openwrt-major-upgrade. Implement exactly one narrow source-only task. Before editing, read the target skill files and the nearest target files. Do not run live apply, real inventory, sysupgrade, SwitchBot, Terraform apply, storage formatting, or secret inspection. Do not edit the private runbook unless the task explicitly asks. When changing Ansible code, preserve fail-closed guards and existing behavior. After editing, run the validation command requested by the task or the skill. Report only changed files, validation commands, and blockers.",
+      "permission": {
+        "skill": {
+          "*": "ask",
+          "homecluster-ansible-implementer": "allow",
+          "homecluster-openwrt-major-upgrade": "allow"
+        },
+        "bash": {
+          "*": "ask",
+          "git status*": "allow",
+          "git branch --show-current": "allow",
+          "git rev-parse*": "allow",
+          "git diff*": "allow",
+          "git show*": "allow",
+          "git ls-files*": "allow",
+          "pwd": "allow",
+          "ls *": "allow",
+          "rg *": "allow",
+          "sed -n *": "allow",
+          "bash scripts/ci/static-check.sh": "allow",
+          "RUN_ANSIBLE_SYNTAX=1 RUN_ANSIBLE_LIST_TASKS=1 bash scripts/ci/static-check.sh": "allow",
+          "./.agents/skills/homecluster-ansible-implementer/scripts/opencode_preflight_gate.sh *": "allow",
+          "./.agents/skills/homecluster-ansible-implementer/scripts/opencode_validation_gate.sh": "allow",
+          "./.agents/skills/homecluster-ansible-implementer/scripts/opencode_validation_gate.sh *": "allow",
+          "./.agents/skills/homecluster-ansible-implementer/scripts/review_changed_ansible.sh": "allow",
+          "ansible-playbook *examples/inventory.yml*": "allow",
+          "ansible-playbook *../inventory.yml*": "deny",
+          "ansible-playbook */home/*/ghq/*/inventory.yml*": "deny",
+          "ansible-playbook *homecluster-inventory*": "deny"
+        },
+        "edit": {
+          "*": "allow",
+          "~/ghq/**/homecluster-runbook/docs/operation/**": "deny",
+          "/home/*/ghq/**/homecluster-runbook/docs/operation/**": "deny"
+        }
+      }
+    }
+  },
   "permission": {
     "skill": {
       "*": "ask",
@@ -39,6 +81,7 @@
       "RUN_ANSIBLE_SYNTAX=1 RUN_ANSIBLE_LIST_TASKS=1 bash scripts/ci/static-check.sh": "allow",
       "RUN_ANSIBLE_SYNTAX=1 RUN_ANSIBLE_LIST_TASKS=1 RUN_TERRAFORM_VALIDATE=1 bash scripts/ci/static-check.sh": "allow",
       "./.agents/skills/homecluster-ansible-implementer/scripts/opencode_preflight_gate.sh *": "allow",
+      "./.agents/skills/homecluster-ansible-implementer/scripts/opencode_implementation_run.sh *": "allow",
       "./.agents/skills/homecluster-ansible-implementer/scripts/opencode_validation_gate.sh": "allow",
       "./.agents/skills/homecluster-ansible-implementer/scripts/opencode_validation_gate.sh *": "allow",
       "./.agents/skills/homecluster-ansible-implementer/scripts/review_changed_ansible.sh": "allow",

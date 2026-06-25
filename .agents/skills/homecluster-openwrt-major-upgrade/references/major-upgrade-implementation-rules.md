@@ -14,12 +14,21 @@ run is allowed in this source-only workflow; actually running those tasks agains
   exactly as existing roles did.
 - Detect package manager from commands on the target, not only from version strings.
 - Prefer facts:
-  - `openwrt_pkg_manager`: `opkg` or `apk`;
+  - `openwrt_pkg_managers_available`: detected supported managers such as `['opkg']`,
+    `['apk']`, or `['apk', 'opkg']`;
+  - `openwrt_pkg_manager_preferred`: the version-aware manager selected for current tasks;
+  - `openwrt_pkg_manager`: compatibility alias for `openwrt_pkg_manager_preferred`;
   - `openwrt_pkg_manager_command`: detected command path or command name;
   - `openwrt_release_major`: first numeric major component when available.
 - Fail closed if no supported package manager exists.
 - Warn or fail on inconsistent states, for example 25.x release with only `opkg`, or 24.x release
   with only `apk`. In examples/static checks, keep this parseable without real hosts.
+- Do not weaken the consistency check so that it only runs when both `apk` and `opkg` are present.
+  Single-manager mismatches such as OpenWrt 24.x with only `apk` or OpenWrt 25.x with only `opkg`
+  must still fail closed.
+- When both `apk` and `opkg` are present, select the package manager by release major, not by probe
+  order: OpenWrt 24.x uses `opkg`; OpenWrt 25.x and later uses `apk`. This preserves the coexistence
+  period where both commands may be installed.
 - Do not assume `community.general.apk` works for OpenWrt. Treat OpenWrt `apk` as unverified until
   proven on a test image or recovery-safe device.
 - Keep `bootstrap_python` raw-command based. It must work before Python is available on OpenWrt.
@@ -56,6 +65,28 @@ prefer a small raw-command path until OpenWrt `apk` module compatibility is veri
 
 Convert one role at a time. Start with low-risk package-only roles before roles that remove packages
 or mutate service state.
+
+When passing an existing package-list variable into `openwrt_package`, render the variable value with
+Jinja. A bare variable name becomes a string literal in Ansible and will not pass a list value.
+
+Use:
+
+```yaml
+- name: Example packages を導入
+  ansible.builtin.include_role:
+    name: openwrt_package
+  vars:
+    openwrt_package_names: "{{ openwrt_example_packages }}"
+    openwrt_package_state: present
+    openwrt_package_update_cache: "{{ openwrt_opkg_update | default(true) }}"
+```
+
+Do not use:
+
+```yaml
+vars:
+  openwrt_package_names: openwrt_example_packages
+```
 
 Candidate order:
 

@@ -175,6 +175,85 @@ if [[ -f "$site_file" ]]; then
 fi
 
 echo
+echo "== skill review: openwrt_detect package-manager coexistence facts =="
+detect_tasks_file="ansible/openwrt/roles/openwrt_detect/tasks/main.yml"
+package_tasks_file="ansible/openwrt/roles/openwrt_package/tasks/main.yml"
+if [[ -f "$detect_tasks_file" ]]; then
+  detect_required_patterns=(
+    "openwrt_pkg_managers_available:"
+    "openwrt_pkg_manager_preferred:"
+    "openwrt_pkg_manager_preferred \\| string \\| trim"
+    "openwrt_detect_apk.rc == 0"
+    "openwrt_detect_opkg.rc == 0"
+    "openwrt_release_major.*>= 25"
+    "openwrt_release_major.*< 25"
+  )
+  for pattern in "${detect_required_patterns[@]}"; do
+    if ! rg -q "$pattern" "$detect_tasks_file"; then
+      record_failure "openwrt_detect lost expected package-manager coexistence pattern: ${pattern}"
+    fi
+  done
+
+  if rg -n "openwrt_pkg_managers_available[[:space:]]*\\|[[:space:]]*length[[:space:]]*==[[:space:]]*2" "$detect_tasks_file"; then
+    record_failure "openwrt_detect consistency asserts must not only fail when both package managers are present"
+  fi
+
+  if ! rg -q ">= 25 and openwrt_pkg_manager != 'apk'" "$detect_tasks_file"; then
+    record_failure "openwrt_detect must fail closed for OpenWrt 25.x+ unless apk is selected"
+  fi
+  if ! rg -q "> 0 and .*< 25 and openwrt_pkg_manager != 'opkg'" "$detect_tasks_file"; then
+    record_failure "openwrt_detect must fail closed for OpenWrt 1.x-24.x unless opkg is selected"
+  fi
+
+  python3 - <<'PY'
+cases = [
+    ("24", ("opkg",), "opkg", True),
+    ("24", ("apk",), "apk", False),
+    ("24", ("apk", "opkg"), "opkg", True),
+    ("25", ("apk",), "apk", True),
+    ("25", ("opkg",), "opkg", False),
+    ("25", ("apk", "opkg"), "apk", True),
+    ("", ("opkg",), "opkg", True),
+    ("", ("apk",), "apk", True),
+    ("", (), "", False),
+]
+
+def expected_ok(release_major, managers, selected):
+    major = int(release_major or "0")
+    if not managers or selected not in ("opkg", "apk"):
+        return False
+    if major >= 25 and selected != "apk":
+        return False
+    if 0 < major < 25 and selected != "opkg":
+        return False
+    return True
+
+for release_major, managers, selected, expected in cases:
+    actual = expected_ok(release_major, managers, selected)
+    if actual != expected:
+        raise SystemExit(
+            "package-manager truth table mismatch: "
+            f"release_major={release_major!r} managers={managers!r} "
+            f"selected={selected!r} expected={expected!r} actual={actual!r}"
+        )
+
+print("package-manager fail-closed truth table ok")
+PY
+fi
+if [[ -f "$package_tasks_file" ]]; then
+  package_required_patterns=(
+    "openwrt_package_manager_effective:"
+    "openwrt_pkg_manager_preferred"
+    "default\\(openwrt_pkg_manager"
+  )
+  for pattern in "${package_required_patterns[@]}"; do
+    if ! rg -q "$pattern" "$package_tasks_file"; then
+      record_failure "openwrt_package lost expected preferred-manager fallback pattern: ${pattern}"
+    fi
+  done
+fi
+
+echo
 echo "== skill review: openwrt_sysupgrade backup and confirmation flow =="
 backup_tasks_file="ansible/openwrt/roles/openwrt_sysupgrade/tasks/backup.yml"
 main_tasks_file="ansible/openwrt/roles/openwrt_sysupgrade/tasks/main.yml"
@@ -211,6 +290,26 @@ if [[ -f "$backup_tasks_file" && -f "$main_tasks_file" ]]; then
   else
     record_failure "openwrt_sysupgrade flow line ordering could not be determined"
   fi
+fi
+
+echo
+echo "== skill review: openwrt_package include vars =="
+openwrt_package_task_files=()
+for path in "${changed_files[@]}"; do
+  case "$path" in
+    ansible/openwrt/roles/*/tasks/*.yml|ansible/openwrt/roles/*/tasks/*.yaml)
+      if [[ -f "$path" ]]; then
+        openwrt_package_task_files+=("$path")
+      fi
+      ;;
+  esac
+done
+if ((${#openwrt_package_task_files[@]} > 0)); then
+  if rg -n '^\s*openwrt_package_names:\s*openwrt_[A-Za-z0-9_]+_packages\s*$' "${openwrt_package_task_files[@]}"; then
+    record_failure "openwrt_package_names must pass list variables with Jinja, e.g. {{ openwrt_example_packages }}, not a bare string literal"
+  fi
+else
+  echo "no changed OpenWrt task files"
 fi
 
 echo

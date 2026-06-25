@@ -1,7 +1,13 @@
 ---
 - name: OpenWrt package role の入力を正規化
   ansible.builtin.set_fact:
-    openwrt_package_manager_effective: "{{ openwrt_pkg_manager | default('', true) | string | trim }}"
+    openwrt_package_manager_effective: >-
+      {{
+        openwrt_pkg_manager_preferred
+        | default(openwrt_pkg_manager | default('', true), true)
+        | string
+        | trim
+      }}
     openwrt_package_state_effective: "{{ openwrt_package_state | default('present', true) | string | trim }}"
     openwrt_package_update_cache_effective: "{{ openwrt_package_update_cache | default(openwrt_opkg_update | default(true)) | bool }}"
 
