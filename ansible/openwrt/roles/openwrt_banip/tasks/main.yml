@@ -15,13 +15,12 @@
     fail_msg: "openwrt_banip_blockpolicy は drop または reject を指定してください。"
 
 - name: banIP パッケージを導入
-  ansible.builtin.opkg:
-    name: "{{ item }}"
-    state: present
-    update_cache: "{{ openwrt_opkg_update | default(true) }}"
-  loop: "{{ ['banip'] + ((openwrt_banip_install_luci | bool) | ternary(['luci-app-banip'], [])) }}"
-  loop_control:
-    label: "{{ item }}"
+  ansible.builtin.include_role:
+    name: openwrt_package
+  vars:
+    openwrt_package_names: "{{ ['banip'] + ((openwrt_banip_install_luci | bool) | ternary(['luci-app-banip'], [])) }}"
+    openwrt_package_state: present
+    openwrt_package_update_cache: "{{ openwrt_opkg_update | default(true) }}"
 
 - name: banIP init スクリプトの存在確認
   ansible.builtin.stat:
