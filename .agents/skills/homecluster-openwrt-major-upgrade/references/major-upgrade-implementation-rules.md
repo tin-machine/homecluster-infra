@@ -66,6 +66,20 @@ prefer a small raw-command path until OpenWrt `apk` module compatibility is veri
 Convert one role at a time. Start with low-risk package-only roles before roles that remove packages
 or mutate service state.
 
+Prefer the converter script for package task rewrites before hand-editing YAML:
+
+```bash
+scripts/ansible/convert_openwrt_package_task.py \
+  --file ansible/openwrt/roles/<role>/tasks/main.yml \
+  --task-name "<exact task name>" \
+  --package-expression openwrt_example_packages \
+  --state present
+```
+
+The default mode is dry-run and prints a unified diff. Add `--write` only after the diff matches the
+intended task. For simple removal tasks such as raw `opkg remove dnsmasq`, use `--state absent`;
+the script can derive a literal package list from `opkg remove <package>`.
+
 When passing an existing package-list variable into `openwrt_package`, render the variable value with
 Jinja. A bare variable name becomes a string literal in Ansible and will not pass a list value.
 
