@@ -67,6 +67,21 @@ variables:
 - Do not expose secret values. If a command can show credentials, token material, kubeconfig,
   tfvars, private keys, or raw backup contents, do not run it.
 
+## Collector Implementation Notes
+
+The collector's `run_router` function returns a JSON wrapper from `capture_json`, not raw command
+stdout. Do not parse variables such as `release_raw`, `pkg_mgr_raw`, or `packages_raw` with plain
+`grep`, `cut`, or shell parameter expansion unless they were first decoded with `jq`.
+
+Router state must be detected on the router. Do not use local `command -v apk`, `command -v opkg`,
+or local `/etc/openwrt_release` checks to decide router package-manager behavior. Put those checks
+inside a `run_router '...'` command, or decode a prior `run_router` JSON result with `jq`.
+
+For package-manager coexistence, record both:
+
+- commands detected on the router, from `pkg_mgr_raw`;
+- the package manager actually used to collect package names.
+
 ## Output Contract
 
 Use this result shape in final summaries:

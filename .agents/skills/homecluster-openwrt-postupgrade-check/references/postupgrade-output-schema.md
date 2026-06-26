@@ -23,6 +23,12 @@ The collector prints one JSON object. Treat missing fields as unknown, not healt
   BGP command missing when route targets are configured, or k3s API unreachable when configured.
 - `unknown`: insufficient data, usually router SSH failure or missing required input.
 
+## Router Package Manager
+
+- `router.package_manager.commands`: package manager commands detected on the router.
+- `router.package_manager.selected_for_packages`: package manager used to collect
+  `router.packages`; `apk`, `opkg`, or an empty string when neither is available.
+
 ## Common Issues
 
 - `router_ssh_unreachable`: the router could not be reached through SSH.

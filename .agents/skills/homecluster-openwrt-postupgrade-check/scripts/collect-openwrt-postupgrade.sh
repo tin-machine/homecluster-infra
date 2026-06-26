@@ -106,7 +106,44 @@ generated_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 board_raw="$(run_router 'ubus call system board')"
 release_raw="$(run_router 'cat /etc/openwrt_release')"
 pkg_mgr_raw="$(run_router 'for c in opkg apk; do command -v "$c" >/dev/null 2>&1 && echo "$c"; done; true')"
-packages_raw="$(run_router 'if command -v opkg >/dev/null 2>&1; then opkg list-installed | cut -d" " -f1; elif command -v apk >/dev/null 2>&1; then apk info; else true; fi')"
+selected_pkg_manager_raw="$(run_router '
+release=""
+if [ -r /etc/openwrt_release ]; then
+  . /etc/openwrt_release
+  release="${DISTRIB_RELEASE:-}"
+fi
+major="${release%%.*}"
+case "$major" in
+  ""|*[!0-9]*) major=0 ;;
+esac
+have_apk=0
+have_opkg=0
+command -v apk >/dev/null 2>&1 && have_apk=1
+command -v opkg >/dev/null 2>&1 && have_opkg=1
+if [ "$major" -ge 25 ] && [ "$have_apk" -eq 1 ]; then
+  printf "apk\n"
+elif [ "$major" -gt 0 ] && [ "$major" -lt 25 ] && [ "$have_opkg" -eq 1 ]; then
+  printf "opkg\n"
+elif [ "$have_apk" -eq 1 ]; then
+  printf "apk\n"
+elif [ "$have_opkg" -eq 1 ]; then
+  printf "opkg\n"
+else
+  printf "\n"
+fi
+')"
+selected_pkg_manager="$(printf '%s' "$selected_pkg_manager_raw" | jq -r 'if .ok then (.output // "" | split("\n")[0]) else "" end')"
+case "$selected_pkg_manager" in
+  apk)
+    packages_raw="$(run_router 'apk info')"
+    ;;
+  opkg)
+    packages_raw="$(run_router 'opkg list-installed | cut -d" " -f1')"
+    ;;
+  *)
+    packages_raw="$(run_router 'true')"
+    ;;
+esac
 services_raw="$(run_router 'for s in network firewall dnsmasq rpcbind nfsd frr banip prometheus-node-exporter-lua uhttpd log; do printf "SERVICE %s " "$s"; if [ ! -x "/etc/init.d/$s" ]; then printf "missing"; elif [ "$s" = frr ]; then if pgrep -f "/usr/sbin/(watchfrr|zebra|bgpd|staticd)" >/dev/null 2>&1; then printf "running"; else printf "present_not_running"; fi; else /etc/init.d/$s status 2>&1 | head -n 3 | tr "\n" " "; fi; printf "\n"; done')"
 mounts_raw="$(run_router 'mount')"
 df_raw="$(run_router 'df -h')"
@@ -159,6 +196,7 @@ jq -n \
   --arg router_ssh_set "$([ -n "$ROUTER_SSH" ] && printf true || printf false)" \
   --arg k3s_control_ssh_set "$([ -n "$K3S_CONTROL_SSH" ] && printf true || printf false)" \
   --arg obs_namespace "$OBS_NAMESPACE" \
+  --arg selected_pkg_manager "$selected_pkg_manager" \
   --slurpfile board_raw_file "$tmpdir/board_raw.json" \
   --slurpfile release_raw_file "$tmpdir/release_raw.json" \
   --slurpfile pkg_mgr_raw_file "$tmpdir/pkg_mgr_raw.json" \
@@ -273,7 +311,7 @@ jq -n \
       ssh_ok:$board_raw.ok,
       board:{model:($board.model // null), board_name:($board.board_name // null), kernel:($board.kernel // null)},
       release:{ok:($release_raw.ok), current:$release, expected:$expected_release, matches:(($expected_release | length == 0) or $release == $expected_release)},
-      package_manager:{ok:$pkg_mgr_raw.ok, commands:lines($pkg_mgr_raw.output // "")},
+      package_manager:{ok:$pkg_mgr_raw.ok, commands:lines($pkg_mgr_raw.output // ""), selected_for_packages:$selected_pkg_manager},
       packages:{ok:$packages_raw.ok, installed_count:($installed_pkg_list | length), missing_required:$missing_packages},
       services:{ok:$services_raw.ok, items:$service_list, not_ready:$bad_services},
       storage:{mount_output_ok:$mounts_raw.ok, df_ok:$df_raw.ok, expected_missing:$missing_mounts, df_excerpt:lines($df_raw.output // "")},
