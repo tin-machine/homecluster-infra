@@ -130,6 +130,22 @@ Candidate order:
 Add raw `apk` probes/install only after `openwrt_detect` and `openwrt_package` have stable naming.
 Keep the existing Python symlink and zlib checks.
 
+This role is a pre-Python bootstrap path. Keep package-manager operations in `ansible.builtin.raw`;
+do not switch the probes/install tasks to `command`, `shell`, `opkg`, `apk`, or `openwrt_package`
+modules unless a future task proves those modules work before Python exists on the target.
+
+For OpenCode/local Gemma4 runs that touch only this role, keep the investigation bounded:
+
+- read `ansible/openwrt/roles/bootstrap_python/tasks/main.yml` and the role defaults only if needed;
+- do not run repository-wide `grep`/`rg` for package-manager variables unless the task explicitly
+  asks for cross-role changes;
+- do not emit a long planned patch in the response before editing;
+- edit first, then stop and let Codex run the validation gate.
+
+The coexistence rule still applies inside this raw bootstrap path: preserve the `opkg` behavior for
+OpenWrt 24.x, add an `apk` path for OpenWrt 25.x or detected `apk`, and fail closed when neither
+package manager can be selected.
+
 ### 5. Sysupgrade And Collectors
 
 After package-manager abstraction exists, update sysupgrade/post-upgrade checks to record package

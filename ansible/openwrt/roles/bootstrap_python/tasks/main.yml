@@ -6,8 +6,59 @@
   failed_when: false
   check_mode: false
 
+- name: Python bootstrap 用 package manager fact を初期化
+  ansible.builtin.set_fact:
+    openwrt_python_pkg_manager_effective: >-
+      {{
+        openwrt_pkg_manager_preferred
+        | default(openwrt_pkg_manager | default('', true), true)
+        | string
+        | trim
+      }}
+
+- name: apk コマンドの存在を確認
+  ansible.builtin.raw: command -v apk
+  register: openwrt_python_apk_check
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  when: (openwrt_python_pkg_manager_effective | length) == 0
+
+- name: opkg コマンドの存在を確認
+  ansible.builtin.raw: command -v opkg
+  register: openwrt_python_opkg_check
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  when: (openwrt_python_pkg_manager_effective | length) == 0
+
+- name: Python bootstrap 用 package manager を確定
+  ansible.builtin.set_fact:
+    openwrt_python_pkg_manager_effective: >-
+      {{
+        'apk'
+        if (openwrt_python_apk_check.rc | default(1)) == 0
+        else (
+          'opkg'
+          if (openwrt_python_opkg_check.rc | default(1)) == 0
+          else ''
+        )
+      }}
+  when: (openwrt_python_pkg_manager_effective | length) == 0
+
+- name: Python bootstrap 用 package manager を検証
+  ansible.builtin.assert:
+    that:
+      - openwrt_python_pkg_manager_effective in ['opkg', 'apk']
+    fail_msg: "Python bootstrap に必要な package manager (opkg/apk) が見つかりません"
+
 - name: 必須 Python パッケージのインストール状況を確認
-  ansible.builtin.raw: "opkg list-installed {{ item }}"
+  ansible.builtin.raw: >-
+    {% if openwrt_python_pkg_manager_effective == 'apk' %}
+    apk info -e {{ item | quote }}
+    {% else %}
+    opkg list-installed {{ item | quote }}
+    {% endif %}
   register: openwrt_python_pkg_check
   failed_when: false
   changed_when: false
@@ -41,8 +92,13 @@
     - (openwrt_missing_python_packages | default(openwrt_python_packages) | length) > 0
     - ansible_check_mode
 
-- name: opkg update を実行
-  ansible.builtin.raw: opkg update
+- name: package manager update を実行
+  ansible.builtin.raw: >-
+    {% if openwrt_python_pkg_manager_effective == 'apk' %}
+    apk update
+    {% else %}
+    opkg update
+    {% endif %}
   when:
     - (openwrt_missing_python_packages | default(openwrt_python_packages) | length) > 0
     - openwrt_opkg_update | bool
@@ -50,7 +106,12 @@
   check_mode: false
 
 - name: Python 実行環境を導入
-  ansible.builtin.raw: "opkg install {{ (openwrt_missing_python_packages | default(openwrt_python_packages)) | join(' ') }}"
+  ansible.builtin.raw: >-
+    {% if openwrt_python_pkg_manager_effective == 'apk' %}
+    apk add {{ (openwrt_missing_python_packages | default(openwrt_python_packages)) | map('quote') | join(' ') }}
+    {% else %}
+    opkg install {{ (openwrt_missing_python_packages | default(openwrt_python_packages)) | map('quote') | join(' ') }}
+    {% endif %}
   when:
     - (openwrt_missing_python_packages | default(openwrt_python_packages) | length) > 0
     - not ansible_check_mode
