@@ -35,6 +35,27 @@ run is allowed in this source-only workflow; actually running those tasks agains
 - Keep destructive or high-blast-radius operations behind existing `never` tags or explicit
   confirmation gates.
 
+## OpenCode Search Discipline
+
+When Semble MCP is available in OpenCode, use it as a first-pass search gate, not as final proof.
+This reduces broad repository grep/read passes, but only when the query is specific.
+
+For exploratory implementation tasks:
+
+1. Call Semble search exactly once before broad `grep`/`rg`.
+2. Include the expected role, file, collector, or script name plus the most specific identifiers in
+   the query. For example, prefer `collect-openwrt-postupgrade packages_raw opkg apk` over
+   `OpenWrt package manager`.
+3. If the top results are outside the expected subsystem, stop and report `no_confident_location`
+   instead of expanding into repository-wide grep.
+4. If the top result is in the expected subsystem, read only that file around the returned line and
+   confirm the exact implementation line before editing.
+5. Use repository-wide `grep`/`rg` only when the task needs every literal occurrence, or when Semble
+   returns no plausible subsystem result.
+
+Semble line numbers can land near the relevant chunk rather than on the exact statement. Treat them
+as navigation hints. The exact edit location still requires reading the returned file.
+
 ## Implementation Order
 
 ### 1. `openwrt_detect`

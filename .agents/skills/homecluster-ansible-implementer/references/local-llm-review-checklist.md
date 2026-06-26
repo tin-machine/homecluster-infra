@@ -16,6 +16,19 @@ Use this checklist when OpenCode or another smaller local model edits `homeclust
    `git status --short --branch`, `git branch --show-current`, `git rev-parse`, `git diff`, `git show`,
    `git ls-files`, `rg`, `sed -n`, and the bundled validation gate script.
 
+## Search Discipline
+
+When Semble MCP is available, use it as a bounded first-pass search before broad repository grep:
+
+1. Call Semble search exactly once with the expected role/file/script name plus the most specific
+   identifiers.
+2. If the result is outside the expected subsystem, stop and report `no_confident_location`.
+3. If the result is plausible, read only the returned file around the reported line.
+4. Use repository-wide `grep`/`rg` only when every literal occurrence is required or Semble returns
+   no plausible subsystem result.
+
+Semble is a navigation aid, not proof. Confirm the exact line before editing.
+
 ## Preflight Gate
 
 When a task uses a long plan file, an external runbook, or a prompt that may conflict with this
