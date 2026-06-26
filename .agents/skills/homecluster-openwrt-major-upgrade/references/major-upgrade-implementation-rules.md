@@ -80,6 +80,10 @@ The default mode is dry-run and prints a unified diff. Add `--write` only after 
 intended task. For simple removal tasks such as raw `opkg remove dnsmasq`, use `--state absent`;
 the script can derive a literal package list from `opkg remove <package>`.
 
+Under OpenCode, run the converter command directly with the known arguments from the task prompt.
+Do not spend an implementation pass on `--help`; project permissions intentionally allow only the
+converter path, not broad Python execution.
+
 When passing an existing package-list variable into `openwrt_package`, render the variable value with
 Jinja. A bare variable name becomes a string literal in Ansible and will not pass a list value.
 
