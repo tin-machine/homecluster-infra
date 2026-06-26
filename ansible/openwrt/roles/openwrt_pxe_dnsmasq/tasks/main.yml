@@ -19,27 +19,22 @@
     - pxe_dnsmasq
 
 - name: dnsmasq をアンインストール
-  ansible.builtin.shell: |
-    opkg remove dnsmasq >/tmp/opkg-remove-dnsmasq.log 2>&1 || true
-    cat /tmp/opkg-remove-dnsmasq.log
-    rm -f /tmp/opkg-remove-dnsmasq.log
-  register: openwrt_pxe_dnsmasq_remove
-  changed_when: "'Removing package dnsmasq' in (openwrt_pxe_dnsmasq_remove.stdout | default(''))"
-  failed_when:
-    - openwrt_pxe_dnsmasq_remove.rc not in [0]
-    - "'No packages removed' not in (openwrt_pxe_dnsmasq_remove.stdout | default(''))"
-    - "'Removing package dnsmasq' not in (openwrt_pxe_dnsmasq_remove.stdout | default(''))"
+  ansible.builtin.include_role:
+    name: openwrt_package
+  vars:
+    openwrt_package_names: ['dnsmasq']
+    openwrt_package_state: absent
+    openwrt_package_update_cache: false
   tags:
     - pxe_dnsmasq
 
 - name: dnsmasq 関連パッケージを導入
-  ansible.builtin.opkg:
-    name: "{{ item }}"
-    state: present
-    update_cache: "{{ openwrt_opkg_update | default(true) }}"
-  loop: "{{ openwrt_pxe_dnsmasq_packages | default(['dnsmasq-full']) }}"
-  loop_control:
-    label: "{{ item }}"
+  ansible.builtin.include_role:
+    name: openwrt_package
+  vars:
+    openwrt_package_names: "{{ openwrt_pxe_dnsmasq_packages | default(['dnsmasq-full']) }}"
+    openwrt_package_state: present
+    openwrt_package_update_cache: "{{ openwrt_opkg_update | default(true) }}"
   tags:
     - pxe_dnsmasq
 
