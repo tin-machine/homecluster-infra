@@ -83,6 +83,10 @@ the script can derive a literal package list from `opkg remove <package>`.
 Under OpenCode, run the converter command directly with the known arguments from the task prompt.
 Do not spend an implementation pass on `--help`; project permissions intentionally allow only the
 converter path, not broad Python execution.
+Put the exact converter command in a fenced `bash` block without trailing sentence punctuation. Once
+the converter exits 0 and `git diff -- <target-file>` shows the expected task-only diff, stop the
+edit-only run; do not read the full converter script, the full large task file, or unrelated role
+directories.
 
 When passing an existing package-list variable into `openwrt_package`, render the variable value with
 Jinja. A bare variable name becomes a string literal in Ansible and will not pass a list value.

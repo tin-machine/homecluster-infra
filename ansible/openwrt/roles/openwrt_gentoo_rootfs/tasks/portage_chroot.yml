@@ -107,10 +107,12 @@
         - not (openwrt_gentoo_portage_git_stat.stat.exists | default(false))
 
     - name: Portage 取得用に git を導入 (OpenWrt 側)
-      ansible.builtin.opkg:
-        name: git
-        state: present
-        update_cache: "{{ openwrt_opkg_update | default(true) }}"
+      ansible.builtin.include_role:
+        name: openwrt_package
+      vars:
+        openwrt_package_names: ['git']
+        openwrt_package_state: present
+        openwrt_package_update_cache: "{{ openwrt_opkg_update | default(true) }}"
       when:
         - openwrt_gentoo_enabled | bool
         - openwrt_gentoo_portage_init | bool
