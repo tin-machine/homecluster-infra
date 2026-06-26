@@ -35,6 +35,27 @@ run is allowed in this source-only workflow; actually running those tasks agains
 - Keep destructive or high-blast-radius operations behind existing `never` tags or explicit
   confirmation gates.
 
+## OpenCode Search Discipline
+
+When Semble MCP is available in OpenCode, use it as a first-pass search gate, not as final proof.
+This reduces broad repository grep/read passes, but only when the query is specific.
+
+For exploratory implementation tasks:
+
+1. Call Semble search exactly once before broad `grep`/`rg`.
+2. Include the expected role, file, collector, or script name plus the most specific identifiers in
+   the query. For example, prefer `collect-openwrt-postupgrade packages_raw opkg apk` over
+   `OpenWrt package manager`.
+3. If the top results are outside the expected subsystem, stop and report `no_confident_location`
+   instead of expanding into repository-wide grep.
+4. If the top result is in the expected subsystem, read only that file around the returned line and
+   confirm the exact implementation line before editing.
+5. Use repository-wide `grep`/`rg` only when the task needs every literal occurrence, or when Semble
+   returns no plausible subsystem result.
+
+Semble line numbers can land near the relevant chunk rather than on the exact statement. Treat them
+as navigation hints. The exact edit location still requires reading the returned file.
+
 ## Implementation Order
 
 ### 1. `openwrt_detect`
@@ -129,6 +150,22 @@ Candidate order:
 
 Add raw `apk` probes/install only after `openwrt_detect` and `openwrt_package` have stable naming.
 Keep the existing Python symlink and zlib checks.
+
+This role is a pre-Python bootstrap path. Keep package-manager operations in `ansible.builtin.raw`;
+do not switch the probes/install tasks to `command`, `shell`, `opkg`, `apk`, or `openwrt_package`
+modules unless a future task proves those modules work before Python exists on the target.
+
+For OpenCode/local Gemma4 runs that touch only this role, keep the investigation bounded:
+
+- read `ansible/openwrt/roles/bootstrap_python/tasks/main.yml` and the role defaults only if needed;
+- do not run repository-wide `grep`/`rg` for package-manager variables unless the task explicitly
+  asks for cross-role changes;
+- do not emit a long planned patch in the response before editing;
+- edit first, then stop and let Codex run the validation gate.
+
+The coexistence rule still applies inside this raw bootstrap path: preserve the `opkg` behavior for
+OpenWrt 24.x, add an `apk` path for OpenWrt 25.x or detected `apk`, and fail closed when neither
+package manager can be selected.
 
 ### 5. Sysupgrade And Collectors
 

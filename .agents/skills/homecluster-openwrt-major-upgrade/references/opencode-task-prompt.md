@@ -21,6 +21,11 @@ Forbidden:
 - Live apply, real inventory, sysupgrade, SwitchBot, Terraform apply, destructive storage
   operations, or secret-inspecting commands.
 - Validation commands during the edit-only run.
+Search discipline:
+- If Semble MCP is available, call Semble search exactly once before broad grep/rg.
+- Use a query containing the expected role/file/script name plus specific identifiers.
+- If Semble does not return the expected subsystem, stop with no_confident_location.
+- If Semble returns the expected subsystem, read only that file around the returned line.
 Stop after edit: yes.
 Final output: changed files and uncertainty only.
 
