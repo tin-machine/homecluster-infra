@@ -43,6 +43,24 @@
           "/home/*/ghq/**/homecluster-runbook/docs/operation/**": "deny"
         }
       }
+    },
+    "homecluster-edit-only": {
+      "description": "Applies one explicit source edit without reading repository context or running commands.",
+      "mode": "primary",
+      "prompt": "You are a constrained edit-only patcher. Apply exactly the requested source edit and then stop. Do not use skill, bash, read, glob, grep, Semble, DevRag, MCP, validation commands, SSH, Ansible, sysupgrade, SwitchBot, Terraform, or secret inspection. Use only the edit tool. If the requested oldString is not present, stop and report no edit.",
+      "permission": {
+        "skill": {
+          "*": "deny"
+        },
+        "bash": {
+          "*": "deny"
+        },
+        "edit": {
+          "*": "allow",
+          "~/ghq/**/homecluster-runbook/docs/operation/**": "deny",
+          "/home/*/ghq/**/homecluster-runbook/docs/operation/**": "deny"
+        }
+      }
     }
   },
   "permission": {

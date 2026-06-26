@@ -1,0 +1,97 @@
+---
+- name: sysupgrade manifest phase を検証
+  ansible.builtin.assert:
+    that:
+      - owrt_manifest_phase in ["pre", "post"]
+    fail_msg: "owrt_manifest_phase は pre または post を指定してください。"
+
+- name: sysupgrade manifest 用 package manager を raw で選択
+  ansible.builtin.raw: |
+    release=""
+    if [ -r /etc/openwrt_release ]; then
+      . /etc/openwrt_release
+      release="${DISTRIB_RELEASE:-}"
+    fi
+    major="${release%%.*}"
+    case "$major" in
+      ""|*[!0-9]*) major=0 ;;
+    esac
+    have_apk=0
+    have_opkg=0
+    command -v apk >/dev/null 2>&1 && have_apk=1
+    command -v opkg >/dev/null 2>&1 && have_opkg=1
+    if [ "$major" -ge 25 ] && [ "$have_apk" -eq 1 ]; then
+      printf "apk\n"
+    elif [ "$major" -gt 0 ] && [ "$major" -lt 25 ] && [ "$have_opkg" -eq 1 ]; then
+      printf "opkg\n"
+    elif [ "$have_apk" -eq 1 ]; then
+      printf "apk\n"
+    elif [ "$have_opkg" -eq 1 ]; then
+      printf "opkg\n"
+    else
+      printf "\n"
+    fi
+  register: owrt_manifest_package_manager_raw
+  changed_when: false
+
+- name: sysupgrade manifest 用 package manager を Fact 化
+  ansible.builtin.set_fact:
+    owrt_manifest_package_manager: "{{ (owrt_manifest_package_manager_raw.stdout_lines | default(['']))[0] | default('') | trim }}"
+
+- name: sysupgrade manifest package list を raw で取得
+  ansible.builtin.raw: |
+    case "{{ owrt_manifest_package_manager }}" in
+      apk)
+        apk info
+        ;;
+      opkg)
+        opkg list-installed | cut -d" " -f1
+        ;;
+      *)
+        true
+        ;;
+    esac
+  register: owrt_manifest_packages_raw
+  changed_when: false
+
+- name: sysupgrade manifest service status を raw で取得
+  ansible.builtin.raw: |
+    for s in network firewall dnsmasq rpcbind nfsd frr banip prometheus-node-exporter-lua uhttpd log; do
+      printf "SERVICE %s " "$s"
+      if [ ! -x "/etc/init.d/$s" ]; then
+        printf "missing"
+      else
+        /etc/init.d/$s status 2>&1 | head -n 3 | tr "\n" " "
+      fi
+      printf "\n"
+    done
+  register: owrt_manifest_services_raw
+  changed_when: false
+
+- name: sysupgrade manifest を Fact 化
+  ansible.builtin.set_fact:
+    owrt_manifest_package_lines: "{{ (owrt_manifest_packages_raw.stdout | default('')).splitlines() | map('trim') | reject('equalto', '') | list }}"
+    owrt_manifest_service_status_lines: "{{ (owrt_manifest_services_raw.stdout | default('')).splitlines() | map('trim') | reject('equalto', '') | list }}"
+
+- name: sysupgrade manifest store を更新
+  ansible.builtin.set_fact:
+    owrt_sysupgrade_manifests: >-
+      {{
+        (owrt_sysupgrade_manifests | default({}))
+        | combine({
+            owrt_manifest_phase: {
+              'package_manager': owrt_manifest_package_manager,
+              'package_count': (owrt_manifest_package_lines | length),
+              'packages': owrt_manifest_package_lines,
+              'service_status_lines': owrt_manifest_service_status_lines
+            }
+          }, recursive=True)
+      }}
+
+- name: sysupgrade manifest summary を表示
+  ansible.builtin.debug:
+    msg:
+      phase: "{{ owrt_manifest_phase }}"
+      package_manager: "{{ owrt_manifest_package_manager }}"
+      package_count: "{{ owrt_manifest_package_lines | length }}"
+      service_status_lines: "{{ owrt_manifest_service_status_lines }}"
