@@ -35,7 +35,7 @@ ansible-playbook -i ../inventory.yml site.yml \
 
 ## prepare 実行例
 
-`prepare` は image verify、router 上の backup 作成、control node への fetch、size/SHA256 表示までを
+`prepare` は image verify、pre-upgrade manifest summary、router 上の backup 作成、control node への fetch、size/SHA256 表示までを
 実行し、実 sysupgrade には進みません。
 
 ```console
@@ -66,6 +66,7 @@ ansible-playbook -i ../inventory.yml site.yml \
 
 - バックアップの tarball は git リポジトリの外に保管してください。
 - backup fetch が有効な場合、control node へ取得した tarball の保存先、size、SHA256 を表示します。
+- `prepare` / `upgrade` では package manager、package count、短い service status summary を `owrt_sysupgrade_manifests` に記録します。これは状態確認用 summary であり、`prepare` mode では実 sysupgrade を実行しません。
 - `openwrt_sysupgrade_confirm` は、upgrade mode で `inventory_hostname` と `owrt_upgrade_target` の組み合わせを指定する必要があります。
 - `sysupgrade_mode` には `detect`、`prepare`、`upgrade` を指定してください。未指定かつ `openwrt_perform_upgrade` も未指定/false の場合は detect-only です。
 - `prepare` モードではバックアップを取得し、ハッシュを表示しますが、実際の sysupgrade は実行しません。

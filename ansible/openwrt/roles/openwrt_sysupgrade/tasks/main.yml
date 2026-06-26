@@ -79,6 +79,14 @@
     - owrt_upgrade_required
   ansible.builtin.import_tasks: verify.yml
 
+- name: pre-upgrade manifest を取得
+  when:
+    - owrt_sysupgrade_mode in ["prepare", "upgrade"]
+    - owrt_upgrade_required
+  vars:
+    owrt_manifest_phase: pre
+  ansible.builtin.import_tasks: manifest.yml
+
 - name: バックアップを取得
   when:
     - owrt_sysupgrade_mode in ["prepare", "upgrade"]
@@ -134,3 +142,17 @@
     - owrt_sysupgrade_mode == "upgrade"
     - owrt_upgrade_required
   ansible.builtin.import_tasks: upgrade.yml
+
+- name: post-upgrade manifest 前に接続をリセット
+  when:
+    - owrt_upgrade_launched | default(false)
+    - wait_for_reconnect | bool
+  ansible.builtin.meta: reset_connection
+
+- name: post-upgrade manifest を取得
+  when:
+    - owrt_upgrade_launched | default(false)
+    - wait_for_reconnect | bool
+  vars:
+    owrt_manifest_phase: post
+  ansible.builtin.import_tasks: manifest.yml

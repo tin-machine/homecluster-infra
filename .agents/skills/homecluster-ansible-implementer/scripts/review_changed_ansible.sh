@@ -293,6 +293,68 @@ if [[ -f "$backup_tasks_file" && -f "$main_tasks_file" ]]; then
 fi
 
 echo
+echo "== skill review: openwrt_sysupgrade manifest summary flow =="
+manifest_tasks_file="ansible/openwrt/roles/openwrt_sysupgrade/tasks/manifest.yml"
+manifest_changed=0
+for path in "${changed_files[@]}"; do
+  case "$path" in
+    "$manifest_tasks_file"|"ansible/openwrt/roles/openwrt_sysupgrade/tasks/main.yml"|"ansible/openwrt/roles/openwrt_sysupgrade/README.md")
+      manifest_changed=1
+      ;;
+  esac
+done
+if [[ "$manifest_changed" == "1" ]]; then
+  if [[ ! -f "$manifest_tasks_file" ]]; then
+    record_failure "openwrt_sysupgrade manifest summary flow changed but manifest.yml is missing"
+  else
+    manifest_required_patterns=(
+      "owrt_manifest_phase in \\[\"pre\", \"post\"\\]"
+      "ansible.builtin.raw:"
+      "command -v apk"
+      "command -v opkg"
+      "apk info"
+      "opkg list-installed | cut -d\" \" -f1"
+      "network firewall dnsmasq rpcbind nfsd frr banip prometheus-node-exporter-lua uhttpd log"
+      "owrt_sysupgrade_manifests:"
+      "service_status_lines"
+      "package_count"
+    )
+    for pattern in "${manifest_required_patterns[@]}"; do
+      if ! rg -q "$pattern" "$manifest_tasks_file"; then
+        record_failure "openwrt_sysupgrade manifest lost expected pattern: ${pattern}"
+      fi
+    done
+
+    if rg -n "oldString:|newString:" "$manifest_tasks_file"; then
+      record_failure "openwrt_sysupgrade manifest contains leaked OpenCode edit metadata"
+    fi
+  fi
+
+  if [[ -f "$main_tasks_file" ]]; then
+    verify_import_line="$(rg -n "ansible.builtin.import_tasks: verify.yml" "$main_tasks_file" | head -n1 | cut -d: -f1 || true)"
+    pre_manifest_line="$(rg -n "owrt_manifest_phase: pre" "$main_tasks_file" | head -n1 | cut -d: -f1 || true)"
+    backup_import_line="$(rg -n "ansible.builtin.import_tasks: backup.yml" "$main_tasks_file" | head -n1 | cut -d: -f1 || true)"
+    upgrade_import_line="$(rg -n "ansible.builtin.import_tasks: upgrade.yml" "$main_tasks_file" | head -n1 | cut -d: -f1 || true)"
+    reset_connection_line="$(rg -n "ansible.builtin.meta: reset_connection" "$main_tasks_file" | head -n1 | cut -d: -f1 || true)"
+    post_manifest_line="$(rg -n "owrt_manifest_phase: post" "$main_tasks_file" | head -n1 | cut -d: -f1 || true)"
+    if [[ -n "$verify_import_line" && -n "$pre_manifest_line" && -n "$backup_import_line" ]]; then
+      if ! ((verify_import_line < pre_manifest_line && pre_manifest_line < backup_import_line)); then
+        record_failure "openwrt_sysupgrade pre manifest must run after verify.yml and before backup.yml"
+      fi
+    else
+      record_failure "openwrt_sysupgrade pre manifest line ordering could not be determined"
+    fi
+    if [[ -n "$upgrade_import_line" && -n "$reset_connection_line" && -n "$post_manifest_line" ]]; then
+      if ! ((upgrade_import_line < reset_connection_line && reset_connection_line < post_manifest_line)); then
+        record_failure "openwrt_sysupgrade post manifest must run after upgrade.yml and connection reset"
+      fi
+    else
+      record_failure "openwrt_sysupgrade post manifest line ordering could not be determined"
+    fi
+  fi
+fi
+
+echo
 echo "== skill review: openwrt_package include vars =="
 openwrt_package_task_files=()
 for path in "${changed_files[@]}"; do
