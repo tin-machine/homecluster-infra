@@ -407,6 +407,84 @@ else
 fi
 
 echo
+echo "== skill review: OpenWrt post-upgrade collector package-manager boundary =="
+collector_file=".agents/skills/homecluster-openwrt-postupgrade-check/scripts/collect-openwrt-postupgrade.sh"
+collector_schema=".agents/skills/homecluster-openwrt-postupgrade-check/references/postupgrade-output-schema.md"
+collector_changed=0
+for path in "${changed_files[@]}"; do
+  case "$path" in
+    "$collector_file"|"$collector_schema"|.agents/skills/homecluster-openwrt-postupgrade-check/SKILL.md)
+      collector_changed=1
+      ;;
+  esac
+done
+if [[ "$collector_changed" == "1" && -f "$collector_file" ]]; then
+  if ! python3 - "$collector_file" "$collector_schema" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+collector_path = Path(sys.argv[1])
+schema_path = Path(sys.argv[2])
+text = collector_path.read_text(encoding="utf-8")
+schema = schema_path.read_text(encoding="utf-8") if schema_path.exists() else ""
+failures = []
+
+def line_number(offset):
+    return text.count("\n", 0, offset) + 1
+
+def in_run_router_single_quote(offset):
+    marker = "run_router '"
+    start = text.rfind(marker, 0, offset)
+    if start < 0:
+        return False
+    quote_start = start + len(marker)
+    quote_end = text.find("')", quote_start)
+    return quote_end != -1 and quote_start <= offset < quote_end
+
+for match in re.finditer(r"command\s+-v\s+(apk|opkg)\b", text):
+    if not in_run_router_single_quote(match.start()):
+        failures.append(
+            f"{collector_path}:{line_number(match.start())}: package-manager command detection "
+            "must run on the router through run_router"
+        )
+
+for pattern in (
+    r'echo\s+"\$release_raw"\s*\|',
+    r'\$release_raw\s*\|\s*grep',
+    r'\$release_raw\s*\|\s*cut',
+):
+    for match in re.finditer(pattern, text):
+        failures.append(
+            f"{collector_path}:{line_number(match.start())}: release_raw is capture_json output; "
+            "decode it with jq or read release on the router"
+        )
+
+if "selected_for_packages" not in text:
+    failures.append(f"{collector_path}: router.package_manager.selected_for_packages is missing")
+if "selected_for_packages" not in schema:
+    failures.append(f"{schema_path}: selected_for_packages is not documented")
+
+if "apk info" in text and 'opkg list-installed | cut -d" " -f1' in text:
+    pass
+else:
+    failures.append(f"{collector_path}: collector must preserve both apk info and opkg package listing")
+
+if failures:
+    for failure in failures:
+        print(f"FAILED: {failure}", file=sys.stderr)
+    raise SystemExit(1)
+
+print("OpenWrt post-upgrade collector package-manager boundary ok")
+PY
+  then
+    record_failure "OpenWrt post-upgrade collector package-manager boundary check failed"
+  fi
+else
+  echo "collector not changed"
+fi
+
+echo
 echo "== skill review: runbook read-only boundary =="
 if [[ "${SKIP_RUNBOOK_DIRTY_CHECK:-0}" != "1" ]]; then
   runbook_dir="$(cd "$repo_root/../homecluster-runbook" 2>/dev/null && pwd || true)"
