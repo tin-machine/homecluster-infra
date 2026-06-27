@@ -84,9 +84,9 @@ Choose the OpenCode agent by privilege boundary:
 - `homecluster-read-only`: scout candidate files and anchors before implementation.
 - `homecluster-edit-only`: apply one exact `oldString` / `newString` replacement.
 - `homecluster-source-edit`: read current source and apply one narrow edit without commands,
-  validation, repair, or skill access.
-- `homecluster-ansible-patch`: implement one narrow source-only Ansible patch when scoped context
-  and skill access are needed.
+  validation, repair, or skill access. Use this for normal source edits that need current-file reads.
+- `homecluster-ansible-patch`: implement one narrow source-only Ansible patch when the task needs
+  Ansible/project skill context.
 - `homecluster-validation-runner`: run approved validation commands and report compact results.
 - `homecluster-repair-only`: repair one compact validation failure against the current target file.
 
