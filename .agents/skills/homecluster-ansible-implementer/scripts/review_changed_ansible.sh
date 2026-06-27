@@ -574,6 +574,17 @@ else
 fi
 
 echo
+echo "== skill review: OpenWrt package-manager boundary audit =="
+package_boundary_checker=".agents/skills/homecluster-openwrt-package-boundary-auditor/scripts/check_openwrt_package_boundaries.py"
+if [[ -x "$package_boundary_checker" ]]; then
+  if ! "$package_boundary_checker"; then
+    record_failure "OpenWrt package-manager boundary audit failed"
+  fi
+else
+  record_failure "OpenWrt package-manager boundary checker is missing or not executable"
+fi
+
+echo
 echo "== skill review: runbook read-only boundary =="
 if [[ "${SKIP_RUNBOOK_DIRTY_CHECK:-0}" != "1" ]]; then
   runbook_dir="$(cd "$repo_root/../homecluster-runbook" 2>/dev/null && pwd || true)"
