@@ -44,12 +44,14 @@ step_names=(
   "diff-check"
   "static-check"
   "ansible-syntax-and-list-tasks"
+  "openwrt-package-boundary-audit"
   "ansible-skill-review"
 )
 step_commands=(
   "git diff --check"
   "bash scripts/ci/static-check.sh"
   "RUN_ANSIBLE_SYNTAX=1 RUN_ANSIBLE_LIST_TASKS=1 bash scripts/ci/static-check.sh"
+  "./.agents/skills/homecluster-openwrt-package-boundary-auditor/scripts/check_openwrt_package_boundaries.py"
   "./.agents/skills/homecluster-ansible-implementer/scripts/review_changed_ansible.sh"
 )
 
