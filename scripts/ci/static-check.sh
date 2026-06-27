@@ -52,11 +52,30 @@ list_scan_files() {
   fi
 }
 
+list_changed_files() {
+  local base_ref="${STATIC_CHECK_BASE_REF:-origin/main}"
+  local base_commit=""
+  if git rev-parse --verify --quiet "${base_ref}" >/dev/null; then
+    base_commit="$(git merge-base "${base_ref}" HEAD)"
+  fi
+
+  {
+    if [ -n "${base_commit}" ]; then
+      git diff --name-only --diff-filter=ACMRT "${base_commit}..HEAD" --
+    elif git rev-parse --verify --quiet HEAD^ >/dev/null; then
+      git diff --name-only --diff-filter=ACMRT HEAD^..HEAD --
+    fi
+    git diff --name-only --diff-filter=ACMRT HEAD --
+    git ls-files --others --exclude-standard
+  } | sort -u
+}
+
 file_size_bytes() {
   wc -c <"$1" | tr -d '[:space:]'
 }
 
 mapfile -t scan_files < <(list_scan_files)
+mapfile -t changed_files < <(list_changed_files)
 
 print_section "scan scope"
 if [ "${strict_local_scan}" = "1" ]; then
@@ -137,6 +156,31 @@ trailing_matches="$(
 )"
 report_matches "trailing whitespace found" "${trailing_matches}"
 
+print_section "markdownlint"
+markdownlint_files=()
+for path in "${changed_files[@]}"; do
+  [ -f "${path}" ] || continue
+  case "${path}" in
+    *.md|README|README.*)
+      markdownlint_files+=("${path}")
+      ;;
+  esac
+done
+if [ "${#markdownlint_files[@]}" -gt 0 ] && command -v markdownlint >/dev/null 2>&1; then
+  if ! markdownlint --disable MD013 -- "${markdownlint_files[@]}"; then
+    fail=1
+  fi
+else
+  echo "markdownlint not found or no changed markdown files; skipping"
+fi
+if command -v python3 >/dev/null 2>&1; then
+  if ! python3 scripts/ci/check-changed-markdown-style.py "${markdownlint_files[@]}"; then
+    fail=1
+  fi
+else
+  echo "python3 not found; skipping changed markdown style check"
+fi
+
 print_section "terraform fmt"
 if command -v terraform >/dev/null 2>&1; then
   terraform fmt -check -recursive
@@ -172,6 +216,7 @@ print_section "python syntax"
 if command -v python3 >/dev/null 2>&1; then
   python3 -m py_compile ansible/openwrt/roles/openwrt_pxe_client_catalog/filter_plugins/openwrt_pxe_client_catalog.py
   python3 -m py_compile scripts/ansible/convert_openwrt_package_task.py
+  python3 -m py_compile scripts/ci/check-changed-markdown-style.py
   python3 -m py_compile .agents/skills/homecluster-ansible-implementer/scripts/check_opencode_session_export.py
   python3 scripts/ci/check-openwrt-pxe-client-catalog.py
   python3 scripts/ansible/convert_openwrt_package_task.py --self-test

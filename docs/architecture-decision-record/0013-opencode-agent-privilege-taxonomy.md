@@ -144,6 +144,8 @@ review しやすい。
   source-only agent へ許可しない。
 - OpenCode implementation wrapper のデフォルトは通常の source 編集では `homecluster-source-edit` であり、
   Ansible/project skill コンテキストが必要な場合のみ `--agent homecluster-ansible-patch` を明示的に渡す。
+- finish-length detection は、tool output やドキュメント内容などの生テキストではなく、`finish` や
+  `reason` といった OpenCode の構造化された event/session フィールドを検査すること。
 
 ## 見直し条件
 
