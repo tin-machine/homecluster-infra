@@ -12,15 +12,15 @@ Options:
   --config PATH           OPENCODE_CONFIG path.
   --agent NAME            OpenCode agent name. Defaults to OPENCODE_AGENT or homecluster-ansible-patch.
   --timeout SECONDS       Timeout for opencode run. Defaults to OPENCODE_TIMEOUT or 1800.
-  --edit-only             Ask OpenCode to edit only; skip validation inside the OpenCode run.
+  --edit-only             Skip validation inside the OpenCode run.
   --repair-json PATH      Append a compact validation failure JSON object for a repair run.
   --no-expect-diff        Do not fail when OpenCode leaves no git diff.
   --skip-validation       Do not run opencode_validation_gate.sh after OpenCode exits.
   -h, --help              Show this help.
 
 The script prints one compact JSON object and writes raw logs under /tmp. It treats finish=length,
-Invalid Tool, zero-diff implementation runs, and failed/missing validation when validation is enabled
-as hard failures.
+zero-diff implementation runs, and failed/missing validation when validation is enabled as hard
+failures. Tool permission enforcement is delegated to project opencode.json.
 USAGE
 }
 
@@ -115,9 +115,7 @@ if [[ "$edit_only" == "1" ]]; then
   task="${task}
 
 Edit-only mode:
-- Do not run validation commands.
-- Stop after the minimal source edit.
-- Final output must be changed files and uncertainty only; Codex will run validation."
+Codex will run validation after this OpenCode run."
 fi
 
 if [[ -n "$repair_json_path" ]]; then
@@ -290,11 +288,6 @@ PY
 if [[ "$opencode_exit" -ne 0 ]]; then
   emit_result false opencode-run "$opencode_exit" "opencode run exited nonzero"
   exit "$opencode_exit"
-fi
-
-if grep -Eiq 'Invalid Tool:|invalid tool:|"tool"[[:space:]]*:[[:space:]]*"invalid"' "$events_log" "$session_export_log"; then
-  emit_result false invalid-tool 1 "OpenCode emitted an invalid tool event"
-  exit 1
 fi
 
 if grep -Eiq '"finish"[[:space:]]*:[[:space:]]*"length"|finish[=:][[:space:]]*length' "$events_log" "$session_export_log"; then

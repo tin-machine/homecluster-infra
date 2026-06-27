@@ -74,7 +74,7 @@ fi
 prompt=$(cat <<PROMPT
 Use \$homecluster-ansible-implementer.
 
-Preflight only. Do not edit files. Do not run bash commands. Do not start implementation.
+Preflight only. Do not start implementation.
 
 Task:
 $task_text
@@ -128,12 +128,11 @@ else
     exit 69
   fi
 
-  preflight_permissions='{"permission":{"skill":{"*":"ask","homecluster-ansible-implementer":"allow"},"external_directory":{"~/ghq/**/homecluster-runbook/docs/operation/**":"allow","/home/*/ghq/**/homecluster-runbook/docs/operation/**":"allow"},"edit":{"*":"deny"},"bash":{"*":"deny"}}}'
-  opencode_cmd=(opencode run --model "$model" --format json "$prompt")
+  opencode_cmd=(opencode run --model "$model" --format json --agent homecluster-read-only "$prompt")
   if [[ -n "$config_path" ]]; then
-    raw_output="$(OPENCODE_CONFIG="$config_path" OPENCODE_CONFIG_CONTENT="$preflight_permissions" timeout "${timeout_seconds}s" "${opencode_cmd[@]}")"
+    raw_output="$(OPENCODE_CONFIG="$config_path" timeout "${timeout_seconds}s" "${opencode_cmd[@]}")"
   else
-    raw_output="$(OPENCODE_CONFIG_CONTENT="$preflight_permissions" timeout "${timeout_seconds}s" "${opencode_cmd[@]}")"
+    raw_output="$(timeout "${timeout_seconds}s" "${opencode_cmd[@]}")"
   fi
 fi
 

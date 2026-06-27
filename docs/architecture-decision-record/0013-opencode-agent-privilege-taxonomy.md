@@ -38,7 +38,12 @@ validation / repair 可否で分割する。
 - Codex / operator review
 
 OpenCode の自己申告は validation result として扱わない。
-`finish=length`、invalid tool call、zero-diff implementation、validation 未実行は失敗として扱う。
+`finish=length`、zero-diff implementation、validation 未実行は失敗として扱う。
+
+Tool 選択の制限は、まず OpenCode 標準の `opencode.json` `permission` で表現する。prompt や
+wrapper / shell script は追加の誘導や結果確認には使えるが、OpenCode が標準で `read`、`edit`、
+`glob`、`grep`、`list`、`bash`、`task`、`webfetch`、`websearch`、`lsp`、`skill` などを
+制御できる場合は、permission を source of truth にする。
 
 現時点で採用済みの基本 agent は次である。
 
@@ -60,6 +65,11 @@ OpenCode の自己申告は validation result として扱わない。
 
 すべての agent は deny-by-default とし、必要な capability だけを allowlist する。
 agent を増やす判断基準は、prompt の見た目ではなく permission boundary が実際に変わるかどうかに置く。
+
+OpenCode の permission default は permissive なため、agent ごとに `read` / `glob` / `grep` /
+`list` / `task` / `webfetch` / `websearch` / `lsp` / `todowrite` / `question` を明示する。
+特に read-only agent でも、`edit` と `bash` だけを deny しても内蔵 `read` / `glob` / `grep`
+は残り得る。意図した tool surface は prompt ではなく `opencode.json` で閉じる。
 
 ## 理由
 
@@ -112,16 +122,15 @@ review しやすい。
 ## 影響
 
 - OpenCode agent 追加時は、permission boundary が既存 agent と異なることを確認する。
-- prompt は短くし、詳細な repository rule は skill reference または deterministic guard に置く。
+- prompt は短くし、tool 選択制限は `opencode.json` の permission に置く。詳細な repository rule は
+  skill reference または deterministic guard に置く。
 - OpenCode implementation run は wrapper 経由で実行し、finish reason、diff 有無、validation result を
   機械的に確認する。
 - exact replacement のような小編集では、1 run / 1 file / 1 replacement を優先する。
-- read-only scout は探索幅を明示的に制限する。実投入では broad grep、recursive `ls`、typo variant の
-  推測探索で token を消費し、最終回答前に timeout した。`pwd`、`git ls-files`、狭い `rg`、必要最小限の
-  `sed` に寄せ、missing path は不確実性として返す。
+- read-only scout の実投入では broad grep、recursive `ls`、typo variant の推測探索で token を消費し、
+  最終回答前に timeout した。prompt で探索幅を縛るより先に、`opencode.json` で許可 tool を明示する。
 - edit-only は prompt だけでは read / glob / grep を完全には抑止できなかった。exact replacement では
-  Codex が `filePath`、`oldString`、`newString` を確定し、OpenCode には最初の tool call として `edit`
-  だけを要求する。OpenCode の自己申告ではなく raw tool trace と diff を確認する。
+  `opencode.json` で `edit` 以外を deny し、OpenCode の自己申告ではなく raw tool trace と diff を確認する。
 - OpenCode が生成した差分は、必ず Codex / operator が raw diff と validation output を確認する。
 - live apply、real inventory、sysupgrade、Terraform apply、SwitchBot、secret inspection は、この taxonomy の
   source-only agent へ許可しない。

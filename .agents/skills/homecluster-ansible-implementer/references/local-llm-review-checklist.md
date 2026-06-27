@@ -12,9 +12,8 @@ Use this checklist when OpenCode or another smaller local model edits `homeclust
 4. Do not override project permissions with broad inline permissions such as
    `OPENCODE_CONFIG_CONTENT='{"permission":{"bash":"allow","edit":"allow"}}'`. Broad inline
    permissions can bypass the project deny rules for real inventory and runbook edits.
-5. In unattended OpenCode runs, prefer the read-only commands already allowed by project config:
-   `git status --short --branch`, `git branch --show-current`, `git rev-parse`, `git diff`, `git show`,
-   `git ls-files`, `rg`, `sed -n`, and the bundled validation gate script.
+5. Prefer the repository `opencode.json` agent permissions over prompt-only or wrapper-only tool
+   restrictions. If a tool should be unavailable to an agent, deny it in the agent permission block.
 
 ## Search Discipline
 
@@ -189,10 +188,11 @@ Use repository-local agents by boundary, not by a human-style role name:
 | `homecluster-validation-runner` | A diff exists and only approved validation should run. | Edit or repair. |
 | `homecluster-repair-only` | A compact validation JSON identifies one target-file failure. | Broad search or validation. |
 
-The wrapper output is authoritative. Treat `finish-length`, `invalid-tool`, and `diff-gate` as
-failed implementation attempts even when the OpenCode process itself exited zero. If validation is
-enabled for a run, also treat `validation-gate` as authoritative. Do not summarize the run as
-successful unless the wrapper returns `ok: true`.
+The wrapper output is authoritative. Treat `finish-length` and `diff-gate` as failed implementation
+attempts even when the OpenCode process itself exited zero. Tool permission denials are expected to
+come from OpenCode according to `opencode.json`. If validation is enabled for a run, also treat
+`validation-gate` as authoritative. Do not summarize the run as successful unless the wrapper returns
+`ok: true`.
 
 Before final response, run:
 

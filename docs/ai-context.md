@@ -56,6 +56,10 @@ private workflow は site 値を注入し、pin された public commit SHA が 
 - PXE Gentoo node の root overlay は意図的に disposable とする。NFS lower rootfs と tmpfs upper/work により、rootfs 差分は reboot で破棄される。再起動後に残すべき state は、root filesystem ではなく、明示した external storage、local block backed filesystem、Terraform state、site input、または configuration management 側へ置く。背景は ADR 0003 と ADR 0006 を参照する。
 - boot 後に package を source build する処理は遅くなり得るが、clean boot から再収束できることを優先した結果である。収束時間が問題になる場合は、手動に戻すのではなく、lower rootfs への事前導入、release bundle、binpkg/cache の gate 化として扱う。
 - public CI は static check に限定し、repository secrets、self-hosted runner、LAN access、`terraform apply`、実 host 向け Ansible 実行を使わない。
+- OpenCode / local LLM agent の tool 制限は、まず repository `opencode.json` の agent
+  `permission` で表現する。prompt や wrapper / shell script の制限は補助とし、OpenCode 標準
+  permission で `read` / `edit` / `glob` / `grep` / `list` / `bash` / `task` / `webfetch` /
+  `websearch` / `lsp` / `skill` を閉じられる場合は `opencode.json` を優先する。
 - PXE `ansible-pull` の branch selection は fail closed する。staging は `stg`、production は `main` に mapping し、明示 branch は stage から導出した branch と一致しなければならない。
 - PXE SSH host identity は rootfs release から分離する。host key は node ごとの key store に置き、OpenSSH host certificate も併置できる。Host CA private key は PXE client とこの repository に置かない。詳細は ADR 0011 を参照する。
 - repository design goal として、tagless Ansible は routine convergence だけを行う。storage partitioning / formatting、rootfs build / replacement、TFTP release switch、sysupgrade、bootstrap package install、k3s runtime storage 初期化や再作成などの destructive / high-blast-radius operation は、`never` tag または同等の明示 gate の下に置き、tagless 実行から到達できないようにする。新しい role がこの種の操作を追加する場合は、tagless 実行に含める前に gate、事前条件、rollback / recovery 手順、post-check を文書化する。

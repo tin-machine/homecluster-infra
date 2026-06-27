@@ -51,8 +51,9 @@ Use this skill for Ansible implementation work in `homecluster-infra`.
 ## Verification Baseline
 
 When Codex delegates implementation to OpenCode/local LLM, run through the wrapper instead of
-calling `opencode run` directly. The wrapper rejects output-limit truncation, invalid tool calls,
-zero-diff implementation attempts, and failed validation:
+calling `opencode run` directly. The wrapper rejects output-limit truncation, zero-diff
+implementation attempts, and failed validation. Tool permission enforcement belongs in
+`opencode.json`:
 
 ```bash
 ./.agents/skills/homecluster-ansible-implementer/scripts/opencode_implementation_run.sh \
@@ -79,16 +80,12 @@ run with only that compact validation JSON:
 
 Choose the OpenCode agent by privilege boundary:
 
-- `homecluster-read-only`: scout candidate files and anchors before implementation; no edits or
-  validation.
-- `homecluster-edit-only`: apply one exact `oldString` / `newString` replacement; no reads by
-  contract, no validation.
+- `homecluster-read-only`: scout candidate files and anchors before implementation.
+- `homecluster-edit-only`: apply one exact `oldString` / `newString` replacement.
 - `homecluster-ansible-patch`: implement one narrow source-only Ansible patch when scoped context
   and skill access are needed.
-- `homecluster-validation-runner`: run approved validation commands and report compact results; no
-  repair.
-- `homecluster-repair-only`: repair one compact validation failure against the current target file;
-  no broad search or validation.
+- `homecluster-validation-runner`: run approved validation commands and report compact results.
+- `homecluster-repair-only`: repair one compact validation failure against the current target file.
 
 Prefer these checks after implementation, adjusted to the changed entrypoint:
 
