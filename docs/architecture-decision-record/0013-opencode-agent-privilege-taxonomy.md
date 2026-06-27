@@ -116,6 +116,12 @@ review しやすい。
 - OpenCode implementation run は wrapper 経由で実行し、finish reason、diff 有無、validation result を
   機械的に確認する。
 - exact replacement のような小編集では、1 run / 1 file / 1 replacement を優先する。
+- read-only scout は探索幅を明示的に制限する。実投入では broad grep、recursive `ls`、typo variant の
+  推測探索で token を消費し、最終回答前に timeout した。`pwd`、`git ls-files`、狭い `rg`、必要最小限の
+  `sed` に寄せ、missing path は不確実性として返す。
+- edit-only は prompt だけでは read / glob / grep を完全には抑止できなかった。exact replacement では
+  Codex が `filePath`、`oldString`、`newString` を確定し、OpenCode には最初の tool call として `edit`
+  だけを要求する。OpenCode の自己申告ではなく raw tool trace と diff を確認する。
 - OpenCode が生成した差分は、必ず Codex / operator が raw diff と validation output を確認する。
 - live apply、real inventory、sysupgrade、Terraform apply、SwitchBot、secret inspection は、この taxonomy の
   source-only agent へ許可しない。
