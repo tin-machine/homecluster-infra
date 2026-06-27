@@ -112,6 +112,50 @@
         "question": "deny"
       }
     },
+    "homecluster-source-edit": {
+      "description": "Reads explicitly scoped source context and applies one narrow source edit without running commands.",
+      "mode": "primary",
+      "prompt": "You are a bounded source editor. Read only the files needed for the requested edit, apply the smallest source change, and stop. Do not run commands, validate, repair unrelated failures, or inspect secrets.",
+      "permission": {
+        "*": "deny",
+        "skill": {
+          "*": "deny"
+        },
+        "read": {
+          "*": "allow",
+          "*.env": "deny",
+          "*.env.*": "deny"
+        },
+        "glob": {
+          "*": "allow"
+        },
+        "grep": {
+          "*": "allow"
+        },
+        "list": {
+          "*": "allow"
+        },
+        "bash": {
+          "*": "deny"
+        },
+        "edit": {
+          "*": "allow",
+          "~/ghq/**/homecluster-runbook/docs/operation/**": "deny",
+          "/home/*/ghq/**/homecluster-runbook/docs/operation/**": "deny"
+        },
+        "external_directory": {
+          "*": "deny"
+        },
+        "task": {
+          "*": "deny"
+        },
+        "webfetch": "deny",
+        "websearch": "deny",
+        "lsp": "deny",
+        "todowrite": "deny",
+        "question": "deny"
+      }
+    },
     "homecluster-read-only": {
       "description": "Finds relevant homecluster-infra files and anchors without editing or running validation.",
       "mode": "primary",

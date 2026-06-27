@@ -38,7 +38,8 @@ validation / repair 可否で分割する。
 - Codex / operator review
 
 OpenCode の自己申告は validation result として扱わない。
-`finish=length`、zero-diff implementation、validation 未実行は失敗として扱う。
+`finish=length`、repeated tool-error loop、denied tool attempt、zero-diff implementation、
+validation 未実行は失敗として扱う。
 
 Tool 選択の制限は、まず OpenCode 標準の `opencode.json` `permission` で表現する。prompt や
 wrapper / shell script は追加の誘導や結果確認には使えるが、OpenCode が標準で `read`、`edit`、
@@ -50,7 +51,8 @@ wrapper / shell script は追加の誘導や結果確認には使えるが、Ope
 | Agent | 目的 | 主な許可 | 主な禁止 |
 | --- | --- | --- | --- |
 | `homecluster-ansible-patch` | 1 つの狭い source-only Ansible patch | 選択された skill、bounded read/search、example inventory syntax、validation gate | real inventory、live apply、sysupgrade、Terraform apply、SwitchBot、secret inspection |
-| `homecluster-edit-only` | 1 file / 1 replacement の exact edit | edit tool | skill、bash、read/search、validation、live command、secret inspection |
+| `homecluster-edit-only` | Codex が `oldString` / `newString` を完全指定する exact replacement | edit tool | skill、bash、read/search、validation、live command、secret inspection |
+| `homecluster-source-edit` | 対象 source を読んで 1 つの狭い edit を行う | bounded read/search、edit tool | skill、bash、validation、repair、live command、secret inspection |
 
 今後追加する場合の優先候補は次である。
 
@@ -109,7 +111,7 @@ inventory、secret、state、live target へは明示 gate なしに近づけな
 
 agent 数が増えると、OpenCode 設定、permission、prompt、運用判断も増える。
 まずは既存の `homecluster-ansible-patch` と `homecluster-edit-only` を維持し、次に
-`read-only`、`validation-runner`、`repair-only` の順で必要性を確認する。
+`source-edit`、`read-only`、`validation-runner`、`repair-only` の順で必要性を確認する。
 
 ### validation と repair を同じ agent に任せる
 
@@ -125,12 +127,18 @@ review しやすい。
 - prompt は短くし、tool 選択制限は `opencode.json` の permission に置く。詳細な repository rule は
   skill reference または deterministic guard に置く。
 - OpenCode implementation run は wrapper 経由で実行し、finish reason、diff 有無、validation result を
-  機械的に確認する。
+  機械的に確認する。session export から tool、status、error も読み、no-op edit の反復や denied tool
+  attempt は `session-tool-gate` として失敗扱いにする。
 - exact replacement のような小編集では、1 run / 1 file / 1 replacement を優先する。
+- 通常の「現在の source を読んで編集する」小変更では、`homecluster-edit-only` ではなく
+  `homecluster-source-edit` を使う。`homecluster-edit-only` は read しない exact replacement 専用であり、
+  OpenCode に対象 file の理解や探索を求める task には使わない。
 - read-only scout の実投入では broad grep、recursive `ls`、typo variant の推測探索で token を消費し、
   最終回答前に timeout した。prompt で探索幅を縛るより先に、`opencode.json` で許可 tool を明示する。
-- edit-only は prompt だけでは read / glob / grep を完全には抑止できなかった。exact replacement では
-  `opencode.json` で `edit` 以外を deny し、OpenCode の自己申告ではなく raw tool trace と diff を確認する。
+- edit-only は prompt だけでは read / glob / grep を完全には抑止できなかった。さらに read を deny した
+  agent に「読め」と依頼すると、許可されている `edit` tool の no-op 誤用 loop に入ることがあった。
+  exact replacement では `opencode.json` で `edit` 以外を deny し、OpenCode の自己申告ではなく raw tool
+  trace と diff を確認する。
 - OpenCode が生成した差分は、必ず Codex / operator が raw diff と validation output を確認する。
 - live apply、real inventory、sysupgrade、Terraform apply、SwitchBot、secret inspection は、この taxonomy の
   source-only agent へ許可しない。

@@ -149,6 +149,7 @@ log_dir="$(mktemp -d "${TMPDIR:-/tmp}/opencode-implementation-run.XXXXXX")"
 events_log="${log_dir}/opencode-events.jsonl"
 session_export_log="${log_dir}/session-export.json"
 validation_log="${log_dir}/validation.json"
+session_tool_gate_log="${log_dir}/session-tool-gate.json"
 commands_run_file="${log_dir}/commands_run.txt"
 commands_not_run_file="${log_dir}/commands_not_run.txt"
 
@@ -292,6 +293,38 @@ fi
 
 if grep -Eiq '"finish"[[:space:]]*:[[:space:]]*"length"|finish[=:][[:space:]]*length' "$events_log" "$session_export_log"; then
   emit_result false finish-length 1 "OpenCode stopped because the response hit the output limit"
+  exit 1
+fi
+
+set +e
+./.agents/skills/homecluster-ansible-implementer/scripts/check_opencode_session_export.py \
+  "$session_export_log" \
+  --events-jsonl "$events_log" >"$session_tool_gate_log" 2>&1
+session_tool_gate_exit=$?
+set -e
+commands_run+=("./.agents/skills/homecluster-ansible-implementer/scripts/check_opencode_session_export.py ${session_export_log}")
+if [[ "$session_tool_gate_exit" -ne 0 ]]; then
+  session_tool_gate_summary="$(
+    python3 - "$session_tool_gate_log" <<'PY'
+import json
+import sys
+
+summary = "session tool trace failed wrapper gates"
+with open(sys.argv[1], encoding="utf-8", errors="replace") as handle:
+    for line in handle:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(event, dict) and isinstance(event.get("summary"), str):
+            summary = event["summary"]
+print(summary)
+PY
+  )"
+  emit_result false session-tool-gate "$session_tool_gate_exit" "$session_tool_gate_summary"
   exit 1
 fi
 
