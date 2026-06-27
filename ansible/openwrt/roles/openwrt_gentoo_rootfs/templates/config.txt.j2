@@ -2,6 +2,8 @@
 {% set global_initramfs = openwrt_gentoo_rpi_initramfs | default('', true) | trim -%}
 {% set rpi4_initramfs = openwrt_gentoo_rpi4_initramfs | default('', true) | trim -%}
 {% set rpi5_initramfs = openwrt_gentoo_rpi5_initramfs | default('', true) | trim -%}
+{% set rpi5_extra_config = openwrt_gentoo_rpi5_extra_config | default('', true) | trim -%}
+{% set rpi5_pciex1_enabled = openwrt_gentoo_rpi5_pciex1_enabled | default(false) | bool -%}
 {% set model_filter = openwrt_gentoo_rpi_model_filter_config | default(false) | bool -%}
 {% set model_initramfs = model_filter and ((rpi4_initramfs | length > 0) or (rpi5_initramfs | length > 0)) -%}
 {% set rpi4_effective_initramfs = rpi4_initramfs if (rpi4_initramfs | length > 0) else global_initramfs -%}
@@ -36,6 +38,12 @@ initramfs {{ rpi5_effective_initramfs }} followkernel
 {% endif -%}
 {% if openwrt_gentoo_rpi5_device_tree | default('', true) | trim | length > 0 -%}
 device_tree={{ openwrt_gentoo_rpi5_device_tree }}
+{% endif -%}
+{% if rpi5_pciex1_enabled -%}
+dtparam=pciex1
+{% endif -%}
+{% if rpi5_extra_config | length > 0 -%}
+{{ rpi5_extra_config }}
 {% endif -%}
 
 [all]

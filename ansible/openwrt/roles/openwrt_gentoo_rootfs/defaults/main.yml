@@ -434,6 +434,8 @@ openwrt_gentoo_rpi4_device_tree: bcm2711-rpi-4-b.dtb
 openwrt_gentoo_rpi5_kernel_image: kernel_2712.img
 openwrt_gentoo_rpi5_initramfs: ""
 openwrt_gentoo_rpi5_device_tree: bcm2712-rpi-5-b.dtb
+openwrt_gentoo_rpi5_pciex1_enabled: false
+openwrt_gentoo_rpi5_extra_config: ""
 openwrt_gentoo_rpi_extra_config: |
   # 追加設定を行う場合は inventory で openwrt_gentoo_rpi_extra_config を上書きしてください。
 openwrt_gentoo_tftp_variants:
