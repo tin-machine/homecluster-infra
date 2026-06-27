@@ -78,6 +78,7 @@ OpenWrt の live apply は外部 inventory を必須入力とする。`ansible_h
 | `openwrt_dhcp_ntp_servers` | DHCP Option 42 で配る NTP server。router 自身を配る場合も外部 inventory に明示する |
 | `openwrt_gentoo_server_host` | PXE / NFS / TFTP / bootstrap log / token exchange が参照する server IP。LAN IP への暗黙 fallback は使わない |
 | `openwrt_enable_storage`、`openwrt_enable_wireless`、`openwrt_enable_frr`、`openwrt_enable_prometheus_exporter`、`openwrt_syslog_remote_enabled`、`openwrt_dnsmasq_log_queries`、`openwrt_banip_install`、`openwrt_banip_enabled` | public default は安全側で disabled。実機で有効にする role だけ外部 inventory で `true` にする。dnsmasq query log は量と privacy impact が大きいため、短時間の logging-only gate で使う。banIP は package install と service enable を分ける |
+| `openwrt_firewall_allow_wan_ipv4_ping` | WAN 側 IPv4 echo-request を受ける必要がある site だけ外部 inventory で明示する。public default は disabled |
 | `openwrt_firewall_allow_smb` | SMB backup share を使う site だけ外部 inventory で明示する |
 | `openwrt_storage_device`、`openwrt_storage_expected_model`、`openwrt_storage_expected_serial`、`openwrt_storage_destructive_confirm` | destructive storage operation の対象 device と確認 material。public default の device 名だけを根拠に repartition / format してはならない |
 | `openwrt_storage_protected_mounts` | destructive storage guard で保護する追加 mountpoint。storage role とは別に管理される external share の source / bind target がある場合は、外部 inventory でここへ追加する |

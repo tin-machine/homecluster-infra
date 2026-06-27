@@ -5,3 +5,4 @@
   vars:
     openwrt_package_names: "{{ openwrt_admin_tools_packages }}"
     openwrt_package_state: present
+    openwrt_package_update_cache: "{{ openwrt_opkg_update | default(true) }}"
