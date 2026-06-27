@@ -147,7 +147,7 @@
   when:
     - owrt_upgrade_launched | default(false)
     - wait_for_reconnect | bool
-  ansible.builtin.meta: reset_connection
+  ansible.builtin.include_tasks: reset_connection.yml
 
 - name: post-upgrade manifest を取得
   when:

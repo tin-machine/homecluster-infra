@@ -16,6 +16,7 @@ import yaml
 
 MANIFEST_PATH = Path("ansible/openwrt/roles/openwrt_sysupgrade/tasks/manifest.yml")
 SYSUPGRADE_MAIN_PATH = Path("ansible/openwrt/roles/openwrt_sysupgrade/tasks/main.yml")
+SYSUPGRADE_RESET_CONNECTION_PATH = Path("ansible/openwrt/roles/openwrt_sysupgrade/tasks/reset_connection.yml")
 COLLECTOR_PATH = Path(".agents/skills/homecluster-openwrt-postupgrade-check/scripts/collect-openwrt-postupgrade.sh")
 SCHEMA_PATH = Path(".agents/skills/homecluster-openwrt-postupgrade-check/references/postupgrade-output-schema.md")
 
@@ -187,12 +188,13 @@ def first_line_containing(text: str, needle: str) -> int:
 
 def check_manifest_order(root: Path, findings: list[dict[str, str]]) -> None:
     main_text = read_text(root, SYSUPGRADE_MAIN_PATH)
+    reset_text = read_text(root, SYSUPGRADE_RESET_CONNECTION_PATH)
     required = {
         "verify": "ansible.builtin.import_tasks: verify.yml",
         "pre_manifest": "owrt_manifest_phase: pre",
         "backup": "ansible.builtin.import_tasks: backup.yml",
         "upgrade": "ansible.builtin.import_tasks: upgrade.yml",
-        "reset": "ansible.builtin.meta: reset_connection",
+        "reset": "ansible.builtin.include_tasks: reset_connection.yml",
         "post_manifest": "owrt_manifest_phase: post",
     }
     lines = {name: first_line_containing(main_text, needle) for name, needle in required.items()}
@@ -214,6 +216,21 @@ def check_manifest_order(root: Path, findings: list[dict[str, str]]) -> None:
                 "path": str(SYSUPGRADE_MAIN_PATH),
                 "issue": "post-manifest-order-invalid",
                 "detail": json.dumps(lines, sort_keys=True),
+            }
+        )
+    require_contains(
+        findings,
+        SYSUPGRADE_RESET_CONNECTION_PATH,
+        reset_text,
+        "ansible.builtin.meta: reset_connection",
+        "reset-connection-task-missing",
+    )
+    if "when:" in reset_text:
+        findings.append(
+            {
+                "path": str(SYSUPGRADE_RESET_CONNECTION_PATH),
+                "issue": "reset-connection-task-has-unsupported-when",
+                "detail": "meta reset_connection must be conditionally included, not guarded directly",
             }
         )
 
@@ -245,7 +262,7 @@ def check_collector_schema_contract(root: Path, findings: list[dict[str, str]]) 
 
 def run_check(root: Path) -> dict[str, Any]:
     findings: list[dict[str, str]] = []
-    for path in (MANIFEST_PATH, SYSUPGRADE_MAIN_PATH, COLLECTOR_PATH, SCHEMA_PATH):
+    for path in (MANIFEST_PATH, SYSUPGRADE_MAIN_PATH, SYSUPGRADE_RESET_CONNECTION_PATH, COLLECTOR_PATH, SCHEMA_PATH):
         if not (root / path).is_file():
             findings.append({"path": str(path), "issue": "required-file-missing", "detail": ""})
     if findings:
@@ -306,10 +323,16 @@ def copy_contract_fixture(root: Path) -> None:
   ansible.builtin.import_tasks: manifest.yml
 - ansible.builtin.import_tasks: backup.yml
 - ansible.builtin.import_tasks: upgrade.yml
-- ansible.builtin.meta: reset_connection
+- ansible.builtin.include_tasks: reset_connection.yml
 - vars:
     owrt_manifest_phase: post
   ansible.builtin.import_tasks: manifest.yml
+""",
+    )
+    write(
+        root / SYSUPGRADE_RESET_CONNECTION_PATH,
+        """---
+- ansible.builtin.meta: reset_connection
 """,
     )
     write(
