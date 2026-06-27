@@ -362,7 +362,7 @@ if [[ "$manifest_changed" == "1" ]]; then
     pre_manifest_line="$(rg -n "owrt_manifest_phase: pre" "$main_tasks_file" | head -n1 | cut -d: -f1 || true)"
     backup_import_line="$(rg -n "ansible.builtin.import_tasks: backup.yml" "$main_tasks_file" | head -n1 | cut -d: -f1 || true)"
     upgrade_import_line="$(rg -n "ansible.builtin.import_tasks: upgrade.yml" "$main_tasks_file" | head -n1 | cut -d: -f1 || true)"
-    reset_connection_line="$(rg -n "ansible.builtin.meta: reset_connection" "$main_tasks_file" | head -n1 | cut -d: -f1 || true)"
+    reset_connection_line="$(rg -n "ansible.builtin.include_tasks: reset_connection.yml" "$main_tasks_file" | head -n1 | cut -d: -f1 || true)"
     post_manifest_line="$(rg -n "owrt_manifest_phase: post" "$main_tasks_file" | head -n1 | cut -d: -f1 || true)"
     if [[ -n "$verify_import_line" && -n "$pre_manifest_line" && -n "$backup_import_line" ]]; then
       if ! ((verify_import_line < pre_manifest_line && pre_manifest_line < backup_import_line)); then
@@ -378,6 +378,18 @@ if [[ "$manifest_changed" == "1" ]]; then
     else
       record_failure "openwrt_sysupgrade post manifest line ordering could not be determined"
     fi
+  fi
+
+  reset_connection_tasks_file="ansible/openwrt/roles/openwrt_sysupgrade/tasks/reset_connection.yml"
+  if [[ -f "$reset_connection_tasks_file" ]]; then
+    if ! rg -q "ansible.builtin.meta: reset_connection" "$reset_connection_tasks_file"; then
+      record_failure "openwrt_sysupgrade reset_connection.yml must contain meta reset_connection"
+    fi
+    if rg -n "when:" "$reset_connection_tasks_file"; then
+      record_failure "openwrt_sysupgrade reset_connection.yml must not put when directly on meta reset_connection"
+    fi
+  else
+    record_failure "openwrt_sysupgrade reset_connection.yml is missing"
   fi
 fi
 
