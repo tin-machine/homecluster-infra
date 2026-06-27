@@ -97,5 +97,19 @@ recommended_action: <what Codex/operator should do, not what OpenCode should mut
 
 Detailed JSON field descriptions are in `references/postupgrade-output-schema.md`.
 
+## Source Contract Audit
+
+For source-only consistency checks between `openwrt_sysupgrade` manifests and the post-upgrade
+collector, run:
+
+```bash
+./.agents/skills/homecluster-openwrt-postupgrade-check/scripts/check_openwrt_postupgrade_source_contract.py
+```
+
+This checker reads repository source files only. It verifies package-manager selection snippets,
+package listing commands, service lists, manifest ordering, collector output keys, assessment issue
+names, and schema documentation. It does not SSH, run Ansible, run sysupgrade, or inspect real
+inventory.
+
 For delegation to OpenCode/local LLM, use the template in
 `references/opencode-task-prompt.md`.

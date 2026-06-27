@@ -38,3 +38,25 @@ Return:
 - next_check: when and what read-only check should run next
 - recommended_action: what Codex/operator should consider; do not perform it yourself
 ```
+
+## Source Contract Audit
+
+Use this template when delegating repository-only consistency checks. This mode must not SSH or
+inspect runtime state.
+
+```text
+Use $homecluster-openwrt-postupgrade-check.
+
+Run exactly one source-only command:
+
+./.agents/skills/homecluster-openwrt-postupgrade-check/scripts/check_openwrt_postupgrade_source_contract.py
+
+Do not edit files, run Ansible, SSH, inspect real inventory, run sysupgrade, restart services,
+install packages, reboot devices, use SwitchBot, run Terraform apply, or inspect secrets.
+
+Return:
+- ok: true | false
+- findings_count: number
+- blocking_issue: none or one short source-contract issue
+- command: exact command run
+```
