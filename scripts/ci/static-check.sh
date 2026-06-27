@@ -156,6 +156,12 @@ trailing_matches="$(
 )"
 report_matches "trailing whitespace found" "${trailing_matches}"
 
+print_section "ansible jinja compatibility scan"
+ansible_jinja_compat_matches="$(
+  grep -nR --include='*.yml' --include='*.yaml' -E '\bis[[:space:]]+list\b' ansible .agents 2>/dev/null || true
+)"
+report_matches "unsupported Ansible/Jinja list test found" "${ansible_jinja_compat_matches}"
+
 print_section "markdownlint"
 markdownlint_files=()
 for path in "${changed_files[@]}"; do

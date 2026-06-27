@@ -99,7 +99,7 @@
 - name: package manager の存在を検証
   ansible.builtin.assert:
     that:
-      - openwrt_pkg_managers_available is list
+      - openwrt_pkg_managers_available | type_debug == 'list'
       - openwrt_pkg_managers_available | length > 0
       - openwrt_pkg_manager_preferred in ['opkg', 'apk']
       - openwrt_pkg_manager in ['opkg', 'apk']
