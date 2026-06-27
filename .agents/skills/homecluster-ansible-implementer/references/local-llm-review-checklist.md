@@ -169,10 +169,12 @@ When OpenCode is asked to implement code, Codex should start it through the impl
 ./.agents/skills/homecluster-ansible-implementer/scripts/opencode_implementation_run.sh \
   --model local-gemma4/gemma-4-12b-it-qat-q4_0.gguf \
   --config ~/.config/opencode/local-gemma4.json \
-  --agent homecluster-ansible-patch \
   --edit-only \
   --task "<one narrow implementation task>"
 ```
+
+The wrapper default agent is `homecluster-source-edit`. Pass `--agent homecluster-ansible-patch`
+only when the task needs Ansible/project skill context.
 
 For local Gemma4, keep implementation and validation separate. The first OpenCode run should edit
 only and stop. Codex runs `opencode_validation_gate.sh` after the edit. This avoids spending the

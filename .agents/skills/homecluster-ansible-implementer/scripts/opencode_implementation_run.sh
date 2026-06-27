@@ -10,7 +10,7 @@ Options:
   --task TEXT             Task prompt passed to opencode run.
   --model MODEL           OpenCode model, e.g. local-gemma4/gemma-4-12b-it-qat-q4_0.gguf.
   --config PATH           OPENCODE_CONFIG path.
-  --agent NAME            OpenCode agent name. Defaults to OPENCODE_AGENT or homecluster-ansible-patch.
+  --agent NAME            OpenCode agent name. Defaults to OPENCODE_AGENT or homecluster-source-edit.
   --timeout SECONDS       Timeout for opencode run. Defaults to OPENCODE_TIMEOUT or 1800.
   --edit-only             Skip validation inside the OpenCode run.
   --repair-json PATH      Append a compact validation failure JSON object for a repair run.
@@ -34,7 +34,7 @@ cd "$repo_root"
 task=""
 model="${OPENCODE_MODEL:-}"
 config_path="${OPENCODE_CONFIG:-}"
-agent="${OPENCODE_AGENT:-homecluster-ansible-patch}"
+agent="${OPENCODE_AGENT:-homecluster-source-edit}"
 timeout_seconds="${OPENCODE_TIMEOUT:-1800}"
 expect_diff=1
 run_validation=1
