@@ -77,6 +77,19 @@ run with only that compact validation JSON:
   --task "<same narrow implementation task>"
 ```
 
+Choose the OpenCode agent by privilege boundary:
+
+- `homecluster-read-only`: scout candidate files and anchors before implementation; no edits or
+  validation.
+- `homecluster-edit-only`: apply one exact `oldString` / `newString` replacement; no reads by
+  contract, no validation.
+- `homecluster-ansible-patch`: implement one narrow source-only Ansible patch when scoped context
+  and skill access are needed.
+- `homecluster-validation-runner`: run approved validation commands and report compact results; no
+  repair.
+- `homecluster-repair-only`: repair one compact validation failure against the current target file;
+  no broad search or validation.
+
 Prefer these checks after implementation, adjusted to the changed entrypoint:
 
 ```bash
