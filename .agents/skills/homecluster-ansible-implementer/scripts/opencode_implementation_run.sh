@@ -291,7 +291,62 @@ if [[ "$opencode_exit" -ne 0 ]]; then
   exit "$opencode_exit"
 fi
 
-if grep -Eiq '"finish"[[:space:]]*:[[:space:]]*"length"|finish[=:][[:space:]]*length' "$events_log" "$session_export_log"; then
+finish_length_detected="$(
+  python3 - "$events_log" "$session_export_log" <<'PY'
+import json
+import sys
+from pathlib import Path
+from typing import Any
+
+
+def json_objects_from_text(path: Path) -> list[Any]:
+    text = path.read_text(encoding="utf-8", errors="replace")
+    decoder = json.JSONDecoder()
+    objects: list[Any] = []
+    for index, char in enumerate(text):
+        if char != "{":
+            continue
+        try:
+            value, _ = decoder.raw_decode(text[index:])
+        except json.JSONDecodeError:
+            continue
+        objects.append(value)
+    return objects
+
+
+def has_length_finish(value: Any) -> bool:
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if key in {"finish", "reason"} and item == "length":
+                return True
+            if has_length_finish(item):
+                return True
+    elif isinstance(value, list):
+        return any(has_length_finish(item) for item in value)
+    return False
+
+
+for raw_line in Path(sys.argv[1]).read_text(encoding="utf-8", errors="replace").splitlines():
+    raw_line = raw_line.strip()
+    if not raw_line:
+        continue
+    try:
+        event = json.loads(raw_line)
+    except json.JSONDecodeError:
+        continue
+    if has_length_finish(event):
+        print("true")
+        raise SystemExit(0)
+
+for obj in json_objects_from_text(Path(sys.argv[2])):
+    if has_length_finish(obj):
+        print("true")
+        raise SystemExit(0)
+
+print("false")
+PY
+)"
+if [[ "$finish_length_detected" == "true" ]]; then
   emit_result false finish-length 1 "OpenCode stopped because the response hit the output limit"
   exit 1
 fi

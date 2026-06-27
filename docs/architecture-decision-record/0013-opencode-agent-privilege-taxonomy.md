@@ -142,6 +142,8 @@ review しやすい。
 - OpenCode が生成した差分は、必ず Codex / operator が raw diff と validation output を確認する。
 - live apply、real inventory、sysupgrade、Terraform apply、SwitchBot、secret inspection は、この taxonomy の
   source-only agent へ許可しない。
+- OpenCode implementation wrapper のデフォルトは通常の source 編集では `homecluster-source-edit` であり、
+  Ansible/project skill コンテキストが必要な場合のみ `--agent homecluster-ansible-patch` を明示的に渡す。
 
 ## 見直し条件
 
