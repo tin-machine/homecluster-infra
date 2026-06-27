@@ -71,6 +71,33 @@ else
 fi
 
 echo
+echo "== skill review: markdownlint changed markdown =="
+markdownlint_targets=()
+for path in "${changed_files[@]}"; do
+  case "$path" in
+    *.md|README|README.*)
+      if [[ -f "$path" ]]; then
+        markdownlint_targets+=("$path")
+      fi
+      ;;
+  esac
+done
+if ((${#markdownlint_targets[@]} > 0)) && command -v markdownlint >/dev/null 2>&1; then
+  if ! markdownlint --disable MD013 -- "${markdownlint_targets[@]}"; then
+    record_failure "markdownlint failed for changed markdown"
+  fi
+else
+  echo "OK: skipped; no changed markdown files or markdownlint unavailable"
+fi
+if command -v python3 >/dev/null 2>&1; then
+  if ! python3 scripts/ci/check-changed-markdown-style.py "${markdownlint_targets[@]}"; then
+    record_failure "changed markdown style check failed"
+  fi
+else
+  echo "OK: skipped changed markdown style check; python3 unavailable"
+fi
+
+echo
 echo "== skill review: openwrt_sysupgrade defaults key preservation =="
 defaults_file="ansible/openwrt/roles/openwrt_sysupgrade/defaults/main.yml"
 if [[ -f "$defaults_file" ]]; then
