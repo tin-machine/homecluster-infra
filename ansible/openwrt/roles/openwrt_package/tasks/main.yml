@@ -4,12 +4,42 @@
     openwrt_package_manager_effective: >-
       {{
         openwrt_pkg_manager_preferred
-        | default(openwrt_pkg_manager | default('', true), true)
+        | default(openwrt_pkg_manager | default(openwrt_python_pkg_manager_effective | default('', true), true), true)
         | string
         | trim
       }}
     openwrt_package_state_effective: "{{ openwrt_package_state | default('present', true) | string | trim }}"
     openwrt_package_update_cache_effective: "{{ openwrt_package_update_cache | default(openwrt_opkg_update | default(true)) | bool }}"
+
+- name: apk コマンドの存在を確認
+  ansible.builtin.raw: command -v apk
+  register: openwrt_package_apk_check
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  when: (openwrt_package_manager_effective | length) == 0
+
+- name: opkg コマンドの存在を確認
+  ansible.builtin.raw: command -v opkg
+  register: openwrt_package_opkg_check
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  when: (openwrt_package_manager_effective | length) == 0
+
+- name: OpenWrt package manager を実機から確定
+  ansible.builtin.set_fact:
+    openwrt_package_manager_effective: >-
+      {{
+        'apk'
+        if (openwrt_package_apk_check.rc | default(1)) == 0
+        else (
+          'opkg'
+          if (openwrt_package_opkg_check.rc | default(1)) == 0
+          else ''
+        )
+      }}
+  when: (openwrt_package_manager_effective | length) == 0
 
 - name: OpenWrt package role の入力を検証
   ansible.builtin.assert:
