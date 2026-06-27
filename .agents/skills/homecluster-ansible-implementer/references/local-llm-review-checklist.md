@@ -179,6 +179,16 @@ For local Gemma4, keep implementation and validation separate. The first OpenCod
 only and stop. Codex runs `opencode_validation_gate.sh` after the edit. This avoids spending the
 model's output budget on long validation logs and multi-step repair.
 
+Use repository-local agents by boundary, not by a human-style role name:
+
+| Agent | Use when | Must not do |
+| --- | --- | --- |
+| `homecluster-read-only` | Target file set is unclear and a scout pass is useful. | Edit or validate. |
+| `homecluster-edit-only` | Codex can provide one exact `oldString` / `newString` replacement. | Read, search, validate, or repair. |
+| `homecluster-ansible-patch` | The patch needs scoped skill context and source edits. | Touch real inventory or live targets. |
+| `homecluster-validation-runner` | A diff exists and only approved validation should run. | Edit or repair. |
+| `homecluster-repair-only` | A compact validation JSON identifies one target-file failure. | Broad search or validation. |
+
 The wrapper output is authoritative. Treat `finish-length`, `invalid-tool`, and `diff-gate` as
 failed implementation attempts even when the OpenCode process itself exited zero. If validation is
 enabled for a run, also treat `validation-gate` as authoritative. Do not summarize the run as
