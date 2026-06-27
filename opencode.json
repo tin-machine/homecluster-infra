@@ -4,13 +4,28 @@
     "homecluster-ansible-patch": {
       "description": "Implements one narrow homecluster-infra Ansible source patch with public/private boundary guards.",
       "mode": "primary",
-      "prompt": "You are the homecluster-infra Ansible patch implementer. Use $homecluster-ansible-implementer first. For OpenWrt major-upgrade package-manager work also use $homecluster-openwrt-major-upgrade. For OpenWrt post-upgrade collector work also use $homecluster-openwrt-postupgrade-check. Implement exactly one narrow source-only task. Before editing, read the target skill files and the nearest target files. Do not run live apply, real inventory, sysupgrade, SwitchBot, Terraform apply, storage formatting, or secret inspection. Do not edit the private runbook unless the task explicitly asks. When changing Ansible code, preserve fail-closed guards and existing behavior. After editing, run the validation command requested by the task or the skill. Report only changed files, validation commands, and blockers.",
+      "prompt": "You are the homecluster-infra Ansible patch implementer. Use $homecluster-ansible-implementer first. For OpenWrt major-upgrade package-manager work also use $homecluster-openwrt-major-upgrade. For OpenWrt post-upgrade collector work also use $homecluster-openwrt-postupgrade-check. Implement exactly one narrow source-only task. When changing Ansible code, preserve fail-closed guards and existing behavior. Report changed files, validation commands, blockers, and uncertainty.",
       "permission": {
+        "*": "deny",
         "skill": {
           "*": "ask",
           "homecluster-ansible-implementer": "allow",
           "homecluster-openwrt-major-upgrade": "allow",
           "homecluster-openwrt-postupgrade-check": "allow"
+        },
+        "read": {
+          "*": "allow",
+          "*.env": "deny",
+          "*.env.*": "deny"
+        },
+        "glob": {
+          "*": "allow"
+        },
+        "grep": {
+          "*": "allow"
+        },
+        "list": {
+          "*": "allow"
         },
         "bash": {
           "*": "ask",
@@ -41,15 +56,39 @@
           "*": "allow",
           "~/ghq/**/homecluster-runbook/docs/operation/**": "deny",
           "/home/*/ghq/**/homecluster-runbook/docs/operation/**": "deny"
-        }
+        },
+        "external_directory": {
+          "*": "deny"
+        },
+        "task": {
+          "*": "deny"
+        },
+        "webfetch": "deny",
+        "websearch": "deny",
+        "lsp": "deny",
+        "todowrite": "deny",
+        "question": "deny"
       }
     },
     "homecluster-edit-only": {
       "description": "Applies one explicit source edit without reading repository context or running commands.",
       "mode": "primary",
-      "prompt": "You are a constrained edit-only patcher. Your first and only tool call must be edit with the provided filePath, oldString, and newString. Do not inspect the repository first. Do not use skill, bash, read, glob, grep, Semble, DevRag, MCP, validation commands, SSH, Ansible, sysupgrade, SwitchBot, Terraform, or secret inspection. If the requested oldString is not present, the edit tool failure is the final result. Stop immediately after the edit tool returns.",
+      "prompt": "You are an exact-replacement patcher. Apply the requested source edit and report the result.",
       "permission": {
+        "*": "deny",
         "skill": {
+          "*": "deny"
+        },
+        "read": {
+          "*": "deny"
+        },
+        "glob": {
+          "*": "deny"
+        },
+        "grep": {
+          "*": "deny"
+        },
+        "list": {
           "*": "deny"
         },
         "bash": {
@@ -59,43 +98,84 @@
           "*": "allow",
           "~/ghq/**/homecluster-runbook/docs/operation/**": "deny",
           "/home/*/ghq/**/homecluster-runbook/docs/operation/**": "deny"
-        }
+        },
+        "external_directory": {
+          "*": "deny"
+        },
+        "task": {
+          "*": "deny"
+        },
+        "webfetch": "deny",
+        "websearch": "deny",
+        "lsp": "deny",
+        "todowrite": "deny",
+        "question": "deny"
       }
     },
     "homecluster-read-only": {
       "description": "Finds relevant homecluster-infra files and anchors without editing or running validation.",
       "mode": "primary",
-      "prompt": "You are a read-only repository scout. Find the smallest relevant file set, anchors, and uncertainty for the requested source-only task. Do not edit. Do not run validation. Start with pwd, then use git ls-files or narrow rg queries. Do not use broad repository grep, recursive ls, or speculative path recovery. If a path is missing, report uncertainty instead of trying typo variants. Read at most 6 source files or snippets before answering. Do not access real inventory, secrets, live hosts, Terraform state, private runbook operation logs, SSH, Ansible live targets, sysupgrade, SwitchBot, or Terraform apply. Return candidate files, relevant anchors, uncertainty, and one recommended smallest task only.",
+      "prompt": "You are a repository scout. Return candidate files, relevant anchors, uncertainty, and one recommended smallest source-only task.",
       "permission": {
+        "*": "deny",
         "skill": {
           "*": "ask",
           "homecluster-ansible-implementer": "allow",
           "homecluster-openwrt-major-upgrade": "allow",
           "homecluster-openwrt-postupgrade-check": "allow"
         },
+        "read": {
+          "*": "allow",
+          "*.env": "deny",
+          "*.env.*": "deny"
+        },
+        "glob": {
+          "*": "allow"
+        },
+        "grep": {
+          "*": "allow"
+        },
+        "list": {
+          "*": "allow"
+        },
         "bash": {
-          "*": "deny",
-          "git status*": "allow",
-          "git branch --show-current": "allow",
-          "git rev-parse*": "allow",
-          "git diff*": "allow",
-          "git show*": "allow",
-          "git ls-files*": "allow",
-          "pwd": "allow",
-          "rg *": "allow",
-          "sed -n *": "allow"
+          "*": "deny"
         },
         "edit": {
           "*": "deny"
-        }
+        },
+        "external_directory": {
+          "*": "deny"
+        },
+        "task": {
+          "*": "deny"
+        },
+        "webfetch": "deny",
+        "websearch": "deny",
+        "lsp": "deny",
+        "todowrite": "deny",
+        "question": "deny"
       }
     },
     "homecluster-validation-runner": {
       "description": "Runs approved validation commands and reports compact results without editing or repairing.",
       "mode": "primary",
-      "prompt": "You are a validation-only runner. Run only the explicitly approved validation commands. Do not edit files. Do not repair. Do not inspect secrets, real inventory, private runbook operation logs, live hosts, Terraform state, kubeconfig, tfvars, or token material. Report commands, exit codes, and compact failure summary.",
+      "prompt": "You are a validation runner. Run the requested validation command and report command, exit code, and compact failure summary.",
       "permission": {
+        "*": "deny",
         "skill": {
+          "*": "deny"
+        },
+        "read": {
+          "*": "deny"
+        },
+        "glob": {
+          "*": "deny"
+        },
+        "grep": {
+          "*": "deny"
+        },
+        "list": {
           "*": "deny"
         },
         "bash": {
@@ -111,32 +191,67 @@
         },
         "edit": {
           "*": "deny"
-        }
+        },
+        "external_directory": {
+          "*": "deny"
+        },
+        "task": {
+          "*": "deny"
+        },
+        "webfetch": "deny",
+        "websearch": "deny",
+        "lsp": "deny",
+        "todowrite": "deny",
+        "question": "deny"
       }
     },
     "homecluster-repair-only": {
       "description": "Repairs one compact validation failure with the smallest target-file edit.",
       "mode": "primary",
-      "prompt": "You are a constrained repair agent. Use the compact validation failure JSON and the current target file only. Re-read the target file before editing. Make the smallest source edit that fixes the reported failure. Do not perform broad search. Do not run validation. Do not touch unrelated files. Do not access real inventory, secrets, live hosts, Terraform state, private runbook operation logs, SSH, sysupgrade, SwitchBot, or Terraform apply.",
+      "prompt": "You are a repair agent. Use the compact validation failure JSON and the current target file to make the smallest source edit that fixes the reported failure.",
       "permission": {
+        "*": "deny",
         "skill": {
           "*": "deny"
         },
+        "read": {
+          "*": "allow",
+          "*.env": "deny",
+          "*.env.*": "deny"
+        },
+        "glob": {
+          "*": "deny"
+        },
+        "grep": {
+          "*": "deny"
+        },
+        "list": {
+          "*": "deny"
+        },
         "bash": {
-          "*": "deny",
-          "git status*": "allow",
-          "git diff*": "allow",
-          "sed -n *": "allow"
+          "*": "deny"
         },
         "edit": {
           "*": "allow",
           "~/ghq/**/homecluster-runbook/docs/operation/**": "deny",
           "/home/*/ghq/**/homecluster-runbook/docs/operation/**": "deny"
-        }
+        },
+        "external_directory": {
+          "*": "deny"
+        },
+        "task": {
+          "*": "deny"
+        },
+        "webfetch": "deny",
+        "websearch": "deny",
+        "lsp": "deny",
+        "todowrite": "deny",
+        "question": "deny"
       }
     }
   },
   "permission": {
+    "*": "ask",
     "skill": {
       "*": "ask",
       "homecluster-ansible-implementer": "allow",
@@ -153,6 +268,14 @@
       "~/ghq/**/homecluster-runbook/docs/operation/**": "deny",
       "/home/*/ghq/**/homecluster-runbook/docs/operation/**": "deny"
     },
+    "task": {
+      "*": "deny"
+    },
+    "webfetch": "deny",
+    "websearch": "deny",
+    "lsp": "deny",
+    "todowrite": "deny",
+    "question": "deny",
     "bash": {
       "*": "ask",
       "git status*": "allow",
