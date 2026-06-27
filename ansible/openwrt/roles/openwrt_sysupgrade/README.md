@@ -62,6 +62,16 @@ ansible-playbook -i ../inventory.yml site.yml \
   -e openwrt_sysupgrade_confirm='router.example 24.10.6'
 ```
 
+Ansible/Jinja の実行環境差や boolean/string の曖昧さを避けるには、JSON extra-vars を使う。
+互換用に `sysupgrade_confirm` と `openwrt_sysupgrade_confirm` のどちらも confirmation token として受け付ける。
+
+```console
+ansible-playbook -i ../inventory.yml site.yml \
+  -l router.example \
+  --tags sysupgrade \
+  -e '{"openwrt_release_version":"24.10.6","openwrt_sysupgrade_mode":"upgrade","openwrt_sysupgrade_recovery_file_ready":true,"openwrt_sysupgrade_serial_or_usb_recovery_ready":true,"openwrt_sysupgrade_k3s_baseline_ready":true,"openwrt_sysupgrade_confirm":"router.example 24.10.6"}'
+```
+
 ## 注意事項
 
 - バックアップの tarball は git リポジトリの外に保管してください。

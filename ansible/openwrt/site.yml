@@ -32,6 +32,9 @@
     - role: openwrt_banip
       tags: ['banip', 'openwrt_banip']
       when: (openwrt_banip_install | default(false) | bool) or (openwrt_banip_enabled | default(false) | bool)
+    - role: openwrt_admin_tools
+      tags: ['admin_tools', 'openwrt_admin_tools']
+      when: openwrt_enable_admin_tools | default(false) | bool
     - role: openwrt_dhcp
       tags: ['dhcp']
     - role: openwrt_pxe_dnsmasq
@@ -60,13 +63,13 @@
       k3s_baseline_ready: "{{ openwrt_sysupgrade_k3s_baseline_ready | default(false) }}"
     - role: openwrt_frr
       tags: ['frr', 'openwrt_frr']
-      when: openwrt_enable_frr | default(false)
+      when: openwrt_enable_frr | default(false) | bool
     - role: openwrt_prometheus_exporter
       tags: ['prometheus_exporter', 'openwrt_prometheus_exporter']
-      when: openwrt_enable_prometheus_exporter | default(false)
+      when: openwrt_enable_prometheus_exporter | default(false) | bool
     - role: openwrt_syslog_remote
       tags: ['syslog_remote', 'openwrt_syslog_remote']
-      when: openwrt_syslog_remote_enabled | default(false)
+      when: openwrt_syslog_remote_enabled | default(false) | bool
   tasks:
     - name: Gentoo PXE TFTP 切替だけを反映
       ansible.builtin.include_role:
