@@ -1,0 +1,6 @@
+---
+# Small operator/debug packages that are expected to survive post-upgrade gates.
+
+openwrt_admin_tools_packages:
+  - rsync
+  - tcpdump

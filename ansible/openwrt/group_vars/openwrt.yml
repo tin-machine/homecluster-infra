@@ -31,4 +31,5 @@ openwrt_nfs_extra_exports: []
 openwrt_enable_wireless: false
 openwrt_enable_frr: false
 openwrt_enable_prometheus_exporter: false
+openwrt_enable_admin_tools: false
 openwrt_syslog_remote_enabled: false
