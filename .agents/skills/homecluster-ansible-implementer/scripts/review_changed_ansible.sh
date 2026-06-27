@@ -585,6 +585,17 @@ else
 fi
 
 echo
+echo "== skill review: OpenWrt post-upgrade source contract =="
+postupgrade_contract_checker=".agents/skills/homecluster-openwrt-postupgrade-check/scripts/check_openwrt_postupgrade_source_contract.py"
+if [[ -x "$postupgrade_contract_checker" ]]; then
+  if ! "$postupgrade_contract_checker"; then
+    record_failure "OpenWrt post-upgrade source contract audit failed"
+  fi
+else
+  record_failure "OpenWrt post-upgrade source contract checker is missing or not executable"
+fi
+
+echo
 echo "== skill review: runbook read-only boundary =="
 if [[ "${SKIP_RUNBOOK_DIRTY_CHECK:-0}" != "1" ]]; then
   runbook_dir="$(cd "$repo_root/../homecluster-runbook" 2>/dev/null && pwd || true)"

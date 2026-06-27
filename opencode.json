@@ -52,6 +52,10 @@
           "./.agents/skills/homecluster-openwrt-package-boundary-auditor/scripts/check_openwrt_package_boundaries.py *": "allow",
           "python3 ./.agents/skills/homecluster-openwrt-package-boundary-auditor/scripts/check_openwrt_package_boundaries.py": "allow",
           "python3 ./.agents/skills/homecluster-openwrt-package-boundary-auditor/scripts/check_openwrt_package_boundaries.py *": "allow",
+          "./.agents/skills/homecluster-openwrt-postupgrade-check/scripts/check_openwrt_postupgrade_source_contract.py": "allow",
+          "./.agents/skills/homecluster-openwrt-postupgrade-check/scripts/check_openwrt_postupgrade_source_contract.py *": "allow",
+          "python3 ./.agents/skills/homecluster-openwrt-postupgrade-check/scripts/check_openwrt_postupgrade_source_contract.py": "allow",
+          "python3 ./.agents/skills/homecluster-openwrt-postupgrade-check/scripts/check_openwrt_postupgrade_source_contract.py *": "allow",
           "ansible-playbook *examples/inventory.yml*": "allow",
           "ansible-playbook *../inventory.yml*": "deny",
           "ansible-playbook */home/*/ghq/*/inventory.yml*": "deny",
@@ -256,6 +260,55 @@
         "question": "deny"
       }
     },
+    "homecluster-openwrt-postupgrade-source-auditor": {
+      "description": "Runs the read-only OpenWrt post-upgrade source contract checker without editing or touching live state.",
+      "mode": "primary",
+      "prompt": "You are a source-only OpenWrt post-upgrade source contract auditor. Use $homecluster-openwrt-postupgrade-check. Run the source contract checker exactly once, report compact JSON status, and stop. Do not edit files, run Ansible, inspect real inventory, SSH, sysupgrade, install packages, restart services, reboot devices, use SwitchBot, run Terraform apply, or inspect secrets.",
+      "permission": {
+        "*": "deny",
+        "skill": {
+          "*": "deny",
+          "homecluster-openwrt-postupgrade-check": "allow"
+        },
+        "read": {
+          "*": "allow",
+          "*.env": "deny",
+          "*.env.*": "deny"
+        },
+        "glob": {
+          "*": "allow"
+        },
+        "grep": {
+          "*": "allow"
+        },
+        "list": {
+          "*": "allow"
+        },
+        "bash": {
+          "*": "deny",
+          "git status*": "allow",
+          "git diff*": "allow",
+          "./.agents/skills/homecluster-openwrt-postupgrade-check/scripts/check_openwrt_postupgrade_source_contract.py": "allow",
+          "./.agents/skills/homecluster-openwrt-postupgrade-check/scripts/check_openwrt_postupgrade_source_contract.py *": "allow",
+          "python3 ./.agents/skills/homecluster-openwrt-postupgrade-check/scripts/check_openwrt_postupgrade_source_contract.py": "allow",
+          "python3 ./.agents/skills/homecluster-openwrt-postupgrade-check/scripts/check_openwrt_postupgrade_source_contract.py *": "allow"
+        },
+        "edit": {
+          "*": "deny"
+        },
+        "external_directory": {
+          "*": "deny"
+        },
+        "task": {
+          "*": "deny"
+        },
+        "webfetch": "deny",
+        "websearch": "deny",
+        "lsp": "deny",
+        "todowrite": "deny",
+        "question": "deny"
+      }
+    },
     "homecluster-validation-runner": {
       "description": "Runs approved validation commands and reports compact results without editing or repairing.",
       "mode": "primary",
@@ -288,6 +341,10 @@
           "./.agents/skills/homecluster-openwrt-package-boundary-auditor/scripts/check_openwrt_package_boundaries.py *": "allow",
           "python3 ./.agents/skills/homecluster-openwrt-package-boundary-auditor/scripts/check_openwrt_package_boundaries.py": "allow",
           "python3 ./.agents/skills/homecluster-openwrt-package-boundary-auditor/scripts/check_openwrt_package_boundaries.py *": "allow",
+          "./.agents/skills/homecluster-openwrt-postupgrade-check/scripts/check_openwrt_postupgrade_source_contract.py": "allow",
+          "./.agents/skills/homecluster-openwrt-postupgrade-check/scripts/check_openwrt_postupgrade_source_contract.py *": "allow",
+          "python3 ./.agents/skills/homecluster-openwrt-postupgrade-check/scripts/check_openwrt_postupgrade_source_contract.py": "allow",
+          "python3 ./.agents/skills/homecluster-openwrt-postupgrade-check/scripts/check_openwrt_postupgrade_source_contract.py *": "allow",
           "bash scripts/ci/static-check.sh": "allow",
           "RUN_ANSIBLE_SYNTAX=1 RUN_ANSIBLE_LIST_TASKS=1 bash scripts/ci/static-check.sh": "allow",
           "ansible-playbook *examples/inventory.yml*": "allow"
@@ -412,6 +469,10 @@
       "./.agents/skills/homecluster-openwrt-package-boundary-auditor/scripts/check_openwrt_package_boundaries.py *": "allow",
       "python3 ./.agents/skills/homecluster-openwrt-package-boundary-auditor/scripts/check_openwrt_package_boundaries.py": "allow",
       "python3 ./.agents/skills/homecluster-openwrt-package-boundary-auditor/scripts/check_openwrt_package_boundaries.py *": "allow",
+      "./.agents/skills/homecluster-openwrt-postupgrade-check/scripts/check_openwrt_postupgrade_source_contract.py": "allow",
+      "./.agents/skills/homecluster-openwrt-postupgrade-check/scripts/check_openwrt_postupgrade_source_contract.py *": "allow",
+      "python3 ./.agents/skills/homecluster-openwrt-postupgrade-check/scripts/check_openwrt_postupgrade_source_contract.py": "allow",
+      "python3 ./.agents/skills/homecluster-openwrt-postupgrade-check/scripts/check_openwrt_postupgrade_source_contract.py *": "allow",
       "./.agents/skills/homecluster-convergence-monitor/scripts/collect-k3s-convergence.sh": "allow",
       "./.agents/skills/homecluster-convergence-monitor/scripts/collect-k3s-convergence.sh *": "allow",
       "bash .agents/skills/homecluster-convergence-monitor/scripts/collect-k3s-convergence.sh": "allow",
