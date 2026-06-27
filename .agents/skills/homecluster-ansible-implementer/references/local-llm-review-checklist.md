@@ -184,15 +184,16 @@ Use repository-local agents by boundary, not by a human-style role name:
 | --- | --- | --- |
 | `homecluster-read-only` | Target file set is unclear and a scout pass is useful. | Edit or validate. |
 | `homecluster-edit-only` | Codex can provide one exact `oldString` / `newString` replacement. | Read, search, validate, or repair. |
-| `homecluster-source-edit` | OpenCode must read the current target source before one narrow edit. | Run commands, validate, repair, or use skills. |
-| `homecluster-ansible-patch` | The patch needs scoped skill context and source edits. | Touch real inventory or live targets. |
+| `homecluster-source-edit` | Normal source edits need current-file reads but no skill access. | Run commands, validate, repair, or use skills. |
+| `homecluster-ansible-patch` | The task needs Ansible/project skill context. | Touch real inventory or live targets. |
 | `homecluster-validation-runner` | A diff exists and only approved validation should run. | Edit or repair. |
 | `homecluster-repair-only` | A compact validation JSON identifies one target-file failure. | Broad search or validation. |
 
 Use `homecluster-edit-only` only for exact replacement prompts where Codex supplies the current
 `oldString` and full `newString`. Do not ask that agent to read, inspect, or understand a file.
-For normal source edits that require reading the current file, use `homecluster-source-edit` through
-the wrapper with `--edit-only`, then let Codex run validation.
+For normal source edits that need current-file reads and no skill access, use `homecluster-source-edit`
+through the wrapper with `--edit-only`, then let Codex run validation. Use `homecluster-ansible-patch`
+only when the task needs Ansible/project skill context.
 
 The wrapper output is authoritative. Treat `finish-length`, `session-tool-gate`, and `diff-gate` as
 failed implementation attempts even when the OpenCode process itself exited zero. `session-tool-gate`
