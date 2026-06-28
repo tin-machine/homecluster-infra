@@ -214,6 +214,7 @@ local-model failure mode. In particular:
   arguments like `paths`, `recurse`, `hidden`, and `file_type`, and read `matched` / `files`.
 - `ansible.builtin.stat` symlink checks should use fields returned by the module, such as
   `stat.islnk` and `stat.lnk_source` with `follow: false`; do not invent `is_symlink` or `link`.
+- `ansible.builtin.file` creates symlinks with `state: link`; `state: symlink` is invalid.
 - If a task uses an owner/group for a newly introduced directory before an existing role creates the
   user, create the user/group in the new task file or move the include point. Do not rely on later
   tasks having already run.
