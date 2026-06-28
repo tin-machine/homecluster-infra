@@ -1,0 +1,130 @@
+---
+- name: models storage mount を確認
+  become: true
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/findmnt
+      - -no
+      - SOURCE,FSTYPE
+      - "{{ rpi5_egpu_llama_models_storage_mountpoint }}"
+  register: rpi5_egpu_llama_models_storage_findmnt
+  changed_when: false
+  check_mode: false
+
+- name: models storage mount 情報を fact 化
+  ansible.builtin.set_fact:
+    rpi5_egpu_llama_models_storage_findmnt_fields: "{{ rpi5_egpu_llama_models_storage_findmnt.stdout.split() }}"
+
+- name: models storage mount が期待する filesystem か確認
+  ansible.builtin.assert:
+    that:
+      - rpi5_egpu_llama_models_storage_findmnt_fields | length >= 2
+      - rpi5_egpu_llama_models_storage_findmnt_fields[1] == rpi5_egpu_llama_models_storage_fstype
+      - >-
+        (rpi5_egpu_llama_models_storage_mount_source | length == 0)
+        or
+        (rpi5_egpu_llama_models_storage_findmnt_fields[0] == rpi5_egpu_llama_models_storage_mount_source)
+    fail_msg: "{{ rpi5_egpu_llama_models_storage_mountpoint }} が期待する models storage mount ではありません"
+
+- name: llm group を作成
+  become: true
+  ansible.builtin.group:
+    name: "{{ rpi5_egpu_llama_group }}"
+    system: true
+
+- name: llm user を作成
+  become: true
+  ansible.builtin.user:
+    name: "{{ rpi5_egpu_llama_user }}"
+    group: "{{ rpi5_egpu_llama_group }}"
+    home: "{{ rpi5_egpu_llama_home }}"
+    shell: /usr/sbin/nologin
+    system: true
+    create_home: false
+
+- name: llm home directory を作成
+  become: true
+  ansible.builtin.file:
+    path: "{{ rpi5_egpu_llama_home }}"
+    state: directory
+    owner: "{{ rpi5_egpu_llama_user }}"
+    group: "{{ rpi5_egpu_llama_group }}"
+    mode: "0755"
+
+- name: models storage parent directory を作成
+  become: true
+  ansible.builtin.file:
+    path: "{{ rpi5_egpu_llama_models_storage_dir | dirname }}"
+    state: directory
+    owner: "{{ rpi5_egpu_llama_user }}"
+    group: "{{ rpi5_egpu_llama_group }}"
+    mode: "0755"
+
+- name: models storage directory を作成
+  become: true
+  ansible.builtin.file:
+    path: "{{ rpi5_egpu_llama_models_storage_dir }}"
+    state: directory
+    owner: "{{ rpi5_egpu_llama_user }}"
+    group: "{{ rpi5_egpu_llama_group }}"
+    mode: "0755"
+
+- name: models directory の状態を確認
+  ansible.builtin.stat:
+    path: "{{ rpi5_egpu_llama_models_dir }}"
+    follow: false
+  register: rpi5_egpu_llama_models_dir_stat
+
+- name: models directory の内容を確認
+  ansible.builtin.find:
+    paths: "{{ rpi5_egpu_llama_models_dir }}"
+    hidden: true
+    recurse: false
+    file_type: any
+  register: rpi5_egpu_llama_models_dir_content
+  when:
+    - rpi5_egpu_llama_models_dir_stat.stat.exists
+    - rpi5_egpu_llama_models_dir_stat.stat.isdir
+    - not (rpi5_egpu_llama_models_dir_stat.stat.islnk | default(false))
+
+- name: models directory の状態を判定
+  ansible.builtin.set_fact:
+    is_correct_symlink: >-
+      {{
+        rpi5_egpu_llama_models_dir_stat.stat.exists
+        and (rpi5_egpu_llama_models_dir_stat.stat.islnk | default(false))
+        and rpi5_egpu_llama_models_dir_stat.stat.lnk_source == rpi5_egpu_llama_models_storage_dir
+      }}
+    is_empty_dir: >-
+      {{
+        rpi5_egpu_llama_models_dir_stat.stat.exists
+        and rpi5_egpu_llama_models_dir_stat.stat.isdir
+        and not (rpi5_egpu_llama_models_dir_stat.stat.islnk | default(false))
+        and (rpi5_egpu_llama_models_dir_content.matched | default(1) | int == 0)
+      }}
+    is_absent: "{{ not rpi5_egpu_llama_models_dir_stat.stat.exists }}"
+
+- name: models directory が正しい状態か確認
+  ansible.builtin.assert:
+    that:
+      - is_correct_symlink or is_absent or (is_empty_dir and rpi5_egpu_llama_models_storage_allow_empty_dir_replace | bool)
+    fail_msg: "{{ rpi5_egpu_llama_models_dir }} は absent、正しい symlink、または置換許可済みの空 directory ではありません"
+
+- name: models directory が空ディレクトリの場合に削除
+  become: true
+  ansible.builtin.file:
+    path: "{{ rpi5_egpu_llama_models_dir }}"
+    state: absent
+  when:
+    - is_empty_dir
+    - rpi5_egpu_llama_models_storage_allow_empty_dir_replace | bool
+
+- name: models directory から storage_dir への symlink を作成
+  become: true
+  ansible.builtin.file:
+    path: "{{ rpi5_egpu_llama_models_dir }}"
+    state: symlink
+    source: "{{ rpi5_egpu_llama_models_storage_dir }}"
+    force: false
+  when:
+    - not is_correct_symlink

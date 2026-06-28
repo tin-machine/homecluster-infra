@@ -207,6 +207,17 @@ For whitespace-only fixes or one already-known replacement, prefer `homecluster-
 exact `oldString` / `newString` prompt. Do not use `homecluster-source-edit` for trivial formatting
 repairs; weak local models may read the whole file and spend the output budget pasting it back.
 
+When editing Ansible module calls, do not invent module arguments or result fields. This is a common
+local-model failure mode. In particular:
+
+- `ansible.builtin.find` does not use ad hoc arguments such as `qualifiers`; use documented
+  arguments like `paths`, `recurse`, `hidden`, and `file_type`, and read `matched` / `files`.
+- `ansible.builtin.stat` symlink checks should use fields returned by the module, such as
+  `stat.islnk` and `stat.lnk_source` with `follow: false`; do not invent `is_symlink` or `link`.
+- If a task uses an owner/group for a newly introduced directory before an existing role creates the
+  user, create the user/group in the new task file or move the include point. Do not rely on later
+  tasks having already run.
+
 The wrapper output is authoritative. Treat `finish-length`, `session-tool-gate`, and `diff-gate` as
 failed implementation attempts even when the OpenCode process itself exited zero. `session-tool-gate`
 covers repeated tool-error loops such as no-op `edit` calls and denied tool attempts. Tool

@@ -79,21 +79,24 @@
     system: true
     create_home: false
 
-- name: llm directories を作成
+- name: llm home directory を作成
   become: true
   ansible.builtin.file:
-    path: "{{ item.path }}"
+    path: "{{ rpi5_egpu_llama_home }}"
     state: directory
     owner: "{{ rpi5_egpu_llama_user }}"
     group: "{{ rpi5_egpu_llama_group }}"
-    mode: "{{ item.mode }}"
-  loop:
-    - path: "{{ rpi5_egpu_llama_home }}"
-      mode: "0755"
-    - path: "{{ rpi5_egpu_llama_models_dir }}"
-      mode: "0755"
-  loop_control:
-    label: "{{ item.path }}"
+    mode: "0755"
+
+- name: llm models directory を作成 (model storage が無効な場合)
+  become: true
+  ansible.builtin.file:
+    path: "{{ rpi5_egpu_llama_models_dir }}"
+    state: directory
+    owner: "{{ rpi5_egpu_llama_user }}"
+    group: "{{ rpi5_egpu_llama_group }}"
+    mode: "0755"
+  when: not rpi5_egpu_llama_models_storage_enabled | bool
 
 - name: smoke model を確認
   ansible.builtin.stat:
@@ -110,7 +113,7 @@
 - name: model directory ownership を設定
   become: true
   ansible.builtin.file:
-    path: "{{ rpi5_egpu_llama_models_dir }}"
+    path: "{{ rpi5_egpu_llama_models_storage_dir if rpi5_egpu_llama_models_storage_enabled else rpi5_egpu_llama_models_dir }}"
     state: directory
     owner: "{{ rpi5_egpu_llama_user }}"
     group: "{{ rpi5_egpu_llama_group }}"
@@ -176,4 +179,3 @@
       - "'NVIDIA' in rpi5_egpu_llama_nvidia_smi.stdout"
     fail_msg: "nvidia-smi が NVIDIA GPU を返していません"
   when: rpi5_egpu_llama_validate_runtime | bool
-

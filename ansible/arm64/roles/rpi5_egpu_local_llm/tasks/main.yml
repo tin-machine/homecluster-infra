@@ -15,6 +15,8 @@
       - rpi5_egpu_llama_source_dir is match('^/')
       - rpi5_egpu_llama_build_dir is match('^/')
       - rpi5_egpu_llama_model_path is match('^/')
+      - rpi5_egpu_llama_models_storage_dir is match('^/')
+      - rpi5_egpu_llama_models_storage_mountpoint is match('^/')
       - rpi5_egpu_llama_bind_host | length > 0
       - rpi5_egpu_llama_port | int > 0
       - rpi5_egpu_llama_port | int < 65536
@@ -36,6 +38,21 @@
     - rpi5_egpu_local_llm
     - rpi5_egpu_local_swap
 
+- name: models を設定
+  ansible.builtin.include_tasks:
+    file: models.yml
+    apply:
+      tags:
+        - rpi5_egpu_local_llm
+        - llama_models
+  when:
+    - rpi5_egpu_local_llm_enabled | bool
+    - rpi5_egpu_llama_enabled | bool
+    - rpi5_egpu_llama_models_storage_enabled | bool
+  tags:
+    - rpi5_egpu_local_llm
+    - llama_models
+
 - name: Vulkan llama server を設定
   ansible.builtin.include_tasks:
     file: llama.yml
@@ -49,4 +66,3 @@
   tags:
     - rpi5_egpu_local_llm
     - llama_vulkan
-
