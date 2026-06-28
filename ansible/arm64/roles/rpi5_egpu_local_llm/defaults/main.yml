@@ -36,4 +36,6 @@ rpi5_egpu_llama_models_storage_mount_source: ""
 rpi5_egpu_llama_models_storage_allow_empty_dir_replace: true
 rpi5_egpu_llama_build_enabled: true
 rpi5_egpu_llama_extra_args: []
+rpi5_egpu_llama_health_retries: 60
+rpi5_egpu_llama_health_delay: 2
 rpi5_egpu_llama_validate_runtime: true

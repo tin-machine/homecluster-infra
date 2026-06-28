@@ -153,13 +153,19 @@
     url: "http://{{ rpi5_egpu_llama_bind_host }}:{{ rpi5_egpu_llama_port }}/health"
     return_content: true
   register: rpi5_egpu_llama_health
+  until:
+    - rpi5_egpu_llama_health.status == 200
+    - (rpi5_egpu_llama_health.content | default('{}') | from_json).status == 'ok'
+  retries: "{{ rpi5_egpu_llama_health_retries | int }}"
+  delay: "{{ rpi5_egpu_llama_health_delay | int }}"
+  failed_when: false
   when: rpi5_egpu_llama_validate_runtime | bool
 
 - name: llama-vulkan health 結果を検証
   ansible.builtin.assert:
     that:
       - rpi5_egpu_llama_health.status == 200
-      - (rpi5_egpu_llama_health.content | from_json).status == 'ok'
+      - (rpi5_egpu_llama_health.content | default('{}') | from_json).status == 'ok'
     fail_msg: "llama-vulkan /health が ok を返していません"
   when: rpi5_egpu_llama_validate_runtime | bool
 

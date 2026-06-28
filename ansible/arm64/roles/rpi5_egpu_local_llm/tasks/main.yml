@@ -24,6 +24,8 @@
       - rpi5_egpu_llama_extra_args is sequence
       - rpi5_egpu_llama_extra_args is not string
       - (rpi5_egpu_llama_extra_args | select('string') | list | length) == (rpi5_egpu_llama_extra_args | length)
+      - rpi5_egpu_llama_health_retries | int > 0
+      - rpi5_egpu_llama_health_delay | int > 0
     fail_msg: "rpi5_egpu_local_llm の必須変数を確認してください"
   when: rpi5_egpu_local_llm_enabled | bool
 
