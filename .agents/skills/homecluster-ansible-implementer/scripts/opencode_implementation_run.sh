@@ -8,6 +8,7 @@ Usage:
 
 Options:
   --task TEXT             Task prompt passed to opencode run.
+  --profile NAME          OpenCode backend profile: desktop-gpu, arm64-egpu, or legacy-local-gemma4.
   --model MODEL           OpenCode model, e.g. local-gemma4/gemma-4-12b-it-qat-q4_0.gguf.
   --config PATH           OPENCODE_CONFIG path.
   --agent NAME            OpenCode agent name. Defaults to OPENCODE_AGENT or homecluster-source-edit.
@@ -31,6 +32,7 @@ if [[ -z "$repo_root" ]]; then
 fi
 cd "$repo_root"
 
+profile="${OPENCODE_PROFILE:-}"
 task=""
 model="${OPENCODE_MODEL:-}"
 config_path="${OPENCODE_CONFIG:-}"
@@ -45,6 +47,10 @@ while (($# > 0)); do
   case "$1" in
     --task)
       task="${2:-}"
+      shift 2
+      ;;
+    --profile)
+      profile="${2:-}"
       shift 2
       ;;
     --model)
@@ -91,6 +97,32 @@ while (($# > 0)); do
       ;;
   esac
 done
+
+apply_profile_defaults() {
+  local selected_profile="$1"
+  case "$selected_profile" in
+    "" )
+      ;;
+    desktop-gpu|ubuntu|ubuntu-gemma4)
+      model="${model:-${OPENCODE_PROFILE_DESKTOP_GPU_MODEL:-desktop-gpu-gemma4/gemma-4-12b-it-qat-q4_0.gguf}}"
+      config_path="${config_path:-${OPENCODE_PROFILE_DESKTOP_GPU_CONFIG:-$HOME/.config/opencode/local-gemma4-desktop-gpu.json}}"
+      ;;
+    arm64-egpu|arm64-egpu-gemma4)
+      model="${model:-${OPENCODE_PROFILE_ARM64_EGPU_MODEL:-arm64-egpu-gemma4/gemma-4-12b-it-qat-q4_0.gguf}}"
+      config_path="${config_path:-${OPENCODE_PROFILE_ARM64_EGPU_CONFIG:-$HOME/.config/opencode/local-gemma4-arm64-egpu.json}}"
+      ;;
+    legacy-local-gemma4|local-gemma4)
+      model="${model:-local-gemma4/gemma-4-12b-it-qat-q4_0.gguf}"
+      config_path="${config_path:-$HOME/.config/opencode/local-gemma4.json}"
+      ;;
+    *)
+      echo "unknown --profile: $selected_profile" >&2
+      exit 64
+      ;;
+  esac
+}
+
+apply_profile_defaults "$profile"
 
 if [[ -z "$task" ]]; then
   echo "missing required --task" >&2

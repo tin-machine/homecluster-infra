@@ -58,11 +58,15 @@ Tool permission enforcement belongs in
 
 ```bash
 ./.agents/skills/homecluster-ansible-implementer/scripts/opencode_implementation_run.sh \
-  --model local-gemma4/gemma-4-12b-it-qat-q4_0.gguf \
-  --config ~/.config/opencode/local-gemma4.json \
+  --profile arm64-egpu \
   --edit-only \
   --task "<one narrow implementation task>"
 ```
+
+Use `--profile arm64-egpu` when the ARM64 eGPU service should back the run, and
+`--profile desktop-gpu` when the desktop GPU service should back the run. Keep profile-specific
+context limits in the OpenCode config files; do not override them in prompts. Use explicit `--model`
+and `--config` only for one-off compatibility checks.
 
 The wrapper default agent is `homecluster-source-edit`. For tasks that need Ansible/project skill
 context, pass `--agent homecluster-ansible-patch` explicitly.
@@ -78,8 +82,7 @@ answer was too verbose; narrow the next prompt instead of retrying the same task
 
 ```bash
 ./.agents/skills/homecluster-ansible-implementer/scripts/opencode_implementation_run.sh \
-  --model local-gemma4/gemma-4-12b-it-qat-q4_0.gguf \
-  --config ~/.config/opencode/local-gemma4.json \
+  --profile arm64-egpu \
   --agent homecluster-ansible-patch \
   --edit-only \
   --repair-json /tmp/opencode-validation.json \

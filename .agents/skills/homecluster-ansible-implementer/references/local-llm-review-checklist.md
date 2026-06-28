@@ -167,11 +167,14 @@ When OpenCode is asked to implement code, Codex should start it through the impl
 
 ```bash
 ./.agents/skills/homecluster-ansible-implementer/scripts/opencode_implementation_run.sh \
-  --model local-gemma4/gemma-4-12b-it-qat-q4_0.gguf \
-  --config ~/.config/opencode/local-gemma4.json \
+  --profile arm64-egpu \
   --edit-only \
   --task "<one narrow implementation task>"
 ```
+
+Use `--profile arm64-egpu` for the ARM64 eGPU service and `--profile desktop-gpu` for the desktop
+GPU service. The profiles intentionally have different context limits; do not replace the profile
+with a hand-written `--model` / `--config` pair unless testing backward compatibility.
 
 The wrapper default agent is `homecluster-source-edit`. Pass `--agent homecluster-ansible-patch`
 only when the task needs Ansible/project skill context.
