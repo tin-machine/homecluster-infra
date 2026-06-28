@@ -15,6 +15,8 @@
     - role: openwrt_storage
       tags: ['never', 'openwrt_storage']
       when: openwrt_enable_storage | default(false)
+    - role: openwrt_iscsi_target
+      tags: ['never', 'iscsi_target']
     - role: openwrt_pxe_client_catalog
       tags: ['always', 'pxe', 'dhcp', 'pxe_dnsmasq', 'pxe_hosts', 'tftp', 'tftp_hosts', 'pxe_tftp_switch', 'pxe_ansible_pull', 'pxe_release_bundle', 'pxe_rootfs_prune', 'pxe_timesync']
     - role: openwrt_gentoo_rootfs

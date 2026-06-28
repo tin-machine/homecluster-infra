@@ -200,6 +200,26 @@ Use repository-local agents by boundary, not by a human-style role name:
 | `homecluster-validation-runner` | A diff exists and only approved validation should run. | Edit or repair. |
 | `homecluster-repair-only` | A compact validation JSON identifies one target-file failure. | Broad search or validation. |
 
+## iSCSI/Storage OpenCode Guardrails
+
+For iSCSI, k3s data-dir, disk, filesystem, NVMe, USB SSD, NFS-root, PXE storage, and other
+live-storage work, OpenCode implementation runs are source-only by default.
+
+OpenCode must not run these commands unless Codex has moved to an operator-approved live phase:
+
+- `mkfs*`, `wipefs`, `parted`, `sfdisk`, `fdisk`, or other formatting / partitioning commands.
+- `mount`, `umount`, or service changes that mount a real target.
+- `iscsiadm`, `tgtadm`, `service tgtd`, `/etc/init.d/tgtd`, or equivalent iSCSI login / target
+  service commands.
+- `terraform apply`, `sysupgrade`, SwitchBot commands, live SSH remediation, or `ansible-playbook`
+  against `../inventory.yml`, `/home/*/inventory.yml`, or `homecluster-inventory`.
+
+Allowed OpenCode validation is limited to static/source checks such as `git diff --check`,
+repository review scripts, `opencode_validation_gate.sh`, and `ansible-playbook` against
+`examples/inventory.yml` for `--syntax-check` / `--list-tasks`. If OpenCode attempts a denied
+storage command, classify the run as environment/guardrail feedback, inspect the session export,
+tighten the skill/prompt/permission, and do not retry the same prompt unchanged.
+
 Use `homecluster-edit-only` only for exact replacement prompts where Codex supplies the current
 `oldString` and full `newString`. Do not ask that agent to read, inspect, or understand a file.
 For normal source edits that need current-file reads and no skill access, use `homecluster-source-edit`

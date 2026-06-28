@@ -1,0 +1,160 @@
+---
+- name: 無効な iSCSI target service を cold standby にする
+  ansible.builtin.shell: |
+    set -eu
+    init="/etc/init.d/{{ openwrt_iscsi_target_service_name }}"
+    changed=0
+
+    [ -x "$init" ] || exit 0
+
+    if "$init" status >/dev/null 2>&1; then
+      "$init" stop >/dev/null 2>&1
+      changed=1
+    fi
+    if "$init" enabled >/dev/null 2>&1; then
+      "$init" disable
+      changed=1
+    fi
+
+    [ "$changed" -eq 0 ] || echo changed
+  args:
+    executable: /bin/ash
+  register: openwrt_iscsi_target_cold_standby
+  changed_when: "'changed' in openwrt_iscsi_target_cold_standby.stdout"
+  when: not openwrt_iscsi_target_enabled | bool
+  tags:
+    - iscsi_target
+
+- name: iSCSI target 定義を検証
+  ansible.builtin.assert:
+    that:
+      - openwrt_iscsi_targets | length > 0
+      - (item.name | default('') | string | length) > 0
+      - (item.target_iqn | default('') | string | length) > 0
+      - (item.backing_file | default('') | string | length) > 0
+      - item.backing_file is match('^' ~ (openwrt_iscsi_backing_dir | regex_escape) ~ '/[^/].*')
+      - (item.initiator_iqn | default('') | string | length) > 0
+      - (item.client_ip | default('') | string | length) > 0
+      - (item.size_gib | default(0) | int) > 0
+    fail_msg: "openwrt_iscsi_targets の各要素に name/target_iqn/backing_file/initiator_iqn/client_ip/size_gib を定義し、backing_file は openwrt_iscsi_backing_dir 配下にしてください"
+  loop: "{{ openwrt_iscsi_targets }}"
+  loop_control:
+    label: "{{ item.name | default('undefined') }}"
+  no_log: true
+  when: openwrt_iscsi_target_enabled | bool
+  tags:
+    - iscsi_target
+
+- name: iSCSI backing file 作成方式を検証
+  ansible.builtin.assert:
+    that:
+      - openwrt_iscsi_target_preallocate | bool or openwrt_iscsi_target_allow_sparse | bool
+    fail_msg: "backing file 作成には openwrt_iscsi_target_preallocate または openwrt_iscsi_target_allow_sparse のどちらかが必要です"
+  when: openwrt_iscsi_target_enabled | bool
+  tags:
+    - iscsi_target
+
+- name: iSCSI target 関連パッケージを導入
+  ansible.builtin.include_role:
+    name: openwrt_package
+  vars:
+    openwrt_package_names: "{{ openwrt_iscsi_target_packages }}"
+    openwrt_package_state: present
+    openwrt_package_update_cache: "{{ openwrt_opkg_update | default(true) }}"
+  when: openwrt_iscsi_target_enabled | bool
+  tags:
+    - iscsi_target
+
+- name: iSCSI target 用ディレクトリを確保
+  ansible.builtin.file:
+    path: "{{ openwrt_iscsi_backing_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: openwrt_iscsi_target_enabled | bool
+  tags:
+    - iscsi_target
+
+- name: iSCSI backing file を作成する
+  ansible.builtin.shell: |
+    set -eu
+    target="{{ item.backing_file }}"
+    expected_size="{{ (item.size_gib | int) * 1024 * 1024 * 1024 }}"
+    size_mib="{{ (item.size_gib | int) * 1024 }}"
+    preallocate="{{ openwrt_iscsi_target_preallocate | bool | ternary('1', '0') }}"
+    allow_sparse="{{ openwrt_iscsi_target_allow_sparse | bool | ternary('1', '0') }}"
+
+    if [ -e "$target" ]; then
+      current_size="$(wc -c < "$target" | tr -d ' ')"
+      if [ "$current_size" != "$expected_size" ]; then
+        echo "existing backing file has unexpected size: $target" >&2
+        exit 2
+      fi
+      exit 0
+    fi
+
+    if [ "$preallocate" = "1" ]; then
+      dd if=/dev/zero of="$target" bs=1M count="$size_mib" conv=fsync
+    elif [ "$allow_sparse" = "1" ]; then
+      dd if=/dev/zero of="$target" bs=1M count=0 seek="$size_mib"
+    else
+      echo "no backing file creation mode enabled" >&2
+      exit 2
+    fi
+    echo changed
+  args:
+    executable: /bin/ash
+  register: openwrt_iscsi_backing_file_result
+  changed_when: "'changed' in openwrt_iscsi_backing_file_result.stdout"
+  loop: "{{ openwrt_iscsi_targets }}"
+  loop_control:
+    label: "{{ item.name | default(item.backing_file) }}"
+  no_log: true
+  when: openwrt_iscsi_target_enabled | bool
+  tags:
+    - iscsi_target
+
+- name: tgtd 設定を配置
+  ansible.builtin.template:
+    src: tgtd.conf.j2
+    dest: "{{ openwrt_iscsi_target_config_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+  no_log: true
+  when: openwrt_iscsi_target_enabled | bool
+  notify:
+    - Restart tgtd
+  tags:
+    - iscsi_target
+
+- name: tgtd を有効化
+  ansible.builtin.shell: |
+    if /etc/init.d/{{ openwrt_iscsi_target_service_name }} enabled; then
+      exit 0
+    fi
+    /etc/init.d/{{ openwrt_iscsi_target_service_name }} enable
+    echo changed
+  args:
+    executable: /bin/ash
+  register: openwrt_iscsi_target_enable
+  changed_when: "'changed' in openwrt_iscsi_target_enable.stdout"
+  when: openwrt_iscsi_target_enabled | bool
+  tags:
+    - iscsi_target
+
+- name: tgtd を起動
+  ansible.builtin.shell: |
+    if /etc/init.d/{{ openwrt_iscsi_target_service_name }} status >/dev/null 2>&1; then
+      exit 0
+    fi
+    /etc/init.d/{{ openwrt_iscsi_target_service_name }} start
+    echo changed
+  args:
+    executable: /bin/ash
+  register: openwrt_iscsi_target_start
+  changed_when: "'changed' in openwrt_iscsi_target_start.stdout"
+  when: openwrt_iscsi_target_enabled | bool
+  tags:
+    - iscsi_target

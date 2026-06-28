@@ -138,6 +138,41 @@ if [[ -f "$defaults_file" ]]; then
 fi
 
 echo
+echo "== skill review: OpenCode storage guardrails =="
+opencode_config="opencode.json"
+if [[ -f "$opencode_config" ]]; then
+  opencode_required_patterns=(
+    '"mkfs\*": "deny"'
+    '"sudo mkfs\*": "deny"'
+    '"wipefs \*": "deny"'
+    '"mount \*": "deny"'
+    '"umount \*": "deny"'
+    '"iscsiadm \*": "deny"'
+    '"sudo iscsiadm \*": "deny"'
+    '"tgtadm \*": "deny"'
+    '"terraform apply\*": "deny"'
+    '"sysupgrade \*": "deny"'
+    '"switchbot\*": "deny"'
+    '"ansible-playbook \*\.\./inventory\.yml\*": "deny"'
+    '"ansible-playbook \*homecluster-inventory\*": "deny"'
+  )
+  for pattern in "${opencode_required_patterns[@]}"; do
+    if ! rg -q "$pattern" "$opencode_config"; then
+      record_failure "opencode.json lost expected storage/live guard pattern: ${pattern}"
+    fi
+  done
+fi
+
+llm_checklist=".agents/skills/homecluster-ansible-implementer/references/local-llm-review-checklist.md"
+skill_file=".agents/skills/homecluster-ansible-implementer/SKILL.md"
+if [[ -f "$llm_checklist" ]] && ! rg -q "iSCSI/Storage OpenCode Guardrails" "$llm_checklist"; then
+  record_failure "local LLM checklist lost iSCSI/Storage OpenCode Guardrails section"
+fi
+if [[ -f "$skill_file" ]] && ! rg -q "For iSCSI or storage tasks, OpenCode must stay source-only" "$skill_file"; then
+  record_failure "homecluster-ansible-implementer skill lost iSCSI/storage source-only guard"
+fi
+
+echo
 echo "== skill review: openwrt_sysupgrade README public variables =="
 sysupgrade_readme="ansible/openwrt/roles/openwrt_sysupgrade/README.md"
 if [[ -f "$sysupgrade_readme" ]]; then
@@ -709,6 +744,17 @@ if [[ -x "$postupgrade_contract_checker" ]]; then
   fi
 else
   record_failure "OpenWrt post-upgrade source contract checker is missing or not executable"
+fi
+
+echo
+echo "== skill review: OpenWrt iSCSI target contract =="
+iscsi_target_contract_checker="scripts/ansible/check_openwrt_iscsi_target_contract.py"
+if [[ -x "$iscsi_target_contract_checker" ]]; then
+  if ! "$iscsi_target_contract_checker"; then
+    record_failure "OpenWrt iSCSI target contract check failed"
+  fi
+else
+  record_failure "OpenWrt iSCSI target contract checker is missing or not executable"
 fi
 
 echo

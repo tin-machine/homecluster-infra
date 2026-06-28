@@ -113,3 +113,10 @@ ansible-playbook -i ../inventory.yml \
 Do not run live apply, destructive gates, sysupgrade, storage formatting, rootfs replacement, TFTP
 switching, k3s node rebuild, Terraform apply, or SwitchBot power actions without explicit operator
 approval.
+
+For iSCSI or storage tasks, OpenCode must stay source-only unless the operator explicitly approves a
+live phase. It must not run `mkfs*`, `mount`, `umount`, `iscsiadm`, `tgtadm`, `service tgtd`,
+`/etc/init.d/tgtd`, `terraform apply`, `sysupgrade`, SwitchBot commands, or `ansible-playbook`
+against real inventory. Allowed validation is limited to repository-local review scripts,
+`git diff --check`, `ansible-playbook` with `examples/inventory.yml` for `--syntax-check` or
+`--list-tasks`, and other explicitly reviewed static checks.
