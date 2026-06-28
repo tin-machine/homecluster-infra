@@ -501,6 +501,8 @@ for file_name in sys.argv[1:]:
             and key not in valid_task_keys
             and (key.startswith("ansible.") or "." not in key)
         ]
+        if "block" in task:
+            module_like_keys.append("block")
         if not module_like_keys:
             failures.append(f"{path}: task #{index} has no obvious module/action key")
 

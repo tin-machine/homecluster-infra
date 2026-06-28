@@ -30,6 +30,28 @@
       - gentoo_binpkg_nfs_enabled | bool
     tags:
       - nfs_binpkg
+  - name: Portage binpkg NFS mountpoint の既存 mount を確認
+    become: true
+    ansible.builtin.command: "findmnt -n -M {{ gentoo_binpkg_base | quote }} -o FSTYPE"
+    register: pre_mount_fstype_check
+    changed_when: false
+    failed_when: false
+    when:
+      - gentoo_binpkg_nfs_enabled | bool
+    tags:
+      - nfs_binpkg
+  - name: Portage binpkg mountpoint が NFS 以外なら停止
+    ansible.builtin.fail:
+      msg: >-
+        {{ gentoo_binpkg_base }} は既に {{ pre_mount_fstype_check.stdout | trim }}
+        として mount されています。gentoo_binpkg_nfs_enabled=true では nfs または
+        nfs4 mountpoint だけを既存 mount として許可します。
+    when:
+      - gentoo_binpkg_nfs_enabled | bool
+      - pre_mount_fstype_check.rc == 0
+      - (pre_mount_fstype_check.stdout | trim) not in ['nfs', 'nfs4']
+    tags:
+      - nfs_binpkg
   - name: Portage binpkg cache を NFS mount
     become: true
     ansible.posix.mount:
@@ -40,6 +62,7 @@
       state: mounted
     when:
       - gentoo_binpkg_nfs_enabled | bool
+      - pre_mount_fstype_check.rc != 0
     tags:
       - nfs_binpkg
   - name: Portage binpkg cache の filesystem type を確認
