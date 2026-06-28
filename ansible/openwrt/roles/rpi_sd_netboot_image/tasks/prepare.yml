@@ -74,7 +74,33 @@
     argv:
       - which
       - lsinitrd
+  register: rpi_lsinitrd_check
   changed_when: false
+  failed_when: false
+  when: rpi_validate_initramfs_contents | bool
+
+- name: Check bsdtar when initramfs content validation is enabled
+  ansible.builtin.command:
+    argv:
+      - which
+      - bsdtar
+  register: rpi_bsdtar_check
+  changed_when: false
+  failed_when: false
+  when:
+    - rpi_validate_initramfs_contents | bool
+    - rpi_lsinitrd_check.rc != 0
+
+- name: Assert at least one initramfs inspector exists
+  ansible.builtin.assert:
+    that:
+      - rpi_lsinitrd_check.rc == 0 or (rpi_bsdtar_check is defined and rpi_bsdtar_check.rc == 0)
+    fail_msg: "initramfs content validation requires lsinitrd or bsdtar."
+  when: rpi_validate_initramfs_contents | bool
+
+- name: Select initramfs inspector argv prefix
+  ansible.builtin.set_fact:
+    rpi_initramfs_inspector_argv_prefix: "{{ ['lsinitrd'] if rpi_lsinitrd_check.rc == 0 else ['bsdtar', '-tf'] }}"
   when: rpi_validate_initramfs_contents | bool
 
 - name: Check required source sync commands
