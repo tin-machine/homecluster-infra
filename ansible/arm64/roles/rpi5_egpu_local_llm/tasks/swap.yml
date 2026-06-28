@@ -1,0 +1,141 @@
+---
+- name: swap mountpoint を確認
+  become: true
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/findmnt
+      - -no
+      - SOURCE,FSTYPE
+      - "{{ rpi5_egpu_local_swap_mountpoint }}"
+  register: rpi5_egpu_local_swap_findmnt
+  changed_when: false
+  check_mode: false
+
+- name: swap mountpoint 情報を fact 化
+  ansible.builtin.set_fact:
+    rpi5_egpu_local_swap_findmnt_fields: "{{ rpi5_egpu_local_swap_findmnt.stdout.split() }}"
+
+- name: swap mountpoint が期待する filesystem か確認
+  ansible.builtin.assert:
+    that:
+      - rpi5_egpu_local_swap_findmnt_fields | length >= 2
+      - rpi5_egpu_local_swap_findmnt_fields[1] == rpi5_egpu_local_swap_mount_fstype
+      - >-
+        (rpi5_egpu_local_swap_mount_source | length == 0)
+        or
+        (rpi5_egpu_local_swap_findmnt_fields[0] == rpi5_egpu_local_swap_mount_source)
+    fail_msg: "{{ rpi5_egpu_local_swap_mountpoint }} が期待する local SSD mount ではありません"
+
+- name: swap directory を作成
+  become: true
+  ansible.builtin.file:
+    path: "{{ rpi5_egpu_local_swap_path | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: swapfile の状態を確認
+  become: true
+  ansible.builtin.stat:
+    path: "{{ rpi5_egpu_local_swap_path }}"
+  register: rpi5_egpu_local_swap_stat
+
+- name: 既存 swapfile のサイズを確認
+  ansible.builtin.assert:
+    that:
+      - rpi5_egpu_local_swap_stat.stat.size | int == rpi5_egpu_local_swap_size_bytes | int
+    fail_msg: "{{ rpi5_egpu_local_swap_path }} は存在しますが、期待サイズ {{ rpi5_egpu_local_swap_size_bytes }} bytes ではありません"
+  when: rpi5_egpu_local_swap_stat.stat.exists
+
+- name: swapfile を作成
+  become: true
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/fallocate
+      - -l
+      - "{{ rpi5_egpu_local_swap_size }}"
+      - "{{ rpi5_egpu_local_swap_path }}"
+    creates: "{{ rpi5_egpu_local_swap_path }}"
+  register: rpi5_egpu_local_swap_fallocate
+
+- name: swapfile mode を設定
+  become: true
+  ansible.builtin.file:
+    path: "{{ rpi5_egpu_local_swap_path }}"
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: swapfile signature を確認
+  become: true
+  ansible.builtin.command:
+    argv:
+      - /usr/sbin/blkid
+      - -s
+      - TYPE
+      - -o
+      - value
+      - "{{ rpi5_egpu_local_swap_path }}"
+  register: rpi5_egpu_local_swap_blkid
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: swapfile signature を作成
+  become: true
+  ansible.builtin.command:
+    argv:
+      - /usr/sbin/mkswap
+      - "{{ rpi5_egpu_local_swap_path }}"
+  when: (rpi5_egpu_local_swap_blkid.stdout | default('') | trim) != 'swap'
+  notify:
+    - restart local ssd swap
+
+- name: local SSD swap unit を配置
+  become: true
+  ansible.builtin.template:
+    src: local-ssd-swap.service.j2
+    dest: "/etc/systemd/system/{{ rpi5_egpu_local_swap_service_name }}"
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - reload systemd
+    - restart local ssd swap
+
+- name: local SSD swap unit を検証
+  become: true
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/systemd-analyze
+      - verify
+      - "/etc/systemd/system/{{ rpi5_egpu_local_swap_service_name }}"
+  changed_when: false
+
+- name: local SSD swap を有効化して起動
+  become: true
+  ansible.builtin.systemd:
+    name: "{{ rpi5_egpu_local_swap_service_name }}"
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: swap 状態を確認
+  become: true
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/swapon
+      - --show
+  register: rpi5_egpu_local_swap_show
+  changed_when: false
+  check_mode: false
+
+- name: local SSD swap が低 priority で有効か確認
+  ansible.builtin.assert:
+    that:
+      - rpi5_egpu_local_swap_path in rpi5_egpu_local_swap_show.stdout
+      - "'/dev/zram0' in rpi5_egpu_local_swap_show.stdout"
+      - (rpi5_egpu_local_swap_show.stdout | regex_search(rpi5_egpu_local_swap_path | regex_escape ~ '\\s+file\\s+\\S+\\s+\\S+\\s+' ~ (rpi5_egpu_local_swap_priority | string))) is not none
+    fail_msg: "local SSD swap が期待 priority で有効ではありません"
+
