@@ -1,0 +1,7 @@
+---
+- name: Restart tgtd
+  ansible.builtin.shell: |
+    /etc/init.d/{{ openwrt_iscsi_target_service_name }} restart
+  args:
+    executable: /bin/ash
+  changed_when: true
