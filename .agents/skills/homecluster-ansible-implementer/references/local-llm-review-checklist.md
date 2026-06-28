@@ -330,6 +330,40 @@ This is the expected invariant:
 - OpenWrt 25.x or later with only `opkg` selected is invalid.
 - OpenWrt 25.x or later with both managers present must select `apk`.
 
+## systemd Template Checks
+
+When editing systemd unit templates, especially `ExecStart`, review the rendered unit and the live
+process command line. Source-level Jinja can look correct while rendering into a broken unit.
+
+For long `ExecStart` commands in this repository, prefer a single generated line unless an existing
+role already has proven multiline behavior. Shell-style backslash continuations in a systemd unit are
+not shell parsing; a literal `\` can become an application argument.
+
+Avoid ending an `ExecStart` line with a Jinja block tag such as `{% endfor %}` or `{% endif %}`.
+Ansible's Jinja newline trimming can remove the newline after the block and join the next unit key
+into the command, for example `--cache-ram 0Restart=on-failure`.
+
+For variable extra arguments, prefer token lists rendered with `join(' ')` when the arguments do not
+need embedded spaces:
+
+```jinja
+ExecStart=/path/to/server {{ extra_args | join(' ') }}
+```
+
+After a template change that notifies a restart handler, runtime validation tasks must run after the
+handler has actually restarted the service. Add `ansible.builtin.meta: flush_handlers` before
+`uri`, `command`, or process checks that are supposed to validate the new service.
+
+Post-apply checks should include both:
+
+```bash
+systemctl cat <unit>
+ps -o pid,rss,vsz,cmd -C <process-name> --cols 260
+```
+
+An active service and a passing health endpoint are not enough if the process command line still
+contains malformed joined arguments.
+
 ## Live Inventory Commands
 
 Do not run Ansible against real operator inventory during local LLM implementation, even for
