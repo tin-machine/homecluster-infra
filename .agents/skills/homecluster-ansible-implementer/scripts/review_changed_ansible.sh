@@ -712,6 +712,17 @@ else
 fi
 
 echo
+echo "== skill review: OpenWrt iSCSI target contract =="
+iscsi_target_contract_checker="scripts/ansible/check_openwrt_iscsi_target_contract.py"
+if [[ -x "$iscsi_target_contract_checker" ]]; then
+  if ! "$iscsi_target_contract_checker"; then
+    record_failure "OpenWrt iSCSI target contract check failed"
+  fi
+else
+  record_failure "OpenWrt iSCSI target contract checker is missing or not executable"
+fi
+
+echo
 echo "== skill review: runbook read-only boundary =="
 if [[ "${SKIP_RUNBOOK_DIRTY_CHECK:-0}" != "1" ]]; then
   runbook_dir="$(cd "$repo_root/../homecluster-runbook" 2>/dev/null && pwd || true)"
