@@ -103,6 +103,8 @@ if [[ ! -f "$plan_path" ]]; then
   exit 66
 fi
 
+plan_content="$(cat "$plan_path")"
+
 prompt=$(cat <<PROMPT
 Use \$homecluster-ansible-implementer.
 
@@ -114,7 +116,13 @@ $task_text
 Plan file:
 $plan_path
 
-Read the skill and the plan. Then return exactly one compact JSON object and no markdown.
+Plan content:
+<<<OPENCODE_PREFLIGHT_PLAN
+$plan_content
+OPENCODE_PREFLIGHT_PLAN
+
+Read the skill and the embedded plan content above. Do not try to read the plan path directly.
+Then return exactly one compact JSON object and no markdown.
 
 Required JSON schema:
 {
