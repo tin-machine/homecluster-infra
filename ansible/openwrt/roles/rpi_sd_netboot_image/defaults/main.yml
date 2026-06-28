@@ -51,7 +51,7 @@ rpi_kernel_2712_src: "{{ rpi_tftp_release_dir_effective }}/{{ rpi_kernel_2712_im
 rpi_pi5_kernel_image: "{{ rpi_kernel_2712_image }}"
 rpi_pi5_kernel_src: "{{ rpi_tftp_release_dir_effective }}/{{ rpi_pi5_kernel_image }}"
 
-rpi_initramfs_image: initramfs-pxe.img
+rpi_initramfs_image: initramfs-pxe-v8.img
 rpi_initramfs_src: "{{ (rpi_network_backend == 'wifi') | ternary(rpi_wifi_initramfs_src, rpi_tftp_release_dir_effective ~ '/' ~ rpi_initramfs_image) }}"
 rpi_wifi_initramfs_src: "{{ rpi_tftp_release_dir_effective }}/initramfs-pxe-wifi.img"
 rpi_initramfs_bcm27xx_dest: "{{ rpi_boot_dir }}/initramfs-bcm27xx.img"
