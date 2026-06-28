@@ -307,6 +307,9 @@ emit_result() {
   SESSION_ID="$session_id" \
   LOG_DIR="$log_dir" \
   VALIDATION_OK="$validation_ok" \
+  PROFILE="$profile" \
+  MODEL="$model" \
+  CONFIG_BASENAME="${config_path##*/}" \
   python3 - "$commands_run_file" "$commands_not_run_file" <<'PY'
 import json
 import os
@@ -327,6 +330,9 @@ result = {
     "session_id": os.environ.get("SESSION_ID", ""),
     "log_dir": os.environ["LOG_DIR"],
     "validation_ok": validation_ok,
+    "profile": os.environ.get("PROFILE", ""),
+    "model": os.environ.get("MODEL", ""),
+    "config_basename": os.environ.get("CONFIG_BASENAME", ""),
     "commands_run": read_lines(sys.argv[1]),
     "commands_not_run": read_lines(sys.argv[2]),
 }

@@ -206,6 +206,10 @@ For normal source edits that need current-file reads and no skill access, use `h
 through the wrapper with `--edit-only`, then let Codex run validation. Use `homecluster-ansible-patch`
 only when the task needs Ansible/project skill context.
 
+After an exact replacement that edits shell, Python, YAML, or JSON syntax, inspect the resulting diff
+for copied escape characters such as `\"` that were meant only for prompt transport. Local models may
+preserve those escapes literally and create syntactically broken code.
+
 For whitespace-only fixes or one already-known replacement, prefer `homecluster-edit-only` with an
 exact `oldString` / `newString` prompt. Do not use `homecluster-source-edit` for trivial formatting
 repairs; weak local models may read the whole file and spend the output budget pasting it back.
