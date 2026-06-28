@@ -224,6 +224,10 @@
         k3s_defer_service_restart: true
       tags:
         - k3s_networking
+    - role: rpi5_egpu_local_llm
+      when: inventory_hostname in (groups['k3s_stg_agents'] | default([])) and rpi5_egpu_local_llm_enabled | default(false) | bool
+      tags:
+        - rpi5_egpu_local_llm
   vars:
     k3s_stg_server_hosts: "{{ groups['k3s_stg_server'] | default([]) }}"
     k3s_stg_server_host: "{{ (groups['k3s_stg_server'] | default([]) | first) | default('', true) }}"

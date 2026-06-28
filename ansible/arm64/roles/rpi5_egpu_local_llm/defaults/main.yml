@@ -1,0 +1,32 @@
+---
+rpi5_egpu_local_llm_enabled: false
+
+rpi5_egpu_local_swap_enabled: true
+rpi5_egpu_local_swap_path: /var/lib/rancher/k3s/local-swap/swapfile
+rpi5_egpu_local_swap_size: 32G
+rpi5_egpu_local_swap_size_bytes: 34359738368
+rpi5_egpu_local_swap_priority: 10
+rpi5_egpu_local_swap_swappiness: 10
+rpi5_egpu_local_swap_mountpoint: /var/lib/rancher/k3s
+rpi5_egpu_local_swap_mount_fstype: ext4
+rpi5_egpu_local_swap_mount_source: ""
+rpi5_egpu_local_swap_service_name: local-ssd-swap.service
+
+rpi5_egpu_llama_enabled: true
+rpi5_egpu_llama_user: llm
+rpi5_egpu_llama_group: llm
+rpi5_egpu_llama_home: /var/lib/llm-local
+rpi5_egpu_llama_models_dir: /var/lib/llm-local/models
+rpi5_egpu_llama_model_path: /var/lib/llm-local/models/SmolLM2-135M-Instruct-Q4_K_M.gguf
+rpi5_egpu_llama_source_dir: /opt/llama.cpp
+rpi5_egpu_llama_build_dir: /opt/llama.cpp/build
+rpi5_egpu_llama_build_jobs: 3
+rpi5_egpu_llama_service_name: llama-vulkan.service
+rpi5_egpu_llama_bind_host: 127.0.0.1
+rpi5_egpu_llama_port: 8080
+rpi5_egpu_llama_context_size: 4096
+rpi5_egpu_llama_gpu_layers: 999
+rpi5_egpu_llama_disable_webui: true
+rpi5_egpu_llama_condition_host: "{{ inventory_hostname }}"
+rpi5_egpu_llama_build_enabled: true
+rpi5_egpu_llama_validate_runtime: true

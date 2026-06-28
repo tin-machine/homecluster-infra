@@ -1,0 +1,15 @@
+[Unit]
+Description=Enable local SSD swapfile for Raspberry Pi 5 local LLM
+ConditionHost={{ rpi5_egpu_llama_condition_host }}
+RequiresMountsFor={{ rpi5_egpu_local_swap_path | dirname }}
+After=local-fs.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStartPre=/usr/bin/sysctl -w vm.swappiness={{ rpi5_egpu_local_swap_swappiness }}
+ExecStart=/usr/bin/swapon -p {{ rpi5_egpu_local_swap_priority }} {{ rpi5_egpu_local_swap_path }}
+ExecStop=/usr/bin/swapoff {{ rpi5_egpu_local_swap_path }}
+
+[Install]
+WantedBy=multi-user.target

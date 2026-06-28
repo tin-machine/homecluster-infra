@@ -115,7 +115,10 @@ if [[ "$edit_only" == "1" ]]; then
   task="${task}
 
 Edit-only mode:
-Codex will run validation after this OpenCode run."
+Codex will run validation after this OpenCode run. Keep the final response short: changed files,
+validation commands not run, blockers, and uncertainty only. Do not paste file contents, diffs, or
+long explanations. If the task seems too large for one response, make the smallest safe source edit
+for the requested target file and stop."
 fi
 
 if [[ -n "$repair_json_path" ]]; then
@@ -156,6 +159,19 @@ commands_not_run_file="${log_dir}/commands_not_run.txt"
 commands_run=()
 commands_not_run=()
 opencode_exit=0
+
+worktree_digest() {
+  {
+    git status --short --untracked-files=all --
+    git diff --binary --
+    while IFS= read -r -d '' path; do
+      printf 'untracked %s\n' "$path"
+      sha256sum -- "$path"
+    done < <(git ls-files --others --exclude-standard -z)
+  } | sha256sum | awk '{print $1}'
+}
+
+pre_run_worktree_digest="$(worktree_digest)"
 
 if [[ -n "${OPENCODE_IMPLEMENTATION_STUB_OUTPUT:-}" ]]; then
   printf '%s\n' "$OPENCODE_IMPLEMENTATION_STUB_OUTPUT" >"$events_log"
@@ -384,8 +400,9 @@ PY
 fi
 
 diff_shortstat="$(git diff --shortstat --)"
-if [[ "$expect_diff" == "1" && -z "$diff_shortstat" ]]; then
-  emit_result false diff-gate 1 "OpenCode completed without producing a git diff"
+post_run_worktree_digest="$(worktree_digest)"
+if [[ "$expect_diff" == "1" && "$pre_run_worktree_digest" == "$post_run_worktree_digest" ]]; then
+  emit_result false diff-gate 1 "OpenCode completed without changing the worktree"
   exit 1
 fi
 

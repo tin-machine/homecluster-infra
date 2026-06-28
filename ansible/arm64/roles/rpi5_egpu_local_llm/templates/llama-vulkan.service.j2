@@ -1,0 +1,26 @@
+[Unit]
+Description=llama.cpp server on Raspberry Pi 5 NVIDIA eGPU Vulkan
+ConditionHost={{ rpi5_egpu_llama_condition_host }}
+After=network-online.target {{ rpi5_egpu_local_swap_service_name }}
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ rpi5_egpu_llama_user }}
+Group={{ rpi5_egpu_llama_group }}
+WorkingDirectory={{ rpi5_egpu_llama_source_dir }}
+Environment=GGML_VULKAN_DEBUG=0
+ExecStart={{ rpi5_egpu_llama_build_dir }}/bin/llama-server \
+  -m {{ rpi5_egpu_llama_model_path }} \
+  --host {{ rpi5_egpu_llama_bind_host }} \
+  --port {{ rpi5_egpu_llama_port }} \
+{% if rpi5_egpu_llama_disable_webui | bool %}
+  --no-webui \
+{% endif %}
+  -c {{ rpi5_egpu_llama_context_size }} \
+  -ngl {{ rpi5_egpu_llama_gpu_layers }}
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

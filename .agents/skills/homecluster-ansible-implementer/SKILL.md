@@ -71,6 +71,11 @@ For local Gemma4, prefer edit-only runs first. Codex then runs
 `opencode_validation_gate.sh` and saves its compact JSON. If validation fails, start a second repair
 run with only that compact validation JSON. Use the same agent boundary as the original run:
 
+For local Gemma4, do not ask one run to create or repair a whole multi-file role. Split broad work
+into single-file edits, such as `defaults/main.yml`, one `tasks/*.yml`, one template, or the
+playbook entrypoint. A `finish-length` wrapper result means the task was too broad or the final
+answer was too verbose; narrow the next prompt instead of retrying the same task.
+
 ```bash
 ./.agents/skills/homecluster-ansible-implementer/scripts/opencode_implementation_run.sh \
   --model local-gemma4/gemma-4-12b-it-qat-q4_0.gguf \

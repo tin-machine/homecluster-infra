@@ -394,6 +394,110 @@ if [[ "$manifest_changed" == "1" ]]; then
 fi
 
 echo
+echo "== skill review: Ansible role task files are task lists =="
+role_task_files=()
+for path in "${changed_files[@]}"; do
+  case "$path" in
+    ansible/arm64/roles/*/tasks/*.yml|ansible/arm64/roles/*/tasks/*.yaml|ansible/openwrt/roles/*/tasks/*.yml|ansible/openwrt/roles/*/tasks/*.yaml)
+      if [[ -f "$path" ]]; then
+        role_task_files+=("$path")
+      fi
+      ;;
+  esac
+done
+if ((${#role_task_files[@]} > 0)); then
+  if ! python3 - "${role_task_files[@]}" <<'PY'
+import sys
+from pathlib import Path
+
+import yaml
+
+failures = []
+valid_task_keys = {
+    "name",
+    "action",
+    "args",
+    "become",
+    "become_user",
+    "block",
+    "changed_when",
+    "check_mode",
+    "delegate_facts",
+    "delegate_to",
+    "environment",
+    "failed_when",
+    "ignore_errors",
+    "loop",
+    "loop_control",
+    "notify",
+    "register",
+    "rescue",
+    "run_once",
+    "tags",
+    "until",
+    "vars",
+    "when",
+    "with_items",
+}
+
+for file_name in sys.argv[1:]:
+    path = Path(file_name)
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except Exception as exc:  # noqa: BLE001 - review script should report parse context.
+        failures.append(f"{path}: YAML parse failed: {exc}")
+        continue
+
+    if data is None:
+        continue
+    if not isinstance(data, list):
+        failures.append(f"{path}: role task file must be a YAML list, not {type(data).__name__}")
+        continue
+
+    for index, task in enumerate(data, start=1):
+        if not isinstance(task, dict):
+            failures.append(f"{path}: task #{index} must be a mapping, not {type(task).__name__}")
+            continue
+        if "name" not in task and "block" not in task:
+            failures.append(f"{path}: task #{index} should include name or block")
+        module_like_keys = [
+            key for key in task
+            if isinstance(key, str)
+            and key not in valid_task_keys
+            and (key.startswith("ansible.") or "." not in key)
+        ]
+        if not module_like_keys:
+            failures.append(f"{path}: task #{index} has no obvious module/action key")
+
+        include_tasks = task.get("ansible.builtin.include_tasks")
+        if isinstance(include_tasks, str) and "tags" in task:
+            failures.append(
+                f"{path}: task #{index}: include_tasks with task-level tags must use apply.tags "
+                "so tags propagate to included tasks"
+            )
+        if isinstance(include_tasks, dict) and "tags" in task:
+            apply_value = include_tasks.get("apply")
+            if not isinstance(apply_value, dict) or "tags" not in apply_value:
+                failures.append(
+                    f"{path}: task #{index}: include_tasks with task-level tags must include "
+                    "ansible.builtin.include_tasks.apply.tags"
+                )
+
+if failures:
+    for failure in failures:
+        print(f"FAILED: {failure}", file=sys.stderr)
+    raise SystemExit(1)
+
+print("role task YAML structure ok")
+PY
+  then
+    record_failure "Ansible role task YAML structure check failed"
+  fi
+else
+  echo "no changed role task files"
+fi
+
+echo
 echo "== skill review: openwrt_package include vars =="
 openwrt_package_task_files=()
 for path in "${changed_files[@]}"; do

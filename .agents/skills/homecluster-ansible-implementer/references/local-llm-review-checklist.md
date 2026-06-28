@@ -156,8 +156,8 @@ Use state wording precisely:
 
 - plan-only: "planned" or "must be implemented";
 - branch under review: "implemented on the branch and under source validation";
-- merged and validated: "implemented in main as of <date>";
-- live verified: "verified against the live target on <date>".
+- merged and validated: "implemented in main as of YYYY-MM-DD";
+- live verified: "verified against the live target on YYYY-MM-DD".
 
 Do not write "implemented" in runbooks merely because a local model produced a diff.
 
@@ -179,6 +179,12 @@ only when the task needs Ansible/project skill context.
 For local Gemma4, keep implementation and validation separate. The first OpenCode run should edit
 only and stop. Codex runs `opencode_validation_gate.sh` after the edit. This avoids spending the
 model's output budget on long validation logs and multi-step repair.
+
+Keep implementation prompts small enough for the model to finish without a long final answer. A
+single OpenCode implementation run should normally touch one file or one exact task family. Do not
+ask local Gemma4 to create or repair a whole Ansible role, templates, defaults, handlers, playbook
+entrypoint, and validation fixes in one run. If the wrapper reports `finish-length`, split the next
+attempt by file and explicitly require a final response under 6 short lines.
 
 Use repository-local agents by boundary, not by a human-style role name:
 
@@ -227,6 +233,17 @@ outside the repository and is wrong.
 Any nonzero exit from the validation gate means validation failed. Do not call it "minor" or
 "successful", and do not replace it with ad hoc syntax checks. Fix the reported failures, rerun the
 same gate, and only then summarize verification as passed.
+
+For `roles/*/tasks/*.yml`, the top-level YAML object must be a list of task mappings. Do not append
+top-level keys such as `tags:` to the end of a task file. Put tags on individual tasks, on the
+`include_tasks` task, or under `include_tasks.apply.tags` when the included file should inherit
+tags. A task file that parses as a mapping or has stray top-level keys is invalid output and must be
+repaired before continuing.
+
+For dynamic `ansible.builtin.include_tasks`, task-level `tags:` only selects the include task. When
+the included tasks must be reachable by the same tag, use mapping form with
+`ansible.builtin.include_tasks.apply.tags` as well as task-level `tags`. Do not use the scalar
+`include_tasks: file.yml` form for tagged subflows.
 
 If the validation gate reports an Ansible syntax error, fix the YAML/task structure directly and run
 the same gate again. Do not branch into unrelated direct commands such as `ansible --version`; the

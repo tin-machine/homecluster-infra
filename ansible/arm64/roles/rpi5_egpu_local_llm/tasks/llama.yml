@@ -1,0 +1,178 @@
+---
+- name: llama.cpp source を確認
+  ansible.builtin.stat:
+    path: "{{ rpi5_egpu_llama_source_dir }}/.git"
+  register: rpi5_egpu_llama_git_dir
+
+- name: llama.cpp source が存在するか確認
+  ansible.builtin.assert:
+    that:
+      - rpi5_egpu_llama_git_dir.stat.isdir | default(false)
+    fail_msg: "{{ rpi5_egpu_llama_source_dir }} に llama.cpp git checkout がありません"
+
+- name: llama.cpp revision を確認
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/git
+      - -C
+      - "{{ rpi5_egpu_llama_source_dir }}"
+      - rev-parse
+      - --short
+      - HEAD
+  register: rpi5_egpu_llama_revision
+  changed_when: false
+
+- name: llama.cpp Vulkan build cache を確認
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/grep
+      - -E
+      - "GGML_VULKAN:BOOL=ON"
+      - "{{ rpi5_egpu_llama_build_dir }}/CMakeCache.txt"
+  changed_when: false
+
+- name: llama-server / llama-bench を build
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/cmake
+      - --build
+      - "{{ rpi5_egpu_llama_build_dir }}"
+      - --target
+      - llama-server
+      - llama-bench
+      - "-j{{ rpi5_egpu_llama_build_jobs }}"
+  environment:
+    CMAKE_BUILD_PARALLEL_LEVEL: "{{ rpi5_egpu_llama_build_jobs | string }}"
+  when: rpi5_egpu_llama_build_enabled | bool
+
+- name: llama-server binary を確認
+  ansible.builtin.stat:
+    path: "{{ rpi5_egpu_llama_build_dir }}/bin/llama-server"
+  register: rpi5_egpu_llama_server_binary
+
+- name: llama-bench binary を確認
+  ansible.builtin.stat:
+    path: "{{ rpi5_egpu_llama_build_dir }}/bin/llama-bench"
+  register: rpi5_egpu_llama_bench_binary
+
+- name: llama binaries が実行可能か確認
+  ansible.builtin.assert:
+    that:
+      - rpi5_egpu_llama_server_binary.stat.executable | default(false)
+      - rpi5_egpu_llama_bench_binary.stat.executable | default(false)
+    fail_msg: "llama-server / llama-bench binary が見つからないか実行不可です"
+
+- name: llm group を作成
+  become: true
+  ansible.builtin.group:
+    name: "{{ rpi5_egpu_llama_group }}"
+    system: true
+
+- name: llm user を作成
+  become: true
+  ansible.builtin.user:
+    name: "{{ rpi5_egpu_llama_user }}"
+    group: "{{ rpi5_egpu_llama_group }}"
+    home: "{{ rpi5_egpu_llama_home }}"
+    shell: /usr/sbin/nologin
+    system: true
+    create_home: false
+
+- name: llm directories を作成
+  become: true
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ rpi5_egpu_llama_user }}"
+    group: "{{ rpi5_egpu_llama_group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - path: "{{ rpi5_egpu_llama_home }}"
+      mode: "0755"
+    - path: "{{ rpi5_egpu_llama_models_dir }}"
+      mode: "0755"
+  loop_control:
+    label: "{{ item.path }}"
+
+- name: smoke model を確認
+  ansible.builtin.stat:
+    path: "{{ rpi5_egpu_llama_model_path }}"
+  register: rpi5_egpu_llama_model_stat
+
+- name: smoke model が存在するか確認
+  ansible.builtin.assert:
+    that:
+      - rpi5_egpu_llama_model_stat.stat.exists
+      - rpi5_egpu_llama_model_stat.stat.size | int > 0
+    fail_msg: "{{ rpi5_egpu_llama_model_path }} が存在しないか空です"
+
+- name: model directory ownership を設定
+  become: true
+  ansible.builtin.file:
+    path: "{{ rpi5_egpu_llama_models_dir }}"
+    state: directory
+    owner: "{{ rpi5_egpu_llama_user }}"
+    group: "{{ rpi5_egpu_llama_group }}"
+    recurse: true
+
+- name: llama-vulkan unit を配置
+  become: true
+  ansible.builtin.template:
+    src: llama-vulkan.service.j2
+    dest: "/etc/systemd/system/{{ rpi5_egpu_llama_service_name }}"
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - reload systemd
+    - restart llama vulkan
+
+- name: llama-vulkan unit を検証
+  become: true
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/systemd-analyze
+      - verify
+      - "/etc/systemd/system/{{ rpi5_egpu_llama_service_name }}"
+  changed_when: false
+
+- name: llama-vulkan を有効化して起動
+  become: true
+  ansible.builtin.systemd:
+    name: "{{ rpi5_egpu_llama_service_name }}"
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: llama-vulkan health を確認
+  ansible.builtin.uri:
+    url: "http://{{ rpi5_egpu_llama_bind_host }}:{{ rpi5_egpu_llama_port }}/health"
+    return_content: true
+  register: rpi5_egpu_llama_health
+  when: rpi5_egpu_llama_validate_runtime | bool
+
+- name: llama-vulkan health 結果を検証
+  ansible.builtin.assert:
+    that:
+      - rpi5_egpu_llama_health.status == 200
+      - (rpi5_egpu_llama_health.content | from_json).status == 'ok'
+    fail_msg: "llama-vulkan /health が ok を返していません"
+  when: rpi5_egpu_llama_validate_runtime | bool
+
+- name: NVIDIA VRAM 使用量を確認
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/nvidia-smi
+      - --query-gpu=name,driver_version,memory.used
+      - --format=csv,noheader
+  register: rpi5_egpu_llama_nvidia_smi
+  changed_when: false
+  when: rpi5_egpu_llama_validate_runtime | bool
+
+- name: nvidia-smi が GPU を返すか確認
+  ansible.builtin.assert:
+    that:
+      - "'NVIDIA' in rpi5_egpu_llama_nvidia_smi.stdout"
+    fail_msg: "nvidia-smi が NVIDIA GPU を返していません"
+  when: rpi5_egpu_llama_validate_runtime | bool
+
