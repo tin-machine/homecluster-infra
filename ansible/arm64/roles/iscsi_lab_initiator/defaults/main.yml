@@ -1,0 +1,15 @@
+---
+iscsi_lab_initiator_enabled: false
+iscsi_lab_open_iscsi_package: sys-block/open-iscsi
+iscsi_lab_portal: ""
+iscsi_lab_target_iqn: ""
+iscsi_lab_initiator_iqn: ""
+iscsi_lab_lun: 1
+iscsi_lab_mountpoint: /mnt/iscsi-lab
+iscsi_lab_filesystem_type: ext4
+iscsi_lab_allow_format: false
+iscsi_lab_login_enabled: false
+iscsi_lab_mount_enabled: false
+iscsi_lab_mount_options: defaults,noatime
+iscsi_lab_node_startup: manual
+iscsi_lab_device_path: "/dev/disk/by-path/ip-{{ iscsi_lab_portal }}-iscsi-{{ iscsi_lab_target_iqn }}-lun-{{ iscsi_lab_lun }}"

@@ -34,6 +34,15 @@
   roles:
     - common/user_add
 
+- name: iSCSI lab initiator
+  hosts: "env_stg:&role_base"
+  gather_facts: true
+  tags:
+    - never
+    - iscsi_lab
+  roles:
+    - role: iscsi_lab_initiator
+
 - name: k3s staging server
   hosts: "env_stg:&role_k3s_stg_server"
   gather_facts: true
