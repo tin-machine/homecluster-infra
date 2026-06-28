@@ -148,6 +148,9 @@
     state: started
     daemon_reload: true
 
+- name: llama-vulkan handler を health 確認前に反映
+  ansible.builtin.meta: flush_handlers
+
 - name: llama-vulkan health を確認
   ansible.builtin.uri:
     url: "http://{{ rpi5_egpu_llama_bind_host }}:{{ rpi5_egpu_llama_port }}/health"

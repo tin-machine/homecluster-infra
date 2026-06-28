@@ -10,18 +10,7 @@ User={{ rpi5_egpu_llama_user }}
 Group={{ rpi5_egpu_llama_group }}
 WorkingDirectory={{ rpi5_egpu_llama_source_dir }}
 Environment=GGML_VULKAN_DEBUG=0
-ExecStart={{ rpi5_egpu_llama_build_dir }}/bin/llama-server \
-  -m {{ rpi5_egpu_llama_model_path }} \
-  --host {{ rpi5_egpu_llama_bind_host }} \
-  --port {{ rpi5_egpu_llama_port }} \
-{% if rpi5_egpu_llama_disable_webui | bool %}
-  --no-webui \
-{% endif %}
-  -c {{ rpi5_egpu_llama_context_size }} \
-  -ngl {{ rpi5_egpu_llama_gpu_layers }}{% if rpi5_egpu_llama_extra_args | length > 0 %} \{% endif %}
-{% for arg in rpi5_egpu_llama_extra_args %}
-  {{ arg }}{% if not loop.last %} \{% endif %}
-{% endfor %}
+ExecStart={{ rpi5_egpu_llama_build_dir }}/bin/llama-server -m {{ rpi5_egpu_llama_model_path }} --host {{ rpi5_egpu_llama_bind_host }} --port {{ rpi5_egpu_llama_port }}{% if rpi5_egpu_llama_disable_webui | bool %} --no-webui{% endif %} -c {{ rpi5_egpu_llama_context_size }} -ngl {{ rpi5_egpu_llama_gpu_layers }}{% for arg in rpi5_egpu_llama_extra_args %} {{ arg }}{% endfor %}
 Restart=on-failure
 RestartSec=10
 
