@@ -18,7 +18,10 @@ ExecStart={{ rpi5_egpu_llama_build_dir }}/bin/llama-server \
   --no-webui \
 {% endif %}
   -c {{ rpi5_egpu_llama_context_size }} \
-  -ngl {{ rpi5_egpu_llama_gpu_layers }}
+  -ngl {{ rpi5_egpu_llama_gpu_layers }}{% if rpi5_egpu_llama_extra_args | length > 0 %} \{% endif %}
+{% for arg in rpi5_egpu_llama_extra_args %}
+  {{ arg }}{% if not loop.last %} \{% endif %}
+{% endfor %}
 Restart=on-failure
 RestartSec=10
 

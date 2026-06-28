@@ -21,6 +21,9 @@
       - rpi5_egpu_llama_port | int > 0
       - rpi5_egpu_llama_port | int < 65536
       - rpi5_egpu_llama_build_jobs | int > 0
+      - rpi5_egpu_llama_extra_args is sequence
+      - rpi5_egpu_llama_extra_args is not string
+      - (rpi5_egpu_llama_extra_args | select('string') | list | length) == (rpi5_egpu_llama_extra_args | length)
     fail_msg: "rpi5_egpu_local_llm の必須変数を確認してください"
   when: rpi5_egpu_local_llm_enabled | bool
 
