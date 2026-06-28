@@ -28,5 +28,11 @@ rpi5_egpu_llama_context_size: 4096
 rpi5_egpu_llama_gpu_layers: 999
 rpi5_egpu_llama_disable_webui: true
 rpi5_egpu_llama_condition_host: "{{ inventory_hostname }}"
+rpi5_egpu_llama_models_storage_enabled: true
+rpi5_egpu_llama_models_storage_dir: /var/lib/rancher/k3s/local-llm/models
+rpi5_egpu_llama_models_storage_mountpoint: /var/lib/rancher/k3s
+rpi5_egpu_llama_models_storage_fstype: ext4
+rpi5_egpu_llama_models_storage_mount_source: ""
+rpi5_egpu_llama_models_storage_allow_empty_dir_replace: true
 rpi5_egpu_llama_build_enabled: true
 rpi5_egpu_llama_validate_runtime: true
