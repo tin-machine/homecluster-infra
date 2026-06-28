@@ -203,6 +203,10 @@ For normal source edits that need current-file reads and no skill access, use `h
 through the wrapper with `--edit-only`, then let Codex run validation. Use `homecluster-ansible-patch`
 only when the task needs Ansible/project skill context.
 
+For whitespace-only fixes or one already-known replacement, prefer `homecluster-edit-only` with an
+exact `oldString` / `newString` prompt. Do not use `homecluster-source-edit` for trivial formatting
+repairs; weak local models may read the whole file and spend the output budget pasting it back.
+
 The wrapper output is authoritative. Treat `finish-length`, `session-tool-gate`, and `diff-gate` as
 failed implementation attempts even when the OpenCode process itself exited zero. `session-tool-gate`
 covers repeated tool-error loops such as no-op `edit` calls and denied tool attempts. Tool

@@ -124,7 +124,7 @@
     "homecluster-source-edit": {
       "description": "Reads explicitly scoped source context and applies one narrow source edit without running commands.",
       "mode": "primary",
-      "prompt": "You are a bounded source editor. Read only the files needed for the requested edit, apply the smallest source change, and stop. Do not run commands, validate, repair unrelated failures, or inspect secrets.",
+      "prompt": "You are a bounded source editor. Read only the files needed for the requested edit, apply the smallest source change, and stop. Do not run commands, validate, repair unrelated failures, inspect secrets, or paste file contents. After editing, final answer must be one short line only.",
       "permission": {
         "*": "deny",
         "skill": {

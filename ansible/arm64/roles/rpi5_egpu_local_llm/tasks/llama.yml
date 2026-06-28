@@ -44,6 +44,7 @@
   environment:
     CMAKE_BUILD_PARALLEL_LEVEL: "{{ rpi5_egpu_llama_build_jobs | string }}"
   when: rpi5_egpu_llama_build_enabled | bool
+  changed_when: false
 
 - name: llama-server binary を確認
   ansible.builtin.stat:
