@@ -4,7 +4,7 @@ set -euo pipefail
 usage() {
   cat <<'USAGE'
 Usage:
-  opencode_preflight_gate.sh --plan PATH --task TEXT [--model PROVIDER/MODEL] [--config PATH] [--timeout SECONDS]
+  opencode_preflight_gate.sh --plan PATH --task TEXT [--profile NAME] [--model PROVIDER/MODEL] [--config PATH] [--timeout SECONDS]
 
 Runs a read-only OpenCode preflight and fails closed unless the model returns:
   may_proceed=true
@@ -14,12 +14,14 @@ Runs a read-only OpenCode preflight and fails closed unless the model returns:
   plan_skill_conflicts=[]
 
 Environment:
+  OPENCODE_PROFILE                Default backend profile when --profile is omitted.
   OPENCODE_MODEL                  Default model when --model is omitted.
   OPENCODE_CONFIG                 Provider config path when --config is omitted.
   OPENCODE_PREFLIGHT_STUB_OUTPUT  Test hook: parse this output instead of running OpenCode.
 USAGE
 }
 
+profile="${OPENCODE_PROFILE:-}"
 plan_path=""
 task_text=""
 model="${OPENCODE_MODEL:-}"
@@ -34,6 +36,10 @@ while (($# > 0)); do
       ;;
     --task)
       task_text="${2:-}"
+      shift 2
+      ;;
+    --profile)
+      profile="${2:-}"
       shift 2
       ;;
     --model)
@@ -59,6 +65,32 @@ while (($# > 0)); do
       ;;
   esac
 done
+
+apply_profile_defaults() {
+  local selected_profile="$1"
+  case "$selected_profile" in
+    "" )
+      ;;
+    desktop-gpu|ubuntu|ubuntu-gemma4)
+      model="${model:-${OPENCODE_PROFILE_DESKTOP_GPU_MODEL:-desktop-gpu-gemma4/gemma-4-12b-it-qat-q4_0.gguf}}"
+      config_path="${config_path:-${OPENCODE_PROFILE_DESKTOP_GPU_CONFIG:-$HOME/.config/opencode/local-gemma4-desktop-gpu.json}}"
+      ;;
+    arm64-egpu|arm64-egpu-gemma4)
+      model="${model:-${OPENCODE_PROFILE_ARM64_EGPU_MODEL:-arm64-egpu-gemma4/gemma-4-12b-it-qat-q4_0.gguf}}"
+      config_path="${config_path:-${OPENCODE_PROFILE_ARM64_EGPU_CONFIG:-$HOME/.config/opencode/local-gemma4-arm64-egpu.json}}"
+      ;;
+    legacy-local-gemma4|local-gemma4)
+      model="${model:-local-gemma4/gemma-4-12b-it-qat-q4_0.gguf}"
+      config_path="${config_path:-$HOME/.config/opencode/local-gemma4.json}"
+      ;;
+    *)
+      echo "unknown --profile: $selected_profile" >&2
+      exit 64
+      ;;
+  esac
+}
+
+apply_profile_defaults "$profile"
 
 if [[ -z "$plan_path" || -z "$task_text" ]]; then
   echo "--plan and --task are required" >&2
