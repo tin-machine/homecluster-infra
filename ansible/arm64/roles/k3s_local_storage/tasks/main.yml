@@ -287,7 +287,7 @@
     - k3s_local_storage_enabled | bool
     - k3s_local_storage_node_password_sync_enabled | bool
 
-- name: k3s node password sync drop-in ディレクトリを作成
+- name: k3s service drop-in ディレクトリを作成
   become: true
   ansible.builtin.file:
     path: "/etc/systemd/system/{{ k3s_local_storage_node_password_sync_service_name }}.service.d"
@@ -295,9 +295,17 @@
     owner: root
     group: root
     mode: '0755'
-  when:
-    - k3s_local_storage_enabled | bool
-    - k3s_local_storage_node_password_sync_enabled | bool
+  when: k3s_local_storage_enabled | bool
+
+- name: k3s data-dir mount dependency drop-in を配置
+  become: true
+  ansible.builtin.template:
+    src: k3s-requires-data-mount.conf.j2
+    dest: "/etc/systemd/system/{{ k3s_local_storage_node_password_sync_service_name }}.service.d/{{ k3s_local_storage_mount_dependency_dropin_name }}"
+    owner: root
+    group: root
+    mode: '0644'
+  when: k3s_local_storage_enabled | bool
 
 - name: k3s node password sync drop-in を配置
   become: true

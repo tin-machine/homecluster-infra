@@ -760,6 +760,17 @@ else
 fi
 
 echo
+echo "== skill review: k3s local storage contract =="
+k3s_local_storage_contract_checker="scripts/ansible/check_k3s_local_storage_contract.py"
+if [[ -x "$k3s_local_storage_contract_checker" ]]; then
+  if ! "$k3s_local_storage_contract_checker"; then
+    record_failure "k3s local storage contract check failed"
+  fi
+else
+  record_failure "k3s local storage contract checker is missing or not executable"
+fi
+
+echo
 echo "== skill review: runbook read-only boundary =="
 if [[ "${SKIP_RUNBOOK_DIRTY_CHECK:-0}" != "1" ]]; then
   runbook_dir="$(cd "$repo_root/../homecluster-runbook" 2>/dev/null && pwd || true)"
