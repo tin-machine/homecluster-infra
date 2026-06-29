@@ -1,5 +1,6 @@
 ---
-iscsi_lab_initiator_enabled: false
+iscsi_lab_enabled: false
+iscsi_lab_initiator_enabled: "{{ iscsi_lab_enabled | default(false) }}"
 iscsi_lab_open_iscsi_package: sys-block/open-iscsi
 iscsi_lab_portal: ""
 iscsi_lab_target_iqn: ""
