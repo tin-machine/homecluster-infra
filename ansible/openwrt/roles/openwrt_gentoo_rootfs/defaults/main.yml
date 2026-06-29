@@ -456,6 +456,7 @@ openwrt_gentoo_tftp_variants:
 openwrt_gentoo_initramfs_enabled: false
 openwrt_gentoo_initramfs_emerge_args: "--oneshot --quiet-build=y"
 openwrt_gentoo_initramfs_force_packages: false
+openwrt_gentoo_initramfs_marker_path: "/.initramfs_packages_installed"
 openwrt_gentoo_initramfs_marker: "{{ openwrt_gentoo_rootfs_dir }}/.initramfs_packages_installed"
 openwrt_gentoo_initramfs_overlayfs_module_enabled: true  # dracut 標準 overlayfs モジュールを常時有効化
 openwrt_gentoo_initramfs_output_path: "/boot/initramfs-pxe.img"
