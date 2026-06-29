@@ -4,7 +4,8 @@ openwrt_iscsi_target_service_name: tgt
 openwrt_iscsi_target_packages:
   - tgt
 openwrt_iscsi_target_config_path: /etc/config/tgt
-openwrt_iscsi_backing_dir: /srv/iscsi
+openwrt_iscsi_target_backing_dir: /srv/iscsi
+openwrt_iscsi_backing_dir: "{{ openwrt_iscsi_target_backing_dir | default('/srv/iscsi') }}"
 openwrt_iscsi_target_iothreads: 2
 openwrt_iscsi_target_preallocate: false
 openwrt_iscsi_target_allow_sparse: true

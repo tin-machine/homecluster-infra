@@ -75,6 +75,11 @@ def main() -> int:
         "existing backing file size mismatch must fail closed",
     )
     require(
+        "wc -c" not in tasks and "os.path.getsize" in tasks,
+        findings,
+        "existing backing file size check must not read the full file",
+    )
+    require(
         "allow_address" in template
         and "allow_name" in template
         and "option device" in template,

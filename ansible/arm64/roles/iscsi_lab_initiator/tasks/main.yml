@@ -16,14 +16,14 @@
       - iscsi_lab_mountpoint != '/var/lib/rancher/k3s'
       - not iscsi_lab_mountpoint.startswith('/var/lib/rancher/k3s/')
       - iscsi_lab_filesystem_type in ['ext4', 'xfs']
-    fail_msg: \"iscsi_lab_* の必須値を外部 inventory で定義し、mountpoint は /var/lib/rancher/k3s 以外にしてください\"
+    fail_msg: "iscsi_lab_* の必須値を外部 inventory で定義し、mountpoint は /var/lib/rancher/k3s 以外にしてください"
   tags:
     - iscsi_lab
 
 - name: open-iscsi を導入
   become: true
   ansible.builtin.portage:
-    package: \"{{ iscsi_lab_open_iscsi_package }}\"
+    package: "{{ iscsi_lab_open_iscsi_package }}"
     state: present
   tags:
     - iscsi_lab
@@ -34,7 +34,7 @@
     dest: /etc/iscsi/initiatorname.iscsi
     owner: root
     group: root
-    mode: \"0644\"
+    mode: "0644"
     content: |
       InitiatorName={{ iscsi_lab_initiator_iqn }}
   tags:
@@ -59,7 +59,7 @@
       - -t
       - sendtargets
       - -p
-      - \"{{ iscsi_lab_portal }}\"
+      - "{{ iscsi_lab_portal }}"
   changed_when: false
   when: iscsi_lab_login_enabled | bool
   tags:
@@ -73,15 +73,15 @@
       - -m
       - node
       - -T
-      - \"{{ iscsi_lab_target_iqn }}\"
+      - "{{ iscsi_lab_target_iqn }}"
       - -p
-      - \"{{ iscsi_lab_portal }}\"
+      - "{{ iscsi_lab_portal }}"
       - --op
       - update
       - -n
       - node.startup
       - -v
-      - \"{{ iscsi_lab_node_startup }}\"
+      - "{{ iscsi_lab_node_startup }}"
   changed_when: false
   when: iscsi_lab_login_enabled | bool
   tags:
@@ -95,12 +95,12 @@
       - -m
       - node
       - -T
-      - \"{{ iscsi_lab_target_iqn }}\"
+      - "{{ iscsi_lab_target_iqn }}"
       - -p
-      - \"{{ iscsi_lab_portal }}\"
+      - "{{ iscsi_lab_portal }}"
       - --login
   register: iscsi_lab_login
-  changed_when: \"'successful' in (iscsi_lab_login.stdout | default('')) or 'Login to' in (iscsi_lab_login.stdout | default(''))\"
+  changed_when: "'successful' in (iscsi_lab_login.stdout | default('')) or 'Login to' in (iscsi_lab_login.stdout | default(''))"
   when: iscsi_lab_login_enabled | bool
   tags:
     - iscsi_lab
@@ -121,7 +121,7 @@
   ansible.builtin.command:
     argv:
       - blkid
-      - \"{{ iscsi_lab_device_path }}\"
+      - "{{ iscsi_lab_device_path }}"
   register: iscsi_lab_blkid
   changed_when: false
   failed_when: false
@@ -135,9 +135,9 @@
   become: true
   ansible.builtin.command:
     argv:
-      - \"mkfs.{{ iscsi_lab_filesystem_type }}\"
+      - "mkfs.{{ iscsi_lab_filesystem_type }}"
       - -F
-      - \"{{ iscsi_lab_device_path }}\"
+      - "{{ iscsi_lab_device_path }}"
   when:
     - iscsi_lab_login_enabled | bool
     - iscsi_lab_allow_format | bool
@@ -148,11 +148,11 @@
 - name: iSCSI lab mountpoint を作成
   become: true
   ansible.builtin.file:
-    path: \"{{ iscsi_lab_mountpoint }}\"
+    path: "{{ iscsi_lab_mountpoint }}"
     state: directory
     owner: root
     group: root
-    mode: \"0755\"
+    mode: "0755"
   when: iscsi_lab_mount_enabled | bool
   tags:
     - iscsi_lab
@@ -160,10 +160,10 @@
 - name: iSCSI lab device を一時 mount
   become: true
   ansible.posix.mount:
-    src: \"{{ iscsi_lab_device_path }}\"
-    path: \"{{ iscsi_lab_mountpoint }}\"
-    fstype: \"{{ iscsi_lab_filesystem_type }}\"
-    opts: \"{{ iscsi_lab_mount_options }}\"
+    src: "{{ iscsi_lab_device_path }}"
+    path: "{{ iscsi_lab_mountpoint }}"
+    fstype: "{{ iscsi_lab_filesystem_type }}"
+    opts: "{{ iscsi_lab_mount_options }}"
     state: mounted
   when:
     - iscsi_lab_login_enabled | bool

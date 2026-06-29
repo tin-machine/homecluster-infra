@@ -86,7 +86,7 @@
     allow_sparse="{{ openwrt_iscsi_target_allow_sparse | bool | ternary('1', '0') }}"
 
     if [ -e "$target" ]; then
-      current_size="$(wc -c < "$target" | tr -d ' ')"
+      current_size="$(python3 -c 'import os,sys; print(os.path.getsize(sys.argv[1]))' "$target")"
       if [ "$current_size" != "$expected_size" ]; then
         echo "existing backing file has unexpected size: $target" >&2
         exit 2
