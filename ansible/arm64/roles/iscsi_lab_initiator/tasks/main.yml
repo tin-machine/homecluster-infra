@@ -100,7 +100,18 @@
       - "{{ iscsi_lab_portal }}"
       - --login
   register: iscsi_lab_login
-  changed_when: "'successful' in (iscsi_lab_login.stdout | default('')) or 'Login to' in (iscsi_lab_login.stdout | default(''))"
+  changed_when: >-
+    iscsi_lab_login.rc == 0
+    and (
+      'successful' in (iscsi_lab_login.stdout | default(''))
+      or 'Login to' in (iscsi_lab_login.stdout | default(''))
+    )
+  failed_when: >-
+    iscsi_lab_login.rc != 0
+    and not (
+      iscsi_lab_login.rc == 15
+      and 'already present' in (iscsi_lab_login.stderr | default(''))
+    )
   when: iscsi_lab_login_enabled | bool
   tags:
     - iscsi_lab
