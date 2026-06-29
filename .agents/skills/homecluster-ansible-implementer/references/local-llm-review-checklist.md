@@ -260,6 +260,9 @@ When editing iSCSI session roles, preserve the existing iSCSI data model exactly
 - Session roles should stop at login / udev settle / block-device verification. Keep formatting,
   mounting, `/var/lib/rancher/k3s`, node password sync, and k3s unit drop-ins in the storage role
   that owns those responsibilities.
+- When a storage role switches `/var/lib/rancher/k3s` from one block source to another, stop k3s
+  and unmount the target mountpoint before the new ephemeral mount. Do not only unmount when the
+  desired device is already mounted at the target; that misses USB-to-iSCSI source replacement.
 
 The wrapper output is authoritative. Treat `finish-length`, `session-tool-gate`, and `diff-gate` as
 failed implementation attempts even when the OpenCode process itself exited zero. `session-tool-gate`
