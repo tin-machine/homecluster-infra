@@ -66,6 +66,22 @@
           {%- set stage = item.tftp_stage | default(item.stage, true) | default('') | string | trim -%}
           {%- set release = item.tftp_release | default('') | string | trim -%}
           {%- set rootfs_release = item.rootfs_release | default(release, true) | string | trim -%}
+          {%- set host_symlinks = ['start4.elf', 'start.elf', 'fixup4.dat', 'fixup.dat', 'bootcode.bin', 'kernel8.img', 'kernel8_rt.img', 'kernel_2712.img', 'bcm2711-rpi-4-b.dtb', 'bcm2712-rpi-5-b.dtb'] -%}
+          {%- for path in [
+            item.rpi_kernel_image | default('', true) | string | trim,
+            item.rpi_initramfs | default('', true) | string | trim,
+            item.rpi_device_tree | default('', true) | string | trim,
+            item.rpi4_kernel_image | default('', true) | string | trim,
+            item.rpi4_initramfs | default('', true) | string | trim,
+            item.rpi4_device_tree | default('', true) | string | trim,
+            item.rpi5_kernel_image | default('', true) | string | trim,
+            item.rpi5_initramfs | default('', true) | string | trim,
+            item.rpi5_device_tree | default('', true) | string | trim
+          ] -%}
+            {%- if path and path not in host_symlinks -%}
+              {%- set _ = host_symlinks.append(path) -%}
+            {%- endif -%}
+          {%- endfor -%}
           {%- set _ = result.append({
             'name': item.name | default(board_hash),
             'board_hash': board_hash,
@@ -75,7 +91,18 @@
             'cmdline_root_arg': item.cmdline_root_arg | default('', true) | string | trim,
             'cmdline_ip': item.cmdline_ip | default('', true) | string | trim,
             'cmdline_extra_args': item.cmdline_extra_args | default('', true) | string | trim,
-            'symlinks': ['start4.elf', 'start.elf', 'fixup4.dat', 'fixup.dat', 'bootcode.bin', 'kernel8.img', 'kernel8_rt.img', 'kernel_2712.img', 'bcm2711-rpi-4-b.dtb', 'bcm2712-rpi-5-b.dtb']
+            'rpi_kernel_image': item.rpi_kernel_image | default('', true) | string | trim,
+            'rpi_initramfs': item.rpi_initramfs | default('', true) | string | trim,
+            'rpi_device_tree': item.rpi_device_tree | default('', true) | string | trim,
+            'rpi4_kernel_image': item.rpi4_kernel_image | default('', true) | string | trim,
+            'rpi4_initramfs': item.rpi4_initramfs | default('', true) | string | trim,
+            'rpi4_device_tree': item.rpi4_device_tree | default('', true) | string | trim,
+            'rpi5_kernel_image': item.rpi5_kernel_image | default('', true) | string | trim,
+            'rpi5_initramfs': item.rpi5_initramfs | default('', true) | string | trim,
+            'rpi5_device_tree': item.rpi5_device_tree | default('', true) | string | trim,
+            'rpi5_extra_config': item.rpi5_extra_config | default('', true) | string | trim,
+            'rpi5_pciex1_enabled': item.rpi5_pciex1_enabled | default(none),
+            'symlinks': host_symlinks
           }) -%}
         {%- endif -%}
       {%- endfor -%}
