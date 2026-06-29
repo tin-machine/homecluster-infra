@@ -431,6 +431,17 @@ def _build_generated_client(
         "cmdline_root_arg": _mapping_value(cfg, pxe_host_cfg, "cmdline_root_arg"),
         "cmdline_ip": _mapping_value(cfg, pxe_host_cfg, "cmdline_ip"),
         "cmdline_extra_args": _mapping_value(cfg, pxe_host_cfg, "cmdline_extra_args"),
+        "rpi_kernel_image": _mapping_value(cfg, pxe_host_cfg, "rpi_kernel_image"),
+        "rpi_initramfs": _mapping_value(cfg, pxe_host_cfg, "rpi_initramfs"),
+        "rpi_device_tree": _mapping_value(cfg, pxe_host_cfg, "rpi_device_tree"),
+        "rpi4_kernel_image": _mapping_value(cfg, pxe_host_cfg, "rpi4_kernel_image"),
+        "rpi4_initramfs": _mapping_value(cfg, pxe_host_cfg, "rpi4_initramfs"),
+        "rpi4_device_tree": _mapping_value(cfg, pxe_host_cfg, "rpi4_device_tree"),
+        "rpi5_kernel_image": _mapping_value(cfg, pxe_host_cfg, "rpi5_kernel_image"),
+        "rpi5_initramfs": _mapping_value(cfg, pxe_host_cfg, "rpi5_initramfs"),
+        "rpi5_device_tree": _mapping_value(cfg, pxe_host_cfg, "rpi5_device_tree"),
+        "rpi5_extra_config": _mapping_value(cfg, pxe_host_cfg, "rpi5_extra_config"),
+        "rpi5_pciex1_enabled": _mapping_value(cfg, pxe_host_cfg, "rpi5_pciex1_enabled"),
     }
     for key, value in host_field_candidates.items():
         if value is not None and _clean_string(value):
@@ -634,6 +645,17 @@ def build_openwrt_pxe_client_catalog(
             "tftp_release",
             "rootfs_release",
             "cmdline_extra_args",
+            "rpi_kernel_image",
+            "rpi_initramfs",
+            "rpi_device_tree",
+            "rpi4_kernel_image",
+            "rpi4_initramfs",
+            "rpi4_device_tree",
+            "rpi5_kernel_image",
+            "rpi5_initramfs",
+            "rpi5_device_tree",
+            "rpi5_extra_config",
+            "rpi5_pciex1_enabled",
         ]
     pxe_boot_compare_fields = [str(field) for field in _as_list(compare_pxe_boot_fields)]
     if not pxe_boot_compare_fields:

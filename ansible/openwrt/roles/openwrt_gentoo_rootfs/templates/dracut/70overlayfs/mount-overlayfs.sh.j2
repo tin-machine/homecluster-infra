@@ -15,6 +15,14 @@ if [ -n "$overlayfs" ]; then
     fi
 
     if ! strstr "$(cat /proc/mounts)" LiveOS_rootfs; then
-        mount -t overlay LiveOS_rootfs -o "$ovlfs",upperdir=/run/overlayfs,workdir=/run/ovlwork "$NEWROOT"
+        if ! mount -t overlay LiveOS_rootfs -o "$ovlfs",upperdir=/run/overlayfs,workdir=/run/ovlwork "$NEWROOT"; then
+            msg="Failed to mount LiveOS_rootfs overlay; refusing to continue with writable lower rootfs"
+            if command -v warn > /dev/null; then
+                warn "$msg"
+            else
+                echo "dracut-overlayfs: $msg" >&2
+            fi
+            exit 1
+        fi
     fi
 fi

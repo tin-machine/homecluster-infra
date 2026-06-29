@@ -29,6 +29,17 @@ openwrt_pxe_client_catalog_compare_pxe_host_fields:
   - tftp_release
   - rootfs_release
   - cmdline_extra_args
+  - rpi_kernel_image
+  - rpi_initramfs
+  - rpi_device_tree
+  - rpi4_kernel_image
+  - rpi4_initramfs
+  - rpi4_device_tree
+  - rpi5_kernel_image
+  - rpi5_initramfs
+  - rpi5_device_tree
+  - rpi5_extra_config
+  - rpi5_pciex1_enabled
 openwrt_pxe_client_catalog_compare_pxe_boot_fields:
   - name
   - networkid

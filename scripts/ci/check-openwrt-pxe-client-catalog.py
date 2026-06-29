@@ -85,8 +85,53 @@ def test_k3s_stg_storage_vars() -> None:
     assert "k3s_local_storage_node_password_sync_enabled" not in agent
 
 
+def test_host_specific_tftp_artifacts() -> None:
+    module = load_filter_module()
+    hostvars = {
+        "node1": {
+            "ansible_host": "192.0.2.20",
+            "openwrt_pxe_client": {
+                "enabled": True,
+                "router": "router1",
+                "stage": "stg",
+                "pxe_host": {
+                    "board_hash": "abcdef12",
+                    "rpi5_kernel_image": "kernel8-nvidia.img",
+                    "rpi5_initramfs": "initramfs-pxe-v8-nvidia.img",
+                    "rpi5_device_tree": "bcm2712-rpi-5-b-nvidia.dtb",
+                    "rpi5_pciex1_enabled": True,
+                },
+            },
+        },
+    }
+    result = module.build_openwrt_pxe_client_catalog(
+        hostvars,
+        {"all": ["node1"]},
+        "router1",
+        None,
+        None,
+        None,
+        True,
+        [],
+        [],
+        [],
+        "224",
+        "start4.elf",
+        "192.0.2.1",
+        "192.0.2.1",
+        1,
+    )
+    [pxe_host] = result["pxe_hosts"]
+    assert pxe_host["board_hash"] == "abcdef12"
+    assert pxe_host["rpi5_kernel_image"] == "kernel8-nvidia.img"
+    assert pxe_host["rpi5_initramfs"] == "initramfs-pxe-v8-nvidia.img"
+    assert pxe_host["rpi5_device_tree"] == "bcm2712-rpi-5-b-nvidia.dtb"
+    assert pxe_host["rpi5_pciex1_enabled"] is True
+
+
 def main() -> None:
     test_k3s_stg_storage_vars()
+    test_host_specific_tftp_artifacts()
     print("openwrt_pxe_client_catalog checks ok")
 
 
