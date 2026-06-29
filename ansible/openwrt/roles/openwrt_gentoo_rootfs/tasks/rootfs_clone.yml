@@ -106,6 +106,10 @@
 
     rsync -aHAX --numeric-ids --one-file-system "${src}/" "${tmp}/"
 
+    # systemd machine-id は node ごとの初回 boot で作り直す。
+    : > "${tmp}/etc/machine-id"
+    rm -f "${tmp}/var/lib/dbus/machine-id"
+
     # PXE client ごとの k3s node identity は clone 先 rootfs に持ち越さない。
     rm -f \
       "${tmp}/etc/rancher/node/password" \
