@@ -246,6 +246,19 @@ local-model failure mode. In particular:
   user, create the user/group in the new task file or move the include point. Do not rely on later
   tasks having already run.
 
+When editing iSCSI session roles, preserve the existing iSCSI data model exactly:
+
+- `node.startup` is a string value such as `manual` or `automatic`; do not coerce it to boolean or
+  assert it with `| bool`.
+- `/etc/iscsi/initiatorname.iscsi` must contain `InitiatorName=<iqn>` and a trailing newline, not
+  only the raw IQN.
+- `/dev/disk/by-path/...` values are already absolute device paths. Do not prepend another `/dev/`.
+- read-only probes such as `test -b <device>` should use `changed_when: false`; if a following
+  assert provides the failure message, also use `failed_when: false`.
+- Session roles should stop at login / udev settle / block-device verification. Keep formatting,
+  mounting, `/var/lib/rancher/k3s`, node password sync, and k3s unit drop-ins in the storage role
+  that owns those responsibilities.
+
 The wrapper output is authoritative. Treat `finish-length`, `session-tool-gate`, and `diff-gate` as
 failed implementation attempts even when the OpenCode process itself exited zero. `session-tool-gate`
 covers repeated tool-error loops such as no-op `edit` calls and denied tool attempts. Tool
