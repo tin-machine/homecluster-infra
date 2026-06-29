@@ -68,6 +68,13 @@
       when: inventory_hostname in (groups['k3s_stg_agents'] | default([]))
       tags:
         - k3s_iptables_nft
+    - role: k3s_iscsi_session
+      tags:
+        - iscsi_stg
+        - k3s_iscsi_session
+      when:
+        - inventory_hostname in (groups['k3s_stg_agents'] | default([]))
+        - k3s_iscsi_session_enabled | default(false)
     - role: k3s_local_storage
       tags:
         - k3s_local_storage
