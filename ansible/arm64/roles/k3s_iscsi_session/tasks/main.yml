@@ -1,0 +1,162 @@
+---
+- name: "End host if k3s_iscsi_session is disabled"
+  ansible.builtin.meta: end_host
+  when: not k3s_iscsi_session_enabled | bool
+  tags:
+    - iscsi_stg
+    - k3s_iscsi_session
+
+- name: "Assert k3s_iscsi_session parameters"
+  ansible.builtin.assert:
+    that:
+      - k3s_iscsi_session_portal | string | length > 0
+      - k3s_iscsi_session_target_iqn | string | length > 0
+      - k3s_iscsi_session_initiator_iqn | string | length > 0
+      - k3s_iscsi_session_device_path | string | length > 0
+      - k3s_iscsi_session_device_path | string | regex_search('^/dev/disk/by-path/')
+      - k3s_iscsi_session_node_startup in ['manual', 'automatic']
+    fail_msg: "k3s_iscsi_session parameters are incomplete or invalid"
+    success_msg: "k3s_iscsi_session parameters are valid"
+  tags:
+    - iscsi_stg
+    - k3s_iscsi_session
+
+- name: "Install open-iscsi"
+  become: true
+  ansible.builtin.portage:
+    package: "{{ k3s_iscsi_session_open_iscsi_package }}"
+    state: present
+  tags:
+    - iscsi_stg
+    - k3s_iscsi_session
+
+- name: "Write initiatorname.iscsi"
+  become: true
+  ansible.builtin.copy:
+    dest: /etc/iscsi/initiatorname.iscsi
+    content: "InitiatorName={{ k3s_iscsi_session_initiator_iqn }}\n"
+    owner: root
+    group: root
+    mode: "0644"
+  tags:
+    - iscsi_stg
+    - k3s_iscsi_session
+
+- name: "Enable and start iscsid service"
+  become: true
+  ansible.builtin.systemd:
+    name: iscsid
+    enabled: true
+    state: started
+  tags:
+    - iscsi_stg
+    - k3s_iscsi_session
+
+- name: "Discover iSCSI targets"
+  become: true
+  ansible.builtin.command:
+    argv:
+      - iscsiadm
+      - -m
+      - discovery
+      - -t
+      - sendtargets
+      - -p
+      - "{{ k3s_iscsi_session_portal }}"
+  changed_when: false
+  when: k3s_iscsi_session_login_enabled | bool
+  tags:
+    - iscsi_stg
+    - k3s_iscsi_session
+
+- name: "Set node startup"
+  become: true
+  ansible.builtin.command:
+    argv:
+      - iscsiadm
+      - -m
+      - node
+      - -T
+      - "{{ k3s_iscsi_session_target_iqn }}"
+      - -p
+      - "{{ k3s_iscsi_session_portal }}"
+      - --op
+      - update
+      - -n
+      - node.startup
+      - -v
+      - "{{ k3s_iscsi_session_node_startup | string }}"
+  changed_when: false
+  when: k3s_iscsi_session_login_enabled | bool
+  tags:
+    - iscsi_stg
+    - k3s_iscsi_session
+
+- name: "Login to iSCSI target"
+  become: true
+  ansible.builtin.command:
+    argv:
+      - iscsiadm
+      - -m
+      - node
+      - -T
+      - "{{ k3s_iscsi_session_target_iqn }}"
+      - -p
+      - "{{ k3s_iscsi_session_portal }}"
+      - --login
+  register: iscsi_login
+  changed_when: >-
+    iscsi_login.rc == 0
+    and (
+      'successful' in (iscsi_login.stdout | default(''))
+      or 'Login to' in (iscsi_login.stdout | default(''))
+    )
+  failed_when: >-
+    iscsi_login.rc != 0
+    and not (
+      iscsi_login.rc == 15
+      and 'already present' in (iscsi_login.stderr | default(''))
+    )
+  when: k3s_iscsi_session_login_enabled | bool
+  tags:
+    - iscsi_stg
+    - k3s_iscsi_session
+
+- name: "Run udevadm settle"
+  become: true
+  ansible.builtin.command:
+    argv:
+      - udevadm
+      - settle
+      - "--timeout={{ k3s_iscsi_session_udev_settle_timeout }}"
+  changed_when: false
+  when: k3s_iscsi_session_login_enabled | bool
+  tags:
+    - iscsi_stg
+    - k3s_iscsi_session
+
+- name: "Test iSCSI device existence"
+  become: true
+  ansible.builtin.command:
+    argv:
+      - test
+      - -b
+      - "{{ k3s_iscsi_session_device_path }}"
+  register: device_test
+  changed_when: false
+  failed_when: false
+  when: k3s_iscsi_session_login_enabled | bool
+  tags:
+    - iscsi_stg
+    - k3s_iscsi_session
+
+- name: "Assert iSCSI device exists"
+  become: true
+  ansible.builtin.assert:
+    that:
+      - device_test.rc == 0
+    fail_msg: "iSCSI device {{ k3s_iscsi_session_device_path }} is invalid or does not exist"
+  when: k3s_iscsi_session_login_enabled | bool
+  tags:
+    - iscsi_stg
+    - k3s_iscsi_session
