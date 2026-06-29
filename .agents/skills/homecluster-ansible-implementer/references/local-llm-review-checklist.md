@@ -263,6 +263,9 @@ When editing iSCSI session roles, preserve the existing iSCSI data model exactly
 - When a storage role switches `/var/lib/rancher/k3s` from one block source to another, stop k3s
   and unmount the target mountpoint before the new ephemeral mount. Do not only unmount when the
   desired device is already mounted at the target; that misses USB-to-iSCSI source replacement.
+- `systemctl stop k3s` can leave containerd-shim processes and pod rootfs mounts behind. For a
+  data-dir source replacement, run the installed `k3s-killall.sh` before unmounting when the role's
+  explicit mount-change gate is active.
 
 The wrapper output is authoritative. Treat `finish-length`, `session-tool-gate`, and `diff-gate` as
 failed implementation attempts even when the OpenCode process itself exited zero. `session-tool-gate`

@@ -187,6 +187,28 @@
     - k3s_local_storage_enabled | bool
     - k3s_local_storage_needs_mount_change | bool
 
+- name: k3s killall script の有無を確認
+  become: true
+  ansible.builtin.stat:
+    path: "{{ k3s_local_storage_killall_script_path }}"
+  register: k3s_local_storage_killall_script
+  when:
+    - k3s_local_storage_enabled | bool
+    - k3s_local_storage_needs_mount_change | bool
+    - k3s_local_storage_killall_on_mount_change | bool
+
+- name: mount 変更前に k3s container runtime を停止
+  become: true
+  ansible.builtin.command:
+    argv:
+      - "{{ k3s_local_storage_killall_script_path }}"
+  changed_when: true
+  when:
+    - k3s_local_storage_enabled | bool
+    - k3s_local_storage_needs_mount_change | bool
+    - k3s_local_storage_killall_on_mount_change | bool
+    - k3s_local_storage_killall_script.stat.exists | default(false)
+
 - name: k3s data mount を解除
   become: true
   ansible.posix.mount:
