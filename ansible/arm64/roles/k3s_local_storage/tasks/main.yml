@@ -343,7 +343,7 @@
     fstype: "{{ k3s_local_storage_filesystem_type }}"
     opts: "{{ k3s_local_storage_mount_options }}"
     state: ephemeral
-  when: k3s_local_storage_enabled | bool
+  when: k3s_local_storage_enabled | bool and k3s_local_storage_needs_mount_change | bool
 
 - name: systemd を再読み込み
   become: true
