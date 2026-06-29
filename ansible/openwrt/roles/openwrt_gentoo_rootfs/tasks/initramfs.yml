@@ -1,67 +1,127 @@
 ---
 - block:
-    - name: initramfs 用 chroot バインドマウント追跡を初期化
+    - name: initramfs build 定義を rootfs ごとに正規化
       ansible.builtin.set_fact:
-        openwrt_gentoo_chroot_bind_targets: []
-      tags:
-        - gentoo_packages
+        openwrt_gentoo_initramfs_builds_effective: >-
+          {%- set builds = [] -%}
+          {%- for build in openwrt_gentoo_initramfs_builds | default([]) -%}
+            {%- set rootfs_dir = build.rootfs_dir | default('', true) | string | trim -%}
+            {%- set rootfs_release = build.rootfs_release | default('', true) | string | trim -%}
+            {%- set tftp_dir = build.tftp_dir | default('', true) | string | trim -%}
+            {%- set tftp_release = build.tftp_release | default('', true) | string | trim -%}
+            {%- if not rootfs_dir and rootfs_release -%}
+              {%- set rootfs_dir = '/srv/gentoo/' ~ rootfs_release ~ '/nfs' -%}
+            {%- endif -%}
+            {%- if not rootfs_dir -%}
+              {%- set rootfs_dir = openwrt_gentoo_rootfs_dir -%}
+            {%- endif -%}
+            {%- if not tftp_release and rootfs_release -%}
+              {%- set tftp_release = rootfs_release -%}
+            {%- endif -%}
+            {%- if not tftp_dir and tftp_release -%}
+              {%- set tftp_dir = '/srv/gentoo/tftp-root/dates/' ~ tftp_release -%}
+            {%- endif -%}
+            {%- if not tftp_dir -%}
+              {%- set tftp_dir = openwrt_gentoo_tftp_dir -%}
+            {%- endif -%}
+            {%- set _ = builds.append(build | combine({'rootfs_dir': rootfs_dir, 'tftp_dir': tftp_dir}, recursive=True)) -%}
+          {%- endfor -%}
+          {{ builds }}
 
-    - name: initramfs 用 chroot bind mount 先ディレクトリを作成
+    - name: initramfs 対象 rootfs を抽出
+      ansible.builtin.set_fact:
+        openwrt_gentoo_initramfs_rootfs_dirs: >-
+          {{
+            openwrt_gentoo_initramfs_builds_effective
+            | default([])
+            | map(attribute='rootfs_dir')
+            | unique
+            | list
+          }}
+        openwrt_gentoo_initramfs_tftp_dirs: >-
+          {{
+            openwrt_gentoo_initramfs_builds_effective
+            | default([])
+            | map(attribute='tftp_dir')
+            | unique
+            | list
+          }}
+
+    - name: initramfs 対象 rootfs の存在を確認
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop: "{{ openwrt_gentoo_initramfs_rootfs_dirs | default([]) }}"
+      loop_control:
+        label: "{{ item }}"
+      register: openwrt_gentoo_initramfs_rootfs_dir_stats
+
+    - name: initramfs 対象 rootfs 不在を拒否
+      ansible.builtin.assert:
+        that:
+          - item.stat.isdir | default(false)
+        fail_msg: "initramfs build 対象 rootfs が存在しません: {{ item.item }}"
+      loop: "{{ openwrt_gentoo_initramfs_rootfs_dir_stats.results | default([]) }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: initramfs TFTP 配置先ディレクトリを作成
       ansible.builtin.file:
-        path: "{{ openwrt_gentoo_rootfs_dir }}/{{ item.target }}"
+        path: "{{ item }}"
         state: directory
         owner: root
         group: root
         mode: '0755'
-      loop: "{{ openwrt_gentoo_chroot_bind_mounts }}"
+      loop: "{{ openwrt_gentoo_initramfs_tftp_dirs | default([]) }}"
       loop_control:
-        label: "{{ item.target }}"
+        label: "{{ item }}"
+      when: openwrt_gentoo_initramfs_copy_to_tftp | bool
+
+    - name: initramfs 用 chroot bind mount 先ディレクトリを作成
+      ansible.builtin.file:
+        path: "{{ item.0 }}/{{ item.1.target }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      loop: "{{ (openwrt_gentoo_initramfs_rootfs_dirs | default([])) | product(openwrt_gentoo_chroot_bind_mounts) | list }}"
+      loop_control:
+        label: "{{ item.0 }}/{{ item.1.target }}"
       tags:
         - gentoo_packages
 
     - name: initramfs 用 Gentoo chroot bind mount を準備
       ansible.builtin.shell: |
         set -euo pipefail
-        target="{{ openwrt_gentoo_rootfs_dir }}/{{ item.target }}"
+        target="{{ item.0 }}/{{ item.1.target }}"
         if grep -qs " $target " /proc/mounts; then
           exit 0
         fi
-        mount --bind {{ item.source }} "$target"
+        mount --bind {{ item.1.source }} "$target"
         echo mounted
       args:
         executable: /bin/ash
       register: openwrt_gentoo_initramfs_chroot_binds
       changed_when: "'mounted' in (stdout | default(''))"
-      loop: "{{ openwrt_gentoo_chroot_bind_mounts }}"
+      loop: "{{ (openwrt_gentoo_initramfs_rootfs_dirs | default([])) | product(openwrt_gentoo_chroot_bind_mounts) | list }}"
       loop_control:
-        label: "{{ item.source }} -> {{ item.target }}"
-      tags:
-        - gentoo_packages
-
-    - name: initramfs 用 bind mount を記録
-      ansible.builtin.set_fact:
-        openwrt_gentoo_chroot_bind_targets: >-
-          {{
-            (openwrt_gentoo_initramfs_chroot_binds.results | default([]))
-            | selectattr('stdout', 'defined')
-            | selectattr('stdout', 'search', 'mounted')
-            | map(attribute='item.target')
-            | list
-          }}
+        label: "{{ item.1.source }} -> {{ item.0 }}/{{ item.1.target }}"
       tags:
         - gentoo_packages
 
     - name: initramfs パッケージ導入済みか確認
       ansible.builtin.stat:
-        path: "{{ openwrt_gentoo_initramfs_marker }}"
-      register: openwrt_gentoo_initramfs_marker_stat
+        path: "{{ item }}{{ openwrt_gentoo_initramfs_marker_path }}"
+      loop: "{{ openwrt_gentoo_initramfs_rootfs_dirs | default([]) }}"
+      loop_control:
+        label: "{{ item }}"
+      register: openwrt_gentoo_initramfs_marker_stats
       tags:
         - gentoo_packages
 
     - name: Gentoo chroot 内に dracut を導入
       ansible.builtin.shell: |
         set -euo pipefail
-        chroot {{ openwrt_gentoo_rootfs_dir }} {{ openwrt_gentoo_chroot_shell }} -lc '
+        chroot {{ item.item }} {{ openwrt_gentoo_chroot_shell }} -lc '
           set -euo pipefail
           env-update
           echo env-update
@@ -78,93 +138,130 @@
         executable: /bin/ash
       register: openwrt_gentoo_initramfs_emerge
       changed_when: true
-      when: openwrt_gentoo_initramfs_force_packages | bool or not (openwrt_gentoo_initramfs_marker_stat.stat.exists | default(false))
+      loop: "{{ openwrt_gentoo_initramfs_marker_stats.results | default([]) }}"
+      loop_control:
+        label: "{{ item.item }}"
+      when: openwrt_gentoo_initramfs_force_packages | bool or not (item.stat.exists | default(false))
       tags:
         - gentoo_packages
 
     - name: initramfs パッケージ導入マーカーを作成
       ansible.builtin.file:
-        path: "{{ openwrt_gentoo_initramfs_marker }}"
+        path: "{{ item }}{{ openwrt_gentoo_initramfs_marker_path }}"
         state: touch
         owner: root
         group: root
         mode: '0644'
+      loop: "{{ openwrt_gentoo_initramfs_rootfs_dirs | default([]) }}"
+      loop_control:
+        label: "{{ item }}"
 
     - name: dracut pxeoverlay モジュールディレクトリを作成
       ansible.builtin.file:
-        path: "{{ openwrt_gentoo_rootfs_dir }}/usr/lib/dracut/modules.d/95pxeoverlay"
+        path: "{{ item }}/usr/lib/dracut/modules.d/95pxeoverlay"
         state: directory
         owner: root
         group: root
         mode: '0755'
+      loop: "{{ openwrt_gentoo_initramfs_rootfs_dirs | default([]) }}"
+      loop_control:
+        label: "{{ item }}"
       when: openwrt_gentoo_initramfs_overlay_hook_enabled | bool
 
     - name: dracut モジュールファイルを配置
       ansible.builtin.template:
-        src: "dracut/pxeoverlay/{{ item.src }}"
-        dest: "{{ openwrt_gentoo_rootfs_dir }}/usr/lib/dracut/modules.d/95pxeoverlay/{{ item.dest }}"
+        src: "dracut/pxeoverlay/{{ item.1.src }}"
+        dest: "{{ item.0 }}/usr/lib/dracut/modules.d/95pxeoverlay/{{ item.1.dest }}"
         owner: root
         group: root
-        mode: "{{ item.mode }}"
-      loop:
-        - { src: "module-setup.sh.j2", dest: "module-setup.sh", mode: '0755' }
-        - { src: "pxe-overlay-hook.sh.j2", dest: "pxe-overlay-hook.sh", mode: '0755' }
+        mode: "{{ item.1.mode }}"
+      loop: >-
+        {{
+          (openwrt_gentoo_initramfs_rootfs_dirs | default([]))
+          | product([
+            {'src': 'module-setup.sh.j2', 'dest': 'module-setup.sh', 'mode': '0755'},
+            {'src': 'pxe-overlay-hook.sh.j2', 'dest': 'pxe-overlay-hook.sh', 'mode': '0755'}
+          ])
+          | list
+        }}
+      loop_control:
+        label: "{{ item.0 }}/{{ item.1.dest }}"
       when: openwrt_gentoo_initramfs_overlay_hook_enabled | bool
 
     - name: dracut overlayfs モジュールディレクトリを作成
       ansible.builtin.file:
-        path: "{{ openwrt_gentoo_rootfs_dir }}/usr/lib/dracut/modules.d/70overlayfs"
+        path: "{{ item }}/usr/lib/dracut/modules.d/70overlayfs"
         state: directory
         owner: root
         group: root
         mode: '0755'
+      loop: "{{ openwrt_gentoo_initramfs_rootfs_dirs | default([]) }}"
+      loop_control:
+        label: "{{ item }}"
       when: openwrt_gentoo_initramfs_overlayfs_module_enabled | bool
 
     - name: dracut overlayfs モジュールを配置
       ansible.builtin.template:
-        src: "dracut/70overlayfs/{{ item.src }}"
-        dest: "{{ openwrt_gentoo_rootfs_dir }}/usr/lib/dracut/modules.d/70overlayfs/{{ item.dest }}"
+        src: "dracut/70overlayfs/{{ item.1.src }}"
+        dest: "{{ item.0 }}/usr/lib/dracut/modules.d/70overlayfs/{{ item.1.dest }}"
         owner: root
         group: root
-        mode: "{{ item.mode }}"
-      loop:
-        - { src: "module-setup.sh.j2", dest: "module-setup.sh", mode: '0755' }
-        - { src: "prepare-overlayfs.sh.j2", dest: "prepare-overlayfs.sh", mode: '0755' }
-        - { src: "mount-overlayfs.sh.j2", dest: "mount-overlayfs.sh", mode: '0755' }
+        mode: "{{ item.1.mode }}"
+      loop: >-
+        {{
+          (openwrt_gentoo_initramfs_rootfs_dirs | default([]))
+          | product([
+            {'src': 'module-setup.sh.j2', 'dest': 'module-setup.sh', 'mode': '0755'},
+            {'src': 'prepare-overlayfs.sh.j2', 'dest': 'prepare-overlayfs.sh', 'mode': '0755'},
+            {'src': 'mount-overlayfs.sh.j2', 'dest': 'mount-overlayfs.sh', 'mode': '0755'}
+          ])
+          | list
+        }}
+      loop_control:
+        label: "{{ item.0 }}/{{ item.1.dest }}"
       when: openwrt_gentoo_initramfs_overlayfs_module_enabled | bool
 
     - name: dracut 設定ファイルディレクトリを作成
       ansible.builtin.file:
-        path: "{{ openwrt_gentoo_rootfs_dir }}/etc/dracut.conf.d"
+        path: "{{ item }}/etc/dracut.conf.d"
         state: directory
         owner: root
         group: root
         mode: '0755'
+      loop: "{{ openwrt_gentoo_initramfs_rootfs_dirs | default([]) }}"
+      loop_control:
+        label: "{{ item }}"
       when:
         - openwrt_gentoo_initramfs_overlay_hook_enabled | bool or openwrt_gentoo_initramfs_overlayfs_module_enabled | bool
 
     - name: dracut 設定ファイルを配置 (pxe overlay)
       ansible.builtin.template:
         src: dracut/pxe-overlay.conf.j2
-        dest: "{{ openwrt_gentoo_rootfs_dir }}/etc/dracut.conf.d/95-pxe-overlay.conf"
+        dest: "{{ item }}/etc/dracut.conf.d/95-pxe-overlay.conf"
         owner: root
         group: root
         mode: '0644'
+      loop: "{{ openwrt_gentoo_initramfs_rootfs_dirs | default([]) }}"
+      loop_control:
+        label: "{{ item }}"
       when: openwrt_gentoo_initramfs_overlay_hook_enabled | bool
 
     - name: dracut 設定ファイルを配置 (overlayfs 常時有効化)
       ansible.builtin.template:
         src: dracut/overlayfs.conf.j2
-        dest: "{{ openwrt_gentoo_rootfs_dir }}/etc/dracut.conf.d/90-overlayfs.conf"
+        dest: "{{ item }}/etc/dracut.conf.d/90-overlayfs.conf"
         owner: root
         group: root
         mode: '0644'
+      loop: "{{ openwrt_gentoo_initramfs_rootfs_dirs | default([]) }}"
+      loop_control:
+        label: "{{ item }}"
       when: openwrt_gentoo_initramfs_overlayfs_module_enabled | bool
 
     - name: 既存 initramfs を確認
       ansible.builtin.stat:
-        path: "{{ openwrt_gentoo_rootfs_dir }}{{ item.output_path | default(openwrt_gentoo_initramfs_output_path) }}"
-      loop: "{{ openwrt_gentoo_initramfs_builds | default([]) }}"
+        path: "{{ item.rootfs_dir }}{{ item.output_path | default(openwrt_gentoo_initramfs_output_path) }}"
+      loop: "{{ openwrt_gentoo_initramfs_builds_effective | default([]) }}"
       loop_control:
         label: "{{ item.name | default(item.output_path | default(openwrt_gentoo_initramfs_output_path)) }}"
       register: openwrt_gentoo_initramfs_output_stats
@@ -172,7 +269,7 @@
     - name: dracut で initramfs を生成
       ansible.builtin.shell: |
         set -euo pipefail
-        chroot {{ openwrt_gentoo_rootfs_dir }} {{ openwrt_gentoo_chroot_shell }} -lc '
+        chroot {{ item.item.rootfs_dir }} {{ openwrt_gentoo_chroot_shell }} -lc '
           set -euo pipefail
           env-update
           echo env-update
@@ -215,7 +312,7 @@
             exit 1
           fi &&
           depmod -a "$KVER" &&
-          dracut --kver "$KVER" --force {{ openwrt_gentoo_initramfs_extra_args | default('') }} {{ item.item.output_path | default(openwrt_gentoo_initramfs_output_path) | quote }}
+          dracut --kver "$KVER" --force {{ item.item.extra_args | default(openwrt_gentoo_initramfs_extra_args | default('')) }} {{ item.item.output_path | default(openwrt_gentoo_initramfs_output_path) | quote }}
         '
       args:
         executable: /bin/ash
@@ -229,13 +326,13 @@
 
     - name: TFTP へ initramfs を配置
       ansible.builtin.copy:
-        src: "{{ openwrt_gentoo_rootfs_dir }}{{ item.output_path | default(openwrt_gentoo_initramfs_output_path) }}"
-        dest: "{{ openwrt_gentoo_tftp_dir }}/{{ item.tftp_path | default(openwrt_gentoo_initramfs_tftp_path) }}"
+        src: "{{ item.rootfs_dir }}{{ item.output_path | default(openwrt_gentoo_initramfs_output_path) }}"
+        dest: "{{ item.tftp_dir }}/{{ item.tftp_path | default(openwrt_gentoo_initramfs_tftp_path) }}"
         owner: root
         group: root
         mode: '0644'
         remote_src: true
-      loop: "{{ openwrt_gentoo_initramfs_builds | default([]) }}"
+      loop: "{{ openwrt_gentoo_initramfs_builds_effective | default([]) }}"
       loop_control:
         label: "{{ item.name | default(item.tftp_path | default(openwrt_gentoo_initramfs_tftp_path)) }}"
       when: openwrt_gentoo_initramfs_copy_to_tftp | bool
@@ -247,7 +344,7 @@
     - name: initramfs 用 Gentoo chroot bind mount を解除
       ansible.builtin.shell: |
         set -euo pipefail
-        target="{{ openwrt_gentoo_rootfs_dir }}/{{ item }}"
+        target="{{ item.0 }}/{{ item.1 }}"
         if grep -qs " $target " /proc/mounts; then
           umount "$target" 2>/dev/null || umount -l "$target"
         fi
@@ -257,7 +354,14 @@
         fi
       args:
         executable: /bin/ash
-      loop: "{{ (openwrt_gentoo_chroot_bind_mounts | map(attribute='target') | list) | reverse }}"
+      loop: >-
+        {{
+          (openwrt_gentoo_initramfs_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]))
+          | product((openwrt_gentoo_chroot_bind_mounts | map(attribute='target') | list) | reverse)
+          | list
+        }}
+      loop_control:
+        label: "{{ item.0 }}/{{ item.1 }}"
       register: openwrt_gentoo_chroot_unmount
       retries: 3
       delay: 2
@@ -267,15 +371,21 @@
 
     - name: initramfs 用 chroot bind mount 先ディレクトリを削除
       ansible.builtin.file:
-        path: "{{ openwrt_gentoo_rootfs_dir }}/{{ item }}"
+        path: "{{ item.0 }}/{{ item.1 }}"
         state: absent
       loop: >-
         {{
-          (openwrt_gentoo_chroot_bind_mounts
-           | map(attribute='target')
-           | select('ne', 'proc')
-           | list
-          ) | reverse
+          (openwrt_gentoo_initramfs_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]))
+          | product(
+              (openwrt_gentoo_chroot_bind_mounts
+               | map(attribute='target')
+               | select('ne', 'proc')
+               | list
+              ) | reverse
+            )
+          | list
         }}
+      loop_control:
+        label: "{{ item.0 }}/{{ item.1 }}"
       tags:
         - gentoo_packages
