@@ -194,8 +194,7 @@
     state: unmounted
   when:
     - k3s_local_storage_enabled | bool
-    - k3s_local_storage_needs_format | bool
-    - k3s_local_storage_mounted_at_target | bool
+    - k3s_local_storage_needs_mount_change | bool
 
 - name: local storage device の既存 signature を削除
   become: true
