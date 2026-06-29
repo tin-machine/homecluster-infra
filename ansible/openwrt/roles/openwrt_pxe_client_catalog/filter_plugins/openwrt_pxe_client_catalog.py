@@ -70,6 +70,50 @@ _TERRAFORM_STG_GROUP_VAR_KEYS = (
     "k3s_observability_apply_after_units",
 )
 
+_K3S_LOCAL_STORAGE_BOOL_KEYS = (
+    "k3s_local_storage_enabled",
+    "k3s_local_storage_allow_format",
+    "k3s_local_storage_force_format",
+    "k3s_local_storage_ephemeral_agent_data",
+    "k3s_local_storage_wipe_signatures",
+    "k3s_local_storage_require_partition",
+    "k3s_local_storage_killall_on_mount_change",
+    "k3s_local_storage_node_password_sync_enabled",
+    "k3s_local_storage_reset_identity_when_local_password_missing",
+)
+
+_K3S_LOCAL_STORAGE_VALUE_KEYS = (
+    "k3s_local_storage_device",
+    "k3s_local_storage_mountpoint",
+    "k3s_local_storage_filesystem_type",
+    "k3s_local_storage_label",
+    "k3s_local_storage_mount_options",
+    "k3s_local_storage_killall_script_path",
+    "k3s_local_storage_node_password_sync_service_name",
+    "k3s_local_storage_node_password_sync_script_path",
+    "k3s_local_storage_node_password_sync_dropin_name",
+    "k3s_local_storage_state_dir",
+    "k3s_local_storage_node_password_state_path",
+    "k3s_local_storage_server_ca_hash_state_path",
+    "k3s_local_storage_cluster_token_path",
+)
+
+_K3S_ISCSI_SESSION_BOOL_KEYS = (
+    "k3s_iscsi_session_enabled",
+    "k3s_iscsi_session_login_enabled",
+)
+
+_K3S_ISCSI_SESSION_VALUE_KEYS = (
+    "k3s_iscsi_session_portal",
+    "k3s_iscsi_session_target_iqn",
+    "k3s_iscsi_session_initiator_iqn",
+    "k3s_iscsi_session_device_path",
+    "k3s_iscsi_session_node_startup",
+    "k3s_iscsi_session_open_iscsi_package",
+    "k3s_iscsi_session_discovery_timeout",
+    "k3s_iscsi_session_udev_settle_timeout",
+)
+
 
 def _build_base_vars(hv: Mapping[str, Any], cfg: Mapping[str, Any]) -> dict[str, Any]:
     ansible_pull_cfg = cfg.get("ansible_pull")
@@ -260,9 +304,23 @@ def _build_k3s_local_storage_vars(
             )
         )
 
-    device = _clean_string(hv.get("k3s_local_storage_device"))
-    if device:
-        result["k3s_local_storage_device"] = device
+    for key in _K3S_LOCAL_STORAGE_BOOL_KEYS:
+        if key in hv:
+            result[key] = _as_bool(hv.get(key))
+    for key in _K3S_LOCAL_STORAGE_VALUE_KEYS:
+        if key in hv:
+            result[key] = hv[key]
+    return result
+
+
+def _build_k3s_iscsi_session_vars(hv: Mapping[str, Any]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key in _K3S_ISCSI_SESSION_BOOL_KEYS:
+        if key in hv:
+            result[key] = _as_bool(hv.get(key))
+    for key in _K3S_ISCSI_SESSION_VALUE_KEYS:
+        if key in hv:
+            result[key] = hv[key]
     return result
 
 
@@ -311,6 +369,7 @@ def _build_k3s_stg_agent_vars(
             default_ephemeral_agent_data=True,
         )
     )
+    result.update(_build_k3s_iscsi_session_vars(hv))
     return result
 
 
@@ -348,6 +407,7 @@ def _build_k3s_stg_server_vars(
             default_node_password_sync_enabled=False,
         )
     )
+    result.update(_build_k3s_iscsi_session_vars(hv))
     return result
 
 
