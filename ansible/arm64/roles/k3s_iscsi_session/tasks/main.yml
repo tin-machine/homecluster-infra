@@ -13,7 +13,7 @@
       - k3s_iscsi_session_target_iqn | string | length > 0
       - k3s_iscsi_session_initiator_iqn | string | length > 0
       - k3s_iscsi_session_device_path | string | length > 0
-      - k3s_iscsi_session_device_path | string | regex_search('^/dev/disk/by-path/')
+      - k3s_iscsi_session_device_path is match('^/dev/disk/by-path/')
       - k3s_iscsi_session_node_startup in ['manual', 'automatic']
     fail_msg: "k3s_iscsi_session parameters are incomplete or invalid"
     success_msg: "k3s_iscsi_session parameters are valid"

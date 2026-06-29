@@ -253,6 +253,8 @@ When editing iSCSI session roles, preserve the existing iSCSI data model exactly
 - `/etc/iscsi/initiatorname.iscsi` must contain `InitiatorName=<iqn>` and a trailing newline, not
   only the raw IQN.
 - `/dev/disk/by-path/...` values are already absolute device paths. Do not prepend another `/dev/`.
+- Ansible assert conditions must evaluate to booleans. Use `value is match('^...')` for path
+  validation; do not use bare `value | regex_search('^...')`, which returns a string.
 - read-only probes such as `test -b <device>` should use `changed_when: false`; if a following
   assert provides the failure message, also use `failed_when: false`.
 - Session roles should stop at login / udev settle / block-device verification. Keep formatting,
