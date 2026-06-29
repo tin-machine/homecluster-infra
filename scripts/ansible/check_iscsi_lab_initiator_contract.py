@@ -52,6 +52,11 @@ def main() -> int:
         findings,
         "open-iscsi package must be passed without embedded quote characters",
     )
+    require(
+        "already present" in tasks and "iscsi_lab_login.rc == 15" in tasks,
+        findings,
+        "iscsiadm login must treat an existing session as idempotent",
+    )
     for guard in (
         "iscsi_lab_login_enabled | bool",
         "iscsi_lab_allow_format | bool",
