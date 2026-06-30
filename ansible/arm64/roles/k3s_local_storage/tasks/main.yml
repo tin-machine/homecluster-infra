@@ -31,6 +31,16 @@
       {{ (k3s_local_storage_force_format | bool) or (k3s_local_storage_ephemeral_agent_data | bool) }}
   when: k3s_local_storage_enabled | bool
 
+- name: containerd scrub は明示 confirmation と固定 path を要求
+  ansible.builtin.assert:
+    that:
+      - k3s_local_storage_scrub_containerd_confirm == k3s_local_storage_scrub_containerd_required_confirm
+      - k3s_local_storage_containerd_dir == (k3s_local_storage_mountpoint ~ '/agent/containerd')
+    fail_msg: "containerd scrub には k3s_local_storage_scrub_containerd_confirm=scrub-containerd-state と固定 containerd path が必要です"
+  when:
+    - k3s_local_storage_enabled | bool
+    - k3s_local_storage_scrub_containerd_on_boot | bool
+
 - name: ext4 tools を導入
   become: true
   ansible.builtin.portage:
@@ -352,6 +362,54 @@
     opts: "{{ k3s_local_storage_mount_options }}"
     state: ephemeral
   when: k3s_local_storage_enabled | bool and k3s_local_storage_needs_mount_change | bool
+
+- name: k3s data dir mountpoint が成立しているか確認
+  become: true
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/findmnt
+      - -T
+      - "{{ k3s_local_storage_mountpoint }}"
+      - -n
+      - -o
+      - TARGET,SOURCE,FSTYPE
+  register: k3s_local_storage_mounted_data_dir
+  check_mode: false
+  changed_when: false
+  when: k3s_local_storage_enabled | bool
+
+- name: containerd scrub 前に k3s service が停止しているか確認
+  become: true
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/systemctl
+      - is-active
+      - "{{ k3s_local_storage_node_password_sync_service_name }}.service"
+  register: k3s_local_storage_service_active_for_scrub
+  check_mode: false
+  changed_when: false
+  failed_when: false
+  when:
+    - k3s_local_storage_enabled | bool
+    - k3s_local_storage_scrub_containerd_on_boot | bool
+
+- name: containerd scrub は k3s 停止中だけ許可
+  ansible.builtin.assert:
+    that:
+      - (k3s_local_storage_service_active_for_scrub.stdout | default('') | trim) != 'active'
+    fail_msg: "{{ k3s_local_storage_node_password_sync_service_name }}.service が active のため containerd scrub を中止します"
+  when:
+    - k3s_local_storage_enabled | bool
+    - k3s_local_storage_scrub_containerd_on_boot | bool
+
+- name: k3s containerd runtime/cache を scrub
+  become: true
+  ansible.builtin.file:
+    path: "{{ k3s_local_storage_containerd_dir }}"
+    state: absent
+  when:
+    - k3s_local_storage_enabled | bool
+    - k3s_local_storage_scrub_containerd_on_boot | bool
 
 - name: systemd を再読み込み
   become: true

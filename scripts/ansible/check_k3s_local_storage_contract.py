@@ -42,6 +42,13 @@ def main() -> int:
         "k3s mount dependency drop-in name default is missing",
     )
     require(
+        "k3s_local_storage_scrub_containerd_on_boot: false" in defaults
+        and "k3s_local_storage_scrub_containerd_required_confirm: scrub-containerd-state" in defaults
+        and "k3s_local_storage_containerd_dir: \"{{ k3s_local_storage_mountpoint }}/agent/containerd\"" in defaults,
+        findings,
+        "containerd scrub must default off, require an explicit confirmation string, and use the fixed k3s agent/containerd path",
+    )
+    require(
         "k3s-requires-data-mount.conf.j2" in tasks
         and "k3s_local_storage_mount_dependency_dropin_name" in tasks,
         findings,
@@ -67,6 +74,27 @@ def main() -> int:
         and "when: k3s_local_storage_enabled | bool" in tasks,
         findings,
         "k3s service drop-in directory must be created whenever k3s_local_storage is enabled",
+    )
+    require(
+        "containerd scrub は明示 confirmation と固定 path を要求" in tasks
+        and "k3s_local_storage_scrub_containerd_confirm == k3s_local_storage_scrub_containerd_required_confirm" in tasks
+        and "k3s_local_storage_containerd_dir == (k3s_local_storage_mountpoint ~ '/agent/containerd')" in tasks,
+        findings,
+        "containerd scrub must require confirmation and reject non-fixed target paths",
+    )
+    require(
+        "k3s data dir mountpoint が成立しているか確認" in tasks
+        and "containerd scrub 前に k3s service が停止しているか確認" in tasks
+        and "containerd scrub は k3s 停止中だけ許可" in tasks,
+        findings,
+        "containerd scrub must verify the data-dir mount and refuse to run while k3s is active",
+    )
+    require(
+        "k3s containerd runtime/cache を scrub" in tasks
+        and "state: absent" in tasks
+        and "k3s_local_storage_scrub_containerd_on_boot | bool" in tasks,
+        findings,
+        "containerd scrub must remove only the configured containerd directory behind the scrub opt-in",
     )
     require(
         "ExecStartPre={{ k3s_local_storage_node_password_sync_script_path }} restore" in password_dropin,
