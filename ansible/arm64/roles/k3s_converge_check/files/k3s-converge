@@ -75,5 +75,5 @@ if command -v systemctl >/dev/null 2>&1; then
   fi
 fi
 
-echo "k3s-converge-check: check-only preconditions passed"
+echo "k3s-converge: check-only preconditions passed"
 exit 0

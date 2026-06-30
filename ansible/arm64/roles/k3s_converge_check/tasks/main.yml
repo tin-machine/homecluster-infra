@@ -4,6 +4,7 @@
     that:
       - k3s_converge_check_node_role == 'agent'
       - k3s_converge_check_install_path | length > 0
+      - k3s_converge_check_compat_install_path | length > 0
       - k3s_converge_check_mountpoint | length > 0
       - k3s_converge_check_service_name | length > 0
   # This role is a Phase 3B scaffold for agent-side read-only k3s convergence checks.
@@ -14,9 +15,19 @@
 
 - name: Install k3s_converge_check helper
   ansible.builtin.copy:
-    src: k3s-converge-check
+    src: k3s-converge
     dest: "{{ k3s_converge_check_install_path }}"
     mode: '0755'
+  when:
+    - k3s_converge_check_enabled | bool
+    - inventory_hostname in (groups['k3s_stg_agents'] | default([]))
+
+- name: Install k3s_converge_check compatibility symlink
+  ansible.builtin.file:
+    src: "{{ k3s_converge_check_install_path }}"
+    dest: "{{ k3s_converge_check_compat_install_path }}"
+    state: link
+    force: true
   when:
     - k3s_converge_check_enabled | bool
     - inventory_hostname in (groups['k3s_stg_agents'] | default([]))
