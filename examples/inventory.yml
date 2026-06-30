@@ -27,6 +27,7 @@ all:
               stage: stg
               roles:
                 - base
+                - k3s_stg_storage
                 - k3s_stg_server
                 - terraform_stg
             pxe-agent-a.example:
@@ -35,7 +36,13 @@ all:
               stage: stg
               roles:
                 - base
+                - k3s_stg_storage
                 - k3s_stg_agent
+
+        role_k3s_stg_storage:
+          hosts:
+            pxe-control-a.example:
+            pxe-agent-a.example:
 
         role_k3s_stg_server:
           hosts:
