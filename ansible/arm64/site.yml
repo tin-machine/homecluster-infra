@@ -171,6 +171,9 @@
     - k3s_registry
   roles:
     - role: k3s_registries
+      when: k3s_stg_runtime_role in ['', 'k3s_stg_server', 'k3s_stg_agent']
+  vars:
+    k3s_stg_runtime_role: "{{ role | default('', true) }}"
 
 - name: k3s staging agents
   hosts: "env_stg:&k3s_stg"
@@ -185,7 +188,9 @@
           - groups['k3s_stg_server'] | default([]) | length == 1
         fail_msg: "k3s_stg_server は active host 1台だけにしてください"
       run_once: true
-      when: not (k3s_stg_agent_pull_mode | bool)
+      when:
+        - k3s_stg_agent_play_enabled | bool
+        - not (k3s_stg_agent_pull_mode | bool)
 
     - name: staging server k3s version を取得
       ansible.builtin.command:
@@ -196,7 +201,9 @@
       changed_when: false
       delegate_to: "{{ k3s_stg_server_host | default('localhost', true) }}"
       run_once: true
-      when: k3s_stg_server_hosts | length > 0
+      when:
+        - k3s_stg_agent_play_enabled | bool
+        - k3s_stg_server_hosts | length > 0
 
     - name: staging server k3s version を fact 化
       ansible.builtin.set_fact:
@@ -204,7 +211,9 @@
       delegate_to: "{{ k3s_stg_server_host | default('localhost', true) }}"
       delegate_facts: true
       run_once: true
-      when: k3s_stg_server_hosts | length > 0
+      when:
+        - k3s_stg_agent_play_enabled | bool
+        - k3s_stg_server_hosts | length > 0
 
     - name: staging agent join に必要な値を確認
       ansible.builtin.assert:
@@ -214,7 +223,9 @@
           - k3s_control_token | default('') | length > 0
         fail_msg: "stage=stg、k3s_registration_address、k3s_control_token を外部 inventory または実行時変数で渡してください"
       no_log: true
-      when: inventory_hostname in (groups['k3s_stg_agents'] | default([]))
+      when:
+        - k3s_stg_agent_play_enabled | bool
+        - inventory_hostname in (groups['k3s_stg_agents'] | default([]))
 
     - name: k3s server API を待つ
       become: false
@@ -225,7 +236,9 @@
         port: 6443
         timeout: 300
       delegate_to: localhost
-      when: inventory_hostname in (groups['k3s_stg_agents'] | default([]))
+      when:
+        - k3s_stg_agent_play_enabled | bool
+        - inventory_hostname in (groups['k3s_stg_agents'] | default([]))
 
     - name: k3s_local_storage のマウント状態を確認
       block:
@@ -240,19 +253,26 @@
               - findmnt_result.rc == 0
             fail_msg: "k3s_stg_storage は k3s_stg_agent の前に実行する必要があります"
       when:
+        - k3s_stg_agent_play_enabled | bool
         - k3s_local_storage_enabled | default(false)
         - inventory_hostname in (groups['k3s_stg_agents'] | default([]))
   roles:
     - role: k3s_log_limits
-      when: inventory_hostname in (groups['k3s_stg_agents'] | default([]))
+      when:
+        - k3s_stg_agent_play_enabled | bool
+        - inventory_hostname in (groups['k3s_stg_agents'] | default([]))
       tags:
         - k3s_log_limits
     - role: k3s_iptables_nft
-      when: inventory_hostname in (groups['k3s_stg_agents'] | default([]))
+      when:
+        - k3s_stg_agent_play_enabled | bool
+        - inventory_hostname in (groups['k3s_stg_agents'] | default([]))
       tags:
         - k3s_iptables_nft
     - role: xanmanning.k3s
-      when: inventory_hostname in (groups['k3s_stg_agents'] | default([]))
+      when:
+        - k3s_stg_agent_play_enabled | bool
+        - inventory_hostname in (groups['k3s_stg_agents'] | default([]))
       vars:
         k3s_state: installed
         k3s_release_version: "{{ hostvars[k3s_stg_server_host].k3s_server_release_version if (k3s_stg_server_host | length > 0) else false }}"
@@ -263,7 +283,9 @@
         k3s_service_name: k3s
         k3s_defer_service_restart: true
     - role: k3s_networking
-      when: inventory_hostname in (groups['k3s_stg_agents'] | default([]))
+      when:
+        - k3s_stg_agent_play_enabled | bool
+        - inventory_hostname in (groups['k3s_stg_agents'] | default([]))
       vars:
         k3s_control_node: false
         k3s_service_name: k3s
@@ -271,10 +293,15 @@
       tags:
         - k3s_networking
     - role: rpi5_egpu_local_llm
-      when: inventory_hostname in (groups['k3s_stg_agents'] | default([])) and rpi5_egpu_local_llm_enabled | default(false) | bool
+      when:
+        - k3s_stg_agent_play_enabled | bool
+        - inventory_hostname in (groups['k3s_stg_agents'] | default([]))
+        - rpi5_egpu_local_llm_enabled | default(false) | bool
       tags:
         - rpi5_egpu_local_llm
   vars:
+    k3s_stg_runtime_role: "{{ role | default('', true) }}"
+    k3s_stg_agent_play_enabled: "{{ k3s_stg_runtime_role in ['', 'k3s_stg_agent'] }}"
     k3s_stg_server_hosts: "{{ groups['k3s_stg_server'] | default([]) }}"
     k3s_stg_server_host: "{{ (groups['k3s_stg_server'] | default([]) | first) | default('', true) }}"
     k3s_stg_agent_pull_mode: >-

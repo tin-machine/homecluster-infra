@@ -540,6 +540,22 @@
     - pxe
     - pxe_ansible_pull
 
+- name: ansible-pull OnSuccess chain の stale drop-in を削除
+  ansible.builtin.file:
+    path: "{{ item.0 }}/etc/systemd/system/ansible-pull@{{ item.1 }}.service.d/10-on-success-{{ item.2 }}.conf"
+    state: absent
+  loop: "{{ (openwrt_gentoo_ansible_pull_rootfs_dirs | default([openwrt_gentoo_rootfs_dir])) | product(openwrt_gentoo_ansible_pull_roles, openwrt_gentoo_ansible_pull_roles) | list }}"
+  loop_control:
+    label: "{{ item.0 }} {{ item.1 }} -> {{ item.2 }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_ansible_pull_enabled | bool
+    - (openwrt_gentoo_ansible_pull_roles | length) > 0
+    - item.1 != item.2
+  tags:
+    - pxe
+    - pxe_ansible_pull
+
 - name: ansible-pull OnSuccess source role drop-in ディレクトリを作成
   ansible.builtin.file:
     path: "{{ item.0 }}/etc/systemd/system/ansible-pull@{{ item.1.value.after | last }}.service.d"

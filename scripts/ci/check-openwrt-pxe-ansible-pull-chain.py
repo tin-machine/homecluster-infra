@@ -140,6 +140,16 @@ def test_pxe_runtime_chain_tasks() -> None:
     )
     require_contains(
         text,
+        "ansible-pull OnSuccess chain の stale drop-in を削除",
+        "pxe_runtime must remove stale OnSuccess drop-ins before placing current chain",
+    )
+    require_contains(
+        text,
+        "10-on-success-{{ item.2 }}.conf",
+        "stale OnSuccess cleanup must target managed 10-on-success drop-ins",
+    )
+    require_contains(
+        text,
         "10-on-success-{{ item.1.key }}.conf",
         "OnSuccess drop-ins must be named 10-on-success-<role>.conf",
     )
