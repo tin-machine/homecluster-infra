@@ -124,6 +124,19 @@
       ansible.builtin.command: sysctl -p /etc/sysctl.d/90-k3s-stg.conf
       changed_when: false
 
+    - name: k3s_local_storage のマウント状態を確認
+      block:
+        - name: findmnt を実行
+          ansible.builtin.command: findmnt --target /var/lib/rancher/k3s
+          changed_when: false
+          failed_when: false
+          register: findmnt_result
+        - name: マウント状態を検証
+          ansible.builtin.assert:
+            that:
+              - findmnt_result.rc == 0
+            fail_msg: "k3s_stg_storage は k3s_stg_server の前に実行する必要があります"
+      when: k3s_local_storage_enabled | default(false)
   roles:
     - role: k3s_log_limits
       tags:
@@ -131,15 +144,6 @@
     - role: k3s_iptables_nft
       tags:
         - k3s_iptables_nft
-    - role: k3s_iscsi_session
-      tags:
-        - iscsi_stg
-        - k3s_iscsi_session
-      when: k3s_iscsi_session_enabled | default(false)
-    - role: k3s_local_storage
-      tags:
-        - k3s_local_storage
-      when: k3s_local_storage_enabled | default(false)
     - role: xanmanning.k3s
     - role: k3s_networking
       tags:
@@ -223,6 +227,21 @@
       delegate_to: localhost
       when: inventory_hostname in (groups['k3s_stg_agents'] | default([]))
 
+    - name: k3s_local_storage のマウント状態を確認
+      block:
+        - name: findmnt を実行
+          ansible.builtin.command: findmnt --target /var/lib/rancher/k3s
+          changed_when: false
+          failed_when: false
+          register: findmnt_result
+        - name: マウント状態を検証
+          ansible.builtin.assert:
+            that:
+              - findmnt_result.rc == 0
+            fail_msg: "k3s_stg_storage は k3s_stg_agent の前に実行する必要があります"
+      when:
+        - k3s_local_storage_enabled | default(false)
+        - inventory_hostname in (groups['k3s_stg_agents'] | default([]))
   roles:
     - role: k3s_log_limits
       when: inventory_hostname in (groups['k3s_stg_agents'] | default([]))
@@ -232,19 +251,6 @@
       when: inventory_hostname in (groups['k3s_stg_agents'] | default([]))
       tags:
         - k3s_iptables_nft
-    - role: k3s_iscsi_session
-      tags:
-        - iscsi_stg
-        - k3s_iscsi_session
-      when:
-        - inventory_hostname in (groups['k3s_stg_agents'] | default([]))
-        - k3s_iscsi_session_enabled | default(false)
-    - role: k3s_local_storage
-      tags:
-        - k3s_local_storage
-      when:
-        - inventory_hostname in (groups['k3s_stg_agents'] | default([]))
-        - k3s_local_storage_enabled | default(false)
     - role: xanmanning.k3s
       when: inventory_hostname in (groups['k3s_stg_agents'] | default([]))
       vars:
