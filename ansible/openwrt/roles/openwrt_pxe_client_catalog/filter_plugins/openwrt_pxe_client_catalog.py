@@ -363,6 +363,8 @@ def _build_k3s_stg_agent_vars(
         "k3s_control_delegate": "k3s_stg_server",
         "k3s_controller_list": ["k3s_stg_server"],
     }
+    if "k3s_start_on_boot" in hv:
+        result["k3s_start_on_boot"] = _as_bool(hv.get("k3s_start_on_boot"))
     result.update(
         _build_k3s_local_storage_vars(
             hv,
@@ -400,6 +402,8 @@ def _build_k3s_stg_server_vars(
             "write-kubeconfig-mode": "0644",
         },
     }
+    if "k3s_start_on_boot" in hv:
+        result["k3s_start_on_boot"] = _as_bool(hv.get("k3s_start_on_boot"))
     result.update(
         _build_k3s_local_storage_vars(
             hv,
