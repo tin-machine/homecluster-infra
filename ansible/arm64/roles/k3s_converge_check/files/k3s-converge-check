@@ -1,0 +1,79 @@
+#!/bin/sh
+set -eu
+
+mode=""
+target="/var/lib/rancher/k3s"
+svc="k3s"
+node_role="agent"
+
+usage() {
+  echo "Usage: $0 --check-only [--mountpoint PATH] [--service NAME] [--node-role agent]" >&2
+  exit 64
+}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --check-only)
+      mode="check-only"
+      shift
+      ;;
+    --mountpoint)
+      [ "$#" -ge 2 ] || usage
+      target="$2"
+      shift 2
+      ;;
+    --service)
+      [ "$#" -ge 2 ] || usage
+      svc="$2"
+      shift 2
+      ;;
+    --node-role)
+      [ "$#" -ge 2 ] || usage
+      node_role="$2"
+      shift 2
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [ "$mode" != "check-only" ]; then
+  usage
+fi
+
+if [ "$node_role" != "agent" ]; then
+  echo "unsupported node role: $node_role" >&2
+  exit 65
+fi
+
+if ! command -v findmnt >/dev/null 2>&1; then
+  echo "findmnt is required" >&2
+  exit 66
+fi
+
+if ! findmnt --target "$target" >/dev/null 2>&1; then
+  echo "k3s data target is not mounted: $target" >&2
+  exit 67
+fi
+
+if [ ! -d "$target" ]; then
+  echo "k3s data target is not a directory: $target" >&2
+  exit 68
+fi
+
+if [ ! -f /etc/rancher/k3s/config.yaml ]; then
+  echo "k3s config is missing: /etc/rancher/k3s/config.yaml" >&2
+  exit 69
+fi
+
+if command -v systemctl >/dev/null 2>&1; then
+  load_state="$(systemctl show --property=LoadState --value "$svc.service" 2>/dev/null || true)"
+  if [ "$load_state" = "not-found" ] || [ -z "$load_state" ]; then
+    echo "k3s service unit is not loaded: $svc.service" >&2
+    exit 70
+  fi
+fi
+
+echo "k3s-converge-check: check-only preconditions passed"
+exit 0
