@@ -292,6 +292,16 @@
         k3s_defer_service_restart: true
       tags:
         - k3s_networking
+    - role: k3s_converge_check
+      when:
+        - k3s_stg_agent_play_enabled | bool
+        - inventory_hostname in (groups['k3s_stg_agents'] | default([]))
+      vars:
+        k3s_converge_check_node_role: agent
+        k3s_converge_check_service_name: k3s
+        k3s_converge_check_mountpoint: /var/lib/rancher/k3s
+      tags:
+        - k3s_converge_check
     - role: rpi5_egpu_local_llm
       when:
         - k3s_stg_agent_play_enabled | bool

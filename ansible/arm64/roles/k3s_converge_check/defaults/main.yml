@@ -1,0 +1,6 @@
+---
+k3s_converge_check_enabled: true
+k3s_converge_check_install_path: /usr/local/sbin/k3s-converge-check
+k3s_converge_check_mountpoint: /var/lib/rancher/k3s
+k3s_converge_check_service_name: k3s
+k3s_converge_check_node_role: agent
