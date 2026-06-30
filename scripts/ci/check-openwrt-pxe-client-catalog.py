@@ -54,10 +54,33 @@ def test_k3s_stg_storage_vars() -> None:
                 "overlay": {"id": "k3s_stg_agent1"},
             },
         },
+        "host2": {
+            "ansible_host": "192.0.2.12",
+            "k3s_local_storage_enabled": True,
+            "k3s_local_storage_device": "/dev/disk/by-id/example-storage-part1",
+            "k3s_local_storage_scrub_containerd_on_boot": True,
+            "k3s_local_storage_scrub_containerd_confirm": "scrub-containerd-state",
+            "k3s_iscsi_session_enabled": True,
+            "k3s_iscsi_session_portal": "192.0.2.100",
+            "k3s_iscsi_session_target_iqn": "iqn.2023-10.com.example:storage",
+            "k3s_iscsi_session_initiator_iqn": "iqn.2023-10.com.example:host",
+            "k3s_iscsi_session_device_path": "/dev/sdb",
+            "k3s_iscsi_session_node_startup": "true",
+            "k3s_iscsi_session_open_iscsi_package": "true",
+            "k3s_iscsi_session_discovery_timeout": 30,
+            "k3s_iscsi_session_udev_settle_timeout": 30,
+            "openwrt_pxe_client": {
+                "enabled": True,
+                "router": "router1",
+                "roles": ["base", "k3s_stg_storage", "k3s_stg_agent"],
+                "overlay": {"id": "k3s_stg_storage"},
+            },
+        },
     }
+
     result = module.build_openwrt_pxe_client_catalog(
         hostvars,
-        {"all": ["server1", "agent1"]},
+        {"all": ["server1", "agent1", "host2"]},
         "router1",
         None,
         None,
@@ -99,6 +122,21 @@ def test_k3s_stg_storage_vars() -> None:
     assert agent["k3s_local_storage_scrub_containerd_confirm"] == "scrub-containerd-state"
     assert agent["k3s_start_on_boot"] is False
     assert "k3s_local_storage_node_password_sync_enabled" not in agent
+
+    storage = client_vars[("k3s_stg_storage", "k3s_stg_storage")]
+    agent_2 = client_vars[("k3s_stg_storage", "k3s_stg_agent")]
+
+    assert storage["k3s_local_storage_enabled"] is True
+    assert storage["k3s_local_storage_device"] == "/dev/disk/by-id/example-storage-part1"
+    assert storage["k3s_local_storage_ephemeral_agent_data"] is False
+    assert storage["k3s_local_storage_scrub_containerd_on_boot"] is True
+    assert storage["k3s_iscsi_session_enabled"] is True
+    assert storage["k3s_iscsi_session_portal"] == "192.0.2.100"
+    assert "k3s_agent" not in storage
+    assert "k3s_server" not in storage
+    assert "k3s_start_on_boot" not in storage
+
+    assert agent_2["k3s_agent"]["data-dir"] == "/var/lib/rancher/k3s"
 
 
 def test_host_specific_tftp_artifacts() -> None:

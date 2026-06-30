@@ -637,6 +637,18 @@ def _build_generated_client(
             cfg,
             overlay_id,
         )
+    if "k3s_stg_storage" in role_names and _as_bool(
+        ansible_pull_cfg.get("k3s_stg_storage_vars_enabled", True)
+    ):
+        role_extra_vars["k3s_stg_storage"] = _build_k3s_local_storage_vars(
+            hv,
+            default_ephemeral_agent_data=False,
+            default_node_password_sync_enabled=(
+                False if "k3s_stg_server" in role_names else None
+            ),
+        )
+        role_extra_vars["k3s_stg_storage"].update(_build_k3s_iscsi_session_vars(hv))
+
 
     for role_name, role_vars in extra_vars_cfg.items():
         role_name_text = _clean_string(role_name)
