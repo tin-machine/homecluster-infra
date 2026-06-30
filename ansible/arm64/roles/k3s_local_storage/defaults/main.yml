@@ -12,6 +12,10 @@ k3s_local_storage_wipe_signatures: true
 k3s_local_storage_require_partition: true
 k3s_local_storage_killall_on_mount_change: true
 k3s_local_storage_killall_script_path: /usr/local/bin/k3s-killall.sh
+k3s_local_storage_scrub_containerd_on_boot: false
+k3s_local_storage_scrub_containerd_confirm: ""
+k3s_local_storage_scrub_containerd_required_confirm: scrub-containerd-state
+k3s_local_storage_containerd_dir: "{{ k3s_local_storage_mountpoint }}/agent/containerd"
 k3s_local_storage_node_password_sync_enabled: true
 k3s_local_storage_node_password_sync_service_name: "{{ k3s_service_name | default('k3s') }}"
 k3s_local_storage_node_password_sync_script_path: /usr/local/sbin/k3s-node-password-sync.sh

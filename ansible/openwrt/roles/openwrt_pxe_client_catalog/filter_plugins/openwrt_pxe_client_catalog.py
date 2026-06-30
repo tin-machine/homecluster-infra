@@ -78,6 +78,7 @@ _K3S_LOCAL_STORAGE_BOOL_KEYS = (
     "k3s_local_storage_wipe_signatures",
     "k3s_local_storage_require_partition",
     "k3s_local_storage_killall_on_mount_change",
+    "k3s_local_storage_scrub_containerd_on_boot",
     "k3s_local_storage_node_password_sync_enabled",
     "k3s_local_storage_reset_identity_when_local_password_missing",
 )
@@ -89,6 +90,9 @@ _K3S_LOCAL_STORAGE_VALUE_KEYS = (
     "k3s_local_storage_label",
     "k3s_local_storage_mount_options",
     "k3s_local_storage_killall_script_path",
+    "k3s_local_storage_scrub_containerd_confirm",
+    "k3s_local_storage_scrub_containerd_required_confirm",
+    "k3s_local_storage_containerd_dir",
     "k3s_local_storage_node_password_sync_service_name",
     "k3s_local_storage_node_password_sync_script_path",
     "k3s_local_storage_node_password_sync_dropin_name",
