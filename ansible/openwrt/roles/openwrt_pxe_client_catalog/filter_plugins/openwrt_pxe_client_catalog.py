@@ -406,6 +406,11 @@ def _build_k3s_stg_server_vars(
             "write-kubeconfig-mode": "0644",
         },
     }
+    node_taints = hv.get("k3s_server_node_taints")
+    if node_taints:
+        result["k3s_server"]["node-taint"] = (
+            [node_taints] if isinstance(node_taints, str) else list(node_taints)
+        )
     if "k3s_start_on_boot" in hv:
         result["k3s_start_on_boot"] = _as_bool(hv.get("k3s_start_on_boot"))
     result.update(

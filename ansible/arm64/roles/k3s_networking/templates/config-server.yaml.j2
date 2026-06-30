@@ -39,6 +39,17 @@ snapshotter: {{ server_settings.get('snapshotter') }}
 {% if server_settings.get('data-dir') %}
 data-dir: {{ server_settings.get('data-dir') }}
 {% endif %}
+{% set node_taints = server_settings.get('node-taint') | default([], true) %}
+{% if node_taints %}
+node-taint:
+{%   if node_taints is string %}
+  - {{ node_taints }}
+{%   else %}
+{%     for taint in node_taints %}
+  - {{ taint }}
+{%     endfor %}
+{%   endif %}
+{% endif %}
 {% if server_settings.get('write-kubeconfig-mode') %}
 write-kubeconfig-mode: "{{ server_settings.get('write-kubeconfig-mode') }}"
 {% endif %}

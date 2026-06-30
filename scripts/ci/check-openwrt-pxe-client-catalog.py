@@ -31,6 +31,7 @@ def test_k3s_stg_storage_vars() -> None:
             "k3s_local_storage_node_password_sync_enabled": False,
             "k3s_local_storage_scrub_containerd_on_boot": True,
             "k3s_local_storage_scrub_containerd_confirm": "scrub-containerd-state",
+            "k3s_server_node_taints": ["example.com/control-plane-only=true:NoSchedule"],
             "k3s_start_on_boot": False,
             "openwrt_pxe_client": {
                 "enabled": True,
@@ -79,6 +80,9 @@ def test_k3s_stg_storage_vars() -> None:
     agent = client_vars[("k3s_stg_agent1", "k3s_stg_agent")]
 
     assert server["k3s_server"]["data-dir"] == "/var/lib/rancher/k3s"
+    assert server["k3s_server"]["node-taint"] == [
+        "example.com/control-plane-only=true:NoSchedule"
+    ]
     assert server["k3s_local_storage_enabled"] is True
     assert server["k3s_local_storage_device"] == "/dev/disk/by-id/example-server-part1"
     assert server["k3s_local_storage_ephemeral_agent_data"] is False
