@@ -29,6 +29,7 @@ def test_k3s_stg_storage_vars() -> None:
             "k3s_local_storage_enabled": True,
             "k3s_local_storage_device": "/dev/disk/by-id/example-server-part1",
             "k3s_local_storage_node_password_sync_enabled": False,
+            "k3s_start_on_boot": False,
             "openwrt_pxe_client": {
                 "enabled": True,
                 "router": "router1",
@@ -40,6 +41,7 @@ def test_k3s_stg_storage_vars() -> None:
             "ansible_host": "192.0.2.11",
             "k3s_local_storage_enabled": True,
             "k3s_local_storage_device": "/dev/disk/by-id/example-agent-part1",
+            "k3s_start_on_boot": False,
             "openwrt_pxe_client": {
                 "enabled": True,
                 "router": "router1",
@@ -77,11 +79,13 @@ def test_k3s_stg_storage_vars() -> None:
     assert server["k3s_local_storage_device"] == "/dev/disk/by-id/example-server-part1"
     assert server["k3s_local_storage_ephemeral_agent_data"] is False
     assert server["k3s_local_storage_node_password_sync_enabled"] is False
+    assert server["k3s_start_on_boot"] is False
 
     assert agent["k3s_agent"]["data-dir"] == "/var/lib/rancher/k3s"
     assert agent["k3s_local_storage_enabled"] is True
     assert agent["k3s_local_storage_device"] == "/dev/disk/by-id/example-agent-part1"
     assert agent["k3s_local_storage_ephemeral_agent_data"] is True
+    assert agent["k3s_start_on_boot"] is False
     assert "k3s_local_storage_node_password_sync_enabled" not in agent
 
 
