@@ -28,6 +28,7 @@ operation 手順、troubleshooting raw log、実 host / IP / path / serial / tok
 | [ADR 0011](0011-pxe-ssh-host-identity.md) | accepted | PXE SSH host identity を rootfs release から分離する |
 | [ADR 0012](0012-executable-public-source.md) | accepted | 公開 repository を実行可能な正本として維持する |
 | [ADR 0013](0013-opencode-agent-privilege-taxonomy.md) | accepted | OpenCode agent を privilege boundary で分割する |
+| [ADR 0014](0014-k3s-converge-wrapper-contract.md) | proposed | k3s daemon start を converge wrapper へ段階的に寄せる |
 
 ## 書式
 
