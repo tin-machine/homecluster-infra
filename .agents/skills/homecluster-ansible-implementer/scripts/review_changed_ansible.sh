@@ -535,6 +535,77 @@ else
 fi
 
 echo
+echo "== skill review: Ansible tags values are scalar lists =="
+ansible_yaml_files=()
+for path in "${changed_files[@]}"; do
+  case "$path" in
+    ansible/*.yml|ansible/*.yaml|ansible/*/*.yml|ansible/*/*.yaml|ansible/*/*/*.yml|ansible/*/*/*.yaml)
+      if [[ -f "$path" ]]; then
+        ansible_yaml_files+=("$path")
+      fi
+      ;;
+  esac
+done
+if ((${#ansible_yaml_files[@]} > 0)); then
+  if ! python3 - "${ansible_yaml_files[@]}" <<'PY'
+import sys
+from pathlib import Path
+
+import yaml
+
+failures = []
+
+
+def check_tags(value, path, location):
+    if isinstance(value, str):
+        return
+    if not isinstance(value, list):
+        failures.append(f"{path}: {location} must be a string or list of scalar tag names")
+        return
+    for index, item in enumerate(value):
+        if isinstance(item, (dict, list)):
+            failures.append(
+                f"{path}: {location}[{index}] must be a scalar tag, not {type(item).__name__}; "
+                "a role/task entry may be indented under tags"
+            )
+
+
+def walk(value, path, location):
+    if isinstance(value, dict):
+        for key, item in value.items():
+            child_location = f"{location}.{key}" if location else str(key)
+            if key == "tags":
+                check_tags(item, path, child_location)
+            walk(item, path, child_location)
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            walk(item, path, f"{location}[{index}]")
+
+
+for file_name in sys.argv[1:]:
+    path = Path(file_name)
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except Exception as exc:  # noqa: BLE001 - review script should report parse context.
+        failures.append(f"{path}: YAML parse failed while checking tags: {exc}")
+        continue
+    walk(data, path, "")
+
+if failures:
+    for failure in failures:
+        print(f"FAILED: {failure}", file=sys.stderr)
+    raise SystemExit(1)
+
+print("ansible tags structure ok")
+PY
+  then
+    record_failure "Ansible tags structure check failed"
+  fi
+else
+  echo "no changed Ansible YAML files"
+fi
+
+echo
 echo "== skill review: openwrt_package include vars =="
 openwrt_package_task_files=()
 for path in "${changed_files[@]}"; do
