@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -33,6 +34,70 @@ def require_contains(text: str, needle: str, message: str) -> None:
 def require_not_contains(text: str, needle: str, message: str) -> None:
     if needle in text:
         raise AssertionError(message)
+
+
+def assert_dependency_roles_are_enabled(
+    roles: list[str],
+    dependencies: dict[str, dict[str, Any]],
+) -> None:
+    enabled = set(roles)
+    missing: set[str] = set()
+
+    for role, dependency in dependencies.items():
+        if role not in enabled:
+            missing.add(role)
+        for dep in dependency.get("after", []):
+            if dep not in enabled:
+                missing.add(dep)
+
+    if missing:
+        raise AssertionError(
+            "openwrt_gentoo_ansible_pull_role_dependencies references roles "
+            f"not listed in openwrt_gentoo_ansible_pull_roles: {sorted(missing)}"
+        )
+
+
+def test_dependency_roles_are_enabled() -> None:
+    assert_dependency_roles_are_enabled(
+        [
+            "base",
+            "workstation_cli",
+            "k3s_stg_storage",
+            "k3s_stg_server",
+            "terraform_stg",
+            "k3s_stg_agent",
+        ],
+        {
+            "k3s_stg_storage": {"after": ["base"]},
+            "k3s_stg_server": {"after": ["k3s_stg_storage"]},
+            "k3s_stg_agent": {"after": ["k3s_stg_storage"]},
+            "terraform_stg": {"after": ["k3s_stg_server"]},
+        },
+    )
+
+    try:
+        assert_dependency_roles_are_enabled(
+            [
+                "base",
+                "workstation_cli",
+                "k3s_stg_server",
+                "terraform_stg",
+                "k3s_stg_agent",
+            ],
+            {
+                "k3s_stg_storage": {"after": ["base"]},
+                "k3s_stg_server": {"after": ["k3s_stg_storage"]},
+                "k3s_stg_agent": {"after": ["k3s_stg_storage"]},
+                "terraform_stg": {"after": ["k3s_stg_server"]},
+            },
+        )
+    except AssertionError as exc:
+        assert "k3s_stg_storage" in str(exc)
+    else:
+        raise AssertionError(
+            "missing k3s_stg_storage in openwrt_gentoo_ansible_pull_roles "
+            "must fail validation"
+        )
 
 
 def test_pxe_runtime_chain_tasks() -> None:
@@ -121,6 +186,7 @@ def test_on_success_template() -> None:
 
 
 def main() -> None:
+    test_dependency_roles_are_enabled()
     test_pxe_runtime_chain_tasks()
     test_dependency_override_template()
     test_on_success_template()
