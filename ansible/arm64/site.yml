@@ -43,6 +43,25 @@
   roles:
     - role: iscsi_lab_initiator
 
+- name: k3s staging storage
+  hosts: "env_stg:&role_k3s_stg_storage"
+  gather_facts: true
+  tags:
+    - k3s_stg_storage
+    - k3s_local_storage
+    - iscsi_stg
+  pre_tasks:
+    - name: staging storage 対象を stage=stg に限定
+      ansible.builtin.assert:
+        that:
+          - stage | default('') == 'stg'
+        fail_msg: "k3s_stg_storage は stage=stg の host だけで実行する"
+  roles:
+    - role: k3s_iscsi_session
+      when: k3s_iscsi_session_enabled | default(false)
+    - role: k3s_local_storage
+      when: k3s_local_storage_enabled | default(false)
+
 - name: k3s staging server
   hosts: "env_stg:&role_k3s_stg_server"
   gather_facts: true
