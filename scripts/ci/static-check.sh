@@ -120,21 +120,21 @@ redaction_matches="$(
 )"
 report_matches "redaction pattern matches found" "${redaction_matches}"
 
-print_section "k3s_converge_check source validator"
-k3s_converge_check_validator_pattern='(^|[;&|[:space:]])(systemctl[[:space:]]+(start|restart|enable|disable)|service[[:space:]]+[^[:space:]]+[[:space:]]+(start|restart|enable|disable)|mount[[:space:]]+|umount[[:space:]]+|iscsiadm([[:space:]]|$)|terraform[[:space:]]+(apply|destroy)|kubectl[[:space:]].*(delete|apply|patch|create)|rm[[:space:]]+|wipefs([[:space:]]|$)|mkfs([.[:alnum:]_-]*[[:space:]]|$))'
-k3s_converge_check_validator_matches="$(
-  k3s_converge_check_files=()
+print_section "k3s_converge check-only source validator"
+k3s_converge_validator_pattern='(^|[;&|[:space:]])(systemctl[[:space:]]+(start|restart|enable|disable)|service[[:space:]]+[^[:space:]]+[[:space:]]+(start|restart|enable|disable)|mount[[:space:]]+|umount[[:space:]]+|iscsiadm([[:space:]]|$)|terraform[[:space:]]+(apply|destroy)|kubectl[[:space:]].*(delete|apply|patch|create)|rm[[:space:]]+|wipefs([[:space:]]|$)|mkfs([.[:alnum:]_-]*[[:space:]]|$))'
+k3s_converge_validator_matches="$(
+  k3s_converge_files=()
   for path in "${scan_files[@]}"; do
     [ -f "${path}" ] || continue
     if [[ "${path}" == *"ansible/arm64/roles/k3s_converge_check"* ]]; then
-      k3s_converge_check_files+=("${path}")
+      k3s_converge_files+=("${path}")
     fi
   done
-  if [ "${#k3s_converge_check_files[@]}" -gt 0 ]; then
-    grep -nIE --binary-files=without-match "${k3s_converge_check_validator_pattern}" "${k3s_converge_check_files[@]}" || true
+  if [ "${#k3s_converge_files[@]}" -gt 0 ]; then
+    grep -nIE --binary-files=without-match "${k3s_converge_validator_pattern}" "${k3s_converge_files[@]}" || true
   fi
 )"
-report_matches "k3s_converge_check check-only violations found" "${k3s_converge_check_validator_matches}"
+report_matches "k3s_converge check-only violations found" "${k3s_converge_validator_matches}"
 
 
 print_section "terraform and helm values redaction scan"
