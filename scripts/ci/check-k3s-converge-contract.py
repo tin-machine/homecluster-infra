@@ -39,6 +39,15 @@ def main() -> int:
     agent_install_config_template_path = (
         "ansible/arm64/roles/k3s_agent_install_config/templates/k3s-agent.service.j2"
     )
+    server_install_config_tasks_path = (
+        "ansible/arm64/roles/k3s_server_install_config/tasks/main.yml"
+    )
+    server_install_config_defaults_path = (
+        "ansible/arm64/roles/k3s_server_install_config/defaults/main.yml"
+    )
+    server_install_config_template_path = (
+        "ansible/arm64/roles/k3s_server_install_config/templates/k3s-server.service.j2"
+    )
     site_path = "ansible/arm64/site.yml"
 
     adr = read_rel(adr_path)
@@ -47,6 +56,9 @@ def main() -> int:
     agent_install_config_tasks = read_rel(agent_install_config_tasks_path)
     agent_install_config_defaults = read_rel(agent_install_config_defaults_path)
     agent_install_config_template = read_rel(agent_install_config_template_path)
+    server_install_config_tasks = read_rel(server_install_config_tasks_path)
+    server_install_config_defaults = read_rel(server_install_config_defaults_path)
+    server_install_config_template = read_rel(server_install_config_template_path)
     site = read_rel(site_path)
 
     required_adr_terms = [
@@ -151,6 +163,56 @@ def main() -> int:
         if term not in agent_install_config_template:
             fail(
                 f"{agent_install_config_template_path} must keep `{term}`",
+                failures,
+            )
+
+    required_server_default_terms = [
+        "k3s_server_install_config_enabled: false",
+        "k3s_server_install_config_node_role: server",
+        "k3s_server_install_config_expected_state_source: downloaded",
+        "k3s_server_install_config_token_file: /var/lib/rancher/k3s/server/token",
+        'k3s_server_install_config_systemd_unit_template: "k3s-server.service.j2"',
+        'k3s_server_install_config_control_token: ""',
+    ]
+    for term in required_server_default_terms:
+        if term not in server_install_config_defaults:
+            fail(
+                f"{server_install_config_defaults_path} must keep `{term}`",
+                failures,
+            )
+
+    required_server_task_terms = [
+        "k3s_server_install_config_existing_binary",
+        "k3s_server_install_config_release_version_effective",
+        "| regex_replace('^k3s-', '')",
+        "k3s_server_install_config_control_token | string | length > 0",
+        "ansible.builtin.copy:",
+        'dest: "{{ k3s_server_install_config_token_file }}"',
+        'content: "{{ k3s_server_install_config_control_token }}\\n"',
+        "mode: '0600'",
+        "no_log: true",
+        "ansible.builtin.template:",
+        'src: "{{ k3s_server_install_config_systemd_unit_template }}"',
+        'dest: "{{ k3s_server_install_config_systemd_unit_path }}"',
+    ]
+    for term in required_server_task_terms:
+        if term not in server_install_config_tasks:
+            fail(
+                f"{server_install_config_tasks_path} must keep scaffold guard `{term}`",
+                failures,
+            )
+
+    required_server_unit_terms = [
+        "Type=notify",
+        " }}/k3s server --config ",
+        "--config {{ k3s_server_install_config_config_file }}",
+        "--token-file {{ k3s_server_install_config_token_file }}",
+        "WantedBy=multi-user.target",
+    ]
+    for term in required_server_unit_terms:
+        if term not in server_install_config_template:
+            fail(
+                f"{server_install_config_template_path} must keep `{term}`",
                 failures,
             )
 
