@@ -1,0 +1,10 @@
+---
+k3s_agent_install_config_enabled: false
+k3s_agent_install_config_install_dir: /usr/local/bin
+k3s_agent_install_config_service_name: k3s
+k3s_agent_install_config_config_dir: /etc/rancher/k3s
+k3s_agent_install_config_config_file: /etc/rancher/k3s/config.yaml
+k3s_agent_install_config_systemd_unit_path: /etc/systemd/system/k3s.service
+k3s_agent_install_config_token_file: /etc/rancher/k3s/cluster-token
+k3s_agent_install_config_node_role: agent
+k3s_agent_install_config_expected_state_source: downloaded

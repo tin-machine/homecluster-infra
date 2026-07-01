@@ -55,6 +55,9 @@ enable symlink を消し、`RequiresMountsFor=/var/lib/rancher/k3s` と
   `downloaded` は k3s binary download までで、`/usr/local/bin/k3s` symlink、config、unit、
   token file は配置しないため、local role が install/config/unit/token file 配置を担う。
   この local role は `Restart k3s systemd` handler や `systemctl start/restart` を直接持たない。
+  2026-07-01 時点では、local role の最初の scaffold として `k3s_agent_install_config` を追加した。
+  この scaffold は未接続で、public-safe default と assert-only task だけを持つ。file 配置や
+  daemon lifecycle はまだ実装しない。
 5. `k3s_converge` が live start / restart を担う段階では、agent play に upstream
   `Restart k3s systemd` handler 由来の start point が残っていないことを source validator で確認する。
 6. wrapper が live start を担う段階で、post-merge apply と SwitchBot off/on を 1 セットで検証する。
