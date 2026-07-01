@@ -1,0 +1,44 @@
+[Unit]
+Description=K3s Server
+Documentation=https://k3s.io
+{% if k3s_server_install_config_service_requires %}
+{% for req in k3s_server_install_config_service_requires %}
+Requires={{ req }}
+{% endfor %}
+{% endif %}
+{% if k3s_server_install_config_service_wants %}
+{% for want in k3s_server_install_config_service_wants %}
+Wants={{ want }}
+{% endfor %}
+{% endif %}
+{% if k3s_server_install_config_service_before %}
+{% for before in k3s_server_install_config_service_before %}
+Before={{ before }}
+{% endfor %}
+{% endif %}
+{% if k3s_server_install_config_service_after %}
+{% for after in k3s_server_install_config_service_after %}
+After={{ after }}
+{% endfor %}
+{% endif %}
+
+[Service]
+Type=notify
+{% if k3s_server_install_config_service_exec_start_pre %}
+{% for pre in k3s_server_install_config_service_exec_start_pre %}
+ExecStartPre={{ pre }}
+{% endfor %}
+{% endif %}
+ExecStart={{ k3s_server_install_config_install_dir }}/k3s server --config {{ k3s_server_install_config_config_file }}{% if k3s_server_install_config_control_token | length > 0 %} --token-file {{ k3s_server_install_config_token_file }}{% endif %}
+Restart={{ k3s_server_install_config_restart_policy }}
+RestartSec={{ k3s_server_install_config_restart_sec }}
+TimeoutStartSec={{ k3s_server_install_config_timeout_start_sec }}
+KillMode=process
+Delegate=yes
+LimitNOFILE=1048576
+LimitNPROC=infinity
+LimitCORE=infinity
+TasksMax=infinity
+
+[Install]
+WantedBy=multi-user.target
