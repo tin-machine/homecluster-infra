@@ -274,7 +274,7 @@
         - k3s_stg_agent_play_enabled | bool
         - inventory_hostname in (groups['k3s_stg_agents'] | default([]))
       vars:
-        k3s_state: installed
+        k3s_state: downloaded
         k3s_release_version: "{{ hostvars[k3s_stg_server_host].k3s_server_release_version if (k3s_stg_server_host | length > 0) else false }}"
         k3s_control_node: false
         k3s_primary_control_node: false
@@ -282,6 +282,18 @@
         k3s_control_delegate: "{{ k3s_stg_server_host if (k3s_stg_server_host | length > 0) else 'k3s_stg_server' }}"
         k3s_service_name: k3s
         k3s_defer_service_restart: true
+    - role: k3s_agent_install_config
+      when:
+        - k3s_stg_agent_play_enabled | bool
+        - inventory_hostname in (groups['k3s_stg_agents'] | default([]))
+      vars:
+        k3s_agent_install_config_enabled: true
+        k3s_agent_install_config_release_version: "{{ hostvars[k3s_stg_server_host].k3s_server_release_version if (k3s_stg_server_host | length > 0) else false }}"
+        k3s_agent_install_config_registration_address: "{{ k3s_registration_address }}"
+        k3s_agent_install_config_control_token: "{{ k3s_control_token }}"
+        k3s_agent_install_config_service_name: k3s
+      tags:
+        - k3s_agent_install_config
     - role: k3s_networking
       when:
         - k3s_stg_agent_play_enabled | bool
