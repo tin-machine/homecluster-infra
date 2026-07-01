@@ -1,4 +1,28 @@
 ---
+- name: k3s agent 既存 binary link を確認
+  ansible.builtin.stat:
+    path: "{{ k3s_agent_install_config_install_dir }}/k3s"
+    follow: false
+  register: k3s_agent_install_config_existing_binary
+  when:
+    - k3s_agent_install_config_enabled | bool
+
+- name: k3s agent release version を解決
+  ansible.builtin.set_fact:
+    k3s_agent_install_config_release_version_effective: >-
+      {{
+        k3s_agent_install_config_release_version
+        if (k3s_agent_install_config_release_version | string | lower not in ['', 'false', 'none'])
+        else (
+          k3s_agent_install_config_existing_binary.stat.lnk_source
+          | default('')
+          | basename
+          | regex_replace('^k3s-', '')
+        )
+      }}
+  when:
+    - k3s_agent_install_config_enabled | bool
+
 - name: k3s agent install/config scaffold の変数を検証
   ansible.builtin.assert:
     that:
@@ -14,7 +38,7 @@
       - k3s_agent_install_config_binary_names is sequence
       - k3s_agent_install_config_binary_names | length > 0
       - k3s_agent_install_config_install_hard_links | string | lower in ['true', 'false', 'yes', 'no', '1', '0']
-      - not (k3s_agent_install_config_enabled | bool) or (k3s_agent_install_config_release_version | string | length > 0)
+      - not (k3s_agent_install_config_enabled | bool) or (k3s_agent_install_config_release_version_effective | default('') | string | lower not in ['', 'false', 'none'])
       - not (k3s_agent_install_config_enabled | bool) or (k3s_agent_install_config_registration_address | string | length > 0)
       - k3s_agent_install_config_control_plane_port | int > 0
       - k3s_agent_install_config_systemd_unit_template | string | length > 0
@@ -38,7 +62,7 @@
 - name: k3s agent binary link を配置
   become: true
   ansible.builtin.file:
-    src: "{{ k3s_agent_install_config_install_dir }}/k3s-{{ k3s_agent_install_config_release_version }}"
+    src: "{{ k3s_agent_install_config_install_dir }}/k3s-{{ k3s_agent_install_config_release_version_effective }}"
     dest: "{{ k3s_agent_install_config_install_dir }}/{{ item }}"
     state: "{{ 'hard' if (k3s_agent_install_config_install_hard_links | bool) else 'link' }}"
     force: "{{ k3s_agent_install_config_install_hard_links | bool }}"
