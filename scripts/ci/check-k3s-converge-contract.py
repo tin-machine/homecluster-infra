@@ -208,13 +208,20 @@ def main() -> int:
         "Type=notify",
         " }}/k3s server --config ",
         "--config {{ k3s_server_install_config_config_file }}",
-        "--token-file {{ k3s_server_install_config_token_file }}",
+        "' --token-file ' ~ k3s_server_install_config_token_file",
         "WantedBy=multi-user.target",
     ]
     for term in required_server_unit_terms:
         if term not in server_install_config_template:
             fail(
                 f"{server_install_config_template_path} must keep `{term}`",
+                failures,
+            )
+
+    for line in server_install_config_template.splitlines():
+        if line.startswith("ExecStart=") and "{%" in line:
+            fail(
+                f"{server_install_config_template_path} must not put Jinja block tags on ExecStart; Ansible trim_blocks can join Restart= onto ExecStart",
                 failures,
             )
 

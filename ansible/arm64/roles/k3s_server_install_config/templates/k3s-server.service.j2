@@ -29,7 +29,7 @@ Type=notify
 ExecStartPre={{ pre }}
 {% endfor %}
 {% endif %}
-ExecStart={{ k3s_server_install_config_install_dir }}/k3s server --config {{ k3s_server_install_config_config_file }}{% if k3s_server_install_config_control_token | length > 0 %} --token-file {{ k3s_server_install_config_token_file }}{% endif %}
+ExecStart={{ k3s_server_install_config_install_dir }}/k3s server --config {{ k3s_server_install_config_config_file }}{{ (' --token-file ' ~ k3s_server_install_config_token_file) if (k3s_server_install_config_control_token | length > 0) else '' }}
 Restart={{ k3s_server_install_config_restart_policy }}
 RestartSec={{ k3s_server_install_config_restart_sec }}
 TimeoutStartSec={{ k3s_server_install_config_timeout_start_sec }}
