@@ -164,6 +164,9 @@ openwrt_gentoo_ansible_pull_role_dependencies: {}
 openwrt_gentoo_ansible_pull_env_group: env_prd
 openwrt_gentoo_ansible_pull_netrc_entries: []
 openwrt_gentoo_homecluster_unit_chain_enabled: true
+# false では従来通り ansible-pull@base.service を boot 起点にする。
+# true は明示 opt-in で homecluster-base.service を boot 起点に切り替える。
+openwrt_gentoo_homecluster_unit_chain_start_enabled: false
 openwrt_gentoo_homecluster_unit_chain:
   - name: homecluster-base.service
     description: base
