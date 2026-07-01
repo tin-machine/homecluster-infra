@@ -1,0 +1,14 @@
+---
+- name: k3s agent install/config scaffold の変数を検証
+  ansible.builtin.assert:
+    that:
+      - k3s_agent_install_config_enabled | string | lower in ['true', 'false', 'yes', 'no', '1', '0']
+      - k3s_agent_install_config_node_role == 'agent'
+      - k3s_agent_install_config_expected_state_source == 'downloaded'
+      - k3s_agent_install_config_service_name | string | length > 0
+      - (k3s_agent_install_config_install_dir | string) is match('^/.+')
+      - (k3s_agent_install_config_config_dir | string) is match('^/.+')
+      - (k3s_agent_install_config_config_file | string) is match('^/.+')
+      - (k3s_agent_install_config_systemd_unit_path | string) is match('^/.+')
+      - (k3s_agent_install_config_token_file | string) is match('^/.+')
+    fail_msg: "xanmanning.k3s k3s_state downloaded 前提の scaffold 変数が不正です"
