@@ -489,6 +489,29 @@
     - pxe
     - pxe_ansible_pull
 
+- name: homecluster unit chain start opt-in を検証
+  ansible.builtin.assert:
+    that:
+      - openwrt_gentoo_homecluster_unit_chain_enabled | bool
+      - "'base' in openwrt_gentoo_ansible_pull_roles"
+      - >-
+        {{
+          (openwrt_gentoo_homecluster_unit_chain | default([])
+          | selectattr('name', 'equalto', 'homecluster-base.service')
+          | list | length) == 1
+        }}
+    fail_msg: >-
+      openwrt_gentoo_homecluster_unit_chain_start_enabled=true では、
+      homecluster unit chain を有効にし、base role と homecluster-base.service を
+      boot 起点として定義してください。
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_ansible_pull_enabled | bool
+    - openwrt_gentoo_homecluster_unit_chain_start_enabled | default(false) | bool
+  tags:
+    - pxe
+    - pxe_ansible_pull
+
 - name: ansible-pull root role を multi-user.target で有効化
   ansible.builtin.file:
     state: link
@@ -502,8 +525,61 @@
   when:
     - openwrt_gentoo_enabled | bool
     - openwrt_gentoo_ansible_pull_enabled | bool
+    - not (openwrt_gentoo_homecluster_unit_chain_start_enabled | default(false) | bool)
     - (openwrt_gentoo_ansible_pull_roles | length) > 0
     - (((openwrt_gentoo_ansible_pull_role_dependencies_effective | default({})).get(item.1, {}).get('after', [])) | length) == 0
+  tags:
+    - pxe
+    - pxe_ansible_pull
+
+- name: ansible-pull root role の direct enable を削除
+  ansible.builtin.file:
+    path: "{{ item.0 }}/etc/systemd/system/multi-user.target.wants/ansible-pull@{{ item.1 }}.service"
+    state: absent
+  loop: "{{ (openwrt_gentoo_ansible_pull_rootfs_dirs | default([openwrt_gentoo_rootfs_dir])) | product(openwrt_gentoo_ansible_pull_roles) | list }}"
+  loop_control:
+    label: "{{ item.0 }} {{ item.1 }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_ansible_pull_enabled | bool
+    - openwrt_gentoo_homecluster_unit_chain_enabled | bool
+    - openwrt_gentoo_homecluster_unit_chain_start_enabled | default(false) | bool
+    - (openwrt_gentoo_ansible_pull_roles | length) > 0
+    - (((openwrt_gentoo_ansible_pull_role_dependencies_effective | default({})).get(item.1, {}).get('after', [])) | length) == 0
+  tags:
+    - pxe
+    - pxe_ansible_pull
+
+- name: homecluster-base.service を multi-user.target で有効化
+  ansible.builtin.file:
+    state: link
+    src: "../homecluster-base.service"
+    dest: "{{ item }}/etc/systemd/system/multi-user.target.wants/homecluster-base.service"
+    owner: root
+    group: root
+  loop: "{{ openwrt_gentoo_ansible_pull_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+  loop_control:
+    label: "{{ item }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_ansible_pull_enabled | bool
+    - openwrt_gentoo_homecluster_unit_chain_enabled | bool
+    - openwrt_gentoo_homecluster_unit_chain_start_enabled | default(false) | bool
+  tags:
+    - pxe
+    - pxe_ansible_pull
+
+- name: homecluster-base.service の direct enable を削除
+  ansible.builtin.file:
+    path: "{{ item }}/etc/systemd/system/multi-user.target.wants/homecluster-base.service"
+    state: absent
+  loop: "{{ openwrt_gentoo_ansible_pull_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+  loop_control:
+    label: "{{ item }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_ansible_pull_enabled | bool
+    - not (openwrt_gentoo_homecluster_unit_chain_start_enabled | default(false) | bool)
   tags:
     - pxe
     - pxe_ansible_pull

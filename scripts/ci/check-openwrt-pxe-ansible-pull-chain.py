@@ -124,6 +124,46 @@ def test_pxe_runtime_chain_tasks() -> None:
     )
     require_contains(
         text,
+        "not (openwrt_gentoo_homecluster_unit_chain_start_enabled | default(false) | bool)",
+        "ansible-pull root role direct enable must be disabled when homecluster unit start is opted in",
+    )
+    require_contains(
+        text,
+        "homecluster unit chain start opt-in を検証",
+        "pxe_runtime must validate homecluster unit start opt-in before changing the boot start point",
+    )
+    require_contains(
+        text,
+        "'base' in openwrt_gentoo_ansible_pull_roles",
+        "homecluster unit start opt-in must require the base role",
+    )
+    require_contains(
+        text,
+        "selectattr('name', 'equalto', 'homecluster-base.service')",
+        "homecluster unit start opt-in must require a defined homecluster-base.service",
+    )
+    require_contains(
+        text,
+        "ansible-pull root role の direct enable を削除",
+        "pxe_runtime must remove ansible-pull root direct enable when homecluster-base.service is the start point",
+    )
+    require_contains(
+        text,
+        "homecluster-base.service を multi-user.target で有効化",
+        "pxe_runtime must be able to opt in homecluster-base.service as the boot start point",
+    )
+    require_contains(
+        text,
+        "dest: \"{{ item }}/etc/systemd/system/multi-user.target.wants/homecluster-base.service\"",
+        "homecluster-base.service opt-in must create the expected multi-user symlink",
+    )
+    require_contains(
+        text,
+        "homecluster-base.service の direct enable を削除",
+        "pxe_runtime must remove homecluster-base.service direct enable when opt-in is false",
+    )
+    require_contains(
+        text,
         "multi-user.target.wants/ansible-pull@{{ item.1.key }}.service",
         "dependent role direct-enable removal must target multi-user.target.wants",
     )
@@ -262,10 +302,15 @@ def test_homecluster_unit_chain_is_not_direct_enabled() -> None:
         "homecluster domain unit を配置",
         "pxe_runtime must place source-only homecluster domain units",
     )
+    require_contains(
+        text,
+        "openwrt_gentoo_homecluster_unit_chain_start_enabled | default(false) | bool",
+        "homecluster domain start point must remain behind explicit opt-in",
+    )
     require_not_contains(
         text,
         "multi-user.target.wants/{{ item.1.name }}",
-        "homecluster domain units must not be direct enabled in the source-only stage",
+        "homecluster domain units other than the explicit start point must not be direct enabled",
     )
 
 
