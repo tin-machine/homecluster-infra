@@ -29,6 +29,7 @@ operation 手順、troubleshooting raw log、実 host / IP / path / serial / tok
 | [ADR 0012](0012-executable-public-source.md) | accepted | 公開 repository を実行可能な正本として維持する |
 | [ADR 0013](0013-opencode-agent-privilege-taxonomy.md) | accepted | OpenCode agent を privilege boundary で分割する |
 | [ADR 0014](0014-k3s-converge-wrapper-contract.md) | proposed | k3s daemon start を converge wrapper へ段階的に寄せる |
+| [ADR 0015](0015-homecluster-converge-unit-chain.md) | proposed | homecluster domain unit chain へ段階的に移行する |
 
 ## 書式
 

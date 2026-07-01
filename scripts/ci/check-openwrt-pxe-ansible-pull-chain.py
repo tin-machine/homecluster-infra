@@ -20,6 +20,10 @@ ON_SUCCESS_TEMPLATE = (
     / "ansible/openwrt/roles/openwrt_gentoo_rootfs/templates/systemd/"
     "ansible-pull@role.on-success.conf.j2"
 )
+UNIT_CHAIN_ADR = (
+    REPO_ROOT
+    / "docs/architecture-decision-record/0015-homecluster-converge-unit-chain.md"
+)
 
 
 def read_text(path: Path) -> str:
@@ -195,11 +199,36 @@ def test_on_success_template() -> None:
     )
 
 
+def test_homecluster_unit_chain_adr_contract() -> None:
+    text = read_text(UNIT_CHAIN_ADR)
+
+    required_terms = [
+        "homecluster-base.service",
+        "homecluster-storage.service",
+        "homecluster-k3s-converge.service",
+        "homecluster-terraform.service",
+        "ansible-pull@base.service",
+        "k3s_stg_storage",
+        "OnSuccess=",
+        "Requires=",
+        "direct boot enable",
+        "integrated iSCSI verifier",
+        "SwitchBot off/on",
+    ]
+    for term in required_terms:
+        require_contains(
+            text,
+            term,
+            f"{UNIT_CHAIN_ADR.relative_to(REPO_ROOT)} must document `{term}`",
+        )
+
+
 def main() -> None:
     test_dependency_roles_are_enabled()
     test_pxe_runtime_chain_tasks()
     test_dependency_override_template()
     test_on_success_template()
+    test_homecluster_unit_chain_adr_contract()
     print("openwrt_pxe_ansible_pull_chain checks ok")
 
 
