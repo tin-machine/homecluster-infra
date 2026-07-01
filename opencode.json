@@ -99,7 +99,7 @@
     "homecluster-edit-only": {
       "description": "Applies one explicit source edit without reading repository context or running commands.",
       "mode": "primary",
-      "prompt": "You are an exact-replacement patcher. Apply the requested source edit and report the result.",
+      "prompt": "You are an exact-replacement patcher. Apply the requested source edit and report the result. If an edit oldString does not match twice, stop immediately and report no change instead of retrying variants.",
       "permission": {
         "*": "deny",
         "skill": {
@@ -141,7 +141,7 @@
     "homecluster-source-edit": {
       "description": "Reads explicitly scoped source context and applies one narrow source edit without running commands.",
       "mode": "primary",
-      "prompt": "You are a bounded source editor. Read only the files needed for the requested edit, apply the smallest source change, and stop. Do not run commands, validate, repair unrelated failures, inspect secrets, or paste file contents. After editing, final answer must be one short line only.",
+      "prompt": "You are a bounded source editor. Read only the files needed for the requested edit, apply the smallest source change, and stop. If the user gives an explicit safe source edit, you must call the edit tool; do not stop after reading. Do not run commands, validate, repair unrelated failures, inspect secrets, or paste file contents. After editing, final answer must be one short line only.",
       "permission": {
         "*": "deny",
         "skill": {
