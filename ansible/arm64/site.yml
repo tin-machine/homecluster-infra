@@ -145,9 +145,33 @@
       tags:
         - k3s_iptables_nft
     - role: xanmanning.k3s
+      vars:
+        k3s_state: downloaded
+        k3s_service_name: k3s
+        k3s_defer_service_restart: true
     - role: k3s_networking
+      vars:
+        k3s_control_node: true
+        k3s_service_name: k3s
+        k3s_defer_service_restart: true
       tags:
         - k3s_networking
+    - role: k3s_server_install_config
+      vars:
+        k3s_server_install_config_enabled: true
+        k3s_server_install_config_release_version: "{{ k3s_release_version }}"
+        k3s_server_install_config_control_token: "{{ k3s_control_token | default('', true) }}"
+        k3s_server_install_config_service_name: k3s
+      tags:
+        - k3s_server_install_config
+    - role: k3s_converge_check
+      vars:
+        k3s_converge_check_node_role: server
+        k3s_converge_check_service_name: k3s
+        k3s_converge_check_mountpoint: /var/lib/rancher/k3s
+        k3s_converge_check_mode: start
+      tags:
+        - k3s_converge_check
 
 - name: k3s observability terraform apply
   hosts: "env_stg:&role_terraform_stg"
