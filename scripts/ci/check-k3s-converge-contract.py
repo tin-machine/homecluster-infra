@@ -19,6 +19,11 @@ def fail(message: str, failures: list[str]) -> None:
     failures.append(message)
 
 
+def role_position(play: str, role_name: str) -> int:
+    match = re.search(rf"- role: {re.escape(role_name)}\b", play)
+    return match.start() if match else -1
+
+
 def main() -> int:
     failures: list[str] = []
 
@@ -148,13 +153,57 @@ def main() -> int:
     if "role: k3s_converge_check" not in agent_play:
         fail("k3s staging agents play must install the k3s_converge check helper", failures)
 
+    xanmanning_match = re.search(
+        r"- role: xanmanning\.k3s(?P<body>.*?)(?:\n    - role:|\n  vars:|\Z)",
+        agent_play,
+        flags=re.DOTALL,
+    )
+    xanmanning_body = xanmanning_match.group("body") if xanmanning_match else ""
+    agent_install_config_position = role_position(agent_play, "k3s_agent_install_config")
+    xanmanning_position = role_position(agent_play, "xanmanning.k3s")
+    networking_position = role_position(agent_play, "k3s_networking")
+    converge_position = role_position(agent_play, "k3s_converge_check")
+
+    if agent_install_config_position >= 0:
+        if not xanmanning_match:
+            fail("k3s_agent_install_config wiring requires an explicit xanmanning.k3s agent block", failures)
+        if "k3s_state: downloaded" not in xanmanning_body:
+            fail("k3s_agent_install_config wiring requires agent xanmanning.k3s k3s_state: downloaded", failures)
+        if "k3s_state: installed" in xanmanning_body:
+            fail("k3s_agent_install_config wiring must not leave agent xanmanning.k3s at installed", failures)
+
+        required_wired_terms = [
+            "k3s_agent_install_config_enabled: true",
+            "k3s_agent_install_config_release_version:",
+            "k3s_agent_install_config_registration_address:",
+            "k3s_agent_install_config_control_token:",
+            "k3s_agent_install_config_service_name: k3s",
+        ]
+        for term in required_wired_terms:
+            if term not in agent_play:
+                fail(f"k3s_agent_install_config wiring must pass `{term}`", failures)
+
+        expected_order = [
+            ("xanmanning.k3s", xanmanning_position),
+            ("k3s_agent_install_config", agent_install_config_position),
+            ("k3s_networking", networking_position),
+            ("k3s_converge_check", converge_position),
+        ]
+        missing_order_roles = [name for name, position in expected_order if position < 0]
+        if missing_order_roles:
+            fail(
+                "k3s_agent_install_config wiring requires roles: "
+                + ", ".join(missing_order_roles),
+                failures,
+            )
+        elif not (xanmanning_position < agent_install_config_position < networking_position < converge_position):
+            fail(
+                "k3s agent wiring order must be xanmanning.k3s -> "
+                "k3s_agent_install_config -> k3s_networking -> k3s_converge_check",
+                failures,
+            )
+
     if helper_has_lifecycle:
-        xanmanning_match = re.search(
-            r"- role: xanmanning\.k3s(?P<body>.*?)(?:\n    - role:|\n  vars:|\Z)",
-            agent_play,
-            flags=re.DOTALL,
-        )
-        xanmanning_body = xanmanning_match.group("body") if xanmanning_match else ""
         if not xanmanning_match:
             fail("lifecycle-enabled k3s_converge requires an explicit xanmanning.k3s agent block", failures)
         if "k3s_state: downloaded" not in xanmanning_body:
