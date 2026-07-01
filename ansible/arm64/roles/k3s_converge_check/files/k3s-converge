@@ -7,7 +7,7 @@ svc="k3s"
 node_role="agent"
 
 usage() {
-  echo "Usage: $0 --check-only [--mountpoint PATH] [--service NAME] [--node-role agent]" >&2
+  echo "Usage: $0 (--check-only|--start) [--mountpoint PATH] [--service NAME] [--node-role agent]" >&2
   exit 64
 }
 
@@ -15,6 +15,10 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     --check-only)
       mode="check-only"
+      shift
+      ;;
+    --start)
+      mode="start"
       shift
       ;;
     --mountpoint)
@@ -38,7 +42,7 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-if [ "$mode" != "check-only" ]; then
+if [ "$mode" != "check-only" ] && [ "$mode" != "start" ]; then
   usage
 fi
 
@@ -75,5 +79,29 @@ if command -v systemctl >/dev/null 2>&1; then
   fi
 fi
 
-echo "k3s-converge: check-only preconditions passed"
+if [ "$mode" = "check-only" ]; then
+  echo "k3s-converge: check-only preconditions passed"
+  exit 0
+fi
+
+if ! command -v systemctl >/dev/null 2>&1; then
+  echo "systemctl is required for --start" >&2
+  exit 71
+fi
+
+systemctl daemon-reload
+
+if systemctl is-active --quiet "$svc.service"; then
+  echo "k3s-converge: service already active"
+  exit 0
+fi
+
+systemctl start "$svc.service"
+
+if ! systemctl is-active --quiet "$svc.service"; then
+  echo "k3s service did not become active: $svc.service" >&2
+  exit 72
+fi
+
+echo "k3s-converge: service started"
 exit 0
