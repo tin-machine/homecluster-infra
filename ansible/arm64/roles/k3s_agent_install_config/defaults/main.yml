@@ -31,3 +31,4 @@ k3s_agent_install_config_service_exec_start_pre:
 k3s_agent_install_config_restart_policy: "always"
 k3s_agent_install_config_restart_sec: "5s"
 k3s_agent_install_config_timeout_start_sec: "0"
+k3s_agent_install_config_control_token: ""

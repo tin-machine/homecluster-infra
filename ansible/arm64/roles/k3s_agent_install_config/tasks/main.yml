@@ -31,7 +31,9 @@
       - k3s_agent_install_config_restart_policy | string | length > 0
       - k3s_agent_install_config_restart_sec | string | length > 0
       - k3s_agent_install_config_timeout_start_sec | string | length > 0
+      - not (k3s_agent_install_config_enabled | bool) or (k3s_agent_install_config_control_token | string | length > 0)
     fail_msg: "xanmanning.k3s k3s_state downloaded 前提の scaffold 変数が不正です"
+  no_log: true
 
 - name: k3s agent binary link を配置
   become: true
@@ -44,6 +46,29 @@
   loop: "{{ k3s_agent_install_config_binary_names }}"
   loop_control:
     label: "{{ item }}"
+  when:
+    - k3s_agent_install_config_enabled | bool
+
+- name: k3s agent token directory を作成
+  become: true
+  ansible.builtin.file:
+    path: "{{ k3s_agent_install_config_token_file | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  when:
+    - k3s_agent_install_config_enabled | bool
+
+- name: k3s agent token file を配置
+  become: true
+  ansible.builtin.copy:
+    dest: "{{ k3s_agent_install_config_token_file }}"
+    content: "{{ k3s_agent_install_config_control_token }}\n"
+    owner: root
+    group: root
+    mode: '0600'
+  no_log: true
   when:
     - k3s_agent_install_config_enabled | bool
 
