@@ -80,6 +80,10 @@ def main() -> int:
         fail("k3s-converge helper must report explicit service start", failures)
     if "systemctl daemon-reload" not in helper:
         fail("k3s-converge helper must daemon-reload before explicit service start", failures)
+    if "--node-role agent|server" not in helper:
+        fail("k3s-converge helper must support --node-role agent|server", failures)
+    if '[ "$node_role" != "agent" ] && [ "$node_role" != "server" ]' not in helper:
+        fail("k3s-converge helper must accept node_role: server", failures)
 
     lifecycle_pattern = re.compile(r"\bsystemctl\s+(start|restart|enable|disable)\b")
     helper_has_lifecycle = bool(lifecycle_pattern.search(helper))
