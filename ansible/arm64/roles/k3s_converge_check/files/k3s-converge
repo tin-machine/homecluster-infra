@@ -7,7 +7,7 @@ svc="k3s"
 node_role="agent"
 
 usage() {
-  echo "Usage: $0 (--check-only|--start) [--mountpoint PATH] [--service NAME] [--node-role agent]" >&2
+  echo "Usage: $0 (--check-only|--start) [--mountpoint PATH] [--service NAME] [--node-role agent|server]" >&2
   exit 64
 }
 
@@ -46,7 +46,7 @@ if [ "$mode" != "check-only" ] && [ "$mode" != "start" ]; then
   usage
 fi
 
-if [ "$node_role" != "agent" ]; then
+if [ "$node_role" != "agent" ] && [ "$node_role" != "server" ]; then
   echo "unsupported node role: $node_role" >&2
   exit 65
 fi
