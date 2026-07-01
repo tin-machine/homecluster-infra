@@ -278,7 +278,9 @@ def test_homecluster_stage_unit_template() -> None:
         "OnSuccess={{ homecluster_stage_unit.next }}",
         "ConditionPathExists=/run/dhcp/role.env",
         "EnvironmentFile=-/run/dhcp/role.env",
-        "ExecStart=/usr/local/sbin/homecluster-ansible-stage-wrapper.sh",
+        "Environment=REPO_URL={{ openwrt_gentoo_ansible_pull_repo_url }}",
+        "Environment=DEST=/var/lib/ansible-pull",
+        "ExecStart=/usr/bin/flock /run/ansible-pull.lock /usr/local/sbin/homecluster-ansible-stage-wrapper.sh",
         "WantedBy=multi-user.target",
     ]
     for term in required_terms:
