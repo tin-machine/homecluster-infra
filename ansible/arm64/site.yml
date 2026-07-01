@@ -215,12 +215,56 @@
         - k3s_stg_agent_play_enabled | bool
         - k3s_stg_server_hosts | length > 0
 
+    - name: staging server k3s token を取得
+      become: true
+      ansible.builtin.slurp:
+        path: /var/lib/rancher/k3s/server/node-token
+      register: k3s_server_token_slurp
+      delegate_to: "{{ k3s_stg_server_host | default('localhost', true) }}"
+      run_once: true
+      no_log: true
+      when:
+        - k3s_stg_agent_play_enabled | bool
+        - k3s_stg_server_hosts | length > 0
+        - (k3s_control_token | default('', true) | string | length) == 0
+
+    - name: staging server k3s token を fact 化
+      ansible.builtin.set_fact:
+        k3s_server_token: "{{ k3s_server_token_slurp.content | b64decode | trim }}"
+      delegate_to: "{{ k3s_stg_server_host | default('localhost', true) }}"
+      delegate_facts: true
+      run_once: true
+      no_log: true
+      when:
+        - k3s_stg_agent_play_enabled | bool
+        - k3s_stg_server_hosts | length > 0
+        - (k3s_control_token | default('', true) | string | length) == 0
+
+    - name: staging server k3s address を fact 化
+      ansible.builtin.set_fact:
+        k3s_server_ip: "{{ hostvars[k3s_stg_server_host].ansible_host | default(hostvars[k3s_stg_server_host].ansible_facts.get('default_ipv4', {}).get('address', ''), true) }}"
+      delegate_to: "{{ k3s_stg_server_host | default('localhost', true) }}"
+      delegate_facts: true
+      run_once: true
+      when:
+        - k3s_stg_agent_play_enabled | bool
+        - k3s_stg_server_hosts | length > 0
+
+    - name: staging agent join 値を fact 化
+      ansible.builtin.set_fact:
+        k3s_stg_agent_registration_address_effective: "{{ k3s_registration_address | default(hostvars[k3s_stg_server_host].k3s_server_ip | default('', true), true) }}"
+        k3s_stg_agent_control_token_effective: "{{ k3s_control_token | default(hostvars[k3s_stg_server_host].k3s_server_token | default('', true), true) }}"
+      no_log: true
+      when:
+        - k3s_stg_agent_play_enabled | bool
+        - inventory_hostname in (groups['k3s_stg_agents'] | default([]))
+
     - name: staging agent join に必要な値を確認
       ansible.builtin.assert:
         that:
           - stage | default('') == 'stg'
-          - k3s_registration_address | default('') | length > 0
-          - k3s_control_token | default('') | length > 0
+          - k3s_stg_agent_registration_address_effective | default('') | length > 0
+          - k3s_stg_agent_control_token_effective | default('') | length > 0
         fail_msg: "stage=stg、k3s_registration_address、k3s_control_token を外部 inventory または実行時変数で渡してください"
       no_log: true
       when:
@@ -232,7 +276,7 @@
       vars:
         ansible_become: false
       ansible.builtin.wait_for:
-        host: "{{ k3s_registration_address }}"
+        host: "{{ k3s_stg_agent_registration_address_effective }}"
         port: 6443
         timeout: 300
       delegate_to: localhost
@@ -289,8 +333,8 @@
       vars:
         k3s_agent_install_config_enabled: true
         k3s_agent_install_config_release_version: "{{ hostvars[k3s_stg_server_host].k3s_server_release_version if (k3s_stg_server_host | length > 0) else false }}"
-        k3s_agent_install_config_registration_address: "{{ k3s_registration_address }}"
-        k3s_agent_install_config_control_token: "{{ k3s_control_token }}"
+        k3s_agent_install_config_registration_address: "{{ k3s_stg_agent_registration_address_effective }}"
+        k3s_agent_install_config_control_token: "{{ k3s_stg_agent_control_token_effective }}"
         k3s_agent_install_config_service_name: k3s
       tags:
         - k3s_agent_install_config
