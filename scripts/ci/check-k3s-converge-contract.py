@@ -25,11 +25,19 @@ def main() -> int:
     adr_path = "docs/architecture-decision-record/0014-k3s-converge-wrapper-contract.md"
     defaults_path = "ansible/arm64/roles/k3s_converge_check/defaults/main.yml"
     helper_path = "ansible/arm64/roles/k3s_converge_check/files/k3s-converge"
+    agent_install_config_tasks_path = (
+        "ansible/arm64/roles/k3s_agent_install_config/tasks/main.yml"
+    )
+    agent_install_config_template_path = (
+        "ansible/arm64/roles/k3s_agent_install_config/templates/k3s-agent.service.j2"
+    )
     site_path = "ansible/arm64/site.yml"
 
     adr = read_rel(adr_path)
     defaults = read_rel(defaults_path)
     helper = read_rel(helper_path)
+    agent_install_config_tasks = read_rel(agent_install_config_tasks_path)
+    agent_install_config_template = read_rel(agent_install_config_template_path)
     site = read_rel(site_path)
 
     required_adr_terms = [
@@ -61,6 +69,39 @@ def main() -> int:
     helper_has_start_mode = "--start" in helper or "--restart-if-needed" in helper
     if helper_has_lifecycle and not helper_has_start_mode:
         fail("k3s-converge lifecycle commands require an explicit start/restart mode", failures)
+
+    forbidden_agent_role_terms = [
+        "notify:",
+        "ansible.builtin.service:",
+        "ansible.builtin.systemd:",
+        "ansible.builtin.command:",
+        "ansible.builtin.shell:",
+        "state: restarted",
+        "state: started",
+        "state: reloaded",
+        "enabled:",
+    ]
+    for term in forbidden_agent_role_terms:
+        if term in agent_install_config_tasks:
+            fail(
+                f"{agent_install_config_tasks_path} must not contain lifecycle term `{term}`",
+                failures,
+            )
+
+    required_agent_unit_terms = [
+        "Type=exec",
+        " }}/k3s agent ",
+        "--server https://{{ k3s_agent_install_config_registration_address }}:",
+        "--token-file {{ k3s_agent_install_config_token_file }}",
+        "--config {{ k3s_agent_install_config_config_file }}",
+        "WantedBy=multi-user.target",
+    ]
+    for term in required_agent_unit_terms:
+        if term not in agent_install_config_template:
+            fail(
+                f"{agent_install_config_template_path} must keep `{term}`",
+                failures,
+            )
 
     agent_play_match = re.search(
         r"- name: k3s staging agents(?P<body>.*?)(?:\n- name:|\Z)",

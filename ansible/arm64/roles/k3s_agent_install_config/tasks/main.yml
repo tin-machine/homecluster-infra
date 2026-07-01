@@ -15,6 +15,22 @@
       - k3s_agent_install_config_binary_names | length > 0
       - k3s_agent_install_config_install_hard_links | string | lower in ['true', 'false', 'yes', 'no', '1', '0']
       - not (k3s_agent_install_config_enabled | bool) or (k3s_agent_install_config_release_version | string | length > 0)
+      - not (k3s_agent_install_config_enabled | bool) or (k3s_agent_install_config_registration_address | string | length > 0)
+      - k3s_agent_install_config_control_plane_port | int > 0
+      - k3s_agent_install_config_systemd_unit_template | string | length > 0
+      - k3s_agent_install_config_service_requires is sequence
+      - k3s_agent_install_config_service_requires is not string
+      - k3s_agent_install_config_service_wants is sequence
+      - k3s_agent_install_config_service_wants is not string
+      - k3s_agent_install_config_service_before is sequence
+      - k3s_agent_install_config_service_before is not string
+      - k3s_agent_install_config_service_after is sequence
+      - k3s_agent_install_config_service_after is not string
+      - k3s_agent_install_config_service_exec_start_pre is sequence
+      - k3s_agent_install_config_service_exec_start_pre is not string
+      - k3s_agent_install_config_restart_policy | string | length > 0
+      - k3s_agent_install_config_restart_sec | string | length > 0
+      - k3s_agent_install_config_timeout_start_sec | string | length > 0
     fail_msg: "xanmanning.k3s k3s_state downloaded 前提の scaffold 変数が不正です"
 
 - name: k3s agent binary link を配置
@@ -28,5 +44,16 @@
   loop: "{{ k3s_agent_install_config_binary_names }}"
   loop_control:
     label: "{{ item }}"
+  when:
+    - k3s_agent_install_config_enabled | bool
+
+- name: k3s agent systemd unit を配置
+  become: true
+  ansible.builtin.template:
+    src: "{{ k3s_agent_install_config_systemd_unit_template }}"
+    dest: "{{ k3s_agent_install_config_systemd_unit_path }}"
+    owner: root
+    group: root
+    mode: '0644'
   when:
     - k3s_agent_install_config_enabled | bool

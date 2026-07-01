@@ -15,3 +15,19 @@ k3s_agent_install_config_binary_names:
   - crictl
   - ctr
 k3s_agent_install_config_install_hard_links: false
+k3s_agent_install_config_registration_address: ""
+k3s_agent_install_config_control_plane_port: 6443
+k3s_agent_install_config_systemd_unit_template: "k3s-agent.service.j2"
+k3s_agent_install_config_service_wants:
+  - network-online.target
+k3s_agent_install_config_service_after:
+  - network-online.target
+k3s_agent_install_config_service_requires: []
+k3s_agent_install_config_service_before: []
+k3s_agent_install_config_service_exec_start_pre:
+  - "/bin/sh -xc '! /usr/bin/systemctl is-enabled --quiet nm-cloud-setup.service'"
+  - "-/sbin/modprobe br_netfilter"
+  - "-/sbin/modprobe overlay"
+k3s_agent_install_config_restart_policy: "always"
+k3s_agent_install_config_restart_sec: "5s"
+k3s_agent_install_config_timeout_start_sec: "0"
