@@ -495,11 +495,9 @@
       - openwrt_gentoo_homecluster_unit_chain_enabled | bool
       - "'base' in openwrt_gentoo_ansible_pull_roles"
       - >-
-        {{
-          (openwrt_gentoo_homecluster_unit_chain | default([])
-          | selectattr('name', 'equalto', 'homecluster-base.service')
-          | list | length) == 1
-        }}
+        (openwrt_gentoo_homecluster_unit_chain | default([])
+        | selectattr('name', 'equalto', 'homecluster-base.service')
+        | list | length) == 1
     fail_msg: >-
       openwrt_gentoo_homecluster_unit_chain_start_enabled=true では、
       homecluster unit chain を有効にし、base role と homecluster-base.service を
