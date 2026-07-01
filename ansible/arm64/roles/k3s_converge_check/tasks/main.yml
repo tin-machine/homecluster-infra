@@ -2,7 +2,7 @@
 - name: "k3s_converge check-only"
   ansible.builtin.assert:
     that:
-      - k3s_converge_check_node_role == 'agent'
+      - k3s_converge_check_node_role in ['agent', 'server']
       - k3s_converge_check_install_path | length > 0
       - k3s_converge_check_compat_install_path | length > 0
       - k3s_converge_check_mountpoint | length > 0
@@ -10,7 +10,7 @@
       - k3s_converge_check_mode in ['check-only', 'start']
   when:
     - k3s_converge_check_enabled | bool
-    - inventory_hostname in (groups['k3s_stg_agents'] | default([]))
+    - inventory_hostname in ((groups['k3s_stg_agents'] | default([])) + (groups['k3s_stg_server'] | default([])))
 
 - name: Install k3s_converge_check helper
   ansible.builtin.copy:
@@ -19,7 +19,7 @@
     mode: '0755'
   when:
     - k3s_converge_check_enabled | bool
-    - inventory_hostname in (groups['k3s_stg_agents'] | default([]))
+    - inventory_hostname in ((groups['k3s_stg_agents'] | default([])) + (groups['k3s_stg_server'] | default([])))
 
 - name: Install k3s_converge_check compatibility symlink
   ansible.builtin.file:
@@ -29,7 +29,7 @@
     force: true
   when:
     - k3s_converge_check_enabled | bool
-    - inventory_hostname in (groups['k3s_stg_agents'] | default([]))
+    - inventory_hostname in ((groups['k3s_stg_agents'] | default([])) + (groups['k3s_stg_server'] | default([])))
 
 - name: Run k3s_converge helper
   ansible.builtin.command:
@@ -46,4 +46,4 @@
   changed_when: "'k3s-converge: service started' in k3s_converge_check_run.stdout"
   when:
     - k3s_converge_check_enabled | bool
-    - inventory_hostname in (groups['k3s_stg_agents'] | default([]))
+    - inventory_hostname in ((groups['k3s_stg_agents'] | default([])) + (groups['k3s_stg_server'] | default([])))

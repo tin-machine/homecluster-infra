@@ -48,6 +48,7 @@ def main() -> int:
     server_install_config_template_path = (
         "ansible/arm64/roles/k3s_server_install_config/templates/k3s-server.service.j2"
     )
+    converge_tasks_path = "ansible/arm64/roles/k3s_converge_check/tasks/main.yml"
     site_path = "ansible/arm64/site.yml"
 
     adr = read_rel(adr_path)
@@ -59,6 +60,7 @@ def main() -> int:
     server_install_config_tasks = read_rel(server_install_config_tasks_path)
     server_install_config_defaults = read_rel(server_install_config_defaults_path)
     server_install_config_template = read_rel(server_install_config_template_path)
+    converge_tasks = read_rel(converge_tasks_path)
     site = read_rel(site_path)
 
     required_adr_terms = [
@@ -302,12 +304,17 @@ def main() -> int:
             fail("lifecycle-enabled k3s_converge must not leave agent xanmanning.k3s at installed", failures)
         for term in [
             "ansible.builtin.command:",
+            "k3s_converge_check_node_role in ['agent', 'server']",
             "k3s_converge_check_mode in ['check-only', 'start']",
+            "groups['k3s_stg_server']",
             "'--start' if k3s_converge_check_mode == 'start' else '--check-only'",
             "k3s-converge: service started",
         ]:
-            if term not in read_rel("ansible/arm64/roles/k3s_converge_check/tasks/main.yml"):
+            if term not in converge_tasks:
                 fail(f"k3s_converge_check tasks must keep lifecycle guard `{term}`", failures)
+
+        if "k3s_converge_check_node_role == 'agent'" in converge_tasks:
+            fail("k3s_converge_check tasks must not restrict node_role to agent only", failures)
 
     server_xanmanning_match = re.search(
         r"- role: xanmanning\.k3s(?P<body>.*?)(?:\n    - role:|\n  vars:|\Z)",
