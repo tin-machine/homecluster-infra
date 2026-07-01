@@ -1,0 +1,26 @@
+[Unit]
+Description=Homecluster {{ homecluster_stage_unit.description }} convergence
+Wants=network-online.target time-sync.target systemd-time-wait-sync.service
+After=network-online.target time-sync.target systemd-time-wait-sync.service pxe-write-role.service
+{% if homecluster_stage_unit.after | default('') %}
+After={{ homecluster_stage_unit.after }}
+{% endif %}
+{% if homecluster_stage_unit.next | default('') %}
+OnSuccess={{ homecluster_stage_unit.next }}
+{% endif %}
+ConditionPathExists=/run/dhcp/role.env
+StartLimitIntervalSec=900
+StartLimitBurst=3
+
+[Service]
+Type=oneshot
+Restart=on-failure
+RestartSec=60
+EnvironmentFile=-/run/dhcp/role.env
+ExecStart=/usr/local/sbin/homecluster-ansible-stage-wrapper.sh "{{ homecluster_stage_unit.stage }}"
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=3d
+
+[Install]
+WantedBy=multi-user.target

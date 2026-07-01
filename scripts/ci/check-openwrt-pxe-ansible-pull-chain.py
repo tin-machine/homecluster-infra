@@ -20,6 +20,16 @@ ON_SUCCESS_TEMPLATE = (
     / "ansible/openwrt/roles/openwrt_gentoo_rootfs/templates/systemd/"
     "ansible-pull@role.on-success.conf.j2"
 )
+HOMECLUSTER_STAGE_WRAPPER = (
+    REPO_ROOT
+    / "ansible/openwrt/roles/openwrt_gentoo_rootfs/templates/"
+    "homecluster-ansible-stage-wrapper.sh.j2"
+)
+HOMECLUSTER_STAGE_UNIT_TEMPLATE = (
+    REPO_ROOT
+    / "ansible/openwrt/roles/openwrt_gentoo_rootfs/templates/systemd/"
+    "homecluster-stage.service.j2"
+)
 UNIT_CHAIN_ADR = (
     REPO_ROOT
     / "docs/architecture-decision-record/0015-homecluster-converge-unit-chain.md"
@@ -199,6 +209,66 @@ def test_on_success_template() -> None:
     )
 
 
+def test_homecluster_stage_wrapper_template() -> None:
+    text = read_text(HOMECLUSTER_STAGE_WRAPPER)
+
+    required_terms = [
+        "role_for_stage()",
+        "base)",
+        "storage)",
+        "k3s|k3s-converge)",
+        "terraform)",
+        "k3s_stg_server",
+        "k3s_stg_agent",
+        "exec /usr/local/sbin/pxe-ansible-pull-wrapper.sh",
+        "not in ROLES",
+    ]
+    for term in required_terms:
+        require_contains(
+            text,
+            term,
+            f"{HOMECLUSTER_STAGE_WRAPPER.relative_to(REPO_ROOT)} must keep `{term}`",
+        )
+
+
+def test_homecluster_stage_unit_template() -> None:
+    text = read_text(HOMECLUSTER_STAGE_UNIT_TEMPLATE)
+
+    required_terms = [
+        "OnSuccess={{ homecluster_stage_unit.next }}",
+        "ConditionPathExists=/run/dhcp/role.env",
+        "EnvironmentFile=-/run/dhcp/role.env",
+        "ExecStart=/usr/local/sbin/homecluster-ansible-stage-wrapper.sh",
+        "WantedBy=multi-user.target",
+    ]
+    for term in required_terms:
+        require_contains(
+            text,
+            term,
+            f"{HOMECLUSTER_STAGE_UNIT_TEMPLATE.relative_to(REPO_ROOT)} must keep `{term}`",
+        )
+    require_not_contains(
+        text,
+        "Requires=",
+        "homecluster domain unit template must not use Requires= before retry semantics are explicit",
+    )
+
+
+def test_homecluster_unit_chain_is_not_direct_enabled() -> None:
+    text = read_text(PXE_RUNTIME)
+
+    require_contains(
+        text,
+        "homecluster domain unit を配置",
+        "pxe_runtime must place source-only homecluster domain units",
+    )
+    require_not_contains(
+        text,
+        "multi-user.target.wants/{{ item.1.name }}",
+        "homecluster domain units must not be direct enabled in the source-only stage",
+    )
+
+
 def test_homecluster_unit_chain_adr_contract() -> None:
     text = read_text(UNIT_CHAIN_ADR)
 
@@ -228,6 +298,9 @@ def main() -> None:
     test_pxe_runtime_chain_tasks()
     test_dependency_override_template()
     test_on_success_template()
+    test_homecluster_stage_wrapper_template()
+    test_homecluster_stage_unit_template()
+    test_homecluster_unit_chain_is_not_direct_enabled()
     test_homecluster_unit_chain_adr_contract()
     print("openwrt_pxe_ansible_pull_chain checks ok")
 
