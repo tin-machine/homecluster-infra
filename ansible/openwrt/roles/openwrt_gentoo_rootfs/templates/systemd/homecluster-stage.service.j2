@@ -17,7 +17,9 @@ Type=oneshot
 Restart=on-failure
 RestartSec=60
 EnvironmentFile=-/run/dhcp/role.env
-ExecStart=/usr/local/sbin/homecluster-ansible-stage-wrapper.sh "{{ homecluster_stage_unit.stage }}"
+Environment=REPO_URL={{ openwrt_gentoo_ansible_pull_repo_url }}
+Environment=DEST=/var/lib/ansible-pull
+ExecStart=/usr/bin/flock /run/ansible-pull.lock /usr/local/sbin/homecluster-ansible-stage-wrapper.sh "{{ homecluster_stage_unit.stage }}"
 StandardOutput=journal
 StandardError=journal
 TimeoutStartSec=3d
