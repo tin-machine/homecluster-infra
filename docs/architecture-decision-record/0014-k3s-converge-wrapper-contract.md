@@ -51,8 +51,14 @@ enable symlink を消し、`RequiresMountsFor=/var/lib/rancher/k3s` と
   server より start 分離しやすい。
 3. server side の start 抑制可否を source-only で確認する。upstream role の start semantics を読んでから
   方針を決め、role 後に k3s を stop する形で帳尻を合わせない。
-4. wrapper が live start を担う段階で、post-merge apply と SwitchBot off/on を 1 セットで検証する。
-5. 十分に安定した後で `homecluster-k3s-converge.service` への unit 名分離を検討する。
+4. agent side の start 分離では、`xanmanning.k3s` を `k3s_state: downloaded` に寄せる。
+  `downloaded` は k3s binary download までで、`/usr/local/bin/k3s` symlink、config、unit、
+  token file は配置しないため、local role が install/config/unit/token file 配置を担う。
+  この local role は `Restart k3s systemd` handler や `systemctl start/restart` を直接持たない。
+5. `k3s_converge` が live start / restart を担う段階では、agent play に upstream
+  `Restart k3s systemd` handler 由来の start point が残っていないことを source validator で確認する。
+6. wrapper が live start を担う段階で、post-merge apply と SwitchBot off/on を 1 セットで検証する。
+7. 十分に安定した後で `homecluster-k3s-converge.service` への unit 名分離を検討する。
 
 ## 理由
 
@@ -65,6 +71,12 @@ enable symlink を消し、`RequiresMountsFor=/var/lib/rancher/k3s` と
 
 server node は token publish と API readyz の起点である。agent より先に server start を分離すると
 blast radius が大きいため、agent side の read-only / check-only から広げる。
+
+2026-07-01 の source read-only 確認では、agent 側でも `xanmanning.k3s` の
+`ensure_installed_node.yml` が binary link、config、unit、token file 更新時に `Restart k3s systemd`
+handler を notify し得ることが分かった。このため、`k3s_converge` を agent play の後段に置くだけでは
+daemon start の責務は移らない。live start を wrapper へ寄せる前に、upstream role を `k3s_state: downloaded`
+へ落とし、local install/config/unit/token 配置 role を挟む必要がある。
 
 ## 不採用案
 
