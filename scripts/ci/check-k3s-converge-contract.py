@@ -232,6 +232,17 @@ def main() -> int:
     if "k3s_converge_check_mode: start" not in agent_play:
         fail("k3s staging agents play must explicitly opt in to k3s_converge start mode", failures)
 
+    server_play_match = re.search(
+        r"- name: k3s staging server(?P<body>.*?)(?:\n- name:|\Z)",
+        site,
+        flags=re.DOTALL,
+    )
+    if not server_play_match:
+        fail("ansible/arm64/site.yml must keep a k3s staging server play", failures)
+        server_play = ""
+    else:
+        server_play = server_play_match.group("body")
+
     xanmanning_match = re.search(
         r"- role: xanmanning\.k3s(?P<body>.*?)(?:\n    - role:|\n  vars:|\Z)",
         agent_play,
@@ -297,6 +308,67 @@ def main() -> int:
         ]:
             if term not in read_rel("ansible/arm64/roles/k3s_converge_check/tasks/main.yml"):
                 fail(f"k3s_converge_check tasks must keep lifecycle guard `{term}`", failures)
+
+    server_xanmanning_match = re.search(
+        r"- role: xanmanning\.k3s(?P<body>.*?)(?:\n    - role:|\n  vars:|\Z)",
+        server_play,
+        flags=re.DOTALL,
+    )
+    server_xanmanning_body = server_xanmanning_match.group("body") if server_xanmanning_match else ""
+    server_xanmanning_position = role_position(server_play, "xanmanning.k3s")
+    server_networking_position = role_position(server_play, "k3s_networking")
+    server_install_config_position = role_position(server_play, "k3s_server_install_config")
+    server_converge_position = role_position(server_play, "k3s_converge_check")
+
+    required_server_wired_terms = [
+        "k3s_state: downloaded",
+        "k3s_service_name: k3s",
+        "k3s_defer_service_restart: true",
+        "k3s_control_node: true",
+        "k3s_server_install_config_enabled: true",
+        "k3s_server_install_config_release_version:",
+        "k3s_server_install_config_control_token:",
+        "k3s_server_install_config_service_name: k3s",
+        "k3s_converge_check_node_role: server",
+        "k3s_converge_check_service_name: k3s",
+        "k3s_converge_check_mountpoint: /var/lib/rancher/k3s",
+        "k3s_converge_check_mode: start",
+    ]
+    for term in required_server_wired_terms:
+        if term not in server_play:
+            fail(f"k3s server install/config wiring must pass `{term}`", failures)
+
+    expected_server_order = [
+        ("xanmanning.k3s", server_xanmanning_position),
+        ("k3s_networking", server_networking_position),
+        ("k3s_server_install_config", server_install_config_position),
+        ("k3s_converge_check", server_converge_position),
+    ]
+    missing_server_order_roles = [name for name, position in expected_server_order if position < 0]
+    if missing_server_order_roles:
+        fail(
+            "k3s server install/config wiring requires roles: "
+            + ", ".join(missing_server_order_roles),
+            failures,
+        )
+    elif not (
+        server_xanmanning_position
+        < server_networking_position
+        < server_install_config_position
+        < server_converge_position
+    ):
+        fail(
+            "k3s server wiring order must be xanmanning.k3s -> "
+            "k3s_networking -> k3s_server_install_config -> k3s_converge_check",
+            failures,
+        )
+
+    if not server_xanmanning_match:
+        fail("k3s server install/config wiring requires an explicit xanmanning.k3s server block", failures)
+    if "k3s_state: downloaded" not in server_xanmanning_body:
+        fail("k3s server install/config wiring requires server xanmanning.k3s k3s_state: downloaded", failures)
+    if "k3s_state: installed" in server_xanmanning_body:
+        fail("k3s server install/config wiring must not leave server xanmanning.k3s at installed", failures)
 
     if failures:
         print("k3s_converge contract check failed", file=sys.stderr)
