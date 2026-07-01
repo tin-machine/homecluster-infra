@@ -1,0 +1,72 @@
+#!/bin/sh
+# Managed by Ansible (openwrt_gentoo_rootfs)
+#
+# Map future homecluster domain stages to the current ansible-pull role names.
+
+set -eu
+
+stage="${1:-}"
+roles_csv="$(printf '%s' "${ROLES:-}" | tr -d '[:space:]')"
+
+has_role() {
+  role_name="$1"
+  [ -n "${roles_csv}" ] || return 1
+  case ",${roles_csv}," in
+    *",${role_name},"*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+select_k3s_role() {
+  if has_role "k3s_stg_server"; then
+    printf '%s\n' "k3s_stg_server"
+    return 0
+  fi
+  if has_role "k3s_stg_agent"; then
+    printf '%s\n' "k3s_stg_agent"
+    return 0
+  fi
+  echo "skip homecluster stage k3s-converge: no k3s staging role in ROLES=${ROLES:-}" >&2
+  return 2
+}
+
+role_for_stage() {
+  case "$1" in
+    base)
+      printf '%s\n' "base"
+      ;;
+    storage)
+      printf '%s\n' "k3s_stg_storage"
+      ;;
+    k3s|k3s-converge)
+      select_k3s_role
+      ;;
+    terraform)
+      printf '%s\n' "terraform_stg"
+      ;;
+    *)
+      echo "unknown homecluster stage: $1" >&2
+      return 1
+      ;;
+  esac
+}
+
+if [ -z "${stage}" ]; then
+  echo "homecluster stage is empty" >&2
+  exit 1
+fi
+
+role="$(role_for_stage "${stage}")" || rc="$?"
+if [ "${rc:-0}" = "2" ]; then
+  exit 0
+fi
+if [ "${rc:-0}" != "0" ]; then
+  exit "${rc}"
+fi
+
+if ! has_role "${role}"; then
+  echo "skip homecluster stage ${stage}: ROLE=${role} not in ROLES=${ROLES:-}" >&2
+  exit 0
+fi
+
+exec /usr/local/sbin/pxe-ansible-pull-wrapper.sh "${role}"
