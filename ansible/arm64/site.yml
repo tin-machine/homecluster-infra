@@ -356,6 +356,7 @@
         k3s_converge_check_node_role: agent
         k3s_converge_check_service_name: k3s
         k3s_converge_check_mountpoint: /var/lib/rancher/k3s
+        k3s_converge_check_mode: start
       tags:
         - k3s_converge_check
     - role: rpi5_egpu_local_llm

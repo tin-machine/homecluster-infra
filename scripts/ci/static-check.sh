@@ -120,8 +120,8 @@ redaction_matches="$(
 )"
 report_matches "redaction pattern matches found" "${redaction_matches}"
 
-print_section "k3s_converge check-only source validator"
-k3s_converge_validator_pattern='(^|[;&|[:space:]])(systemctl[[:space:]]+(start|restart|enable|disable)|service[[:space:]]+[^[:space:]]+[[:space:]]+(start|restart|enable|disable)|mount[[:space:]]+|umount[[:space:]]+|iscsiadm([[:space:]]|$)|terraform[[:space:]]+(apply|destroy)|kubectl[[:space:]].*(delete|apply|patch|create)|rm[[:space:]]+|wipefs([[:space:]]|$)|mkfs([.[:alnum:]_-]*[[:space:]]|$))'
+print_section "k3s_converge source validator"
+k3s_converge_validator_pattern='(^|[;&|[:space:]])(systemctl[[:space:]]+(restart|enable|disable)|service[[:space:]]+[^[:space:]]+[[:space:]]+(start|restart|enable|disable)|mount[[:space:]]+|umount[[:space:]]+|iscsiadm([[:space:]]|$)|terraform[[:space:]]+(apply|destroy)|kubectl[[:space:]].*(delete|apply|patch|create)|rm[[:space:]]+|wipefs([[:space:]]|$)|mkfs([.[:alnum:]_-]*[[:space:]]|$))'
 k3s_converge_validator_matches="$(
   k3s_converge_files=()
   for path in "${scan_files[@]}"; do
@@ -134,7 +134,7 @@ k3s_converge_validator_matches="$(
     grep -nIE --binary-files=without-match "${k3s_converge_validator_pattern}" "${k3s_converge_files[@]}" || true
   fi
 )"
-report_matches "k3s_converge check-only violations found" "${k3s_converge_validator_matches}"
+report_matches "k3s_converge disallowed lifecycle/storage violations found" "${k3s_converge_validator_matches}"
 
 
 print_section "terraform and helm values redaction scan"

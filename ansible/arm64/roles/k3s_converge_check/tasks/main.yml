@@ -7,8 +7,7 @@
       - k3s_converge_check_compat_install_path | length > 0
       - k3s_converge_check_mountpoint | length > 0
       - k3s_converge_check_service_name | length > 0
-  # This role is a Phase 3B scaffold for agent-side read-only k3s convergence checks.
-  # It must not manage daemon lifecycle, node identity, or storage state.
+      - k3s_converge_check_mode in ['check-only', 'start']
   when:
     - k3s_converge_check_enabled | bool
     - inventory_hostname in (groups['k3s_stg_agents'] | default([]))
@@ -28,6 +27,23 @@
     dest: "{{ k3s_converge_check_compat_install_path }}"
     state: link
     force: true
+  when:
+    - k3s_converge_check_enabled | bool
+    - inventory_hostname in (groups['k3s_stg_agents'] | default([]))
+
+- name: Run k3s_converge helper
+  ansible.builtin.command:
+    argv:
+      - "{{ k3s_converge_check_install_path }}"
+      - "{{ '--start' if k3s_converge_check_mode == 'start' else '--check-only' }}"
+      - --mountpoint
+      - "{{ k3s_converge_check_mountpoint }}"
+      - --service
+      - "{{ k3s_converge_check_service_name }}"
+      - --node-role
+      - "{{ k3s_converge_check_node_role }}"
+  register: k3s_converge_check_run
+  changed_when: "'k3s-converge: service started' in k3s_converge_check_run.stdout"
   when:
     - k3s_converge_check_enabled | bool
     - inventory_hostname in (groups['k3s_stg_agents'] | default([]))

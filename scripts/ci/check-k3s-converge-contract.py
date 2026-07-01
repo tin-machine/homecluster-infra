@@ -67,11 +67,19 @@ def main() -> int:
         not in defaults
     ):
         fail("k3s_converge_check compatibility install path must remain k3s-converge-check", failures)
+    if "k3s_converge_check_mode: check-only" not in defaults:
+        fail("k3s_converge_check default mode must remain check-only", failures)
 
     if "--check-only" not in helper:
         fail("k3s-converge helper must keep --check-only support", failures)
+    if "--start" not in helper:
+        fail("k3s-converge helper must expose an explicit --start mode", failures)
     if "k3s-converge: check-only preconditions passed" not in helper:
         fail("k3s-converge helper success output must use the contract helper name", failures)
+    if "k3s-converge: service started" not in helper:
+        fail("k3s-converge helper must report explicit service start", failures)
+    if "systemctl daemon-reload" not in helper:
+        fail("k3s-converge helper must daemon-reload before explicit service start", failures)
 
     lifecycle_pattern = re.compile(r"\bsystemctl\s+(start|restart|enable|disable)\b")
     helper_has_lifecycle = bool(lifecycle_pattern.search(helper))
@@ -155,6 +163,8 @@ def main() -> int:
 
     if "role: k3s_converge_check" not in agent_play:
         fail("k3s staging agents play must install the k3s_converge check helper", failures)
+    if "k3s_converge_check_mode: start" not in agent_play:
+        fail("k3s staging agents play must explicitly opt in to k3s_converge start mode", failures)
 
     xanmanning_match = re.search(
         r"- role: xanmanning\.k3s(?P<body>.*?)(?:\n    - role:|\n  vars:|\Z)",
@@ -213,6 +223,14 @@ def main() -> int:
             fail("lifecycle-enabled k3s_converge requires agent xanmanning.k3s k3s_state: downloaded", failures)
         if "k3s_state: installed" in xanmanning_body:
             fail("lifecycle-enabled k3s_converge must not leave agent xanmanning.k3s at installed", failures)
+        for term in [
+            "ansible.builtin.command:",
+            "k3s_converge_check_mode in ['check-only', 'start']",
+            "'--start' if k3s_converge_check_mode == 'start' else '--check-only'",
+            "k3s-converge: service started",
+        ]:
+            if term not in read_rel("ansible/arm64/roles/k3s_converge_check/tasks/main.yml"):
+                fail(f"k3s_converge_check tasks must keep lifecycle guard `{term}`", failures)
 
     if failures:
         print("k3s_converge contract check failed", file=sys.stderr)
