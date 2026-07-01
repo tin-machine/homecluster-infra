@@ -199,6 +199,11 @@ def test_pxe_runtime_chain_tasks() -> None:
     )
     require_contains(
         text,
+        "item.1 not in ((openwrt_gentoo_ansible_pull_role_dependencies_effective | default({})).get(item.2, {}).get('after', []))",
+        "pxe_runtime must skip currently desired OnSuccess pairs during stale cleanup",
+    )
+    require_contains(
+        text,
         "10-on-success-{{ item.2 }}.conf",
         "stale OnSuccess cleanup must target managed 10-on-success drop-ins",
     )
