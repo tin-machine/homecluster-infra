@@ -163,6 +163,26 @@ openwrt_gentoo_ansible_pull_roles: []
 openwrt_gentoo_ansible_pull_role_dependencies: {}
 openwrt_gentoo_ansible_pull_env_group: env_prd
 openwrt_gentoo_ansible_pull_netrc_entries: []
+openwrt_gentoo_homecluster_unit_chain_enabled: true
+openwrt_gentoo_homecluster_unit_chain:
+  - name: homecluster-base.service
+    description: base
+    stage: base
+    next: homecluster-storage.service
+  - name: homecluster-storage.service
+    description: storage
+    stage: storage
+    after: homecluster-base.service
+    next: homecluster-k3s-converge.service
+  - name: homecluster-k3s-converge.service
+    description: k3s
+    stage: k3s-converge
+    after: homecluster-storage.service
+    next: homecluster-terraform.service
+  - name: homecluster-terraform.service
+    description: terraform
+    stage: terraform
+    after: homecluster-k3s-converge.service
 
 # PXE k3s staging の base role で毎 boot 導入していた共通 userland。
 # lower rootfs へ事前導入し、boot 後の tmpfs overlay 消費と ansible-pull@base 時間を抑える。
