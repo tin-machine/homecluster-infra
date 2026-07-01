@@ -16,6 +16,7 @@ ENV_STATE_PATH="${BUNDLE_ROOT}/{{ k3s_observability_apply_stage_name }}.tfstate"
 LIVE_WRAPPER_CONTRACT_PATH="/etc/homecluster/k3s-observability-apply-contract-version"
 LOCK_TIMEOUT="{{ k3s_observability_apply_lock_timeout }}"
 APPLY_PARALLELISM="{{ k3s_observability_apply_parallelism }}"
+APPLY_LOG_PATH="{{ k3s_observability_apply_log_path }}"
 METALLB_CRD_WAIT_TIMEOUT_SECS="{{ k3s_observability_apply_metallb_crd_wait_timeout_secs }}"
 METALLB_READY_WAIT_TIMEOUT_SECS="{{ k3s_observability_apply_metallb_ready_wait_timeout_secs }}"
 CERT_MANAGER_READY_WAIT_TIMEOUT_SECS="{{ k3s_observability_apply_cert_manager_ready_wait_timeout_secs }}"
@@ -24,6 +25,35 @@ if [ -e "${DONE_MARKER}" ]; then
   echo "k3s observability apply already completed for this boot: ${DONE_MARKER}"
   exit 0
 fi
+
+setup_apply_log() {
+  if [ -z "${APPLY_LOG_PATH}" ]; then
+    return 0
+  fi
+
+  log_dir="$(dirname "${APPLY_LOG_PATH}")"
+  if [ ! -d "${log_dir}" ]; then
+    install -d -m 0700 "${log_dir}"
+  fi
+  : > "${APPLY_LOG_PATH}"
+  chmod 0600 "${APPLY_LOG_PATH}"
+
+  log_fifo="${APPLY_LOG_PATH}.$$.fifo"
+  rm -f "${log_fifo}"
+  mkfifo "${log_fifo}"
+
+  tee -a "${APPLY_LOG_PATH}" < "${log_fifo}" &
+  log_tee_pid="$!"
+
+  exec 3>&1 4>&2
+  exec > "${log_fifo}" 2>&1
+  rm -f "${log_fifo}"
+
+  trap 'exec 1>&3 2>&4; wait "${log_tee_pid}" 2>/dev/null || true' EXIT
+  echo "writing k3s observability apply output to ${APPLY_LOG_PATH}"
+}
+
+setup_apply_log
 
 if [ ! -d "${INFRA_CURRENT_LINK}" ]; then
   echo "infra current bundle not found: ${INFRA_CURRENT_LINK}" >&2
