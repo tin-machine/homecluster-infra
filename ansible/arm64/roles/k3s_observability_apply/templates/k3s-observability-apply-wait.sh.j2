@@ -7,6 +7,12 @@ DONE_MARKER="{{ k3s_observability_apply_run_root }}/{{ k3s_observability_apply_s
 TIMEOUT_SECS="{{ k3s_observability_apply_wait_timeout_secs }}"
 RETRY_SECS="{{ k3s_observability_apply_retry_secs }}"
 POST_READY_SETTLE_SECS="{{ k3s_observability_apply_post_ready_settle_secs }}"
+EXPECTED_READY_NODES="{{ k3s_observability_apply_expected_ready_nodes }}"
+POD_SETTLE_ENABLED="{{ k3s_observability_apply_pod_settle_enabled | bool | ternary('true', 'false') }}"
+POD_SETTLE_PASS_COUNT="{{ k3s_observability_apply_pod_settle_pass_count }}"
+POD_SETTLE_INTERVAL_SECS="{{ k3s_observability_apply_pod_settle_interval_secs }}"
+POD_SETTLE_NAMESPACE_INCLUDE_REGEX="{{ k3s_observability_apply_pod_settle_namespace_include_regex }}"
+POD_SETTLE_NAMESPACE_EXCLUDE_REGEX="{{ k3s_observability_apply_pod_settle_namespace_exclude_regex }}"
 NODE_NAME="$(hostnamectl --static 2>/dev/null || hostname)"
 
 if [ -e "${DONE_MARKER}" ]; then
@@ -16,6 +22,33 @@ fi
 
 now_epoch() {
   date +%s
+}
+
+ready_node_count() {
+  /usr/local/bin/k3s kubectl --kubeconfig="${KUBECONFIG_PATH}" get nodes --no-headers 2>/dev/null |
+    awk '$2 ~ /^Ready/ { count++ } END { print count + 0 }'
+}
+
+non_running_pod_count() {
+  pod_lines="$(
+    /usr/local/bin/k3s kubectl --kubeconfig="${KUBECONFIG_PATH}" get pods -A \
+      --field-selector=status.phase!=Running,status.phase!=Succeeded \
+      --no-headers 2>/dev/null || true
+  )"
+
+  if [ -z "${pod_lines}" ]; then
+    echo 0
+    return
+  fi
+
+  printf '%s\n' "${pod_lines}" |
+    awk \
+      -v include_re="${POD_SETTLE_NAMESPACE_INCLUDE_REGEX}" \
+      -v exclude_re="${POD_SETTLE_NAMESPACE_EXCLUDE_REGEX}" \
+      'include_re != "" && $1 !~ include_re { next }
+       exclude_re != "" && $1 ~ exclude_re { next }
+       { count++ }
+       END { print count + 0 }'
 }
 
 deadline=$(( $(now_epoch) + TIMEOUT_SECS ))
@@ -36,6 +69,18 @@ while ! /usr/local/bin/k3s kubectl --kubeconfig="${KUBECONFIG_PATH}" get --raw=/
   sleep "${RETRY_SECS}"
 done
 
+while true; do
+  READY_COUNT="$(ready_node_count)"
+  if [ "${READY_COUNT}" -ge "${EXPECTED_READY_NODES}" ]; then
+    break
+  fi
+  if [ "$(now_epoch)" -ge "${deadline}" ]; then
+    echo "timed out waiting for ${EXPECTED_READY_NODES} ready nodes; current=${READY_COUNT}" >&2
+    exit 1
+  fi
+  sleep "${RETRY_SECS}"
+done
+
 while ! /usr/local/bin/k3s kubectl --kubeconfig="${KUBECONFIG_PATH}" wait --for=condition=Ready "node/${NODE_NAME}" --timeout=10s >/dev/null 2>&1; do
   if [ "$(now_epoch)" -ge "${deadline}" ]; then
     echo "timed out waiting for node/${NODE_NAME} to become Ready" >&2
@@ -43,6 +88,29 @@ while ! /usr/local/bin/k3s kubectl --kubeconfig="${KUBECONFIG_PATH}" wait --for=
   fi
   sleep "${RETRY_SECS}"
 done
+
+if [ "${POD_SETTLE_ENABLED}" = "true" ]; then
+  PASSED_COUNT=0
+  while true; do
+    NON_RUNNING="$(non_running_pod_count)"
+
+    if [ "${NON_RUNNING}" -eq 0 ]; then
+      PASSED_COUNT=$((PASSED_COUNT + 1))
+      if [ "${PASSED_COUNT}" -ge "${POD_SETTLE_PASS_COUNT}" ]; then
+        break
+      fi
+    else
+      PASSED_COUNT=0
+    fi
+
+    if [ "$(now_epoch)" -ge "${deadline}" ]; then
+      echo "timed out waiting for pod settle; non_running=${NON_RUNNING}" >&2
+      exit 1
+    fi
+    echo "waiting for pod settle: non_running=${NON_RUNNING} consecutive_passes=${PASSED_COUNT}/${POD_SETTLE_PASS_COUNT}"
+    sleep "${POD_SETTLE_INTERVAL_SECS}"
+  done
+fi
 
 if [ "${POST_READY_SETTLE_SECS}" -gt 0 ]; then
   echo "waiting ${POST_READY_SETTLE_SECS}s after k3s Ready before Terraform apply"
