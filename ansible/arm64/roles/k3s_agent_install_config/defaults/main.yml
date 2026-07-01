@@ -8,3 +8,10 @@ k3s_agent_install_config_systemd_unit_path: /etc/systemd/system/k3s.service
 k3s_agent_install_config_token_file: /etc/rancher/k3s/cluster-token
 k3s_agent_install_config_node_role: agent
 k3s_agent_install_config_expected_state_source: downloaded
+k3s_agent_install_config_release_version: ""
+k3s_agent_install_config_binary_names:
+  - k3s
+  - kubectl
+  - crictl
+  - ctr
+k3s_agent_install_config_install_hard_links: false

@@ -11,4 +11,22 @@
       - (k3s_agent_install_config_config_file | string) is match('^/.+')
       - (k3s_agent_install_config_systemd_unit_path | string) is match('^/.+')
       - (k3s_agent_install_config_token_file | string) is match('^/.+')
+      - k3s_agent_install_config_binary_names is sequence
+      - k3s_agent_install_config_binary_names | length > 0
+      - k3s_agent_install_config_install_hard_links | string | lower in ['true', 'false', 'yes', 'no', '1', '0']
+      - not (k3s_agent_install_config_enabled | bool) or (k3s_agent_install_config_release_version | string | length > 0)
     fail_msg: "xanmanning.k3s k3s_state downloaded 前提の scaffold 変数が不正です"
+
+- name: k3s agent binary link を配置
+  become: true
+  ansible.builtin.file:
+    src: "{{ k3s_agent_install_config_install_dir }}/k3s-{{ k3s_agent_install_config_release_version }}"
+    dest: "{{ k3s_agent_install_config_install_dir }}/{{ item }}"
+    state: "{{ 'hard' if (k3s_agent_install_config_install_hard_links | bool) else 'link' }}"
+    force: "{{ k3s_agent_install_config_install_hard_links | bool }}"
+    mode: '0755'
+  loop: "{{ k3s_agent_install_config_binary_names }}"
+  loop_control:
+    label: "{{ item }}"
+  when:
+    - k3s_agent_install_config_enabled | bool
