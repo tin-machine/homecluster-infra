@@ -28,6 +28,9 @@ def main() -> int:
     agent_install_config_tasks_path = (
         "ansible/arm64/roles/k3s_agent_install_config/tasks/main.yml"
     )
+    agent_install_config_defaults_path = (
+        "ansible/arm64/roles/k3s_agent_install_config/defaults/main.yml"
+    )
     agent_install_config_template_path = (
         "ansible/arm64/roles/k3s_agent_install_config/templates/k3s-agent.service.j2"
     )
@@ -37,6 +40,7 @@ def main() -> int:
     defaults = read_rel(defaults_path)
     helper = read_rel(helper_path)
     agent_install_config_tasks = read_rel(agent_install_config_tasks_path)
+    agent_install_config_defaults = read_rel(agent_install_config_defaults_path)
     agent_install_config_template = read_rel(agent_install_config_template_path)
     site = read_rel(site_path)
 
@@ -85,6 +89,33 @@ def main() -> int:
         if term in agent_install_config_tasks:
             fail(
                 f"{agent_install_config_tasks_path} must not contain lifecycle term `{term}`",
+                failures,
+            )
+
+    required_agent_token_default_terms = [
+        "k3s_agent_install_config_token_file: /etc/rancher/k3s/cluster-token",
+        'k3s_agent_install_config_control_token: ""',
+    ]
+    for term in required_agent_token_default_terms:
+        if term not in agent_install_config_defaults:
+            fail(
+                f"{agent_install_config_defaults_path} must keep `{term}`",
+                failures,
+            )
+
+    required_agent_token_task_terms = [
+        "k3s_agent_install_config_control_token | string | length > 0",
+        "path: \"{{ k3s_agent_install_config_token_file | dirname }}\"",
+        "ansible.builtin.copy:",
+        "dest: \"{{ k3s_agent_install_config_token_file }}\"",
+        "content: \"{{ k3s_agent_install_config_control_token }}\\n\"",
+        "mode: '0600'",
+        "no_log: true",
+    ]
+    for term in required_agent_token_task_terms:
+        if term not in agent_install_config_tasks:
+            fail(
+                f"{agent_install_config_tasks_path} must keep token placement guard `{term}`",
                 failures,
             )
 
