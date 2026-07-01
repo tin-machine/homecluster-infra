@@ -664,7 +664,7 @@
     - openwrt_gentoo_enabled | bool
     - openwrt_gentoo_ansible_pull_enabled | bool
     - (openwrt_gentoo_ansible_pull_roles | length) > 0
-    - item.1 != item.2
+    - item.1 not in ((openwrt_gentoo_ansible_pull_role_dependencies_effective | default({})).get(item.2, {}).get('after', []))
   tags:
     - pxe
     - pxe_ansible_pull
