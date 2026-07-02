@@ -47,6 +47,36 @@
   loop_control:
     label: "{{ item }}"
 
+- name: Gentoo world update の除外 package list を検証
+  ansible.builtin.assert:
+    that:
+      - gentoo_world_update_exclude_packages is iterable
+      - gentoo_world_update_exclude_packages is not string
+      - >-
+        ((gentoo_world_update_exclude_packages | select('string') | list | length)
+        == (gentoo_world_update_exclude_packages | length))
+      - >-
+        ((gentoo_world_update_exclude_packages
+        | reject('match', '^[A-Za-z0-9_+@./:=~-]+$')
+        | list | length) == 0)
+    fail_msg: >-
+      gentoo_world_update_exclude_packages は shell-safe な Portage package atom の
+      list で指定してください。
+  when: gentoo_world_update_exclude_packages is defined
+  tags:
+    - emerge_world_update
+
+- name: Gentoo world update の除外 emerge option を準備
+  ansible.builtin.set_fact:
+    gentoo_world_update_exclude_args_resolved: >-
+      {{
+        (gentoo_world_update_exclude_packages | default([]))
+        | map('regex_replace', '^(.*)$', '--exclude=\\1')
+        | join(' ')
+      }}
+  tags:
+    - emerge_world_update
+
 - name: Install gentoo world update systemd service
   become: true
   ansible.builtin.copy:
@@ -66,9 +96,9 @@
       ExecStart=/bin/sh -c 'sed -i "\\#^app-admin/ansible$#d" /var/lib/portage/world; for pkg in app-admin/ansible-core dev-vcs/git net-firewall/iptables net-firewall/nftables sys-fs/f2fs-tools; do grep -qxF "$pkg" /var/lib/portage/world || printf "%s\n" "$pkg" >> /var/lib/portage/world; done'
       ExecStart=/usr/bin/emerge --sync
       ExecStart=/usr/bin/emerge --noreplace app-admin/ansible-core dev-vcs/git net-firewall/iptables net-firewall/nftables sys-fs/f2fs-tools
-      ExecStart=/usr/bin/emerge -uDN --with-bdeps=y --ask=n --verbose --backtrack=100 --keep-going @world
-      ExecStart=/usr/bin/emerge @preserved-rebuild
-      ExecStart=/usr/bin/emerge --depclean --ask=n
+      ExecStart=/usr/bin/emerge {{ gentoo_world_update_exclude_args_resolved }} -uDN --with-bdeps=y --ask=n --verbose --backtrack=100 --keep-going @world
+      ExecStart=/usr/bin/emerge {{ gentoo_world_update_exclude_args_resolved }} @preserved-rebuild
+      ExecStart=/usr/bin/emerge {{ gentoo_world_update_exclude_args_resolved }} --depclean --ask=n
       StandardOutput=append:/var/log/gentoo-world-update.log
       StandardError=append:/var/log/gentoo-world-update.log
 
