@@ -128,8 +128,14 @@ ARM64 host role でも、network exposure を変える値は外部 inventory を
 | --- | --- |
 | `distcc.enabled` | distcc を有効化する host だけ外部 inventory で `true` にする。public default は disabled |
 | `distcc.allow`、`distcc_default_allow` | distcc daemon の allowlist。public default は empty list とし、実 subnet / host range は外部 inventory に置く |
+| `gentoo_world_update_exclude_packages` | ARM64 host の `gentoo-world-update.service` で runtime `emerge @world` から除外する package atom の list。public default は undefined / empty で no-op |
 
 `distcc_default_allow` は compatibility 用の default hook として残せるが、public repository で meaningful CIDR を持たせない。site-wide default を使う場合も private inventory 側で定義する。
+
+`gentoo_world_update_exclude_packages` は、PXE tmpfs overlay 上で巨大 package を source build させないための
+site-local escape hatch である。role は値を shell-safe な Portage atom list として検証し、
+`emerge -uDN @world`、`emerge @preserved-rebuild`、`emerge --depclean` へ `--exclude=<atom>` を渡す。
+実際に何を除外するかは external inventory 側で決め、この repository の public default では package を固定しない。
 
 ## 境界
 
