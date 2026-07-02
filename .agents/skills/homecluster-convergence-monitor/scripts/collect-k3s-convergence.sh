@@ -229,6 +229,9 @@ jq -n \
     $events_tail_raw.output
   ] + ($node_checks | map(.output))) as $diagnostic_outputs |
 
+  (($signals | map(select((.line // "" | test("Node password|hash does not match|authorization"; "i")))) | length) > 0) as $node_identity_signal_seen |
+  (($nodes | length) < $expected_nodes_n or (($nodes | map(select(.ready != "True")) | length) > 0)) as $node_identity_still_actionable |
+
   ([
     (if ($nodes_raw.ok | not) then "kubernetes_api_unreachable" else empty end),
     (if ($nodes | length) < $expected_nodes_n then "missing_expected_nodes" else empty end),
@@ -237,7 +240,7 @@ jq -n \
     (if ($non_running | length) > 0 then "non_running_pods" else empty end),
     (if ($running_not_ready | length) > 0 then "running_pods_not_ready" else empty end),
     (if $node_exporter_ready_pod_count < $expected_node_exporter_n then "node_exporter_not_ready" else empty end),
-    (if ($signals | map(select((.line // "" | test("Node password|hash does not match|authorization"; "i")))) | length) > 0 then "node_identity_signal" else empty end),
+    (if ($node_identity_signal_seen and $node_identity_still_actionable) then "node_identity_signal" else empty end),
     (if ($diagnostic_outputs | map(select((. // "") | test("ssh_host_key_(changed|verification_failed)"))) | length) > 0 then "ssh_host_key_problem" else empty end)
   ]) as $issues |
 
