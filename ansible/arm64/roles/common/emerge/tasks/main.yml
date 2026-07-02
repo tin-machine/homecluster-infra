@@ -71,7 +71,7 @@
     gentoo_world_update_exclude_args_resolved: >-
       {{
         (gentoo_world_update_exclude_packages | default([]))
-        | map('regex_replace', '^(.*)$', '--exclude=\\1')
+        | map('regex_replace', '^', '--exclude=')
         | join(' ')
       }}
   tags:
