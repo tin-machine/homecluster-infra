@@ -7,18 +7,41 @@
   when:
     - k3s_agent_install_config_enabled | bool
 
+- name: k3s agent downloaded binary 候補を検索
+  ansible.builtin.find:
+    paths: "{{ k3s_agent_install_config_install_dir }}"
+    patterns: "k3s-v*+k3s*"
+    file_type: file
+    recurse: false
+  register: k3s_agent_install_config_downloaded_binaries
+  when:
+    - k3s_agent_install_config_enabled | bool
+
 - name: k3s agent release version を解決
   ansible.builtin.set_fact:
     k3s_agent_install_config_release_version_effective: >-
+      {%- set explicit = k3s_agent_install_config_release_version | string | trim -%}
+      {%- set existing_link = (
+            k3s_agent_install_config_existing_binary.stat.lnk_source
+            | default('')
+            | basename
+            | regex_replace('^k3s-', '')
+          ) | string | trim -%}
+      {%- set downloaded = (
+            k3s_agent_install_config_downloaded_binaries.files
+            | default([])
+            | map(attribute='path')
+            | map('basename')
+            | map('regex_replace', '^k3s-', '')
+            | list
+            | sort
+            | last
+            | default('')
+          ) | string | trim -%}
       {{
-        k3s_agent_install_config_release_version
-        if (k3s_agent_install_config_release_version | string | lower not in ['', 'false', 'none'])
-        else (
-          k3s_agent_install_config_existing_binary.stat.lnk_source
-          | default('')
-          | basename
-          | regex_replace('^k3s-', '')
-        )
+        explicit
+        if explicit | lower not in ['', 'false', 'none']
+        else (existing_link if existing_link else downloaded)
       }}
   when:
     - k3s_agent_install_config_enabled | bool

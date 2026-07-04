@@ -136,6 +136,8 @@ def main() -> int:
 
     required_agent_token_task_terms = [
         "k3s_agent_install_config_existing_binary",
+        "k3s_agent_install_config_downloaded_binaries",
+        "patterns: \"k3s-v*+k3s*\"",
         "k3s_agent_install_config_release_version_effective",
         "| regex_replace('^k3s-', '')",
         "k3s_agent_install_config_control_token | string | length > 0",
