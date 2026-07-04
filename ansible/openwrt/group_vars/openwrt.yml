@@ -11,7 +11,9 @@ ansible_ssh_transfer_method: scp
 ansible_scp_extra_args: '-O'
 ansible_ssh_extra_args: '-o ControlMaster=no -o ControlPersist=0'
 ansible_ssh_pipelining: true
-ansible_remote_tmp: /tmp
+# OpenWrt /tmp is a small tmpfs. Rootfs build tasks download large stage3
+# archives through module temp files, so keep Ansible remote temp on /srv.
+ansible_remote_tmp: /srv/gentoo/tmp/.ansible-tmp
 
 openwrt_opkg_update: true
 
