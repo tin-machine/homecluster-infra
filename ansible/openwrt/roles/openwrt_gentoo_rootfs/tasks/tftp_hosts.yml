@@ -137,6 +137,47 @@
     - tftp_hosts
     - tftp_artifacts
 
+- name: TFTP hosts の symlink source 状態を取得
+  ansible.builtin.stat:
+    path: "/srv/gentoo/tftp-root/dates/{{ item.0.release }}/{{ item.1 }}"
+  loop: "{{ (openwrt_gentoo_tftp_host_entries | default([])) | subelements('symlinks', skip_missing=True) }}"
+  loop_control:
+    label: "{{ item.0.name }}/{{ item.1 }}"
+  register: openwrt_gentoo_tftp_host_symlink_source_stats
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - (openwrt_gentoo_tftp_hosts_mode | default('symlink')) == 'directory'
+    - item.0.release | string | trim | length > 0
+    - item.1 | string | trim | length > 0
+  tags:
+    - pxe
+    - tftp
+    - tftp_hosts
+    - tftp_artifacts
+
+- name: TFTP hosts の symlink source 不在を拒否
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists | default(false)
+    fail_msg: >-
+      TFTP host {{ item.item.0.name | default(item.item.0.board_hash | default('unknown')) }}
+      requires /srv/gentoo/tftp-root/dates/{{ item.item.0.release }}/{{ item.item.1 }},
+      but the source artifact is missing. Generate or copy the artifact before creating host
+      symlinks.
+  loop: "{{ openwrt_gentoo_tftp_host_symlink_source_stats.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item.0.name }}/{{ item.item.1 }}"
+  no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - (openwrt_gentoo_tftp_hosts_mode | default('symlink')) == 'directory'
+  tags:
+    - pxe
+    - tftp
+    - tftp_hosts
+    - tftp_artifacts
+
 - name: TFTP hosts のボードハッシュパス状態を取得
   ansible.builtin.stat:
     path: "/srv/gentoo/tftp-root/{{ item.board_hash }}"
