@@ -78,11 +78,28 @@
         {%- set stage = host.tftp_stage | default(host.stage | default(''), true) | string | trim -%}
         {%- set tftp_release = host.tftp_release | default('', true) | string | trim -%}
         {%- set rootfs_release = host.rootfs_release | default(tftp_release, true) | string | trim -%}
+        {%- set host_tftp_paths = [] -%}
+        {%- for path in [
+          host.rpi_kernel_image | default('', true) | string | trim,
+          host.rpi_initramfs | default('', true) | string | trim,
+          host.rpi_device_tree | default('', true) | string | trim,
+          host.rpi4_kernel_image | default('', true) | string | trim,
+          host.rpi4_initramfs | default('', true) | string | trim,
+          host.rpi4_device_tree | default('', true) | string | trim,
+          host.rpi5_kernel_image | default('', true) | string | trim,
+          host.rpi5_initramfs | default('', true) | string | trim,
+          host.rpi5_device_tree | default('', true) | string | trim
+        ] -%}
+          {%- if path and path not in host_tftp_paths -%}
+            {%- set _ = host_tftp_paths.append(path) -%}
+          {%- endif -%}
+        {%- endfor -%}
         {%- set _ = result.append({
           'name': name,
           'stage': stage,
           'tftp_release': tftp_release,
-          'rootfs_release': rootfs_release
+          'rootfs_release': rootfs_release,
+          'tftp_paths': host_tftp_paths
         }) -%}
       {%- endfor -%}
       {{ result }}
@@ -192,11 +209,35 @@
         {%- for path in required_paths -%}
           {%- set normalized_path = path | string | trim -%}
           {%- if normalized_path -%}
-            {%- set _ = result.append({
+            {%- set entry = {
               'generation': name,
               'release': release,
               'path': normalized_path
-            }) -%}
+            } -%}
+            {%- if entry not in result -%}
+              {%- set _ = result.append(entry) -%}
+            {%- endif -%}
+          {%- endif -%}
+        {%- endfor -%}
+        {%- for host in openwrt_gentoo_release_bundle_host_entries | default([]) -%}
+          {%- set target_hosts = openwrt_gentoo_release_bundle_target_hosts | default([]) -%}
+          {%- set target_stages = openwrt_gentoo_release_bundle_target_stages | default([]) -%}
+          {%- set host_matches_scope = ((target_hosts | length) == 0 or host.name in target_hosts) and ((target_stages | length) == 0 or host.stage in target_stages) -%}
+          {%- set host_matches_generation = ((host.name | string) | regex_search(generation.host_name_regex | string)) is not none -%}
+          {%- if host_matches_scope and host_matches_generation -%}
+            {%- for path in host.tftp_paths | default([]) -%}
+              {%- set normalized_path = path | string | trim -%}
+              {%- if normalized_path -%}
+                {%- set entry = {
+                  'generation': name,
+                  'release': release,
+                  'path': normalized_path
+                } -%}
+                {%- if entry not in result -%}
+                  {%- set _ = result.append(entry) -%}
+                {%- endif -%}
+              {%- endif -%}
+            {%- endfor -%}
           {%- endif -%}
         {%- endfor -%}
       {%- endfor -%}
