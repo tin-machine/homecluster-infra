@@ -76,11 +76,34 @@ def test_k3s_stg_storage_vars() -> None:
                 "overlay": {"id": "k3s_stg_storage"},
             },
         },
+        "gpu1": {
+            "ansible_host": "192.0.2.13",
+            "k3s_local_storage_enabled": True,
+            "k3s_local_storage_device": "/dev/disk/by-id/example-gpu-part1",
+            "rpi5_egpu_local_llm_enabled": True,
+            "rpi5_egpu_llama_bind_host": "192.0.2.13",
+            "rpi5_egpu_llama_context_size": 131072,
+            "rpi5_egpu_llama_model_path": "/var/lib/llm-local/models/gemma4/example.gguf",
+            "rpi5_egpu_llama_extra_args": [
+                "--reasoning",
+                "off",
+                "--parallel",
+                "1",
+                "--cache-ram",
+                "0",
+            ],
+            "openwrt_pxe_client": {
+                "enabled": True,
+                "router": "router1",
+                "roles": ["base", "k3s_stg_storage", "k3s_stg_agent"],
+                "overlay": {"id": "k3s_stg_gpu"},
+            },
+        },
     }
 
     result = module.build_openwrt_pxe_client_catalog(
         hostvars,
-        {"all": ["server1", "agent1", "host2"]},
+        {"all": ["server1", "agent1", "host2", "gpu1"]},
         "router1",
         None,
         None,
@@ -125,6 +148,7 @@ def test_k3s_stg_storage_vars() -> None:
 
     storage = client_vars[("k3s_stg_storage", "k3s_stg_storage")]
     agent_2 = client_vars[("k3s_stg_storage", "k3s_stg_agent")]
+    gpu_agent = client_vars[("k3s_stg_gpu", "k3s_stg_agent")]
 
     assert storage["k3s_local_storage_enabled"] is True
     assert storage["k3s_local_storage_device"] == "/dev/disk/by-id/example-storage-part1"
@@ -137,6 +161,22 @@ def test_k3s_stg_storage_vars() -> None:
     assert "k3s_start_on_boot" not in storage
 
     assert agent_2["k3s_agent"]["data-dir"] == "/var/lib/rancher/k3s"
+    assert gpu_agent["k3s_agent"]["data-dir"] == "/var/lib/rancher/k3s"
+    assert gpu_agent["rpi5_egpu_local_llm_enabled"] is True
+    assert gpu_agent["rpi5_egpu_llama_bind_host"] == "192.0.2.13"
+    assert gpu_agent["rpi5_egpu_llama_context_size"] == 131072
+    assert (
+        gpu_agent["rpi5_egpu_llama_model_path"]
+        == "/var/lib/llm-local/models/gemma4/example.gguf"
+    )
+    assert gpu_agent["rpi5_egpu_llama_extra_args"] == [
+        "--reasoning",
+        "off",
+        "--parallel",
+        "1",
+        "--cache-ram",
+        "0",
+    ]
 
 
 def test_host_specific_tftp_artifacts() -> None:
