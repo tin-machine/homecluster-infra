@@ -118,6 +118,53 @@ _K3S_ISCSI_SESSION_VALUE_KEYS = (
     "k3s_iscsi_session_udev_settle_timeout",
 )
 
+_RPI5_EGPU_LOCAL_LLM_BOOL_KEYS = (
+    "rpi5_egpu_local_llm_enabled",
+    "rpi5_egpu_local_swap_enabled",
+    "rpi5_egpu_llama_enabled",
+    "rpi5_egpu_llama_disable_webui",
+    "rpi5_egpu_llama_models_storage_enabled",
+    "rpi5_egpu_llama_models_storage_allow_empty_dir_replace",
+    "rpi5_egpu_llama_build_enabled",
+    "rpi5_egpu_llama_validate_runtime",
+)
+
+_RPI5_EGPU_LOCAL_LLM_VALUE_KEYS = (
+    "rpi5_egpu_local_swap_path",
+    "rpi5_egpu_local_swap_size",
+    "rpi5_egpu_local_swap_size_bytes",
+    "rpi5_egpu_local_swap_priority",
+    "rpi5_egpu_local_swap_swappiness",
+    "rpi5_egpu_local_swap_mountpoint",
+    "rpi5_egpu_local_swap_mount_fstype",
+    "rpi5_egpu_local_swap_mount_source",
+    "rpi5_egpu_local_swap_service_name",
+    "rpi5_egpu_llama_user",
+    "rpi5_egpu_llama_group",
+    "rpi5_egpu_llama_home",
+    "rpi5_egpu_llama_models_dir",
+    "rpi5_egpu_llama_model_path",
+    "rpi5_egpu_llama_source_dir",
+    "rpi5_egpu_llama_build_dir",
+    "rpi5_egpu_llama_build_jobs",
+    "rpi5_egpu_llama_service_name",
+    "rpi5_egpu_llama_bind_host",
+    "rpi5_egpu_llama_port",
+    "rpi5_egpu_llama_context_size",
+    "rpi5_egpu_llama_gpu_layers",
+    "rpi5_egpu_llama_condition_host",
+    "rpi5_egpu_llama_models_storage_dir",
+    "rpi5_egpu_llama_models_storage_mountpoint",
+    "rpi5_egpu_llama_models_storage_fstype",
+    "rpi5_egpu_llama_models_storage_mount_source",
+    "rpi5_egpu_llama_health_retries",
+    "rpi5_egpu_llama_health_delay",
+)
+
+_RPI5_EGPU_LOCAL_LLM_SEQUENCE_KEYS = (
+    "rpi5_egpu_llama_extra_args",
+)
+
 
 def _build_base_vars(hv: Mapping[str, Any], cfg: Mapping[str, Any]) -> dict[str, Any]:
     ansible_pull_cfg = cfg.get("ansible_pull")
@@ -328,6 +375,20 @@ def _build_k3s_iscsi_session_vars(hv: Mapping[str, Any]) -> dict[str, Any]:
     return result
 
 
+def _build_rpi5_egpu_local_llm_vars(hv: Mapping[str, Any]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key in _RPI5_EGPU_LOCAL_LLM_BOOL_KEYS:
+        if key in hv:
+            result[key] = _as_bool(hv.get(key))
+    for key in _RPI5_EGPU_LOCAL_LLM_VALUE_KEYS:
+        if key in hv:
+            result[key] = hv[key]
+    for key in _RPI5_EGPU_LOCAL_LLM_SEQUENCE_KEYS:
+        if key in hv:
+            result[key] = _as_list(hv.get(key))
+    return result
+
+
 def _build_k3s_stg_agent_vars(
     hostname: str,
     hv: Mapping[str, Any],
@@ -376,6 +437,7 @@ def _build_k3s_stg_agent_vars(
         )
     )
     result.update(_build_k3s_iscsi_session_vars(hv))
+    result.update(_build_rpi5_egpu_local_llm_vars(hv))
     return result
 
 
