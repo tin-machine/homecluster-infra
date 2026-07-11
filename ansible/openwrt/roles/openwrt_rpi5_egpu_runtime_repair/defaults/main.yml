@@ -1,0 +1,51 @@
+---
+# Guarded lower-rootfs NVIDIA/Vulkan repair for a Raspberry Pi 5 eGPU canary.
+# Public defaults are intentionally inert. Real target paths, kernel versions,
+# runfile paths, and source trees must come from private inventory or an
+# operator-gated extra-vars file.
+
+openwrt_rpi5_egpu_runtime_repair_enabled: false
+openwrt_rpi5_egpu_runtime_repair_apply: false
+openwrt_rpi5_egpu_runtime_repair_validate: true
+
+openwrt_rpi5_egpu_runtime_repair_confirm: ""
+openwrt_rpi5_egpu_runtime_repair_confirm_expected: ""
+
+openwrt_rpi5_egpu_runtime_repair_target_rootfs: ""
+openwrt_rpi5_egpu_runtime_repair_use_staged_source_rootfs: false
+openwrt_rpi5_egpu_runtime_repair_source_rootfs: ""
+openwrt_rpi5_egpu_runtime_repair_kernel_version: ""
+
+openwrt_rpi5_egpu_runtime_repair_nvidia_driver_version: ""
+openwrt_rpi5_egpu_runtime_repair_nvidia_runfile_path: ""
+openwrt_rpi5_egpu_runtime_repair_nvidia_runfile_args:
+  - --silent
+  - --no-kernel-modules
+  - --no-nouveau-check
+  - --no-x-check
+  - --no-questions
+  - --accept-license
+
+openwrt_rpi5_egpu_runtime_repair_open_kernel_modules_source_dir: ""
+openwrt_rpi5_egpu_runtime_repair_open_kernel_modules_commit: ""
+openwrt_rpi5_egpu_runtime_repair_kernel_build_dir: ""
+
+openwrt_rpi5_egpu_runtime_repair_vulkan_packages:
+  - media-libs/vulkan-loader
+  - dev-util/vulkan-tools
+  - dev-util/vulkan-headers
+  - dev-util/glslang
+  - media-libs/shaderc
+  - x11-libs/libX11
+  - x11-libs/libXext
+  - dev-util/spirv-headers
+  - sys-apps/pciutils
+
+openwrt_rpi5_egpu_runtime_repair_emerge_args:
+  - --usepkg
+  - --changed-use
+  - --quiet-build=y
+
+openwrt_rpi5_egpu_runtime_repair_install_vulkan_packages: true
+openwrt_rpi5_egpu_runtime_repair_install_nvidia_userspace: true
+openwrt_rpi5_egpu_runtime_repair_install_nvidia_kernel_modules: true
