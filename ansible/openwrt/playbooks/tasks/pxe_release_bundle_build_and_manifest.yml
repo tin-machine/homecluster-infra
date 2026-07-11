@@ -67,6 +67,191 @@
     - pxe_release_bundle
     - pxe_release_bundle_build
 
+- name: rpi5 eGPU generation artifact bundle 入力を検証
+  ansible.builtin.assert:
+    that:
+      - openwrt_rpi5_egpu_generation_artifact_archive_path is match('^/var/lib/rancher/k3s/')
+      - openwrt_rpi5_egpu_generation_artifact_archive_sha256_path is match('^/var/lib/rancher/k3s/')
+      - openwrt_rpi5_egpu_generation_artifact_source_host | length > 0
+    fail_msg: "rpi5 eGPU generation artifact bundle の source host / archive / checksum path を確認してください"
+  when:
+    - openwrt_rpi5_egpu_generation_enabled | default(false) | bool
+    - openwrt_rpi5_egpu_generation_artifact_bundle_enabled | default(false) | bool
+  tags:
+    - pxe_release_bundle
+    - pxe_release_bundle_build
+
+- name: rpi5 eGPU generation artifact controller staging directory を作成
+  ansible.builtin.file:
+    path: "{{ openwrt_rpi5_egpu_generation_artifact_controller_dir }}/{{ pxe_release_bundle_rpi5_items[0].release }}"
+    state: directory
+    mode: '0700'
+  delegate_to: localhost
+  become: false
+  when:
+    - openwrt_rpi5_egpu_generation_enabled | default(false) | bool
+    - openwrt_rpi5_egpu_generation_artifact_bundle_enabled | default(false) | bool
+  tags:
+    - pxe_release_bundle
+    - pxe_release_bundle_build
+
+- name: rpi5 eGPU generation artifact archive を controller へ取得
+  ansible.builtin.fetch:
+    src: "{{ openwrt_rpi5_egpu_generation_artifact_archive_path }}"
+    dest: "{{ openwrt_rpi5_egpu_generation_artifact_controller_dir }}/{{ pxe_release_bundle_rpi5_items[0].release }}/"
+    flat: true
+    validate_checksum: true
+  delegate_to: "{{ openwrt_rpi5_egpu_generation_artifact_source_host }}"
+  when:
+    - openwrt_rpi5_egpu_generation_enabled | default(false) | bool
+    - openwrt_rpi5_egpu_generation_artifact_bundle_enabled | default(false) | bool
+  tags:
+    - pxe_release_bundle
+    - pxe_release_bundle_build
+
+- name: rpi5 eGPU generation artifact checksum manifest を controller へ取得
+  ansible.builtin.fetch:
+    src: "{{ openwrt_rpi5_egpu_generation_artifact_archive_sha256_path }}"
+    dest: "{{ openwrt_rpi5_egpu_generation_artifact_controller_dir }}/{{ pxe_release_bundle_rpi5_items[0].release }}/"
+    flat: true
+    validate_checksum: true
+  delegate_to: "{{ openwrt_rpi5_egpu_generation_artifact_source_host }}"
+  when:
+    - openwrt_rpi5_egpu_generation_enabled | default(false) | bool
+    - openwrt_rpi5_egpu_generation_artifact_bundle_enabled | default(false) | bool
+  tags:
+    - pxe_release_bundle
+    - pxe_release_bundle_build
+
+- name: rpi5 eGPU generation artifact archive checksum を controller で検証
+  ansible.builtin.shell: |
+    set -euo pipefail
+    dir="{{ openwrt_rpi5_egpu_generation_artifact_controller_dir }}/{{ pxe_release_bundle_rpi5_items[0].release }}"
+    archive="$dir/{{ openwrt_rpi5_egpu_generation_artifact_archive_path | basename }}"
+    manifest="$dir/{{ openwrt_rpi5_egpu_generation_artifact_archive_sha256_path | basename }}"
+    expected="$(awk 'NR == 1 { print $1 }' "$manifest")"
+    actual="$(sha256sum "$archive" | awk '{ print $1 }')"
+    test -n "$expected"
+    test "$expected" = "$actual"
+  args:
+    executable: /bin/bash
+  delegate_to: localhost
+  become: false
+  changed_when: false
+  when:
+    - openwrt_rpi5_egpu_generation_enabled | default(false) | bool
+    - openwrt_rpi5_egpu_generation_artifact_bundle_enabled | default(false) | bool
+  tags:
+    - pxe_release_bundle
+    - pxe_release_bundle_build
+
+- name: rpi5 eGPU generation artifact OpenWrt staging directory を作成
+  ansible.builtin.file:
+    path: "{{ openwrt_rpi5_egpu_generation_artifact_openwrt_dir }}/{{ pxe_release_bundle_rpi5_items[0].release }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  when:
+    - openwrt_rpi5_egpu_generation_enabled | default(false) | bool
+    - openwrt_rpi5_egpu_generation_artifact_bundle_enabled | default(false) | bool
+  tags:
+    - pxe_release_bundle
+    - pxe_release_bundle_build
+
+- name: rpi5 eGPU generation artifact archive を OpenWrt へ展開
+  ansible.builtin.unarchive:
+    src: "{{ openwrt_rpi5_egpu_generation_artifact_controller_dir }}/{{ pxe_release_bundle_rpi5_items[0].release }}/{{ openwrt_rpi5_egpu_generation_artifact_archive_path | basename }}"
+    dest: "{{ openwrt_rpi5_egpu_generation_artifact_openwrt_dir }}/{{ pxe_release_bundle_rpi5_items[0].release }}"
+    owner: root
+    group: root
+    mode: '0755'
+  when:
+    - openwrt_rpi5_egpu_generation_enabled | default(false) | bool
+    - openwrt_rpi5_egpu_generation_artifact_bundle_enabled | default(false) | bool
+  tags:
+    - pxe_release_bundle
+    - pxe_release_bundle_build
+
+- name: rpi5 eGPU generation artifact payload checksum を OpenWrt で検証
+  ansible.builtin.command:
+    argv:
+      - /bin/sh
+      - -lc
+      - "cd {{ openwrt_rpi5_egpu_generation_artifact_openwrt_dir }}/{{ pxe_release_bundle_rpi5_items[0].release }}/payload && sha256sum -c ../manifest.sha256"
+  changed_when: false
+  when:
+    - openwrt_rpi5_egpu_generation_enabled | default(false) | bool
+    - openwrt_rpi5_egpu_generation_artifact_bundle_enabled | default(false) | bool
+  tags:
+    - pxe_release_bundle
+    - pxe_release_bundle_build
+
+- name: rpi5 eGPU generation kernel modules を target rootfs へ配置
+  ansible.builtin.shell: |
+    set -euo pipefail
+    stage="{{ openwrt_rpi5_egpu_generation_artifact_openwrt_dir }}/{{ pxe_release_bundle_rpi5_items[0].release }}/payload"
+    root="/srv/gentoo/{{ pxe_release_bundle_rpi5_items[0].release }}/nfs"
+    kver="{{ openwrt_rpi5_egpu_runtime_repair_kernel_version }}"
+    test -d "$stage/modules/lib/modules/$kver"
+    mkdir -p "$root/lib/modules"
+    rm -rf "$root/lib/modules/$kver"
+    cp -a "$stage/modules/lib/modules/$kver" "$root/lib/modules/"
+  args:
+    executable: /bin/bash
+  changed_when: true
+  when:
+    - openwrt_rpi5_egpu_generation_enabled | default(false) | bool
+    - openwrt_rpi5_egpu_generation_artifact_bundle_enabled | default(false) | bool
+  tags:
+    - pxe_release_bundle
+    - pxe_release_bundle_build
+
+- name: rpi5 eGPU generation kernel image と DTB を target TFTP へ配置
+  ansible.builtin.copy:
+    src: "{{ openwrt_rpi5_egpu_generation_artifact_openwrt_dir }}/{{ pxe_release_bundle_rpi5_items[0].release }}/payload/{{ item.src }}"
+    dest: "/srv/gentoo/tftp-root/dates/{{ pxe_release_bundle_rpi5_items[0].release }}/{{ item.dest }}"
+    owner: root
+    group: root
+    mode: '0644'
+    remote_src: true
+  loop:
+    - src: kernel8-nvidia.img
+      dest: kernel8-nvidia.img
+    - src: bcm2712-rpi-5-b-nvidia.dtb
+      dest: bcm2712-rpi-5-b-nvidia.dtb
+  when:
+    - openwrt_rpi5_egpu_generation_enabled | default(false) | bool
+    - openwrt_rpi5_egpu_generation_artifact_bundle_enabled | default(false) | bool
+  tags:
+    - pxe_release_bundle
+    - pxe_release_bundle_build
+
+- name: rpi5 eGPU generation runtime input の実効 path を設定
+  ansible.builtin.set_fact:
+    pxe_rpi5_egpu_generation_runfile_path_effective: >-
+      {{
+        openwrt_rpi5_egpu_generation_artifact_openwrt_dir ~ '/' ~ pxe_release_bundle_rpi5_items[0].release ~ '/payload/NVIDIA-Linux-aarch64.run'
+        if (openwrt_rpi5_egpu_generation_artifact_bundle_enabled | default(false) | bool)
+        else openwrt_rpi5_egpu_runtime_repair_nvidia_runfile_path
+      }}
+    pxe_rpi5_egpu_generation_open_modules_path_effective: >-
+      {{
+        openwrt_rpi5_egpu_generation_artifact_openwrt_dir ~ '/' ~ pxe_release_bundle_rpi5_items[0].release ~ '/payload/open-gpu-kernel-modules'
+        if (openwrt_rpi5_egpu_generation_artifact_bundle_enabled | default(false) | bool)
+        else openwrt_rpi5_egpu_runtime_repair_open_kernel_modules_source_dir
+      }}
+    pxe_rpi5_egpu_generation_kernel_build_path_effective: >-
+      {{
+        openwrt_rpi5_egpu_generation_artifact_openwrt_dir ~ '/' ~ pxe_release_bundle_rpi5_items[0].release ~ '/payload/linux'
+        if (openwrt_rpi5_egpu_generation_artifact_bundle_enabled | default(false) | bool)
+        else openwrt_rpi5_egpu_runtime_repair_kernel_build_dir
+      }}
+  when: openwrt_rpi5_egpu_generation_enabled | default(false) | bool
+  tags:
+    - pxe_release_bundle
+    - pxe_release_bundle_build
+
 - name: rpi5 eGPU target generation の lower-rootfs runtime を構築
   ansible.builtin.include_role:
     name: openwrt_rpi5_egpu_runtime_repair
@@ -76,6 +261,28 @@
     openwrt_rpi5_egpu_runtime_repair_validate: true
     openwrt_rpi5_egpu_runtime_repair_target_rootfs: "/srv/gentoo/{{ pxe_release_bundle_rpi5_items[0].release }}/nfs"
     openwrt_rpi5_egpu_runtime_repair_use_staged_source_rootfs: false
+    openwrt_rpi5_egpu_runtime_repair_nvidia_runfile_path: "{{ pxe_rpi5_egpu_generation_runfile_path_effective }}"
+    openwrt_rpi5_egpu_runtime_repair_open_kernel_modules_source_dir: "{{ pxe_rpi5_egpu_generation_open_modules_path_effective }}"
+    openwrt_rpi5_egpu_runtime_repair_kernel_build_dir: "{{ pxe_rpi5_egpu_generation_kernel_build_path_effective }}"
+  when: openwrt_rpi5_egpu_generation_enabled | default(false) | bool
+  tags:
+    - pxe_release_bundle
+    - pxe_release_bundle_build
+
+- name: rpi5 eGPU target generation の NVIDIA initramfs を再生成
+  ansible.builtin.include_role:
+    name: openwrt_gentoo_rootfs
+    tasks_from: initramfs
+  vars:
+    openwrt_gentoo_initramfs_enabled: true
+    openwrt_gentoo_initramfs_force_build: true
+    openwrt_gentoo_initramfs_builds:
+      - name: rpi5-v8-nvidia
+        rootfs_release: "{{ pxe_release_bundle_rpi5_items[0].release }}"
+        tftp_release: "{{ pxe_release_bundle_rpi5_items[0].release }}"
+        output_path: /boot/initramfs-pxe-v8-nvidia.img
+        tftp_path: initramfs-pxe-v8-nvidia.img
+        kernel_version: "{{ openwrt_rpi5_egpu_runtime_repair_kernel_version }}"
   when: openwrt_rpi5_egpu_generation_enabled | default(false) | bool
   tags:
     - pxe_release_bundle

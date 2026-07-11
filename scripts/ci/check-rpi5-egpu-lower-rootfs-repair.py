@@ -10,6 +10,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[2]
 ROLE = ROOT / "ansible/openwrt/roles/openwrt_rpi5_egpu_runtime_repair"
 LLM_ROLE = ROOT / "ansible/arm64/roles/rpi5_egpu_local_llm"
+BUNDLE_ROLE = ROOT / "ansible/arm64/roles/rpi5_egpu_nvidia_artifact_bundle"
 
 
 def read(path: Path) -> str:
@@ -28,6 +29,8 @@ def require(text: str, needle: str, label: str) -> None:
 def main() -> int:
     defaults = read(ROLE / "defaults/main.yml")
     llm_defaults = read(LLM_ROLE / "defaults/main.yml")
+    bundle_defaults = read(BUNDLE_ROLE / "defaults/main.yml")
+    bundle_tasks = read(BUNDLE_ROLE / "tasks/main.yml")
     main_tasks = read(ROLE / "tasks/main.yml")
     preflight = read(ROLE / "tasks/preflight.yml")
     repair = read(ROLE / "tasks/repair.yml")
@@ -37,12 +40,14 @@ def main() -> int:
     release_bundle_build = read(ROOT / "ansible/openwrt/playbooks/tasks/pxe_release_bundle_build_and_manifest.yml")
     release_bundle = read(ROOT / "ansible/openwrt/roles/openwrt_gentoo_rootfs/tasks/release_bundle.yml")
     staging_playbook = read(ROOT / "ansible/openwrt/playbooks/pxe-release-bundle-staging.yml")
+    bundle_playbook = read(ROOT / "ansible/arm64/playbooks/rpi5-egpu-nvidia-artifact-bundle.yml")
 
     require(defaults, "openwrt_rpi5_egpu_runtime_repair_enabled: false", "disabled default")
     require(defaults, "openwrt_rpi5_egpu_runtime_repair_apply: false", "apply disabled default")
     require(defaults, "openwrt_rpi5_egpu_generation_enabled: false", "generation disabled default")
     require(defaults, "openwrt_rpi5_egpu_generation_apply: false", "generation apply disabled default")
     require(defaults, "openwrt_rpi5_egpu_generation_manifest_metadata: {}", "empty generation metadata default")
+    require(defaults, "openwrt_rpi5_egpu_generation_artifact_bundle_enabled: false", "artifact bundle disabled default")
     require(defaults, "openwrt_rpi5_egpu_runtime_repair_target_rootfs: \"\"", "empty target rootfs default")
     require(defaults, "openwrt_rpi5_egpu_runtime_repair_use_staged_source_rootfs: false", "staged source disabled default")
     require(defaults, "openwrt_rpi5_egpu_runtime_repair_source_rootfs: \"\"", "empty source rootfs default")
@@ -55,6 +60,14 @@ def main() -> int:
         "rpi5_egpu_llama_revision: a4107133a634250c8c9d888bc0bc8520dcfd6105",
         "known-good llama.cpp revision",
     )
+    require(bundle_defaults, "rpi5_egpu_nvidia_artifact_bundle_enabled: false", "native bundle disabled default")
+    require(bundle_defaults, "rpi5_egpu_nvidia_artifact_bundle_apply: false", "native bundle apply disabled default")
+    require(bundle_defaults, "/var/lib/rancher/k3s/nvidia-artifacts", "native bundle local SSD output")
+    require(bundle_tasks, "rpi5_egpu_nvidia_artifact_bundle_confirm ==", "native bundle confirm guard")
+    require(bundle_tasks, "rm -rf \"$work\"", "native bundle work cleanup")
+    require(bundle_tasks, "rm -rf \"$work/payload/linux/.git\"", "native bundle excludes kernel git")
+    require(bundle_tasks, "manifest.sha256", "native bundle payload manifest")
+    require(bundle_playbook, "hosts: rpi5-03", "native bundle exact host")
     for atom in (
         "media-libs/vulkan-loader",
         "dev-util/vulkan-tools",
@@ -104,6 +117,11 @@ def main() -> int:
     require(release_bundle_build, "rpi5 eGPU generation build の対象 release を解決", "generation release resolution")
     require(release_bundle_build, "pxe_release_bundle_rpi5_items | length == 1", "single rpi5 release guard")
     require(release_bundle_build, "openwrt_rpi5_egpu_generation_apply", "generation apply guard")
+    require(release_bundle_build, "artifact archive を controller へ取得", "artifact fetch")
+    require(release_bundle_build, "artifact archive checksum を controller で検証", "artifact controller checksum")
+    require(release_bundle_build, "artifact payload checksum を OpenWrt で検証", "artifact router checksum")
+    require(release_bundle_build, "kernel modules を target rootfs へ配置", "artifact module stage")
+    require(release_bundle_build, "NVIDIA initramfs を再生成", "forced NVIDIA initramfs")
     for key in (
         "kernel_release",
         "nvidia_driver_version",

@@ -1,0 +1,9 @@
+---
+- name: rpi5 eGPU NVIDIA artifact bundle を local SSD に作成
+  hosts: rpi5-03
+  gather_facts: false
+  become: false
+  roles:
+    - role: ../roles/rpi5_egpu_nvidia_artifact_bundle
+      when:
+        - rpi5_egpu_nvidia_artifact_bundle_enabled | default(false) | bool
