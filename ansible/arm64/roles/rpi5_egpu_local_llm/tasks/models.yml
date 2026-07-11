@@ -124,7 +124,7 @@
   ansible.builtin.file:
     path: "{{ rpi5_egpu_llama_models_dir }}"
     state: link
-    source: "{{ rpi5_egpu_llama_models_storage_dir }}"
+    src: "{{ rpi5_egpu_llama_models_storage_dir }}"
     force: false
   when:
     - not is_correct_symlink
