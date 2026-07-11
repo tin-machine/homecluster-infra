@@ -53,16 +53,22 @@
     work="$out/.${release}.work"
     archive="{{ rpi5_egpu_nvidia_artifact_bundle_archive_path }}"
     manifest="{{ rpi5_egpu_nvidia_artifact_bundle_manifest_path }}"
-    rm -rf "$work"
-    mkdir -p "$work/payload"
-    cp -a "{{ rpi5_egpu_nvidia_artifact_bundle_kernel_build_dir }}" "$work/payload/linux"
-    rm -rf "$work/payload/linux/.git"
-    cp -a "{{ rpi5_egpu_nvidia_artifact_bundle_modules_dir }}" "$work/payload/modules"
-    cp -a "{{ rpi5_egpu_nvidia_artifact_bundle_open_modules_dir }}" "$work/payload/open-gpu-kernel-modules"
-    rm -rf "$work/payload/open-gpu-kernel-modules/.git"
-    cp -a "{{ rpi5_egpu_nvidia_artifact_bundle_runfile_path }}" "$work/payload/NVIDIA-Linux-aarch64.run"
-    cp -a "{{ rpi5_egpu_nvidia_artifact_bundle_kernel_image_path }}" "$work/payload/kernel8-nvidia.img"
-    cp -a "{{ rpi5_egpu_nvidia_artifact_bundle_device_tree_path }}" "$work/payload/bcm2712-rpi-5-b-nvidia.dtb"
+    if ! test -f "$work/payload/linux/Module.symvers" \
+      || ! test -d "$work/payload/modules/lib/modules/{{ rpi5_egpu_nvidia_artifact_bundle_kernel_version }}" \
+      || ! test -f "$work/payload/NVIDIA-Linux-aarch64.run" \
+      || ! test -f "$work/payload/kernel8-nvidia.img" \
+      || ! test -f "$work/payload/bcm2712-rpi-5-b-nvidia.dtb"; then
+      rm -rf "$work"
+      mkdir -p "$work/payload"
+      cp -a "{{ rpi5_egpu_nvidia_artifact_bundle_kernel_build_dir }}" "$work/payload/linux"
+      rm -rf "$work/payload/linux/.git"
+      cp -a "{{ rpi5_egpu_nvidia_artifact_bundle_modules_dir }}" "$work/payload/modules"
+      cp -a "{{ rpi5_egpu_nvidia_artifact_bundle_open_modules_dir }}" "$work/payload/open-gpu-kernel-modules"
+      rm -rf "$work/payload/open-gpu-kernel-modules/.git"
+      cp -a "{{ rpi5_egpu_nvidia_artifact_bundle_runfile_path }}" "$work/payload/NVIDIA-Linux-aarch64.run"
+      cp -a "{{ rpi5_egpu_nvidia_artifact_bundle_kernel_image_path }}" "$work/payload/kernel8-nvidia.img"
+      cp -a "{{ rpi5_egpu_nvidia_artifact_bundle_device_tree_path }}" "$work/payload/bcm2712-rpi-5-b-nvidia.dtb"
+    fi
     (
       cd "$work/payload"
       find . -type f -print0 | sort -z | xargs -0 sha256sum
