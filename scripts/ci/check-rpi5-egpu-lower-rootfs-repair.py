@@ -9,6 +9,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[2]
 ROLE = ROOT / "ansible/openwrt/roles/openwrt_rpi5_egpu_runtime_repair"
+LLM_ROLE = ROOT / "ansible/arm64/roles/rpi5_egpu_local_llm"
 
 
 def read(path: Path) -> str:
@@ -26,15 +27,22 @@ def require(text: str, needle: str, label: str) -> None:
 
 def main() -> int:
     defaults = read(ROLE / "defaults/main.yml")
+    llm_defaults = read(LLM_ROLE / "defaults/main.yml")
     main_tasks = read(ROLE / "tasks/main.yml")
     preflight = read(ROLE / "tasks/preflight.yml")
     repair = read(ROLE / "tasks/repair.yml")
     repair_staged = read(ROLE / "tasks/repair_from_staged_source_rootfs.yml")
     verify = read(ROLE / "tasks/verify.yml")
     site = read(ROOT / "ansible/openwrt/site.yml")
+    release_bundle_build = read(ROOT / "ansible/openwrt/playbooks/tasks/pxe_release_bundle_build_and_manifest.yml")
+    release_bundle = read(ROOT / "ansible/openwrt/roles/openwrt_gentoo_rootfs/tasks/release_bundle.yml")
+    staging_playbook = read(ROOT / "ansible/openwrt/playbooks/pxe-release-bundle-staging.yml")
 
     require(defaults, "openwrt_rpi5_egpu_runtime_repair_enabled: false", "disabled default")
     require(defaults, "openwrt_rpi5_egpu_runtime_repair_apply: false", "apply disabled default")
+    require(defaults, "openwrt_rpi5_egpu_generation_enabled: false", "generation disabled default")
+    require(defaults, "openwrt_rpi5_egpu_generation_apply: false", "generation apply disabled default")
+    require(defaults, "openwrt_rpi5_egpu_generation_manifest_metadata: {}", "empty generation metadata default")
     require(defaults, "openwrt_rpi5_egpu_runtime_repair_target_rootfs: \"\"", "empty target rootfs default")
     require(defaults, "openwrt_rpi5_egpu_runtime_repair_use_staged_source_rootfs: false", "staged source disabled default")
     require(defaults, "openwrt_rpi5_egpu_runtime_repair_source_rootfs: \"\"", "empty source rootfs default")
@@ -42,6 +50,11 @@ def main() -> int:
     require(defaults, "openwrt_rpi5_egpu_runtime_repair_nvidia_driver_version: \"\"", "empty driver version default")
     require(defaults, "openwrt_rpi5_egpu_runtime_repair_open_kernel_modules_commit: \"\"", "empty module commit default")
     require(defaults, "--no-kernel-modules", "userspace-only NVIDIA install")
+    require(
+        llm_defaults,
+        "rpi5_egpu_llama_revision: a4107133a634250c8c9d888bc0bc8520dcfd6105",
+        "known-good llama.cpp revision",
+    )
     for atom in (
         "media-libs/vulkan-loader",
         "dev-util/vulkan-tools",
@@ -87,6 +100,25 @@ def main() -> int:
     require(site, "name: openwrt_rpi5_egpu_runtime_repair", "site include_role")
     require(site, "rpi5_egpu_runtime_repair", "site tag")
     require(site, "- never", "never tag present")
+
+    require(release_bundle_build, "rpi5 eGPU generation build の対象 release を解決", "generation release resolution")
+    require(release_bundle_build, "pxe_release_bundle_rpi5_items | length == 1", "single rpi5 release guard")
+    require(release_bundle_build, "openwrt_rpi5_egpu_generation_apply", "generation apply guard")
+    for key in (
+        "kernel_release",
+        "nvidia_driver_version",
+        "nvidia_runfile_sha256",
+        "open_kernel_modules_commit",
+        "icd_path",
+        "icd_sha256",
+        "llama_cpp_revision",
+    ):
+        require(release_bundle_build, key, f"generation provenance {key}")
+    require(release_bundle_build, "name: openwrt_rpi5_egpu_runtime_repair", "generation role include")
+    require(release_bundle_build, "openwrt_rpi5_egpu_runtime_repair_target_rootfs", "generation target rootfs")
+    require(release_bundle, "metadata: \"{{ openwrt_gentoo_release_bundle_manifest_metadata | default({}) }}\"", "manifest metadata")
+    require(staging_playbook, "pxe_release_bundle_manifest_metadata_base", "staging manifest metadata forwarding")
+    require(staging_playbook, "rpi5_nvidia", "staging NVIDIA manifest forwarding")
 
     print("rpi5 eGPU lower-rootfs repair contract ok")
     return 0

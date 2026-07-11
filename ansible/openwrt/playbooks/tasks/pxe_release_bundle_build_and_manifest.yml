@@ -26,6 +26,61 @@
     - pxe_release_bundle
     - pxe_release_bundle_build
 
+- name: PXE release bundle manifest metadata の基底値を準備
+  ansible.builtin.set_fact:
+    pxe_release_bundle_manifest_metadata_base: "{{ openwrt_gentoo_release_bundle_manifest_metadata | default({}) }}"
+  tags:
+    - pxe_release_bundle
+    - pxe_release_bundle_build
+
+- name: rpi5 eGPU generation build の対象 release を解決
+  ansible.builtin.set_fact:
+    pxe_release_bundle_rpi5_items: >-
+      {{
+        pxe_release_bundle_build_items
+        | selectattr('name', 'equalto', 'rpi5')
+        | list
+      }}
+  when: openwrt_rpi5_egpu_generation_enabled | default(false) | bool
+  tags:
+    - pxe_release_bundle
+    - pxe_release_bundle_build
+
+- name: rpi5 eGPU generation build 入力を検証
+  ansible.builtin.assert:
+    that:
+      - pxe_release_bundle_rpi5_items | length == 1
+      - openwrt_rpi5_egpu_generation_apply | default(false) | bool
+      - openwrt_rpi5_egpu_generation_manifest_metadata is mapping
+      - openwrt_rpi5_egpu_generation_manifest_metadata.kernel_release | default('', true) | string | trim | length > 0
+      - openwrt_rpi5_egpu_generation_manifest_metadata.nvidia_driver_version | default('', true) | string | trim | length > 0
+      - openwrt_rpi5_egpu_generation_manifest_metadata.nvidia_runfile_sha256 | default('', true) | string | trim | length == 64
+      - openwrt_rpi5_egpu_generation_manifest_metadata.open_kernel_modules_commit | default('', true) | string | trim | length >= 12
+      - openwrt_rpi5_egpu_generation_manifest_metadata.icd_path | default('', true) | string | trim | length > 0
+      - openwrt_rpi5_egpu_generation_manifest_metadata.icd_sha256 | default('', true) | string | trim | length == 64
+      - openwrt_rpi5_egpu_generation_manifest_metadata.llama_cpp_revision | default('', true) | string | trim | length >= 12
+    fail_msg: >-
+      rpi5 eGPU generation build には rpi5 release、apply opt-in、および kernel / NVIDIA / ICD /
+      llama.cpp provenance を含む non-secret manifest metadata が必要です。
+  when: openwrt_rpi5_egpu_generation_enabled | default(false) | bool
+  tags:
+    - pxe_release_bundle
+    - pxe_release_bundle_build
+
+- name: rpi5 eGPU target generation の lower-rootfs runtime を構築
+  ansible.builtin.include_role:
+    name: openwrt_rpi5_egpu_runtime_repair
+  vars:
+    openwrt_rpi5_egpu_runtime_repair_enabled: true
+    openwrt_rpi5_egpu_runtime_repair_apply: "{{ openwrt_rpi5_egpu_generation_apply | bool }}"
+    openwrt_rpi5_egpu_runtime_repair_validate: true
+    openwrt_rpi5_egpu_runtime_repair_target_rootfs: "/srv/gentoo/{{ pxe_release_bundle_rpi5_items[0].release }}/nfs"
+    openwrt_rpi5_egpu_runtime_repair_use_staged_source_rootfs: false
+  when: openwrt_rpi5_egpu_generation_enabled | default(false) | bool
+  tags:
+    - pxe_release_bundle
+    - pxe_release_bundle_build
+
 - name: PXE release bundle artifact と manifest を検証
   ansible.builtin.include_role:
     name: openwrt_gentoo_rootfs
@@ -38,6 +93,15 @@
     openwrt_gentoo_release_bundle_strict_hosts: false
     openwrt_gentoo_release_bundle_require_artifacts: true
     openwrt_gentoo_release_bundle_manifest_enabled: true
+    openwrt_gentoo_release_bundle_manifest_metadata: >-
+      {{
+        pxe_release_bundle_manifest_metadata_base
+        | combine(
+          {'rpi5_nvidia': openwrt_rpi5_egpu_generation_manifest_metadata | default({})}
+          if (openwrt_rpi5_egpu_generation_enabled | default(false) | bool)
+          else {}
+        )
+      }}
   tags:
     - pxe_release_bundle
     - pxe_release_bundle_build
