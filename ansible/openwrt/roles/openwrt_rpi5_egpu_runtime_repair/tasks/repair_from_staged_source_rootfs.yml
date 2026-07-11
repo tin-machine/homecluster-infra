@@ -1,0 +1,78 @@
+---
+- name: rpi5 eGPU staged source rootfs から target rootfs を修復
+  ansible.builtin.shell: |
+    set -eu
+    src="{{ openwrt_rpi5_egpu_runtime_repair_source_rootfs_resolved }}"
+    root="{{ openwrt_rpi5_egpu_runtime_repair_target_rootfs_resolved }}"
+    kver="{{ openwrt_rpi5_egpu_runtime_repair_kernel_version_resolved }}"
+
+    copy_path() {
+      case "$1" in
+        "$src"/*)
+          rel="${1#"$src"/}"
+          ;;
+        *)
+          rel="${1#/}"
+          ;;
+      esac
+      if [ -e "$src/$rel" ] || [ -L "$src/$rel" ]; then
+        mkdir -p "$root/$(dirname "$rel")"
+        cp -a "$src/$rel" "$root/$rel"
+      fi
+    }
+
+    copy_contents_entry() {
+      kind="$1"
+      path="$2"
+      case "$kind" in
+        dir)
+          mkdir -p "$root/${path#/}"
+          ;;
+        obj|sym)
+          copy_path "$path"
+          ;;
+      esac
+    }
+
+    for atom in {{ openwrt_rpi5_egpu_runtime_repair_vulkan_packages | join(' ') }}; do
+      category="${atom%%/*}"
+      package="${atom#*/}"
+      pkg_dir="$(find "$src/var/db/pkg/$category" -maxdepth 1 -type d -name "$package-*" 2>/dev/null | sort | tail -n 1)"
+      test -n "$pkg_dir"
+      mkdir -p "$root/var/db/pkg/$category"
+      cp -a "$pkg_dir" "$root/var/db/pkg/$category/"
+      contents="$pkg_dir/CONTENTS"
+      if [ -f "$contents" ]; then
+        while IFS= read -r line; do
+          set -- $line
+          [ "$#" -ge 2 ] || continue
+          copy_contents_entry "$1" "$2"
+        done < "$contents"
+      fi
+    done
+
+    find "$src/lib/modules/$kver" -name 'nvidia*.ko*' -print | while IFS= read -r path; do
+      copy_path "$path"
+    done
+
+    copy_path /etc/vulkan/icd.d/nvidia_icd.json
+
+    if [ -d "$src/lib/firmware/nvidia" ]; then
+      find "$src/lib/firmware/nvidia" -maxdepth 3 -type f -name 'gsp*.bin' -print | while IFS= read -r path; do
+        copy_path "$path"
+      done
+    fi
+
+    for dir in /usr/bin /usr/lib64 /usr/lib /usr/share/vulkan/icd.d; do
+      [ -d "$src/$dir" ] || continue
+      find "$src/$dir" -maxdepth 2 \
+        \( -name 'nvidia*' -o -name '*nvidia*' -o -name 'libGLX_nvidia.so*' -o -name 'libvulkan_nvidia.so*' \) \
+        -print | while IFS= read -r path; do
+          copy_path "$path"
+        done
+    done
+
+    chroot "$root" /bin/bash -lc "depmod -a $kver"
+  args:
+    executable: /bin/sh
+  changed_when: true
