@@ -1,0 +1,29 @@
+---
+- name: rpi5 eGPU lower-rootfs runtime repair をスキップ
+  ansible.builtin.debug:
+    msg: "openwrt_rpi5_egpu_runtime_repair_enabled=false のため実行しません"
+  when: not (openwrt_rpi5_egpu_runtime_repair_enabled | bool)
+
+- name: rpi5 eGPU lower-rootfs runtime repair preflight を実行
+  ansible.builtin.include_tasks: preflight.yml
+  when: openwrt_rpi5_egpu_runtime_repair_enabled | bool
+
+- name: rpi5 eGPU lower-rootfs runtime repair を実行
+  ansible.builtin.include_tasks: repair.yml
+  when:
+    - openwrt_rpi5_egpu_runtime_repair_enabled | bool
+    - openwrt_rpi5_egpu_runtime_repair_apply | bool
+    - not (openwrt_rpi5_egpu_runtime_repair_use_staged_source_rootfs | bool)
+
+- name: rpi5 eGPU lower-rootfs staged source rootfs repair を実行
+  ansible.builtin.include_tasks: repair_from_staged_source_rootfs.yml
+  when:
+    - openwrt_rpi5_egpu_runtime_repair_enabled | bool
+    - openwrt_rpi5_egpu_runtime_repair_apply | bool
+    - openwrt_rpi5_egpu_runtime_repair_use_staged_source_rootfs | bool
+
+- name: rpi5 eGPU lower-rootfs runtime repair の結果を検証
+  ansible.builtin.include_tasks: verify.yml
+  when:
+    - openwrt_rpi5_egpu_runtime_repair_enabled | bool
+    - openwrt_rpi5_egpu_runtime_repair_validate | bool

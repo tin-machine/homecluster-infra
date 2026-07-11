@@ -138,3 +138,13 @@
       tags:
         - never
         - pxe_rootfs_maintenance
+
+    - name: rpi5 eGPU lower-rootfs runtime repair を実行
+      ansible.builtin.include_role:
+        name: openwrt_rpi5_egpu_runtime_repair
+        apply:
+          tags:
+            - rpi5_egpu_runtime_repair
+      tags:
+        - never
+        - rpi5_egpu_runtime_repair

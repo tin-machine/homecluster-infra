@@ -1,0 +1,114 @@
+---
+- name: rpi5 eGPU repair の判定用変数を準備
+  ansible.builtin.set_fact:
+    openwrt_rpi5_egpu_runtime_repair_target_rootfs_resolved: "{{ openwrt_rpi5_egpu_runtime_repair_target_rootfs | string | trim }}"
+    openwrt_rpi5_egpu_runtime_repair_source_rootfs_resolved: "{{ openwrt_rpi5_egpu_runtime_repair_source_rootfs | string | trim }}"
+    openwrt_rpi5_egpu_runtime_repair_kernel_version_resolved: "{{ openwrt_rpi5_egpu_runtime_repair_kernel_version | string | trim }}"
+    openwrt_rpi5_egpu_runtime_repair_nvidia_driver_version_resolved: "{{ openwrt_rpi5_egpu_runtime_repair_nvidia_driver_version | string | trim }}"
+    openwrt_rpi5_egpu_runtime_repair_nvidia_runfile_path_resolved: "{{ openwrt_rpi5_egpu_runtime_repair_nvidia_runfile_path | string | trim }}"
+    openwrt_rpi5_egpu_runtime_repair_open_kernel_modules_source_dir_resolved: "{{ openwrt_rpi5_egpu_runtime_repair_open_kernel_modules_source_dir | string | trim }}"
+    openwrt_rpi5_egpu_runtime_repair_open_kernel_modules_commit_resolved: "{{ openwrt_rpi5_egpu_runtime_repair_open_kernel_modules_commit | string | trim }}"
+    openwrt_rpi5_egpu_runtime_repair_kernel_build_dir_resolved: "{{ openwrt_rpi5_egpu_runtime_repair_kernel_build_dir | string | trim }}"
+
+- name: rpi5 eGPU repair の必須入力を検証
+  ansible.builtin.assert:
+    that:
+      - openwrt_rpi5_egpu_runtime_repair_target_rootfs_resolved is match('^/')
+      - openwrt_rpi5_egpu_runtime_repair_kernel_version_resolved is match('.+-v8-nvidia\\+$')
+      - openwrt_rpi5_egpu_runtime_repair_nvidia_driver_version_resolved | length > 0
+      - openwrt_rpi5_egpu_runtime_repair_vulkan_packages | length > 0
+    fail_msg: "rpi5 eGPU lower-rootfs repair の target rootfs / kver / driver pin / source pin を確認してください"
+
+- name: rpi5 eGPU repair apply 入力を検証
+  ansible.builtin.assert:
+    that:
+      - openwrt_rpi5_egpu_runtime_repair_nvidia_runfile_path_resolved is match('^/')
+      - openwrt_rpi5_egpu_runtime_repair_open_kernel_modules_source_dir_resolved is match('^/')
+      - openwrt_rpi5_egpu_runtime_repair_open_kernel_modules_commit_resolved | length >= 12
+      - openwrt_rpi5_egpu_runtime_repair_kernel_build_dir_resolved is match('^/')
+      - openwrt_rpi5_egpu_runtime_repair_confirm_expected | string | trim | length > 0
+    fail_msg: "rpi5 eGPU lower-rootfs repair apply の runfile / source pin / kernel build dir / confirm token を確認してください"
+  when:
+    - openwrt_rpi5_egpu_runtime_repair_apply | bool
+    - not (openwrt_rpi5_egpu_runtime_repair_use_staged_source_rootfs | bool)
+
+- name: rpi5 eGPU repair staged source rootfs apply 入力を検証
+  ansible.builtin.assert:
+    that:
+      - openwrt_rpi5_egpu_runtime_repair_source_rootfs_resolved is match('^/')
+      - openwrt_rpi5_egpu_runtime_repair_source_rootfs_resolved != openwrt_rpi5_egpu_runtime_repair_target_rootfs_resolved
+      - openwrt_rpi5_egpu_runtime_repair_confirm_expected | string | trim | length > 0
+    fail_msg: "rpi5 eGPU staged source rootfs repair apply の source rootfs / confirm token を確認してください"
+  when:
+    - openwrt_rpi5_egpu_runtime_repair_apply | bool
+    - openwrt_rpi5_egpu_runtime_repair_use_staged_source_rootfs | bool
+
+- name: rpi5 eGPU repair apply 確認 token を検証
+  ansible.builtin.assert:
+    that:
+      - openwrt_rpi5_egpu_runtime_repair_confirm == openwrt_rpi5_egpu_runtime_repair_confirm_expected
+    fail_msg: >-
+      rpi5 eGPU lower-rootfs repair apply には
+      openwrt_rpi5_egpu_runtime_repair_confirm={{ openwrt_rpi5_egpu_runtime_repair_confirm_expected }}
+      が必要です。
+  when: openwrt_rpi5_egpu_runtime_repair_apply | bool
+
+- name: rpi5 eGPU repair target rootfs を確認
+  ansible.builtin.stat:
+    path: "{{ openwrt_rpi5_egpu_runtime_repair_target_rootfs_resolved }}"
+  register: openwrt_rpi5_egpu_runtime_repair_target_rootfs_stat
+
+- name: rpi5 eGPU repair target module tree を確認
+  ansible.builtin.stat:
+    path: "{{ openwrt_rpi5_egpu_runtime_repair_target_rootfs_resolved }}/lib/modules/{{ openwrt_rpi5_egpu_runtime_repair_kernel_version_resolved }}"
+  register: openwrt_rpi5_egpu_runtime_repair_module_tree_stat
+
+- name: rpi5 eGPU repair input paths を確認
+  ansible.builtin.stat:
+    path: "{{ item.path }}"
+  loop:
+    - label: nvidia_runfile
+      path: "{{ openwrt_rpi5_egpu_runtime_repair_nvidia_runfile_path_resolved }}"
+    - label: open_kernel_modules_source
+      path: "{{ openwrt_rpi5_egpu_runtime_repair_open_kernel_modules_source_dir_resolved }}"
+    - label: kernel_build_dir
+      path: "{{ openwrt_rpi5_egpu_runtime_repair_kernel_build_dir_resolved }}"
+  loop_control:
+    label: "{{ item.label }}"
+  register: openwrt_rpi5_egpu_runtime_repair_input_path_stats
+  when:
+    - openwrt_rpi5_egpu_runtime_repair_apply | bool
+    - not (openwrt_rpi5_egpu_runtime_repair_use_staged_source_rootfs | bool)
+
+- name: rpi5 eGPU repair staged source rootfs を確認
+  ansible.builtin.stat:
+    path: "{{ openwrt_rpi5_egpu_runtime_repair_source_rootfs_resolved }}"
+  register: openwrt_rpi5_egpu_runtime_repair_source_rootfs_stat
+  when:
+    - openwrt_rpi5_egpu_runtime_repair_apply | bool
+    - openwrt_rpi5_egpu_runtime_repair_use_staged_source_rootfs | bool
+
+- name: rpi5 eGPU repair target existence を検証
+  ansible.builtin.assert:
+    that:
+      - openwrt_rpi5_egpu_runtime_repair_target_rootfs_stat.stat.isdir | default(false)
+      - openwrt_rpi5_egpu_runtime_repair_module_tree_stat.stat.isdir | default(false)
+    fail_msg: "rpi5 eGPU lower-rootfs repair の target rootfs / module tree が不足しています"
+
+- name: rpi5 eGPU repair input existence を検証
+  ansible.builtin.assert:
+    that:
+      - openwrt_rpi5_egpu_runtime_repair_input_path_stats.results | selectattr('stat.exists', 'defined') | selectattr('stat.exists') | list | length == 3
+    fail_msg: "rpi5 eGPU lower-rootfs repair apply の input path が不足しています"
+  when:
+    - openwrt_rpi5_egpu_runtime_repair_apply | bool
+    - not (openwrt_rpi5_egpu_runtime_repair_use_staged_source_rootfs | bool)
+
+- name: rpi5 eGPU repair staged source rootfs existence を検証
+  ansible.builtin.assert:
+    that:
+      - openwrt_rpi5_egpu_runtime_repair_source_rootfs_stat.stat.isdir | default(false)
+    fail_msg: "rpi5 eGPU lower-rootfs repair apply の staged source rootfs が不足しています"
+  when:
+    - openwrt_rpi5_egpu_runtime_repair_apply | bool
+    - openwrt_rpi5_egpu_runtime_repair_use_staged_source_rootfs | bool

@@ -136,6 +136,11 @@ k3s_converge_validator_matches="$(
 )"
 report_matches "k3s_converge disallowed lifecycle/storage violations found" "${k3s_converge_validator_matches}"
 
+print_section "rpi5 eGPU lower-rootfs repair contract"
+if ! python3 scripts/ci/check-rpi5-egpu-lower-rootfs-repair.py; then
+  fail=1
+fi
+
 
 print_section "terraform and helm values redaction scan"
 terraform_values_redaction_pattern='192\.168\.|10\.10\.|10\.11\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|fd[0-9a-fA-F]{2}:|fdd[0-9a-fA-F]:|BEGIN .*PRIVATE KEY|AKIA[0-9A-Z]{16}|xox[baprs]-|gh[pousr]_[A-Za-z0-9_]+|@[^[:space:]]+\.[A-Za-z]{2,}'

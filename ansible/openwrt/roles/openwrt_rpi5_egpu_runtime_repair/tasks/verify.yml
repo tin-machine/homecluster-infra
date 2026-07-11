@@ -1,0 +1,21 @@
+---
+- name: rpi5 eGPU lower-rootfs evidence を収集
+  ansible.builtin.shell: |
+    set -eu
+    root="{{ openwrt_rpi5_egpu_runtime_repair_target_rootfs_resolved }}"
+    kver="{{ openwrt_rpi5_egpu_runtime_repair_kernel_version_resolved }}"
+    test -f "$root/etc/vulkan/icd.d/nvidia_icd.json"
+    test -f "$root/lib/firmware/nvidia/{{ openwrt_rpi5_egpu_runtime_repair_nvidia_driver_version_resolved }}/gsp_ga10x.bin"
+    find "$root/lib/modules/$kver" -name 'nvidia*.ko*' -print | grep -q .
+    find "$root/usr/lib64" "$root/usr/lib" -maxdepth 2 \
+      \( -name 'libGLX_nvidia.so*' -o -name 'libvulkan_nvidia.so*' -o -name 'libnvidia-glvkspirv.so*' \) \
+      -print 2>/dev/null | grep -q .
+    for atom in {{ openwrt_rpi5_egpu_runtime_repair_vulkan_packages | join(' ') }}; do
+      category="${atom%%/*}"
+      package="${atom#*/}"
+      ls "$root/var/db/pkg/$category/$package"-* >/dev/null 2>&1
+    done
+    chroot "$root" /bin/bash -lc "depmod -n $kver" | grep -q .
+  args:
+    executable: /bin/sh
+  changed_when: false
