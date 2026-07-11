@@ -27,6 +27,7 @@ openwrt_gentoo_release_bundle_strict_hosts: true
 openwrt_gentoo_release_bundle_require_artifacts: true
 openwrt_gentoo_release_bundle_manifest_enabled: true
 openwrt_gentoo_release_bundle_manifest_dir: /srv/gentoo/releases
+openwrt_gentoo_release_bundle_manifest_metadata: {}
 openwrt_gentoo_release_bundle_marker_enabled: true
 openwrt_gentoo_release_bundle_rootfs_marker_name: ".release_bundle_rootfs"
 openwrt_gentoo_release_bundle_tftp_marker_name: ".release_bundle_tftp"

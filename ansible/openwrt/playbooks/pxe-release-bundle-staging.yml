@@ -74,6 +74,15 @@
         openwrt_gentoo_release_bundle_strict_hosts: true
         openwrt_gentoo_release_bundle_require_artifacts: true
         openwrt_gentoo_release_bundle_manifest_enabled: true
+        openwrt_gentoo_release_bundle_manifest_metadata: >-
+          {{
+            pxe_release_bundle_manifest_metadata_base
+            | combine(
+              {'rpi5_nvidia': openwrt_rpi5_egpu_generation_manifest_metadata | default({})}
+              if (openwrt_rpi5_egpu_generation_enabled | default(false) | bool)
+              else {}
+            )
+          }}
         openwrt_gentoo_release_bundle_target_stages:
           - "{{ pxe_release_bundle_stage }}"
       tags:
@@ -104,6 +113,15 @@
         openwrt_gentoo_release_bundle_strict_hosts: true
         openwrt_gentoo_release_bundle_require_artifacts: true
         openwrt_gentoo_release_bundle_manifest_enabled: true
+        openwrt_gentoo_release_bundle_manifest_metadata: >-
+          {{
+            pxe_release_bundle_manifest_metadata_base
+            | combine(
+              {'rpi5_nvidia': openwrt_rpi5_egpu_generation_manifest_metadata | default({})}
+              if (openwrt_rpi5_egpu_generation_enabled | default(false) | bool)
+              else {}
+            )
+          }}
         openwrt_gentoo_release_bundle_target_stages:
           - "{{ pxe_release_bundle_stage }}"
       tags:

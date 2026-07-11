@@ -8,6 +8,13 @@ openwrt_rpi5_egpu_runtime_repair_enabled: false
 openwrt_rpi5_egpu_runtime_repair_apply: false
 openwrt_rpi5_egpu_runtime_repair_validate: true
 
+# A release-bundle build may opt into this role only after the target rpi5
+# rootfs exists. Keep it separate from the emergency repair entrypoint: both
+# flags are required before a generation build can mutate a lower rootfs.
+openwrt_rpi5_egpu_generation_enabled: false
+openwrt_rpi5_egpu_generation_apply: false
+openwrt_rpi5_egpu_generation_manifest_metadata: {}
+
 openwrt_rpi5_egpu_runtime_repair_confirm: ""
 openwrt_rpi5_egpu_runtime_repair_confirm_expected: ""
 
@@ -39,6 +46,10 @@ openwrt_rpi5_egpu_runtime_repair_vulkan_packages:
   - x11-libs/libX11
   - x11-libs/libXext
   - dev-util/spirv-headers
+  - dev-util/spirv-tools
+  - x11-libs/libxcb
+  - x11-libs/libXau
+  - x11-libs/libXdmcp
   - sys-apps/pciutils
 
 openwrt_rpi5_egpu_runtime_repair_emerge_args:

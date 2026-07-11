@@ -39,6 +39,7 @@
   become: true
   ansible.builtin.stat:
     path: "{{ rpi5_egpu_local_swap_path }}"
+    get_checksum: false
   register: rpi5_egpu_local_swap_stat
 
 - name: 既存 swapfile のサイズを確認
@@ -138,4 +139,3 @@
       - "'/dev/zram0' in rpi5_egpu_local_swap_show.stdout"
       - (rpi5_egpu_local_swap_show.stdout | regex_search(rpi5_egpu_local_swap_path | regex_escape ~ '\\s+file\\s+\\S+\\s+\\S+\\s+' ~ (rpi5_egpu_local_swap_priority | string))) is not none
     fail_msg: "local SSD swap が期待 priority で有効ではありません"
-

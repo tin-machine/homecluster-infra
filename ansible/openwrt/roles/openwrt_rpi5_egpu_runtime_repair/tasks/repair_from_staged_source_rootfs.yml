@@ -38,7 +38,11 @@
       category="${atom%%/*}"
       package="${atom#*/}"
       pkg_dir="$(find "$src/var/db/pkg/$category" -maxdepth 1 -type d -name "$package-*" 2>/dev/null | sort | tail -n 1)"
-      test -n "$pkg_dir"
+      if [ -z "$pkg_dir" ]; then
+        ls "$root/var/db/pkg/$category/$package"-* >/dev/null 2>&1 && continue
+        echo "missing $atom in both staged source and target rootfs" >&2
+        exit 1
+      fi
       mkdir -p "$root/var/db/pkg/$category"
       cp -a "$pkg_dir" "$root/var/db/pkg/$category/"
       contents="$pkg_dir/CONTENTS"
@@ -51,9 +55,11 @@
       fi
     done
 
-    find "$src/lib/modules/$kver" -name 'nvidia*.ko*' -print | while IFS= read -r path; do
-      copy_path "$path"
-    done
+    if [ -d "$src/lib/modules/$kver" ]; then
+      find "$src/lib/modules/$kver" -name 'nvidia*.ko*' -print | while IFS= read -r path; do
+        copy_path "$path"
+      done
+    fi
 
     copy_path /etc/vulkan/icd.d/nvidia_icd.json
 
