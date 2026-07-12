@@ -245,6 +245,11 @@ openwrt_gentoo_k3s_stg_server_api_url: "{{ '' if (openwrt_gentoo_k3s_stg_server_
 openwrt_gentoo_nfs_utils_marker: "{{ openwrt_gentoo_rootfs_dir }}/.nfs_utils_installed"
 openwrt_gentoo_chroot_shell: /bin/bash
 openwrt_gentoo_chroot_bind_mounts:
+  # OpenWrt の /dev/shm は /tmp/shm への symlink である。/dev だけを bind
+  # すると chroot 内ではリンク先が存在せず、Python multiprocessing の
+  # POSIX semaphore (SemLock) が ENOENT になる。
+  - source: /tmp/shm
+    target: tmp/shm
   - source: /dev
     target: dev
   - source: /proc
