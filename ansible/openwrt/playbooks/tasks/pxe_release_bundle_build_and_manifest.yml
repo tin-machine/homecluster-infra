@@ -81,6 +81,25 @@
     - pxe_release_bundle
     - pxe_release_bundle_build
 
+- name: rpi5 eGPU generation artifact bundle staging defaults を補完
+  ansible.builtin.set_fact:
+    openwrt_rpi5_egpu_generation_artifact_controller_dir: >-
+      {{
+        openwrt_rpi5_egpu_generation_artifact_controller_dir
+        | default('/tmp/rpi5-egpu-generation-artifacts', true)
+      }}
+    openwrt_rpi5_egpu_generation_artifact_openwrt_dir: >-
+      {{
+        openwrt_rpi5_egpu_generation_artifact_openwrt_dir
+        | default('/srv/gentoo/rpi5-egpu-artifacts', true)
+      }}
+  when:
+    - openwrt_rpi5_egpu_generation_enabled | default(false) | bool
+    - openwrt_rpi5_egpu_generation_artifact_bundle_enabled | default(false) | bool
+  tags:
+    - pxe_release_bundle
+    - pxe_release_bundle_build
+
 - name: rpi5 eGPU generation artifact controller staging directory を作成
   ansible.builtin.file:
     path: "{{ openwrt_rpi5_egpu_generation_artifact_controller_dir }}/{{ pxe_release_bundle_rpi5_items[0].release }}"
