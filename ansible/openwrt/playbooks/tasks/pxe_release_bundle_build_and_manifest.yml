@@ -106,7 +106,40 @@
     state: directory
     mode: '0700'
   delegate_to: localhost
+  connection: local
+  vars:
+    ansible_connection: local
+    ansible_remote_tmp: /tmp/.ansible-tmp
   become: false
+  when:
+    - openwrt_rpi5_egpu_generation_enabled | default(false) | bool
+    - openwrt_rpi5_egpu_generation_artifact_bundle_enabled | default(false) | bool
+  tags:
+    - pxe_release_bundle
+    - pxe_release_bundle_build
+
+- name: rpi5 eGPU generation artifact source archive を取得前に検証
+  ansible.builtin.shell: |
+    set -euo pipefail
+    archive="{{ openwrt_rpi5_egpu_generation_artifact_archive_path }}"
+    manifest="{{ openwrt_rpi5_egpu_generation_artifact_archive_sha256_path }}"
+    test -r "$archive"
+    test -r "$manifest"
+    sha256sum -c "$manifest"
+    gzip -t "$archive"
+    tar -tzf "$archive" >/dev/null
+  args:
+    executable: /bin/bash
+  delegate_to: "{{ openwrt_rpi5_egpu_generation_artifact_source_host }}"
+  vars:
+    ansible_user: >-
+      {{
+        hostvars[openwrt_rpi5_egpu_generation_artifact_source_host]
+        .ansible_user | default('ansible', true)
+      }}
+    ansible_remote_tmp: /tmp/.ansible-tmp
+  become: false
+  changed_when: false
   when:
     - openwrt_rpi5_egpu_generation_enabled | default(false) | bool
     - openwrt_rpi5_egpu_generation_artifact_bundle_enabled | default(false) | bool
@@ -121,6 +154,14 @@
     flat: true
     validate_checksum: true
   delegate_to: "{{ openwrt_rpi5_egpu_generation_artifact_source_host }}"
+  vars:
+    ansible_user: >-
+      {{
+        hostvars[openwrt_rpi5_egpu_generation_artifact_source_host]
+        .ansible_user | default('ansible', true)
+      }}
+    ansible_remote_tmp: /tmp/.ansible-tmp
+  become: false
   when:
     - openwrt_rpi5_egpu_generation_enabled | default(false) | bool
     - openwrt_rpi5_egpu_generation_artifact_bundle_enabled | default(false) | bool
@@ -135,6 +176,14 @@
     flat: true
     validate_checksum: true
   delegate_to: "{{ openwrt_rpi5_egpu_generation_artifact_source_host }}"
+  vars:
+    ansible_user: >-
+      {{
+        hostvars[openwrt_rpi5_egpu_generation_artifact_source_host]
+        .ansible_user | default('ansible', true)
+      }}
+    ansible_remote_tmp: /tmp/.ansible-tmp
+  become: false
   when:
     - openwrt_rpi5_egpu_generation_enabled | default(false) | bool
     - openwrt_rpi5_egpu_generation_artifact_bundle_enabled | default(false) | bool
@@ -152,9 +201,15 @@
     actual="$(sha256sum "$archive" | awk '{ print $1 }')"
     test -n "$expected"
     test "$expected" = "$actual"
+    gzip -t "$archive"
+    tar -tzf "$archive" >/dev/null
   args:
     executable: /bin/bash
   delegate_to: localhost
+  connection: local
+  vars:
+    ansible_connection: local
+    ansible_remote_tmp: /tmp/.ansible-tmp
   become: false
   changed_when: false
   when:
@@ -208,7 +263,7 @@
 
 - name: rpi5 eGPU generation kernel modules を target rootfs へ配置
   ansible.builtin.shell: |
-    set -euo pipefail
+    set -eu
     stage="{{ openwrt_rpi5_egpu_generation_artifact_openwrt_dir }}/{{ pxe_release_bundle_rpi5_items[0].release }}/payload"
     root="/srv/gentoo/{{ pxe_release_bundle_rpi5_items[0].release }}/nfs"
     kver="{{ openwrt_rpi5_egpu_runtime_repair_kernel_version }}"
@@ -217,7 +272,7 @@
     rm -rf "$root/lib/modules/$kver"
     cp -a "$stage/modules/lib/modules/$kver" "$root/lib/modules/"
   args:
-    executable: /bin/bash
+    executable: /bin/sh
   changed_when: true
   when:
     - openwrt_rpi5_egpu_generation_enabled | default(false) | bool

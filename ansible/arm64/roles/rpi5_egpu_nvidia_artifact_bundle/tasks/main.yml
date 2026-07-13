@@ -53,6 +53,9 @@
     work="$out/.${release}.work"
     archive="{{ rpi5_egpu_nvidia_artifact_bundle_archive_path }}"
     manifest="{{ rpi5_egpu_nvidia_artifact_bundle_manifest_path }}"
+    archive_tmp="${archive}.tmp"
+    manifest_tmp="${manifest}.tmp"
+    rm -f "$archive_tmp" "$manifest_tmp"
     if ! test -f "$work/payload/linux/Module.symvers" \
       || ! test -d "$work/payload/modules/lib/modules/{{ rpi5_egpu_nvidia_artifact_bundle_kernel_version }}" \
       || ! test -f "$work/payload/NVIDIA-Linux-aarch64.run" \
@@ -73,8 +76,17 @@
       cd "$work/payload"
       find . -type f -print0 | sort -z | xargs -0 sha256sum
     ) > "$work/manifest.sha256"
-    tar -C "$work" -czf "$archive" payload manifest.sha256
-    sha256sum "$archive" > "$manifest"
+    (
+      cd "$work/payload"
+      sha256sum -c ../manifest.sha256
+    )
+    tar -C "$work" -czf "$archive_tmp" payload manifest.sha256
+    gzip -t "$archive_tmp"
+    tar -tzf "$archive_tmp" >/dev/null
+    checksum="$(sha256sum "$archive_tmp" | awk '{ print $1 }')"
+    printf '%s  %s\n' "$checksum" "$archive" > "$manifest_tmp"
+    mv -f "$archive_tmp" "$archive"
+    mv -f "$manifest_tmp" "$manifest"
     rm -rf "$work"
   args:
     executable: /bin/bash

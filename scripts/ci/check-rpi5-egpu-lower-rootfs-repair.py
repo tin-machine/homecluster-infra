@@ -67,6 +67,10 @@ def main() -> int:
     require(bundle_tasks, "rm -rf \"$work\"", "native bundle work cleanup")
     require(bundle_tasks, "rm -rf \"$work/payload/linux/.git\"", "native bundle excludes kernel git")
     require(bundle_tasks, "manifest.sha256", "native bundle payload manifest")
+    require(bundle_tasks, "archive_tmp=\"${archive}.tmp\"", "native bundle temporary archive")
+    require(bundle_tasks, "gzip -t \"$archive_tmp\"", "native bundle gzip validation")
+    require(bundle_tasks, "tar -tzf \"$archive_tmp\" >/dev/null", "native bundle tar validation")
+    require(bundle_tasks, "printf '%s  %s\\n' \"$checksum\" \"$archive\" > \"$manifest_tmp\"", "native bundle final archive manifest")
     require(bundle_playbook, "hosts: rpi5-03", "native bundle exact host")
     for atom in (
         "media-libs/vulkan-loader",
@@ -117,10 +121,20 @@ def main() -> int:
     require(release_bundle_build, "rpi5 eGPU generation build の対象 release を解決", "generation release resolution")
     require(release_bundle_build, "pxe_release_bundle_rpi5_items | length == 1", "single rpi5 release guard")
     require(release_bundle_build, "openwrt_rpi5_egpu_generation_apply", "generation apply guard")
+    require(release_bundle_build, "artifact source archive を取得前に検証", "artifact source preflight")
+    require(release_bundle_build, "hostvars[openwrt_rpi5_egpu_generation_artifact_source_host]", "artifact source delegated user")
+    require(release_bundle_build, "sha256sum -c \"$manifest\"", "artifact source checksum validation")
+    require(release_bundle_build, "gzip -t \"$archive\"", "artifact source gzip validation")
+    require(release_bundle_build, "tar -tzf \"$archive\" >/dev/null", "artifact source tar validation")
+    require(release_bundle_build, "ansible_remote_tmp: /tmp/.ansible-tmp", "artifact source remote tmp")
     require(release_bundle_build, "artifact archive を controller へ取得", "artifact fetch")
     require(release_bundle_build, "artifact archive checksum を controller で検証", "artifact controller checksum")
+    require(release_bundle_build, "gzip -t \"$archive\"", "artifact controller gzip validation")
+    require(release_bundle_build, "tar -tzf \"$archive\" >/dev/null", "artifact controller tar validation")
     require(release_bundle_build, "artifact payload checksum を OpenWrt で検証", "artifact router checksum")
     require(release_bundle_build, "kernel modules を target rootfs へ配置", "artifact module stage")
+    require(release_bundle_build, "set -eu\n    stage=\"{{ openwrt_rpi5_egpu_generation_artifact_openwrt_dir }}", "OpenWrt shell-compatible module stage")
+    require(release_bundle_build, "executable: /bin/sh\n  changed_when: true", "OpenWrt module stage shell")
     require(release_bundle_build, "NVIDIA initramfs を再生成", "forced NVIDIA initramfs")
     for key in (
         "kernel_release",
