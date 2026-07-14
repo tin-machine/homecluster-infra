@@ -123,6 +123,7 @@ def main() -> int:
     require(release_bundle_build, "openwrt_rpi5_egpu_generation_apply", "generation apply guard")
     require(release_bundle_build, "artifact source archive を取得前に検証", "artifact source preflight")
     require(release_bundle_build, "hostvars[openwrt_rpi5_egpu_generation_artifact_source_host]", "artifact source delegated user")
+    require(release_bundle_build, "openwrt_rpi5_egpu_generation_artifact_source_host | default(\"\", true) | string | trim | length > 0", "artifact source host fail-closed guard")
     require(release_bundle_build, "sha256sum -c \"$manifest\"", "artifact source checksum validation")
     require(release_bundle_build, "gzip -t \"$archive\"", "artifact source gzip validation")
     require(release_bundle_build, "tar -tzf \"$archive\" >/dev/null", "artifact source tar validation")
