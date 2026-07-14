@@ -15,7 +15,7 @@ openwrt_rpi5_egpu_generation_enabled: false
 openwrt_rpi5_egpu_generation_apply: false
 openwrt_rpi5_egpu_generation_manifest_metadata: {}
 openwrt_rpi5_egpu_generation_artifact_bundle_enabled: false
-openwrt_rpi5_egpu_generation_artifact_source_host: rpi5-03
+openwrt_rpi5_egpu_generation_artifact_source_host: ""
 openwrt_rpi5_egpu_generation_artifact_archive_path: ""
 openwrt_rpi5_egpu_generation_artifact_archive_sha256_path: ""
 openwrt_rpi5_egpu_generation_artifact_controller_dir: /tmp/rpi5-egpu-generation-artifacts

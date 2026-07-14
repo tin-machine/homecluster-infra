@@ -1,5 +1,5 @@
 ---
-# Native rpi5-03 NVIDIA artifact bundle.  This role is inert unless an
+# Native Raspberry Pi 5 NVIDIA artifact bundle. This role is inert unless an
 # operator explicitly enables and confirms it; it never writes OpenWrt paths.
 rpi5_egpu_nvidia_artifact_bundle_enabled: false
 rpi5_egpu_nvidia_artifact_bundle_apply: false
