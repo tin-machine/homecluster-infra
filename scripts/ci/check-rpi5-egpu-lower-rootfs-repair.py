@@ -152,6 +152,25 @@ def main() -> int:
     require(release_bundle, "metadata: \"{{ openwrt_gentoo_release_bundle_manifest_metadata | default({}) }}\"", "manifest metadata")
     require(staging_playbook, "pxe_release_bundle_manifest_metadata_base", "staging manifest metadata forwarding")
     require(staging_playbook, "rpi5_nvidia", "staging NVIDIA manifest forwarding")
+    require(staging_playbook, "PXE client catalog を合成", "staging PXE catalog preflight")
+    require(staging_playbook, "pxe_release_bundle_rpi5_nvidia_tftp_required", "NVIDIA TFTP requirement fact")
+    for field in (
+        "host.rpi5_kernel_image",
+        "host.rpi5_initramfs",
+        "host.rpi5_device_tree",
+    ):
+        require(staging_playbook, field, f"NVIDIA TFTP requirement field {field}")
+    for flag in (
+        "openwrt_rpi5_egpu_generation_enabled",
+        "openwrt_rpi5_egpu_generation_apply",
+        "openwrt_rpi5_egpu_generation_artifact_bundle_enabled",
+    ):
+        require(staging_playbook, flag, f"NVIDIA TFTP requirement opt-in {flag}")
+    require(
+        staging_playbook,
+        "not (pxe_release_bundle_rpi5_nvidia_tftp_required | bool)",
+        "NVIDIA TFTP requirement negative path",
+    )
 
     print("rpi5 eGPU lower-rootfs repair contract ok")
     return 0
