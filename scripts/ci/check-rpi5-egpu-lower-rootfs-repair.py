@@ -71,7 +71,7 @@ def main() -> int:
     require(bundle_tasks, "gzip -t \"$archive_tmp\"", "native bundle gzip validation")
     require(bundle_tasks, "tar -tzf \"$archive_tmp\" >/dev/null", "native bundle tar validation")
     require(bundle_tasks, "printf '%s  %s\\n' \"$checksum\" \"$archive\" > \"$manifest_tmp\"", "native bundle final archive manifest")
-    require(bundle_playbook, "hosts: rpi5-03", "native bundle exact host")
+    require(bundle_playbook, "hosts: rpi5_egpu_artifact_bundle", "native bundle inventory group")
     for atom in (
         "media-libs/vulkan-loader",
         "dev-util/vulkan-tools",

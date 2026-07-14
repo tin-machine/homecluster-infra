@@ -65,5 +65,9 @@ all:
           hosts:
             pxe-agent-a.example:
 
+        rpi5_egpu_artifact_bundle:
+          hosts:
+            rpi5-egpu-artifact.example.invalid:
+
     role_workstation_cli:
       hosts: {}

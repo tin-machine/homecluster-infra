@@ -21,7 +21,7 @@ rpi5_egpu_llama_model_path: /var/lib/llm-local/models/SmolLM2-135M-Instruct-Q4_K
 rpi5_egpu_llama_source_dir: /var/lib/rancher/k3s/local-llm/llama.cpp
 rpi5_egpu_llama_build_dir: /var/lib/rancher/k3s/local-llm/llama.cpp/build
 rpi5_egpu_llama_repository: https://github.com/ggml-org/llama.cpp.git
-# 2026-07-05 に rpi5-03 で Vulkan offload と API smoke が通った revision。
+# 2026-07-05 に target eGPU node で Vulkan offload と API smoke が通った revision。
 # Runtime closure acceptance が終わるまで、追従更新ではなくこの既知入力を再現する。
 rpi5_egpu_llama_revision: a4107133a634250c8c9d888bc0bc8520dcfd6105
 rpi5_egpu_llama_build_jobs: 3
