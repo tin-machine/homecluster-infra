@@ -72,7 +72,7 @@
     that:
       - openwrt_rpi5_egpu_generation_artifact_archive_path is match('^/var/lib/rancher/k3s/')
       - openwrt_rpi5_egpu_generation_artifact_archive_sha256_path is match('^/var/lib/rancher/k3s/')
-      - openwrt_rpi5_egpu_generation_artifact_source_host | length > 0
+      - openwrt_rpi5_egpu_generation_artifact_source_host | default("", true) | string | trim | length > 0
     fail_msg: "rpi5 eGPU generation artifact bundle の source host / archive / checksum path を確認してください"
   when:
     - openwrt_rpi5_egpu_generation_enabled | default(false) | bool
