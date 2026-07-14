@@ -154,6 +154,13 @@ def main() -> int:
     require(staging_playbook, "rpi5_nvidia", "staging NVIDIA manifest forwarding")
     require(staging_playbook, "PXE client catalog を合成", "staging PXE catalog preflight")
     require(staging_playbook, "pxe_release_bundle_rpi5_nvidia_tftp_required", "NVIDIA TFTP requirement fact")
+    if staging_playbook.count("rpi5 eGPU NVIDIA TFTP artifact requirement を判定") != 1:
+        raise AssertionError("NVIDIA TFTP requirement fact must be declared exactly once")
+    if staging_playbook.count("rpi5 eGPU NVIDIA TFTP artifact requirement と generation opt-in を検証") != 1:
+        raise AssertionError("NVIDIA TFTP opt-in guard must be declared exactly once")
+    for invalid_fragment in ("default(, true)", "-nvidia. in path"):
+        if invalid_fragment in staging_playbook:
+            raise AssertionError(f"invalid NVIDIA TFTP guard fragment: {invalid_fragment}")
     for field in (
         "host.rpi5_kernel_image",
         "host.rpi5_initramfs",
