@@ -115,13 +115,21 @@
         - pxe_release_bundle_build
 
     - name: rpi5 eGPU generation contract を controller fact へ転送
-      ansible.builtin.set_fact: >-
-        {{
-          hostvars[pxe_release_bundle_rpi5_nvidia_client_names[0]]
-          | dict2items
-          | selectattr('key', 'match', '^openwrt_rpi5_egpu_(generation|runtime_repair)_')
-          | items2dict
-        }}
+      ansible.builtin.set_fact:
+        openwrt_rpi5_egpu_generation_enabled: >-
+          {{ hostvars[pxe_release_bundle_rpi5_nvidia_client_names[0]].openwrt_rpi5_egpu_generation_enabled | bool }}
+        openwrt_rpi5_egpu_generation_apply: >-
+          {{ hostvars[pxe_release_bundle_rpi5_nvidia_client_names[0]].openwrt_rpi5_egpu_generation_apply | bool }}
+        openwrt_rpi5_egpu_generation_artifact_bundle_enabled: >-
+          {{ hostvars[pxe_release_bundle_rpi5_nvidia_client_names[0]].openwrt_rpi5_egpu_generation_artifact_bundle_enabled | bool }}
+        openwrt_rpi5_egpu_generation_manifest_metadata: >-
+          {{ hostvars[pxe_release_bundle_rpi5_nvidia_client_names[0]].openwrt_rpi5_egpu_generation_manifest_metadata }}
+        openwrt_rpi5_egpu_generation_artifact_archive_path: >-
+          {{ hostvars[pxe_release_bundle_rpi5_nvidia_client_names[0]].openwrt_rpi5_egpu_generation_artifact_archive_path }}
+        openwrt_rpi5_egpu_generation_artifact_archive_sha256_path: >-
+          {{ hostvars[pxe_release_bundle_rpi5_nvidia_client_names[0]].openwrt_rpi5_egpu_generation_artifact_archive_sha256_path }}
+        openwrt_rpi5_egpu_runtime_repair_kernel_version: >-
+          {{ hostvars[pxe_release_bundle_rpi5_nvidia_client_names[0]].openwrt_rpi5_egpu_runtime_repair_kernel_version }}
       when: pxe_release_bundle_rpi5_nvidia_tftp_required | bool
       no_log: true
       tags:
