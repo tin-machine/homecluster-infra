@@ -77,6 +77,57 @@
         - pxe_release_bundle
         - pxe_release_bundle_build
 
+    - name: rpi5 eGPU NVIDIA client を PXE catalog から解決
+      ansible.builtin.set_fact:
+        pxe_release_bundle_rpi5_nvidia_client_names: >-
+          {%- set result = [] -%}
+          {%- for host in openwrt_pxe_hosts_effective | default([]) -%}
+            {%- for path in [
+              host.rpi5_kernel_image | default('', true) | string | trim,
+              host.rpi5_initramfs | default('', true) | string | trim,
+              host.rpi5_device_tree | default('', true) | string | trim
+            ] -%}
+              {%- if path and '-nvidia.' in path -%}
+                {%- set name = host.name | default('', true) | string | trim -%}
+                {%- if name and name not in result -%}
+                  {%- set _ = result.append(name) -%}
+                {%- endif -%}
+              {%- endif -%}
+            {%- endfor -%}
+          {%- endfor -%}
+          {{ result }}
+      when: pxe_release_bundle_rpi5_nvidia_tftp_required | bool
+      tags:
+        - pxe_release_bundle
+        - pxe_release_bundle_build
+
+    - name: rpi5 eGPU NVIDIA client の controller scope を検証
+      ansible.builtin.assert:
+        that:
+          - pxe_release_bundle_rpi5_nvidia_client_names | length == 1
+          - pxe_release_bundle_rpi5_nvidia_client_names[0] in hostvars
+        fail_msg: >-
+          NVIDIA TFTP artifact を要求する rpi5 PXE client は一意な inventory host name を持つ必要があります。
+          client catalog と hostvars の対応を確認してください。
+      when: pxe_release_bundle_rpi5_nvidia_tftp_required | bool
+      tags:
+        - pxe_release_bundle
+        - pxe_release_bundle_build
+
+    - name: rpi5 eGPU generation contract を controller fact へ転送
+      ansible.builtin.set_fact: >-
+        {{
+          hostvars[pxe_release_bundle_rpi5_nvidia_client_names[0]]
+          | dict2items
+          | selectattr('key', 'match', '^openwrt_rpi5_egpu_(generation|runtime_repair)_')
+          | items2dict
+        }}
+      when: pxe_release_bundle_rpi5_nvidia_tftp_required | bool
+      no_log: true
+      tags:
+        - pxe_release_bundle
+        - pxe_release_bundle_build
+
     - name: rpi5 eGPU NVIDIA TFTP artifact requirement と generation opt-in を検証
       ansible.builtin.assert:
         that:
