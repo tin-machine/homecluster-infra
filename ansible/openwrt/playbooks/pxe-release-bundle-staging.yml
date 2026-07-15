@@ -135,6 +135,10 @@
           {{ hostvars[inventory_hostname].openwrt_rpi5_egpu_generation_artifact_source_host }}
         openwrt_rpi5_egpu_runtime_repair_kernel_version: >-
           {{ hostvars[pxe_release_bundle_rpi5_nvidia_client_names[0]].openwrt_rpi5_egpu_runtime_repair_kernel_version }}
+        openwrt_rpi5_egpu_runtime_repair_nvidia_driver_version: >-
+          {{ hostvars[pxe_release_bundle_rpi5_nvidia_client_names[0]].openwrt_rpi5_egpu_runtime_repair_nvidia_driver_version }}
+        openwrt_rpi5_egpu_runtime_repair_open_kernel_modules_commit: >-
+          {{ hostvars[pxe_release_bundle_rpi5_nvidia_client_names[0]].openwrt_rpi5_egpu_runtime_repair_open_kernel_modules_commit }}
       when: pxe_release_bundle_rpi5_nvidia_tftp_required | bool
       no_log: true
       tags:

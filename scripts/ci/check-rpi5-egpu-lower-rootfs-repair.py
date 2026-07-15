@@ -182,6 +182,12 @@ def main() -> int:
         "openwrt_rpi5_egpu_generation_artifact_bundle_enabled",
     ):
         require(staging_playbook, flag, f"NVIDIA TFTP requirement opt-in {flag}")
+    for field in (
+        "openwrt_rpi5_egpu_runtime_repair_kernel_version",
+        "openwrt_rpi5_egpu_runtime_repair_nvidia_driver_version",
+        "openwrt_rpi5_egpu_runtime_repair_open_kernel_modules_commit",
+    ):
+        require(staging_playbook, field, f"rpi5 eGPU controller runtime pin {field}")
     require(
         staging_playbook,
         "not (pxe_release_bundle_rpi5_nvidia_tftp_required | bool)",
