@@ -106,6 +106,9 @@
         that:
           - pxe_release_bundle_rpi5_nvidia_client_names | length == 1
           - pxe_release_bundle_rpi5_nvidia_client_names[0] in hostvars
+          - >-
+            hostvars[inventory_hostname].openwrt_rpi5_egpu_generation_artifact_source_host
+            | default('', true) | string | trim | length > 0
         fail_msg: >-
           NVIDIA TFTP artifact を要求する rpi5 PXE client は一意な inventory host name を持つ必要があります。
           client catalog と hostvars の対応を確認してください。
@@ -128,6 +131,8 @@
           {{ hostvars[pxe_release_bundle_rpi5_nvidia_client_names[0]].openwrt_rpi5_egpu_generation_artifact_archive_path }}
         openwrt_rpi5_egpu_generation_artifact_archive_sha256_path: >-
           {{ hostvars[pxe_release_bundle_rpi5_nvidia_client_names[0]].openwrt_rpi5_egpu_generation_artifact_archive_sha256_path }}
+        openwrt_rpi5_egpu_generation_artifact_source_host: >-
+          {{ hostvars[inventory_hostname].openwrt_rpi5_egpu_generation_artifact_source_host }}
         openwrt_rpi5_egpu_runtime_repair_kernel_version: >-
           {{ hostvars[pxe_release_bundle_rpi5_nvidia_client_names[0]].openwrt_rpi5_egpu_runtime_repair_kernel_version }}
       when: pxe_release_bundle_rpi5_nvidia_tftp_required | bool
