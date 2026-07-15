@@ -130,11 +130,11 @@
     tar -tzf "$archive" >/dev/null
   args:
     executable: /bin/bash
-  delegate_to: "{{ openwrt_rpi5_egpu_generation_artifact_source_host }}"
+  delegate_to: "{{ hostvars[inventory_hostname].openwrt_rpi5_egpu_generation_artifact_source_host }}"
   vars:
     ansible_user: >-
       {{
-        hostvars[openwrt_rpi5_egpu_generation_artifact_source_host]
+        hostvars[hostvars[inventory_hostname].openwrt_rpi5_egpu_generation_artifact_source_host]
         .ansible_user | default('ansible', true)
       }}
     ansible_remote_tmp: /tmp/.ansible-tmp
@@ -153,11 +153,11 @@
     dest: "{{ openwrt_rpi5_egpu_generation_artifact_controller_dir }}/{{ pxe_release_bundle_rpi5_items[0].release }}/"
     flat: true
     validate_checksum: true
-  delegate_to: "{{ openwrt_rpi5_egpu_generation_artifact_source_host }}"
+  delegate_to: "{{ hostvars[inventory_hostname].openwrt_rpi5_egpu_generation_artifact_source_host }}"
   vars:
     ansible_user: >-
       {{
-        hostvars[openwrt_rpi5_egpu_generation_artifact_source_host]
+        hostvars[hostvars[inventory_hostname].openwrt_rpi5_egpu_generation_artifact_source_host]
         .ansible_user | default('ansible', true)
       }}
     ansible_remote_tmp: /tmp/.ansible-tmp
@@ -175,11 +175,11 @@
     dest: "{{ openwrt_rpi5_egpu_generation_artifact_controller_dir }}/{{ pxe_release_bundle_rpi5_items[0].release }}/"
     flat: true
     validate_checksum: true
-  delegate_to: "{{ openwrt_rpi5_egpu_generation_artifact_source_host }}"
+  delegate_to: "{{ hostvars[inventory_hostname].openwrt_rpi5_egpu_generation_artifact_source_host }}"
   vars:
     ansible_user: >-
       {{
-        hostvars[openwrt_rpi5_egpu_generation_artifact_source_host]
+        hostvars[hostvars[inventory_hostname].openwrt_rpi5_egpu_generation_artifact_source_host]
         .ansible_user | default('ansible', true)
       }}
     ansible_remote_tmp: /tmp/.ansible-tmp
