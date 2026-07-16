@@ -76,21 +76,18 @@
       changed_when: true
       when: openwrt_rpi5_egpu_runtime_repair_install_nvidia_userspace | bool
 
-    - name: rpi5 eGPU NVIDIA open kernel modules を target rootfs に導入
+    - name: rpi5 eGPU prebuilt NVIDIA open kernel modules を target rootfs に配置
       ansible.builtin.shell: |
-        set -euo pipefail
-        cd "{{ openwrt_rpi5_egpu_runtime_repair_open_kernel_modules_source_dir_resolved }}"
-        current_commit="$(git rev-parse HEAD)"
-        test "$current_commit" = "{{ openwrt_rpi5_egpu_runtime_repair_open_kernel_modules_commit_resolved }}"
-        make modules \
-          SYSSRC="{{ openwrt_rpi5_egpu_runtime_repair_kernel_build_dir_resolved }}" \
-          TARGET_ARCH=aarch64
-        make modules_install \
-          SYSSRC="{{ openwrt_rpi5_egpu_runtime_repair_kernel_build_dir_resolved }}" \
-          INSTALL_MOD_PATH="{{ openwrt_rpi5_egpu_runtime_repair_target_rootfs_resolved }}" \
-          TARGET_ARCH=aarch64
+        set -eu
+        source="{{ openwrt_rpi5_egpu_runtime_repair_open_kernel_modules_source_dir_resolved }}/kernel-open"
+        target="{{ openwrt_rpi5_egpu_runtime_repair_target_rootfs_resolved }}/lib/modules/{{ openwrt_rpi5_egpu_runtime_repair_kernel_version_resolved }}/kernel/drivers/video"
+        mkdir -p "$target"
+        for module in nvidia.ko nvidia-modeset.ko nvidia-drm.ko nvidia-uvm.ko nvidia-peermem.ko; do
+          test -f "$source/$module"
+          cp -f "$source/$module" "$target/$module"
+        done
       args:
-        executable: /bin/bash
+        executable: /bin/ash
       changed_when: true
       when: openwrt_rpi5_egpu_runtime_repair_install_nvidia_kernel_modules | bool
 

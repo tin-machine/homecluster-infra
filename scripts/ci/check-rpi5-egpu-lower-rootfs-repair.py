@@ -156,8 +156,20 @@ def main() -> int:
         "lower-rootfs pseudo-filesystem cleanup order",
     )
     require(repair, "openwrt_rpi5_egpu_runtime_repair_nvidia_runfile_args | join(' ')", "NVIDIA runfile args")
-    require(repair, "test \"$current_commit\" =", "open kernel module commit check")
-    require(repair, "INSTALL_MOD_PATH=", "target-root module install")
+    require(repair, "rpi5 eGPU prebuilt NVIDIA open kernel modules を target rootfs に配置", "prebuilt module stage")
+    require(repair, "executable: /bin/ash", "OpenWrt ash module stage")
+    require(
+        repair,
+        "openwrt_rpi5_egpu_runtime_repair_open_kernel_modules_source_dir_resolved }}/kernel-open",
+        "prebuilt module source",
+    )
+    require(repair, "/kernel/drivers/video", "target-root NVIDIA module directory")
+    for module in ("nvidia.ko", "nvidia-modeset.ko", "nvidia-drm.ko", "nvidia-uvm.ko", "nvidia-peermem.ko"):
+        require(repair, module, f"prebuilt NVIDIA module {module}")
+    require(repair, "cp -f \"$source/$module\" \"$target/$module\"", "prebuilt module copy")
+    require_not(repair, "git rev-parse HEAD", "OpenWrt artifact source must not require git metadata")
+    require_not(repair, "make modules", "OpenWrt must not build NVIDIA modules during generation")
+    require_not(repair, "make modules_install", "OpenWrt must not build NVIDIA modules during generation")
     require(repair, "depmod -a", "target depmod")
 
     require(repair_staged, "openwrt_rpi5_egpu_runtime_repair_source_rootfs_resolved", "staged source rootfs")
