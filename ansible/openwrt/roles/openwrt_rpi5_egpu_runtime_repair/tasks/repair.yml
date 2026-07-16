@@ -33,6 +33,22 @@
           - "{{ openwrt_rpi5_egpu_runtime_repair_target_rootfs_resolved }}/proc"
       changed_when: true
 
+    - name: rpi5 eGPU target rootfs artifact payload mountpoint を作成
+      ansible.builtin.file:
+        path: "{{ openwrt_rpi5_egpu_runtime_repair_target_rootfs_resolved }}/.homecluster-rpi5-egpu-artifact"
+        state: directory
+        mode: '0755'
+
+    - name: rpi5 eGPU target rootfs へ artifact payload を bind mount
+      ansible.builtin.command:
+        argv:
+          - /bin/mount
+          - -o
+          - bind
+          - "{{ openwrt_rpi5_egpu_runtime_repair_nvidia_runfile_path_resolved | dirname }}"
+          - "{{ openwrt_rpi5_egpu_runtime_repair_target_rootfs_resolved }}/.homecluster-rpi5-egpu-artifact"
+      changed_when: true
+
     - name: rpi5 eGPU Vulkan packages を target rootfs に導入
       ansible.builtin.command:
         argv:
@@ -54,7 +70,7 @@
           - /bin/bash
           - -lc
           - >-
-            {{ openwrt_rpi5_egpu_runtime_repair_nvidia_runfile_path_resolved }}
+            /.homecluster-rpi5-egpu-artifact/{{ openwrt_rpi5_egpu_runtime_repair_nvidia_runfile_path_resolved | basename }}
             {{ openwrt_rpi5_egpu_runtime_repair_nvidia_runfile_args | join(' ') }}
             --log-file-name=/var/log/nvidia-installer-{{ openwrt_rpi5_egpu_runtime_repair_nvidia_driver_version_resolved }}.log
       changed_when: true
@@ -90,6 +106,21 @@
       when: openwrt_rpi5_egpu_runtime_repair_install_nvidia_kernel_modules | bool
 
   always:
+    - name: rpi5 eGPU target rootfs の artifact payload bind mount を解除
+      ansible.builtin.command:
+        argv:
+          - /bin/umount
+          - -l
+          - "{{ openwrt_rpi5_egpu_runtime_repair_target_rootfs_resolved }}/.homecluster-rpi5-egpu-artifact"
+      changed_when: false
+      failed_when: false
+
+    - name: rpi5 eGPU target rootfs の artifact payload mountpoint を削除
+      ansible.builtin.file:
+        path: "{{ openwrt_rpi5_egpu_runtime_repair_target_rootfs_resolved }}/.homecluster-rpi5-egpu-artifact"
+        state: absent
+      failed_when: false
+
     - name: rpi5 eGPU target rootfs の host /proc bind mount を解除
       ansible.builtin.command:
         argv:
