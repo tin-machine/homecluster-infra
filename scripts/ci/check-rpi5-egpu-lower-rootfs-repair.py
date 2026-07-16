@@ -26,6 +26,17 @@ def require(text: str, needle: str, label: str) -> None:
         raise AssertionError(f"missing {label}: {needle}")
 
 
+def controller_transfer_block(playbook: str) -> str:
+    start = "    - name: rpi5 eGPU generation contract を controller fact へ転送\n"
+    end = "      when: pxe_release_bundle_rpi5_nvidia_tftp_required | bool\n"
+    if playbook.count(start) != 1:
+        raise AssertionError("controller generation contract transfer must be declared exactly once")
+    _, remainder = playbook.split(start, 1)
+    if end not in remainder:
+        raise AssertionError("controller generation contract transfer has no bounded when clause")
+    return remainder.split(end, 1)[0]
+
+
 def main() -> int:
     defaults = read(ROLE / "defaults/main.yml")
     llm_defaults = read(LLM_ROLE / "defaults/main.yml")
@@ -40,6 +51,7 @@ def main() -> int:
     release_bundle_build = read(ROOT / "ansible/openwrt/playbooks/tasks/pxe_release_bundle_build_and_manifest.yml")
     release_bundle = read(ROOT / "ansible/openwrt/roles/openwrt_gentoo_rootfs/tasks/release_bundle.yml")
     staging_playbook = read(ROOT / "ansible/openwrt/playbooks/pxe-release-bundle-staging.yml")
+    controller_transfer = controller_transfer_block(staging_playbook)
     bundle_playbook = read(ROOT / "ansible/arm64/playbooks/rpi5-egpu-nvidia-artifact-bundle.yml")
 
     require(defaults, "openwrt_rpi5_egpu_runtime_repair_enabled: false", "disabled default")
@@ -186,8 +198,15 @@ def main() -> int:
         "openwrt_rpi5_egpu_runtime_repair_kernel_version",
         "openwrt_rpi5_egpu_runtime_repair_nvidia_driver_version",
         "openwrt_rpi5_egpu_runtime_repair_open_kernel_modules_commit",
+        "openwrt_rpi5_egpu_runtime_repair_confirm",
+        "openwrt_rpi5_egpu_runtime_repair_confirm_expected",
     ):
-        require(staging_playbook, field, f"rpi5 eGPU controller runtime pin {field}")
+        require(controller_transfer, f"{field}: >-", f"rpi5 eGPU controller transfer {field}")
+        require(
+            controller_transfer,
+            f"hostvars[pxe_release_bundle_rpi5_nvidia_client_names[0]].{field}",
+            f"rpi5 eGPU controller hostvars transfer {field}",
+        )
     require(
         staging_playbook,
         "not (pxe_release_bundle_rpi5_nvidia_tftp_required | bool)",
