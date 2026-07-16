@@ -107,6 +107,12 @@ def main() -> int:
     require(preflight, "openwrt_rpi5_egpu_runtime_repair_source_rootfs_resolved", "source rootfs guard")
 
     require(repair, "emerge {{ openwrt_rpi5_egpu_runtime_repair_emerge_args | join(' ') }}", "vulkan package install")
+    require(repair, "rpi5 eGPU target rootfs dev mountpoint を作成", "target rootfs dev mountpoint")
+    require(repair, "/bin/mount", "target rootfs dev bind mount command")
+    require(repair, "rbind", "target rootfs recursive dev bind mount")
+    require(repair, "always:", "target rootfs dev bind mount cleanup block")
+    require(repair, "/bin/umount", "target rootfs dev bind mount cleanup command")
+    require(repair, "failed_when: false", "target rootfs dev bind mount cleanup failure tolerance")
     require(repair, "openwrt_rpi5_egpu_runtime_repair_nvidia_runfile_args | join(' ')", "NVIDIA runfile args")
     require(repair, "test \"$current_commit\" =", "open kernel module commit check")
     require(repair, "INSTALL_MOD_PATH=", "target-root module install")
