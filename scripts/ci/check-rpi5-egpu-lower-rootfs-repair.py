@@ -32,6 +32,11 @@ def require_ordered(text: str, needles: tuple[str, ...], label: str) -> None:
         raise AssertionError(f"invalid {label}: {' -> '.join(needles)}")
 
 
+def require_not(text: str, needle: str, label: str) -> None:
+    if needle in text:
+        raise AssertionError(f"forbidden {label}: {needle}")
+
+
 def controller_transfer_block(playbook: str) -> str:
     start = "    - name: rpi5 eGPU generation contract を controller fact へ転送\n"
     end = "      when: pxe_release_bundle_rpi5_nvidia_tftp_required | bool\n"
@@ -115,6 +120,16 @@ def main() -> int:
     require(repair, "emerge {{ openwrt_rpi5_egpu_runtime_repair_emerge_args | join(' ') }}", "vulkan package install")
     require(repair, "rpi5 eGPU target rootfs dev mountpoint を作成", "target rootfs dev mountpoint")
     require(repair, "rpi5 eGPU target rootfs proc mountpoint を作成", "target rootfs proc mountpoint")
+    require(repair, "rpi5 eGPU target rootfs artifact payload mountpoint を作成", "target rootfs artifact mountpoint")
+    require(repair, "rpi5 eGPU target rootfs へ artifact payload を bind mount", "target rootfs artifact bind mount")
+    require(repair, "openwrt_rpi5_egpu_runtime_repair_nvidia_runfile_path_resolved | dirname", "artifact source directory")
+    require(repair, "/.homecluster-rpi5-egpu-artifact/", "artifact in-chroot path")
+    require_not(
+        repair,
+        "{{ openwrt_rpi5_egpu_runtime_repair_nvidia_runfile_path_resolved }}\n"
+        "            {{ openwrt_rpi5_egpu_runtime_repair_nvidia_runfile_args | join(' ') }}",
+        "host artifact path executed inside chroot",
+    )
     require(repair, "/bin/mount", "target rootfs dev bind mount command")
     require(repair, "rbind", "target rootfs recursive dev bind mount")
     require(repair, "always:", "target rootfs dev bind mount cleanup block")
@@ -125,6 +140,7 @@ def main() -> int:
         (
             "rpi5 eGPU target rootfs へ host /dev を recursive bind mount",
             "rpi5 eGPU target rootfs へ host /proc を recursive bind mount",
+            "rpi5 eGPU target rootfs へ artifact payload を bind mount",
             "rpi5 eGPU Vulkan packages を target rootfs に導入",
         ),
         "lower-rootfs pseudo-filesystem setup order",
@@ -132,6 +148,8 @@ def main() -> int:
     require_ordered(
         repair,
         (
+            "rpi5 eGPU target rootfs の artifact payload bind mount を解除",
+            "rpi5 eGPU target rootfs の artifact payload mountpoint を削除",
             "rpi5 eGPU target rootfs の host /proc bind mount を解除",
             "rpi5 eGPU target rootfs の host /dev bind mount を解除",
         ),
