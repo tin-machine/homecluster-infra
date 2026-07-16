@@ -1,5 +1,5 @@
 ---
-- name: rpi5 eGPU lower-rootfs chroot の /dev を準備して runtime repair を実行
+- name: rpi5 eGPU lower-rootfs chroot の pseudo-filesystem を準備して runtime repair を実行
   block:
     - name: rpi5 eGPU target rootfs dev mountpoint を作成
       ansible.builtin.file:
@@ -15,6 +15,22 @@
           - rbind
           - /dev
           - "{{ openwrt_rpi5_egpu_runtime_repair_target_rootfs_resolved }}/dev"
+      changed_when: true
+
+    - name: rpi5 eGPU target rootfs proc mountpoint を作成
+      ansible.builtin.file:
+        path: "{{ openwrt_rpi5_egpu_runtime_repair_target_rootfs_resolved }}/proc"
+        state: directory
+        mode: '0755'
+
+    - name: rpi5 eGPU target rootfs へ host /proc を recursive bind mount
+      ansible.builtin.command:
+        argv:
+          - /bin/mount
+          - -o
+          - rbind
+          - /proc
+          - "{{ openwrt_rpi5_egpu_runtime_repair_target_rootfs_resolved }}/proc"
       changed_when: true
 
     - name: rpi5 eGPU Vulkan packages を target rootfs に導入
@@ -74,6 +90,15 @@
       when: openwrt_rpi5_egpu_runtime_repair_install_nvidia_kernel_modules | bool
 
   always:
+    - name: rpi5 eGPU target rootfs の host /proc bind mount を解除
+      ansible.builtin.command:
+        argv:
+          - /bin/umount
+          - -l
+          - "{{ openwrt_rpi5_egpu_runtime_repair_target_rootfs_resolved }}/proc"
+      changed_when: false
+      failed_when: false
+
     - name: rpi5 eGPU target rootfs の host /dev bind mount を解除
       ansible.builtin.command:
         argv:
