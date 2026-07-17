@@ -35,6 +35,16 @@
     line: '    if (NOT "${glslc_result}" STREQUAL "0" OR "${glslc_error}" MATCHES ".*extension not supported: ${EXTENSION_NAME}.*")'
   register: rpi5_egpu_local_llm_glslc_condition_patch
 
+- name: Remove llama.cpp CMake cache after glslc patch
+  become: true
+  become_user: "{{ rpi5_egpu_llama_user }}"
+  ansible.builtin.file:
+    path: "{{ rpi5_egpu_llama_build_dir }}/CMakeCache.txt"
+    state: absent
+  when: >-
+    rpi5_egpu_local_llm_glslc_result_patch.changed or
+    rpi5_egpu_local_llm_glslc_condition_patch.changed
+
 - name: llama.cpp Vulkan build directory を構成
   become: true
   become_user: "{{ rpi5_egpu_llama_user }}"
