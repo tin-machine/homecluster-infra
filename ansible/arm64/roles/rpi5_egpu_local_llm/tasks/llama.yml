@@ -32,7 +32,7 @@
   ansible.builtin.lineinfile:
     path: "{{ rpi5_egpu_llama_source_dir }}/ggml/src/ggml-vulkan/CMakeLists.txt"
     regexp: '^\s*if \(\$\{glslc_error\} MATCHES "\.\*extension not supported: \$\{EXTENSION_NAME\}\.\*"\)$'
-    line: '    if (NOT "${glslc_result}" STREQUAL "0" OR ${glslc_error} MATCHES ".*extension not supported: ${EXTENSION_NAME}.*")'
+    line: '    if (NOT "${glslc_result}" STREQUAL "0" OR "${glslc_error}" MATCHES ".*extension not supported: ${EXTENSION_NAME}.*")'
   register: rpi5_egpu_local_llm_glslc_condition_patch
 
 - name: llama.cpp Vulkan build directory を構成
