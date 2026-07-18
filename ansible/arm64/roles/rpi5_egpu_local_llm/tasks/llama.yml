@@ -16,6 +16,7 @@
     dest: "{{ rpi5_egpu_llama_source_dir }}"
     version: "{{ rpi5_egpu_llama_revision }}"
     update: true
+    force: true
 
 - name: Patch llama.cpp glslc result capture
   become: true
