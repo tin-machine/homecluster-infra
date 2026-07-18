@@ -58,7 +58,9 @@ if ((${#public_files[@]} > 0)); then
     "192\\.168\\."
     "home""-router"
     "k3s""-prd"
-    "pico""claw"
+    "xox[baprs]-[A-Za-z0-9_-]{12,}"
+    "xapp-[A-Za-z0-9_-]{12,}"
+    "gh[pousr]_[A-Za-z0-9_]{20,}"
     "soft""ether"
   )
   for pattern in "${redaction_patterns[@]}"; do
