@@ -56,6 +56,17 @@
     rpi5_egpu_local_llm_glslc_condition_patch.changed or
     rpi5_egpu_local_llm_decode_vector_patch.changed
 
+- name: Remove stale shader generator prefix cache
+  become: true
+  become_user: "{{ rpi5_egpu_llama_user }}"
+  ansible.builtin.file:
+    path: "{{ rpi5_egpu_llama_build_dir }}/ggml/src/ggml-vulkan/vulkan-shaders-gen-prefix"
+    state: absent
+  when: >-
+    rpi5_egpu_local_llm_glslc_result_patch.changed or
+    rpi5_egpu_local_llm_glslc_condition_patch.changed or
+    rpi5_egpu_local_llm_decode_vector_patch.changed
+
 - name: llama.cpp Vulkan build directory を構成
   become: true
   become_user: "{{ rpi5_egpu_llama_user }}"
