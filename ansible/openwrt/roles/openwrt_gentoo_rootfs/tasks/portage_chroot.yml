@@ -1903,7 +1903,7 @@
       - app-vim/vim-tmux
       - dev-vcs/git
       - net-analyzer/netcat
-      - net-dns/bind-tools
+      - net-dns/bind
       - net-firewall/iptables
       - net-firewall/nftables
       - net-fs/nfs-utils
