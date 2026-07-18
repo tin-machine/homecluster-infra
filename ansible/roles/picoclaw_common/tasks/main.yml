@@ -1,0 +1,261 @@
+---
+- name: PicoClaw host ID を決定
+  ansible.builtin.set_fact:
+    picoclaw_common_host_id: "{{ overlay_id | default(inventory_hostname) }}"
+  tags:
+    - picoclaw
+
+- name: PicoClaw host config 候補を取得
+  ansible.builtin.set_fact:
+    picoclaw_common_host_config_from_hostvar: >-
+      {{
+        picoclaw
+        if (picoclaw is defined and picoclaw is mapping)
+        else {}
+      }}
+    picoclaw_common_host_config_from_named_host: >-
+      {{
+        hostvars[picoclaw_common_host_id].picoclaw
+        if (
+          picoclaw_common_host_id in hostvars
+          and hostvars[picoclaw_common_host_id].picoclaw is defined
+          and hostvars[picoclaw_common_host_id].picoclaw is mapping
+        )
+        else {}
+      }}
+    picoclaw_common_host_config_from_hosts: "{{ (picoclaw_hosts | default({})).get(picoclaw_common_host_id, {}) }}"
+  no_log: true
+  tags:
+    - picoclaw
+
+- name: PicoClaw host config を決定
+  ansible.builtin.set_fact:
+    picoclaw_common_host_config: >-
+      {{
+        picoclaw_common_host_config_override
+        if (picoclaw_common_host_config_override | default({}) | length) > 0
+        else (
+          picoclaw_common_host_config_from_hostvar
+          if (picoclaw_common_host_config_from_hostvar | length) > 0
+          else (
+            picoclaw_common_host_config_from_named_host
+            if (picoclaw_common_host_config_from_named_host | length) > 0
+            else picoclaw_common_host_config_from_hosts
+          )
+        )
+      }}
+  no_log: true
+  tags:
+    - picoclaw
+
+- name: PicoClaw 有効状態を決定
+  ansible.builtin.set_fact:
+    picoclaw_common_defined: "{{ (picoclaw_common_host_config | length) > 0 }}"
+    picoclaw_common_effective_enabled: "{{ picoclaw_common_host_config.enabled | default(false) | bool }}"
+    picoclaw_common_effective_install_enabled: "{{ picoclaw_common_host_config.install | default(picoclaw_common_host_config.enabled | default(false)) | bool }}"
+    picoclaw_common_effective_service_enabled: "{{ picoclaw_common_host_config.service | default(picoclaw_common_host_config.enabled | default(false)) | bool }}"
+    picoclaw_common_slack_config: "{{ picoclaw_common_host_config.slack | default({}) }}"
+  no_log: true
+  tags:
+    - picoclaw
+
+- name: PicoClaw 実効変数を決定
+  ansible.builtin.set_fact:
+    picoclaw_common_owner: "{{ picoclaw_common_host_config.owner | default(picoclaw_owner_default) }}"
+    picoclaw_common_group: "{{ picoclaw_common_host_config.group | default(picoclaw_common_host_config.owner | default(picoclaw_group_default)) }}"
+    picoclaw_common_home: "{{ picoclaw_common_host_config.home | default('/home/' ~ (picoclaw_common_host_config.owner | default(picoclaw_owner_default))) }}"
+    picoclaw_common_install_method: "{{ picoclaw_common_host_config.install_method | default(picoclaw_install_method_default) }}"
+    picoclaw_common_binary_path: "{{ picoclaw_common_host_config.binary_path | default(picoclaw_binary_path_default) }}"
+    picoclaw_common_launcher_path: "{{ picoclaw_common_host_config.launcher_path | default(picoclaw_launcher_path_default) }}"
+    picoclaw_common_gateway_debug: "{{ picoclaw_common_host_config.gateway_debug | default(false) | bool }}"
+    picoclaw_common_config_strategy: "{{ picoclaw_common_host_config.config_strategy | default(picoclaw_config_strategy_default) }}"
+    picoclaw_common_service_after_extra: "{{ picoclaw_common_host_config.service_after_extra | default(picoclaw_service_after_extra_default) }}"
+  no_log: true
+  when: picoclaw_common_defined | bool
+  tags:
+    - picoclaw
+
+- name: PicoClaw path 変数を決定
+  ansible.builtin.set_fact:
+    picoclaw_common_config_dir: "{{ picoclaw_common_home }}/.picoclaw"
+    picoclaw_common_workspace: "{{ picoclaw_common_host_config.workspace | default(picoclaw_common_home ~ '/.picoclaw/workspace') }}"
+    picoclaw_common_config_path: "{{ picoclaw_common_host_config.config_path | default(picoclaw_common_home ~ '/.picoclaw/config.json') }}"
+    picoclaw_common_security_path: "{{ picoclaw_common_host_config.security_path | default(picoclaw_common_home ~ '/.picoclaw/.security.yml') }}"
+  no_log: true
+  when: picoclaw_common_defined | bool
+  tags:
+    - picoclaw
+
+- name: PicoClaw Slack 実効変数を決定
+  ansible.builtin.set_fact:
+    picoclaw_common_effective_slack_enabled: "{{ picoclaw_common_slack_config.enabled | default(picoclaw_common_effective_enabled) | bool }}"
+    picoclaw_common_slack_bot_token: "{{ picoclaw_common_slack_config.bot_token | default('') }}"
+    picoclaw_common_slack_app_token: "{{ picoclaw_common_slack_config.app_token | default('') }}"
+    picoclaw_common_slack_allow_from: "{{ picoclaw_common_slack_config.allow_from | default([]) }}"
+    picoclaw_common_slack_reasoning_channel_id: "{{ picoclaw_common_slack_config.reasoning_channel_id | default('') }}"
+  no_log: true
+  when: picoclaw_common_defined | bool
+  tags:
+    - picoclaw
+    - picoclaw_slack
+
+- name: PicoClaw Slack 設定の妥当性を判定
+  ansible.builtin.set_fact:
+    picoclaw_common_slack_config_valid: >-
+      {{
+        (picoclaw_common_slack_bot_token | length > 0)
+        and (picoclaw_common_slack_app_token | length > 0)
+        and not (picoclaw_common_slack_bot_token is match('^xoxb-REPLACE'))
+        and not (picoclaw_common_slack_app_token is match('^xapp-REPLACE'))
+        and ((not (picoclaw_require_slack_allow_from | bool)) or (picoclaw_common_slack_allow_from | length > 0))
+      }}
+  no_log: true
+  when: picoclaw_common_defined | bool
+  tags:
+    - picoclaw
+    - picoclaw_slack
+
+- name: PicoClaw Slack 設定不備の有無を決定
+  ansible.builtin.set_fact:
+    picoclaw_common_slack_config_invalid: >-
+      {{
+        (picoclaw_common_effective_slack_enabled | bool)
+        and not (picoclaw_common_slack_config_valid | bool)
+      }}
+  no_log: true
+  when: picoclaw_common_defined | bool
+  tags:
+    - picoclaw
+    - picoclaw_slack
+
+- name: PicoClaw MCP profile を決定
+  ansible.builtin.set_fact:
+    picoclaw_common_mcp_profile_name: "{{ picoclaw_common_host_config.mcp_profile | default('') }}"
+    picoclaw_common_mcp_profiles: "{{ picoclaw_mcp_profiles | default(picoclaw_mcp_profiles_default) }}"
+    picoclaw_common_mcp_host_config: "{{ picoclaw_common_host_config.mcp | default({}) }}"
+  no_log: true
+  when: picoclaw_common_defined | bool
+  tags:
+    - picoclaw
+    - picoclaw_mcp
+
+- name: PicoClaw MCP 実効変数を決定
+  ansible.builtin.set_fact:
+    picoclaw_common_mcp_profile_config: "{{ picoclaw_common_mcp_profiles.get(picoclaw_common_mcp_profile_name, {}) }}"
+    picoclaw_common_mcp_servers_effective: >-
+      {{
+        (picoclaw_common_mcp_profiles.get(picoclaw_common_mcp_profile_name, {}).servers | default({}))
+        | combine(picoclaw_common_mcp_host_config.servers | default({}), recursive=True)
+      }}
+    picoclaw_common_mcp_discovery_effective: >-
+      {{
+        (picoclaw_common_mcp_profiles.get(picoclaw_common_mcp_profile_name, {}).discovery | default({}))
+        | combine(picoclaw_common_mcp_host_config.discovery | default({}), recursive=True)
+      }}
+  no_log: true
+  when: picoclaw_common_defined | bool
+  tags:
+    - picoclaw
+    - picoclaw_mcp
+
+- name: PicoClaw MCP config を組み立て
+  ansible.builtin.set_fact:
+    picoclaw_common_mcp_config:
+      enabled: "{{ picoclaw_common_mcp_host_config.enabled | default((picoclaw_common_mcp_servers_effective | length) > 0) | bool }}"
+      discovery: "{{ picoclaw_common_mcp_discovery_effective }}"
+      servers: "{{ picoclaw_common_mcp_servers_effective }}"
+  no_log: true
+  when: picoclaw_common_defined | bool
+  tags:
+    - picoclaw
+    - picoclaw_mcp
+
+- name: PicoClaw Slack 設定を検証
+  ansible.builtin.assert:
+    that:
+      - picoclaw_common_slack_bot_token | length > 0
+      - picoclaw_common_slack_app_token | length > 0
+      - not (picoclaw_common_slack_bot_token is match('^xoxb-REPLACE'))
+      - not (picoclaw_common_slack_app_token is match('^xapp-REPLACE'))
+      - (not picoclaw_require_slack_allow_from | bool) or (picoclaw_common_slack_allow_from | length > 0)
+    fail_msg: "PicoClaw Slack を有効化する場合は bot_token/app_token と slack.allow_from を host ごとに設定してください。host={{ picoclaw_common_host_id }}"
+  no_log: true
+  when:
+    - picoclaw_common_defined | bool
+    - picoclaw_common_slack_config_invalid | default(false) | bool
+    - picoclaw_fail_on_invalid_slack | bool
+  tags:
+    - picoclaw
+    - picoclaw_slack
+
+- name: PicoClaw Slack 設定不備を通知
+  ansible.builtin.debug:
+    msg: "PicoClaw Slack token が未設定または placeholder のため PicoClaw install/service を無効化して base を継続します。host={{ picoclaw_common_host_id }}"
+  when:
+    - picoclaw_common_defined | bool
+    - picoclaw_common_slack_config_invalid | default(false) | bool
+    - not (picoclaw_fail_on_invalid_slack | bool)
+  tags:
+    - picoclaw
+    - picoclaw_slack
+
+- name: PicoClaw Slack 設定不備時は service 対象から外す
+  ansible.builtin.set_fact:
+    picoclaw_common_effective_slack_enabled: false
+    picoclaw_common_effective_install_enabled: false
+    picoclaw_common_effective_service_enabled: false
+  when:
+    - picoclaw_common_defined | bool
+    - picoclaw_common_slack_config_invalid | default(false) | bool
+    - not (picoclaw_fail_on_invalid_slack | bool)
+  tags:
+    - picoclaw
+    - picoclaw_slack
+
+- name: PicoClaw archive install を実行
+  ansible.builtin.include_tasks: install_archive.yml
+  when:
+    - picoclaw_common_defined | bool
+    - picoclaw_common_effective_install_enabled | bool
+    - picoclaw_common_install_method == 'archive'
+  tags:
+    - picoclaw
+
+- name: PicoClaw deb install を実行
+  ansible.builtin.include_tasks: install_deb.yml
+  when:
+    - picoclaw_common_defined | bool
+    - picoclaw_common_effective_install_enabled | bool
+    - picoclaw_common_install_method == 'deb'
+  tags:
+    - picoclaw
+
+- name: PicoClaw config を管理
+  ansible.builtin.include_tasks: config.yml
+  when:
+    - picoclaw_common_defined | bool
+    - picoclaw_common_effective_install_enabled | bool or picoclaw_common_effective_service_enabled | bool
+  tags:
+    - picoclaw
+    - picoclaw_slack
+    - picoclaw_mcp
+
+- name: PicoClaw system service を管理
+  ansible.builtin.include_tasks: service.yml
+  when: picoclaw_common_defined | bool
+  tags:
+    - picoclaw
+    - picoclaw_service
+
+- name: PicoClaw summary を出力
+  ansible.builtin.debug:
+    msg:
+      - "host_id: {{ picoclaw_common_host_id }}"
+      - "defined: {{ picoclaw_common_defined }}"
+      - "install: {{ picoclaw_common_effective_install_enabled | default(false) }}"
+      - "service: {{ picoclaw_common_effective_service_enabled | default(false) }}"
+      - "config: {{ picoclaw_common_config_path | default('n/a') }}"
+      - "workspace: {{ picoclaw_common_workspace | default('n/a') }}"
+  when: picoclaw_common_defined | bool
+  tags:
+    - picoclaw
