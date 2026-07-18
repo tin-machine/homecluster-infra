@@ -223,9 +223,49 @@ def test_host_specific_tftp_artifacts() -> None:
     assert pxe_host["rpi5_pciex1_enabled"] is True
 
 
+def test_picoclaw_base_vars_are_host_scoped() -> None:
+    module = load_filter_module()
+    hostvars = {
+        "picoclaw-node": {
+            "openwrt_pxe_client": {
+                "enabled": True,
+                "router": "router1",
+                "roles": ["base"],
+                "overlay": {"id": "picoclaw-node"},
+            },
+            "picoclaw": {"enabled": True, "install": True, "service": True},
+        },
+        "plain-node": {
+            "openwrt_pxe_client": {
+                "enabled": True,
+                "router": "router1",
+                "roles": ["base"],
+                "overlay": {"id": "plain-node"},
+            },
+        },
+    }
+    result = module.build_openwrt_pxe_client_catalog(
+        hostvars,
+        {"all": ["picoclaw-node", "plain-node"]},
+        "router1",
+    )
+    client_vars = {
+        (item["overlay_id"], item["role"]): item["vars"]
+        for item in result["generated_ansible_pull_client_vars"]
+    }
+
+    assert client_vars[("picoclaw-node", "base")]["picoclaw"] == {
+        "enabled": True,
+        "install": True,
+        "service": True,
+    }
+    assert ("plain-node", "base") not in client_vars
+
+
 def main() -> None:
     test_k3s_stg_storage_vars()
     test_host_specific_tftp_artifacts()
+    test_picoclaw_base_vars_are_host_scoped()
     print("openwrt_pxe_client_catalog checks ok")
 
 
