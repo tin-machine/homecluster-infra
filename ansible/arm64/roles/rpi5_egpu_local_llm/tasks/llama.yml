@@ -36,6 +36,15 @@
     line: '    if (NOT "${glslc_result}" STREQUAL "0" OR "${glslc_error}" MATCHES ".*extension not supported: ${EXTENSION_NAME}.*")'
   register: rpi5_egpu_local_llm_glslc_condition_patch
 
+- name: Patch llama.cpp decode vector glslc support
+  become: true
+  become_user: "{{ rpi5_egpu_llama_user }}"
+  ansible.builtin.lineinfile:
+    path: "{{ rpi5_egpu_llama_source_dir }}/ggml/src/ggml-vulkan/CMakeLists.txt"
+    regexp: '^\s*"GGML_VULKAN_COOPMAT2_DECODE_VECTOR_GLSLC_SUPPORT"$'
+    line: '        "GGML_VULKAN_COOPMAT2_DECODE_VECTOR_GLSLC_FORCED_OFF"'
+  register: rpi5_egpu_local_llm_decode_vector_patch
+
 - name: Remove llama.cpp CMake cache after glslc patch
   become: true
   become_user: "{{ rpi5_egpu_llama_user }}"
@@ -44,7 +53,8 @@
     state: absent
   when: >-
     rpi5_egpu_local_llm_glslc_result_patch.changed or
-    rpi5_egpu_local_llm_glslc_condition_patch.changed
+    rpi5_egpu_local_llm_glslc_condition_patch.changed or
+    rpi5_egpu_local_llm_decode_vector_patch.changed
 
 - name: llama.cpp Vulkan build directory を構成
   become: true
