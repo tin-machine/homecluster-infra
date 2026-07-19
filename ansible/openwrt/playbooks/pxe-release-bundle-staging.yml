@@ -50,6 +50,125 @@
           }} が一致しません。切替前に外部 inventory.yml を手動で揃えてください。
           この playbook は inventory.yml を自動編集しません。
 
+    - name: PXE client catalog を合成
+      ansible.builtin.include_role:
+        name: openwrt_pxe_client_catalog
+      tags:
+        - pxe_release_bundle
+        - pxe_release_bundle_build
+
+    - name: rpi5 eGPU NVIDIA TFTP artifact requirement を判定
+      ansible.builtin.set_fact:
+        pxe_release_bundle_rpi5_nvidia_tftp_required: >-
+          {%- set result = [] -%}
+          {%- for host in openwrt_pxe_hosts_effective | default([]) -%}
+            {%- for path in [
+              host.rpi5_kernel_image | default('', true) | string | trim,
+              host.rpi5_initramfs | default('', true) | string | trim,
+              host.rpi5_device_tree | default('', true) | string | trim
+            ] -%}
+              {%- if path and '-nvidia.' in path -%}
+                {%- set _ = result.append(path) -%}
+              {%- endif -%}
+            {%- endfor -%}
+          {%- endfor -%}
+          {{ result | length > 0 }}
+      tags:
+        - pxe_release_bundle
+        - pxe_release_bundle_build
+
+    - name: rpi5 eGPU NVIDIA client を PXE catalog から解決
+      ansible.builtin.set_fact:
+        pxe_release_bundle_rpi5_nvidia_client_names: >-
+          {%- set result = [] -%}
+          {%- for host in openwrt_pxe_hosts_effective | default([]) -%}
+            {%- for path in [
+              host.rpi5_kernel_image | default('', true) | string | trim,
+              host.rpi5_initramfs | default('', true) | string | trim,
+              host.rpi5_device_tree | default('', true) | string | trim
+            ] -%}
+              {%- if path and '-nvidia.' in path -%}
+                {%- set name = host.name | default('', true) | string | trim -%}
+                {%- if name and name not in result -%}
+                  {%- set _ = result.append(name) -%}
+                {%- endif -%}
+              {%- endif -%}
+            {%- endfor -%}
+          {%- endfor -%}
+          {{ result }}
+      when: pxe_release_bundle_rpi5_nvidia_tftp_required | bool
+      tags:
+        - pxe_release_bundle
+        - pxe_release_bundle_build
+
+    - name: rpi5 eGPU NVIDIA client の controller scope を検証
+      ansible.builtin.assert:
+        that:
+          - pxe_release_bundle_rpi5_nvidia_client_names | length == 1
+          - pxe_release_bundle_rpi5_nvidia_client_names[0] in hostvars
+          - >-
+            hostvars[inventory_hostname].openwrt_rpi5_egpu_generation_artifact_source_host
+            | default('', true) | string | trim | length > 0
+        fail_msg: >-
+          NVIDIA TFTP artifact を要求する rpi5 PXE client は一意な inventory host name を持つ必要があります。
+          client catalog と hostvars の対応を確認してください。
+      when: pxe_release_bundle_rpi5_nvidia_tftp_required | bool
+      tags:
+        - pxe_release_bundle
+        - pxe_release_bundle_build
+
+    - name: rpi5 eGPU generation contract を controller fact へ転送
+      ansible.builtin.set_fact:
+        openwrt_rpi5_egpu_generation_enabled: >-
+          {{ hostvars[pxe_release_bundle_rpi5_nvidia_client_names[0]].openwrt_rpi5_egpu_generation_enabled | bool }}
+        openwrt_rpi5_egpu_generation_apply: >-
+          {{ hostvars[pxe_release_bundle_rpi5_nvidia_client_names[0]].openwrt_rpi5_egpu_generation_apply | bool }}
+        openwrt_rpi5_egpu_generation_artifact_bundle_enabled: >-
+          {{ hostvars[pxe_release_bundle_rpi5_nvidia_client_names[0]].openwrt_rpi5_egpu_generation_artifact_bundle_enabled | bool }}
+        openwrt_rpi5_egpu_generation_manifest_metadata: >-
+          {{ hostvars[pxe_release_bundle_rpi5_nvidia_client_names[0]].openwrt_rpi5_egpu_generation_manifest_metadata }}
+        openwrt_rpi5_egpu_generation_artifact_archive_path: >-
+          {{ hostvars[pxe_release_bundle_rpi5_nvidia_client_names[0]].openwrt_rpi5_egpu_generation_artifact_archive_path }}
+        openwrt_rpi5_egpu_generation_artifact_archive_sha256_path: >-
+          {{ hostvars[pxe_release_bundle_rpi5_nvidia_client_names[0]].openwrt_rpi5_egpu_generation_artifact_archive_sha256_path }}
+        openwrt_rpi5_egpu_generation_artifact_source_host: >-
+          {{ hostvars[inventory_hostname].openwrt_rpi5_egpu_generation_artifact_source_host }}
+        openwrt_rpi5_egpu_runtime_repair_kernel_version: >-
+          {{ hostvars[pxe_release_bundle_rpi5_nvidia_client_names[0]].openwrt_rpi5_egpu_runtime_repair_kernel_version }}
+        openwrt_rpi5_egpu_runtime_repair_nvidia_driver_version: >-
+          {{ hostvars[pxe_release_bundle_rpi5_nvidia_client_names[0]].openwrt_rpi5_egpu_runtime_repair_nvidia_driver_version }}
+        openwrt_rpi5_egpu_runtime_repair_open_kernel_modules_commit: >-
+          {{ hostvars[pxe_release_bundle_rpi5_nvidia_client_names[0]].openwrt_rpi5_egpu_runtime_repair_open_kernel_modules_commit }}
+        openwrt_rpi5_egpu_runtime_repair_confirm: >-
+          {{ hostvars[pxe_release_bundle_rpi5_nvidia_client_names[0]].openwrt_rpi5_egpu_runtime_repair_confirm }}
+        openwrt_rpi5_egpu_runtime_repair_confirm_expected: >-
+          {{ hostvars[pxe_release_bundle_rpi5_nvidia_client_names[0]].openwrt_rpi5_egpu_runtime_repair_confirm_expected }}
+      when: pxe_release_bundle_rpi5_nvidia_tftp_required | bool
+      no_log: true
+      tags:
+        - pxe_release_bundle
+        - pxe_release_bundle_build
+
+    - name: rpi5 eGPU NVIDIA TFTP artifact requirement と generation opt-in を検証
+      ansible.builtin.assert:
+        that:
+          - >-
+            not (pxe_release_bundle_rpi5_nvidia_tftp_required | bool)
+            or (
+              (openwrt_rpi5_egpu_generation_enabled | default(false) | bool)
+              and (openwrt_rpi5_egpu_generation_apply | default(false) | bool)
+              and (openwrt_rpi5_egpu_generation_artifact_bundle_enabled | default(false) | bool)
+            )
+        fail_msg: >-
+          NVIDIA TFTP artifact を要求する rpi5 PXE client には、
+          openwrt_rpi5_egpu_generation_enabled、
+          openwrt_rpi5_egpu_generation_apply、
+          openwrt_rpi5_egpu_generation_artifact_bundle_enabled を
+          inventory で true にしてください。playbook は inventory.yml を自動編集しません。
+      tags:
+        - pxe_release_bundle
+        - pxe_release_bundle_build
+
   tasks:
     - name: PXE release bundle build と manifest 検証を実行
       ansible.builtin.import_tasks: tasks/pxe_release_bundle_build_and_manifest.yml
@@ -74,6 +193,15 @@
         openwrt_gentoo_release_bundle_strict_hosts: true
         openwrt_gentoo_release_bundle_require_artifacts: true
         openwrt_gentoo_release_bundle_manifest_enabled: true
+        openwrt_gentoo_release_bundle_manifest_metadata: >-
+          {{
+            pxe_release_bundle_manifest_metadata_base
+            | combine(
+              {'rpi5_nvidia': openwrt_rpi5_egpu_generation_manifest_metadata | default({})}
+              if (openwrt_rpi5_egpu_generation_enabled | default(false) | bool)
+              else {}
+            )
+          }}
         openwrt_gentoo_release_bundle_target_stages:
           - "{{ pxe_release_bundle_stage }}"
       tags:
@@ -104,6 +232,15 @@
         openwrt_gentoo_release_bundle_strict_hosts: true
         openwrt_gentoo_release_bundle_require_artifacts: true
         openwrt_gentoo_release_bundle_manifest_enabled: true
+        openwrt_gentoo_release_bundle_manifest_metadata: >-
+          {{
+            pxe_release_bundle_manifest_metadata_base
+            | combine(
+              {'rpi5_nvidia': openwrt_rpi5_egpu_generation_manifest_metadata | default({})}
+              if (openwrt_rpi5_egpu_generation_enabled | default(false) | bool)
+              else {}
+            )
+          }}
         openwrt_gentoo_release_bundle_target_stages:
           - "{{ pxe_release_bundle_stage }}"
       tags:

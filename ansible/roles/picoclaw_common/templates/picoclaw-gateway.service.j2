@@ -1,0 +1,18 @@
+[Unit]
+Description=PicoClaw gateway
+After=network-online.target {{ picoclaw_common_service_after_extra | join(' ') }}
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ picoclaw_common_owner }}
+Group={{ picoclaw_common_group }}
+Environment=HOME={{ picoclaw_common_home }}
+Environment=PICOCLAW_CONFIG={{ picoclaw_common_config_path }}
+WorkingDirectory={{ picoclaw_common_home }}
+ExecStart={{ picoclaw_common_binary_path }} gateway{{ ' --debug' if picoclaw_common_gateway_debug | bool else '' }}
+Restart=always
+RestartSec=10s
+
+[Install]
+WantedBy=multi-user.target

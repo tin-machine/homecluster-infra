@@ -1,0 +1,66 @@
+---
+- name: PicoClaw 実行ユーザーを確認
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ picoclaw_common_owner }}"
+
+- name: PicoClaw release architecture を決定
+  ansible.builtin.set_fact:
+    picoclaw_common_release_arch: "{{ picoclaw_release_arch_map[ansible_architecture] | default(ansible_architecture) }}"
+
+- name: PicoClaw release URL を決定
+  ansible.builtin.set_fact:
+    picoclaw_common_release_url: "https://github.com/sipeed/picoclaw/releases/download/{{ picoclaw_version }}/picoclaw_Linux_{{ picoclaw_common_release_arch }}.tar.gz"
+    picoclaw_common_release_checksum: "{{ picoclaw_archive_checksum | default(picoclaw_release_checksums.get(picoclaw_version, {}).get(picoclaw_common_release_arch, '')) }}"
+
+- name: PicoClaw archive directory を作成
+  become: true
+  ansible.builtin.file:
+    path: /var/cache/ansible/picoclaw
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: PicoClaw install directory を作成
+  become: true
+  ansible.builtin.file:
+    path: "/opt/picoclaw/{{ picoclaw_version }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: PicoClaw release archive を取得
+  become: true
+  ansible.builtin.get_url:
+    url: "{{ picoclaw_common_release_url }}"
+    dest: "/var/cache/ansible/picoclaw/picoclaw-{{ picoclaw_version }}-linux-{{ picoclaw_common_release_arch }}.tar.gz"
+    owner: root
+    group: root
+    mode: "0644"
+    checksum: "{{ picoclaw_common_release_checksum if picoclaw_common_release_checksum | length > 0 else omit }}"
+
+- name: PicoClaw release archive を展開
+  become: true
+  ansible.builtin.unarchive:
+    src: "/var/cache/ansible/picoclaw/picoclaw-{{ picoclaw_version }}-linux-{{ picoclaw_common_release_arch }}.tar.gz"
+    dest: "/opt/picoclaw/{{ picoclaw_version }}"
+    remote_src: true
+    owner: root
+    group: root
+    creates: "/opt/picoclaw/{{ picoclaw_version }}/picoclaw"
+
+- name: PicoClaw binary symlink を配置
+  become: true
+  ansible.builtin.file:
+    src: "/opt/picoclaw/{{ picoclaw_version }}/{{ item.name }}"
+    dest: "{{ item.dest }}"
+    state: link
+    owner: root
+    group: root
+  loop:
+    - name: picoclaw
+      dest: "{{ picoclaw_common_binary_path }}"
+    - name: picoclaw-launcher
+      dest: "{{ picoclaw_common_launcher_path }}"

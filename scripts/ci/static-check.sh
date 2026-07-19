@@ -105,7 +105,9 @@ large_matches="$(
 report_matches "files larger than 5M found" "${large_matches}"
 
 print_section "redaction pattern scan"
-redaction_pattern='10\.10\.|10\.11\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|f[c-d][0-9a-fA-F]{2}(:[0-9a-fA-F]{1,4}){2,7}::?/[0-9]{1,3}|home-router|rpi[0-9]-[0-9]{2}|k3s-prd|backup-disk|tin-machine\.io|github\.com/tin-machine|desktop-lab|PRIVATE KEY|BEGIN [A-Z ]*PRIVATE KEY|picoclaw|k3s_iscsi_storage|terraform_auto_apply|common/codex_cli|common/nfs_mount|softether'
+# Product names are not secrets. Keep this scan focused on site identifiers and token-like values
+# so public-safe PicoClaw implementation can remain covered by the same CI boundary.
+redaction_pattern='10\.10\.|10\.11\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|f[c-d][0-9a-fA-F]{2}(:[0-9a-fA-F]{1,4}){2,7}::?/[0-9]{1,3}|home-router|rpi[0-9]-[0-9]{2}|k3s-prd|backup-disk|tin-machine\.io|github\.com/tin-machine|desktop-lab|PRIVATE KEY|BEGIN [A-Z ]*PRIVATE KEY|xox[baprs]-[A-Za-z0-9_-]{12,}|xapp-[A-Za-z0-9_-]{12,}|gh[pousr]_[A-Za-z0-9_]{20,}|k3s_iscsi_storage|terraform_auto_apply|common/codex_cli|common/nfs_mount|softether'
 redaction_matches="$(
   redaction_files=()
   for path in "${scan_files[@]}"; do

@@ -1,0 +1,117 @@
+---
+- name: rpi5 eGPU artifact bundle をスキップ
+  ansible.builtin.debug:
+    msg: "rpi5_egpu_nvidia_artifact_bundle_enabled=false のため実行しません"
+  when: not (rpi5_egpu_nvidia_artifact_bundle_enabled | bool)
+
+- name: rpi5 eGPU artifact bundle 入力を検証
+  ansible.builtin.assert:
+    that:
+      - rpi5_egpu_nvidia_artifact_bundle_release is match('^[0-9]{8}-rpi5$')
+      - rpi5_egpu_nvidia_artifact_bundle_kernel_version is match('.+-v8-nvidia\\+$')
+      - rpi5_egpu_nvidia_artifact_bundle_kernel_build_dir is match('^/var/lib/rancher/k3s/')
+      - rpi5_egpu_nvidia_artifact_bundle_modules_dir is match('^/var/lib/rancher/k3s/')
+      - rpi5_egpu_nvidia_artifact_bundle_open_modules_dir is match('^/var/lib/rancher/k3s/')
+      - rpi5_egpu_nvidia_artifact_bundle_runfile_path is match('^/var/lib/rancher/k3s/')
+      - rpi5_egpu_nvidia_artifact_bundle_confirm_expected | length > 0
+      - rpi5_egpu_nvidia_artifact_bundle_confirm == rpi5_egpu_nvidia_artifact_bundle_confirm_expected
+    fail_msg: "rpi5 eGPU artifact bundle の release / kernel / local SSD paths / confirm token を確認してください"
+  when:
+    - rpi5_egpu_nvidia_artifact_bundle_enabled | bool
+    - rpi5_egpu_nvidia_artifact_bundle_apply | bool
+
+- name: rpi5 eGPU artifact bundle input を確認
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ rpi5_egpu_nvidia_artifact_bundle_kernel_build_dir }}/Module.symvers"
+    - "{{ rpi5_egpu_nvidia_artifact_bundle_modules_dir }}/lib/modules/{{ rpi5_egpu_nvidia_artifact_bundle_kernel_version }}"
+    - "{{ rpi5_egpu_nvidia_artifact_bundle_open_modules_dir }}/.git"
+    - "{{ rpi5_egpu_nvidia_artifact_bundle_runfile_path }}"
+    - "{{ rpi5_egpu_nvidia_artifact_bundle_kernel_image_path }}"
+    - "{{ rpi5_egpu_nvidia_artifact_bundle_device_tree_path }}"
+  register: rpi5_egpu_nvidia_artifact_bundle_inputs
+  when:
+    - rpi5_egpu_nvidia_artifact_bundle_enabled | bool
+    - rpi5_egpu_nvidia_artifact_bundle_apply | bool
+
+- name: rpi5 eGPU artifact bundle input の存在を検証
+  ansible.builtin.assert:
+    that:
+      - rpi5_egpu_nvidia_artifact_bundle_inputs.results | selectattr('stat.exists', 'defined') | selectattr('stat.exists') | list | length == 6
+    fail_msg: "rpi5 eGPU artifact bundle の kernel / modules / source / runfile / Image / DTB が不足しています"
+  when:
+    - rpi5_egpu_nvidia_artifact_bundle_enabled | bool
+    - rpi5_egpu_nvidia_artifact_bundle_apply | bool
+
+- name: rpi5 eGPU artifact bundle を local SSD に作成
+  become: true
+  ansible.builtin.shell: |
+    set -euo pipefail
+    out="{{ rpi5_egpu_nvidia_artifact_bundle_output_dir }}"
+    release="{{ rpi5_egpu_nvidia_artifact_bundle_release }}"
+    work="$out/.${release}.work"
+    archive="{{ rpi5_egpu_nvidia_artifact_bundle_archive_path }}"
+    manifest="{{ rpi5_egpu_nvidia_artifact_bundle_manifest_path }}"
+    archive_tmp="${archive}.tmp"
+    manifest_tmp="${manifest}.tmp"
+    rm -f "$archive_tmp" "$manifest_tmp"
+    if ! test -f "$work/payload/linux/Module.symvers" \
+      || ! test -d "$work/payload/modules/lib/modules/{{ rpi5_egpu_nvidia_artifact_bundle_kernel_version }}" \
+      || ! test -f "$work/payload/NVIDIA-Linux-aarch64.run" \
+      || ! test -f "$work/payload/kernel8-nvidia.img" \
+      || ! test -f "$work/payload/bcm2712-rpi-5-b-nvidia.dtb"; then
+      rm -rf "$work"
+      mkdir -p "$work/payload"
+      cp -a "{{ rpi5_egpu_nvidia_artifact_bundle_kernel_build_dir }}" "$work/payload/linux"
+      rm -rf "$work/payload/linux/.git"
+      cp -a "{{ rpi5_egpu_nvidia_artifact_bundle_modules_dir }}" "$work/payload/modules"
+      cp -a "{{ rpi5_egpu_nvidia_artifact_bundle_open_modules_dir }}" "$work/payload/open-gpu-kernel-modules"
+      rm -rf "$work/payload/open-gpu-kernel-modules/.git"
+      cp -a "{{ rpi5_egpu_nvidia_artifact_bundle_runfile_path }}" "$work/payload/NVIDIA-Linux-aarch64.run"
+      cp -a "{{ rpi5_egpu_nvidia_artifact_bundle_kernel_image_path }}" "$work/payload/kernel8-nvidia.img"
+      cp -a "{{ rpi5_egpu_nvidia_artifact_bundle_device_tree_path }}" "$work/payload/bcm2712-rpi-5-b-nvidia.dtb"
+    fi
+    (
+      cd "$work/payload"
+      find . -type f -print0 | sort -z | xargs -0 sha256sum
+    ) > "$work/manifest.sha256"
+    (
+      cd "$work/payload"
+      sha256sum -c ../manifest.sha256
+    )
+    tar -C "$work" -czf "$archive_tmp" payload manifest.sha256
+    gzip -t "$archive_tmp"
+    tar -tzf "$archive_tmp" >/dev/null
+    checksum="$(sha256sum "$archive_tmp" | awk '{ print $1 }')"
+    printf '%s  %s\n' "$checksum" "$archive" > "$manifest_tmp"
+    mv -f "$archive_tmp" "$archive"
+    mv -f "$manifest_tmp" "$manifest"
+    rm -rf "$work"
+  args:
+    executable: /bin/bash
+  changed_when: true
+  when:
+    - rpi5_egpu_nvidia_artifact_bundle_enabled | bool
+    - rpi5_egpu_nvidia_artifact_bundle_apply | bool
+
+- name: rpi5 eGPU artifact bundle output を検証
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ rpi5_egpu_nvidia_artifact_bundle_archive_path }}"
+    - "{{ rpi5_egpu_nvidia_artifact_bundle_manifest_path }}"
+  register: rpi5_egpu_nvidia_artifact_bundle_outputs
+  when:
+    - rpi5_egpu_nvidia_artifact_bundle_enabled | bool
+    - rpi5_egpu_nvidia_artifact_bundle_apply | bool
+
+- name: rpi5 eGPU artifact bundle output の存在を検証
+  ansible.builtin.assert:
+    that:
+      - rpi5_egpu_nvidia_artifact_bundle_outputs.results | selectattr('stat.exists', 'defined') | selectattr('stat.exists') | list | length == 2
+      - rpi5_egpu_nvidia_artifact_bundle_outputs.results | map(attribute='stat.size') | map('int') | min > 0
+    fail_msg: "rpi5 eGPU artifact bundle archive または checksum manifest が生成されませんでした"
+  when:
+    - rpi5_egpu_nvidia_artifact_bundle_enabled | bool
+    - rpi5_egpu_nvidia_artifact_bundle_apply | bool

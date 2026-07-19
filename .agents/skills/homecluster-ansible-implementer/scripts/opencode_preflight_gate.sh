@@ -220,10 +220,21 @@ required = {
 def object_has_schema(obj):
     return isinstance(obj, dict) and all(key in obj for key in required)
 
+def normalize_local_model_keys(obj):
+    if not isinstance(obj, dict):
+        return obj
+    # Gemma occasionally emits the JSON key from the schema as `resolution_notes[]`.
+    # Accept only this unambiguous list spelling; every other missing or mistyped key
+    # remains fail-closed under the required schema check below.
+    if "resolution_notes" not in obj and isinstance(obj.get("resolution_notes[]"), list):
+        obj = dict(obj)
+        obj["resolution_notes"] = obj.pop("resolution_notes[]")
+    return obj
+
 def decode_schema_object(text):
     decoder = json.JSONDecoder()
     try:
-        obj = json.loads(text)
+        obj = normalize_local_model_keys(json.loads(text))
         if object_has_schema(obj):
             return obj
     except json.JSONDecodeError:
@@ -232,6 +243,7 @@ def decode_schema_object(text):
     for match in re.finditer(r"{", text):
         try:
             obj, _ = decoder.raw_decode(text[match.start():])
+            obj = normalize_local_model_keys(obj)
         except json.JSONDecodeError:
             continue
         if object_has_schema(obj):

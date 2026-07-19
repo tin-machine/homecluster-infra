@@ -1,16 +1,92 @@
 ---
-- name: llama.cpp source を確認
-  ansible.builtin.stat:
-    path: "{{ rpi5_egpu_llama_source_dir }}/.git"
-  register: rpi5_egpu_llama_git_dir
+- name: llama.cpp source parent directory を作成
+  become: true
+  ansible.builtin.file:
+    path: "{{ rpi5_egpu_llama_source_dir | dirname }}"
+    state: directory
+    owner: "{{ rpi5_egpu_llama_user }}"
+    group: "{{ rpi5_egpu_llama_group }}"
+    mode: "0755"
 
-- name: llama.cpp source が存在するか確認
-  ansible.builtin.assert:
-    that:
-      - rpi5_egpu_llama_git_dir.stat.isdir | default(false)
-    fail_msg: "{{ rpi5_egpu_llama_source_dir }} に llama.cpp git checkout がありません"
+- name: llama.cpp source を固定 revision で取得
+  become: true
+  become_user: "{{ rpi5_egpu_llama_user }}"
+  ansible.builtin.git:
+    repo: "{{ rpi5_egpu_llama_repository }}"
+    dest: "{{ rpi5_egpu_llama_source_dir }}"
+    version: "{{ rpi5_egpu_llama_revision }}"
+    update: true
+    force: true
+
+- name: Patch llama.cpp glslc result capture
+  become: true
+  become_user: "{{ rpi5_egpu_llama_user }}"
+  ansible.builtin.lineinfile:
+    path: "{{ rpi5_egpu_llama_source_dir }}/ggml/src/ggml-vulkan/CMakeLists.txt"
+    insertafter: '^\s*ERROR_VARIABLE glslc_error$'
+    line: "        RESULT_VARIABLE glslc_result"
+  register: rpi5_egpu_local_llm_glslc_result_patch
+
+- name: Patch llama.cpp glslc extension failure check
+  become: true
+  become_user: "{{ rpi5_egpu_llama_user }}"
+  ansible.builtin.lineinfile:
+    path: "{{ rpi5_egpu_llama_source_dir }}/ggml/src/ggml-vulkan/CMakeLists.txt"
+    regexp: '^\s*if \(\$\{glslc_error\} MATCHES "\.\*extension not supported: \$\{EXTENSION_NAME\}\.\*"\)$'
+    line: '    if (NOT "${glslc_result}" STREQUAL "0" OR "${glslc_error}" MATCHES ".*extension not supported: ${EXTENSION_NAME}.*")'
+  register: rpi5_egpu_local_llm_glslc_condition_patch
+
+- name: Patch llama.cpp decode vector glslc support
+  become: true
+  become_user: "{{ rpi5_egpu_llama_user }}"
+  ansible.builtin.lineinfile:
+    path: "{{ rpi5_egpu_llama_source_dir }}/ggml/src/ggml-vulkan/CMakeLists.txt"
+    regexp: '^\s*"GGML_VULKAN_COOPMAT2_DECODE_VECTOR_GLSLC_SUPPORT"$'
+    line: '        "GGML_VULKAN_COOPMAT2_DECODE_VECTOR_GLSLC_FORCED_OFF"'
+  register: rpi5_egpu_local_llm_decode_vector_patch
+
+- name: Remove llama.cpp CMake cache after glslc patch
+  become: true
+  become_user: "{{ rpi5_egpu_llama_user }}"
+  ansible.builtin.file:
+    path: "{{ rpi5_egpu_llama_build_dir }}/CMakeCache.txt"
+    state: absent
+  when: >-
+    rpi5_egpu_local_llm_glslc_result_patch.changed or
+    rpi5_egpu_local_llm_glslc_condition_patch.changed or
+    rpi5_egpu_local_llm_decode_vector_patch.changed
+
+- name: Remove stale shader generator prefix cache
+  become: true
+  become_user: "{{ rpi5_egpu_llama_user }}"
+  ansible.builtin.file:
+    path: "{{ rpi5_egpu_llama_build_dir }}/ggml/src/ggml-vulkan/vulkan-shaders-gen-prefix"
+    state: absent
+  when: >-
+    rpi5_egpu_local_llm_glslc_result_patch.changed or
+    rpi5_egpu_local_llm_glslc_condition_patch.changed or
+    rpi5_egpu_local_llm_decode_vector_patch.changed
+
+- name: llama.cpp Vulkan build directory を構成
+  become: true
+  become_user: "{{ rpi5_egpu_llama_user }}"
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/cmake
+      - -S
+      - "{{ rpi5_egpu_llama_source_dir }}"
+      - -B
+      - "{{ rpi5_egpu_llama_build_dir }}"
+      - -G
+      - Ninja
+      - -DGGML_VULKAN=ON
+      - -DLLAMA_BUILD_TESTS=OFF
+      - -DLLAMA_BUILD_EXAMPLES=ON
+    creates: "{{ rpi5_egpu_llama_build_dir }}/CMakeCache.txt"
 
 - name: llama.cpp revision を確認
+  become: true
+  become_user: "{{ rpi5_egpu_llama_user }}"
   ansible.builtin.command:
     argv:
       - /usr/bin/git
@@ -32,6 +108,8 @@
   changed_when: false
 
 - name: llama-server / llama-bench を build
+  become: true
+  become_user: "{{ rpi5_egpu_llama_user }}"
   ansible.builtin.command:
     argv:
       - /usr/bin/cmake
