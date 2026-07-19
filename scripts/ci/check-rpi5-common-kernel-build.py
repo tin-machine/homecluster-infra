@@ -47,7 +47,7 @@ def main() -> int:
     require(defaults, "rpi5_common_kernel_build_localversion: -v8-homecluster", "common suffix")
     require(defaults, "/var/lib/rancher/k3s/kernel-build", "local SSD work root")
     require(defaults, "rpi5_common_kernel_build_distcc_enabled: true", "distcc enabled default")
-    require_not(defaults, "pump", "pump-mode default")
+    require(defaults, "Plain distcc only", "plain distcc policy")
 
     for config_gate in (
         "scripts/config --enable ARM64_4K_PAGES",
@@ -72,10 +72,9 @@ def main() -> int:
         "DISTCC_FALLBACK",
         "DISTCC_IO_TIMEOUT",
         "CC='{{ 'distcc gcc'",
+        "'--pump' not in rpi5_common_kernel_build_distcc_hosts_effective",
     ):
         require(tasks, distcc_gate, f"distcc gate {distcc_gate}")
-    require_not(tasks, "--pump", "kernel pump mode")
-    require_not(tasks, "pump mode", "kernel pump mode prose")
 
     require(tasks, "make modules_install INSTALL_MOD_PATH=", "staged modules install")
     require(tasks, "cp -a .config Module.symvers System.map vmlinux", "build provenance copy")
