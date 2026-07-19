@@ -1,0 +1,60 @@
+---
+# Raspberry Pi 5 common kernel producer. The role is inert unless both enabled
+# and apply are true. Real source pins, config seed paths, confirmation tokens,
+# and NVIDIA artifact paths belong in the private inventory.
+rpi5_common_kernel_build_enabled: false
+rpi5_common_kernel_build_apply: false
+rpi5_common_kernel_build_confirm: ""
+rpi5_common_kernel_build_confirm_expected: ""
+
+rpi5_common_kernel_build_stage: stg
+rpi5_common_kernel_build_stage_date: ""
+rpi5_common_kernel_build_release_override: ""
+rpi5_common_kernel_build_release: >-
+  {{
+    rpi5_common_kernel_build_release_override
+    if (rpi5_common_kernel_build_release_override | string | trim | length > 0)
+    else ((rpi5_common_kernel_build_stage_date | string | trim) ~ '-rpi5')
+  }}
+
+rpi5_common_kernel_build_source_repo: https://github.com/raspberrypi/linux.git
+rpi5_common_kernel_build_source_version: ""
+rpi5_common_kernel_build_work_root: /var/lib/rancher/k3s/kernel-build
+rpi5_common_kernel_build_label: "{{ rpi5_common_kernel_build_release }}-homecluster"
+rpi5_common_kernel_build_dir: "{{ rpi5_common_kernel_build_work_root }}/{{ rpi5_common_kernel_build_label }}/linux"
+rpi5_common_kernel_build_modules_dir: "{{ rpi5_common_kernel_build_work_root }}/{{ rpi5_common_kernel_build_label }}/staging"
+rpi5_common_kernel_build_config_seed: "{{ rpi5_common_kernel_build_work_root }}/config/rpi5-homecluster.config"
+rpi5_common_kernel_build_localversion: -v8-homecluster
+rpi5_common_kernel_build_make_jobs: 8
+rpi5_common_kernel_build_local_slots: 2
+rpi5_common_kernel_build_required_commands:
+  - git
+  - make
+  - gcc
+  - as
+  - bc
+  - bison
+  - flex
+  - openssl
+  - perl
+  - rsync
+  - distcc
+
+# Plain distcc only. Linux kernel builds must not use pump mode.
+rpi5_common_kernel_build_distcc_enabled: true
+rpi5_common_kernel_build_distcc_auto: true
+rpi5_common_kernel_build_distcc_hosts: ""
+rpi5_common_kernel_build_distcc_default_slots: 2
+rpi5_common_kernel_build_distcc_fallback: "0"
+rpi5_common_kernel_build_distcc_io_timeout: 600
+
+# NVIDIA is an external-module extension of the common kernel. The common
+# kernel config itself must not become host-specific.
+rpi5_common_kernel_build_open_modules_dir: /var/lib/rancher/k3s/open-gpu-kernel-modules
+rpi5_common_kernel_build_open_modules_commit: ""
+rpi5_common_kernel_build_nvidia_runfile_path: ""
+rpi5_common_kernel_build_nvidia_module_jobs: 3
+
+rpi5_common_kernel_build_kernel_image_path: "{{ rpi5_common_kernel_build_dir }}/arch/arm64/boot/Image"
+rpi5_common_kernel_build_device_tree_path: "{{ rpi5_common_kernel_build_dir }}/arch/arm64/boot/dts/broadcom/bcm2712-rpi-5-b.dtb"
+rpi5_common_kernel_build_metadata_path: "{{ rpi5_common_kernel_build_work_root }}/{{ rpi5_common_kernel_build_label }}/build-metadata.json"
