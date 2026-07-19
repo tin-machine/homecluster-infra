@@ -14,7 +14,9 @@
   ansible.builtin.assert:
     that:
       - openwrt_rpi5_egpu_runtime_repair_target_rootfs_resolved is match('^/')
-      - openwrt_rpi5_egpu_runtime_repair_kernel_version_resolved is match('.+-v8-nvidia\\+$')
+      - >-
+        (openwrt_rpi5_egpu_runtime_repair_kernel_version_resolved is match('.+-v8-homecluster\\+$'))
+        or (openwrt_rpi5_egpu_runtime_repair_kernel_version_resolved is match('.+-v8-nvidia\\+$'))
       - openwrt_rpi5_egpu_runtime_repair_nvidia_driver_version_resolved | length > 0
       - openwrt_rpi5_egpu_runtime_repair_vulkan_packages | length > 0
     fail_msg: "rpi5 eGPU lower-rootfs repair の target rootfs / kver / driver pin / source pin を確認してください"
@@ -98,7 +100,7 @@
 - name: rpi5 eGPU repair input existence を検証
   ansible.builtin.assert:
     that:
-      - openwrt_rpi5_egpu_runtime_repair_input_path_stats.results | selectattr('stat.exists', 'defined') | selectattr('stat.exists') | list | length == 3
+      - rpi5_egpu_nvidia_artifact_bundle_inputs.results | selectattr('stat.exists', 'defined') | selectattr('stat.exists') | list | length == 3
     fail_msg: "rpi5 eGPU lower-rootfs repair apply の input path が不足しています"
   when:
     - openwrt_rpi5_egpu_runtime_repair_apply | bool
@@ -108,7 +110,7 @@
   ansible.builtin.assert:
     that:
       - openwrt_rpi5_egpu_runtime_repair_source_rootfs_stat.stat.isdir | default(false)
-    fail_msg: "rpi5 eGPU lower-rootfs repair apply の staged source rootfs が不足しています"
+    fail_msg: "rpi5 eGPU staged source rootfs repair apply の staged source rootfs が不足しています"
   when:
     - openwrt_rpi5_egpu_runtime_repair_apply | bool
     - openwrt_rpi5_egpu_runtime_repair_use_staged_source_rootfs | bool
