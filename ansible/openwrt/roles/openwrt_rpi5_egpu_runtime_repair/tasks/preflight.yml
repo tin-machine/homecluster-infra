@@ -100,7 +100,7 @@
 - name: rpi5 eGPU repair input existence を検証
   ansible.builtin.assert:
     that:
-      - rpi5_egpu_nvidia_artifact_bundle_inputs.results | selectattr('stat.exists', 'defined') | selectattr('stat.exists') | list | length == 3
+      - openwrt_rpi5_egpu_runtime_repair_input_path_stats.results | selectattr('stat.exists', 'defined') | selectattr('stat.exists') | list | length == 3
     fail_msg: "rpi5 eGPU lower-rootfs repair apply の input path が不足しています"
   when:
     - openwrt_rpi5_egpu_runtime_repair_apply | bool
