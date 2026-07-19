@@ -35,6 +35,7 @@ rpi5_common_kernel_build_required_commands:
   - bc
   - bison
   - flex
+  - modinfo
   - openssl
   - perl
   - rsync

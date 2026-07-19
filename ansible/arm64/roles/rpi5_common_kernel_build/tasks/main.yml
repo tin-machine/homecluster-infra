@@ -274,19 +274,50 @@
     fail_msg: "open-gpu-kernel-modules commitがinventory pinと一致しません"
   when: rpi5_common_kernel_build_enabled | bool
 
-- name: rpi5 common kernel 向けNVIDIA external modulesをbuild
+- name: Rpi5 common kernel NVIDIA external modules worktree を clean にする
+  ansible.builtin.shell: |
+    set -euo pipefail
+    cd "{{ rpi5_common_kernel_build_open_modules_dir }}"
+    git reset --hard "{{ rpi5_common_kernel_build_open_modules_commit }}"
+    git clean -ffdx
+    make clean
+    test "$(git rev-parse HEAD)" = "{{ rpi5_common_kernel_build_open_modules_commit }}"
+  args:
+    executable: /bin/bash
+  changed_when: true
+  when: rpi5_common_kernel_build_enabled | bool
+
+- name: Rpi5 common kernel 向け NVIDIA external modules を build
   ansible.builtin.shell: |
     set -euo pipefail
     cd "{{ rpi5_common_kernel_build_open_modules_dir }}"
     make -j{{ rpi5_common_kernel_build_nvidia_module_jobs | int }} modules \
       SYSSRC="{{ rpi5_common_kernel_build_dir }}" \
       TARGET_ARCH=aarch64
-    for module in nvidia.ko nvidia-modeset.ko nvidia-drm.ko nvidia-uvm.ko nvidia-peermem.ko; do
-      test -f "kernel-open/${module}"
-    done
   args:
     executable: /bin/bash
   changed_when: true
+  when: rpi5_common_kernel_build_enabled | bool
+
+- name: Rpi5 common kernel NVIDIA external modules の vermagic を検証
+  ansible.builtin.shell: |
+    set -euo pipefail
+    cd "{{ rpi5_common_kernel_build_open_modules_dir }}"
+    expected_release="{{ rpi5_common_kernel_build_kernelrelease_command.stdout | trim }}"
+    for module in nvidia.ko nvidia-modeset.ko nvidia-drm.ko nvidia-uvm.ko nvidia-peermem.ko; do
+      test -f "kernel-open/${module}"
+      actual_vermagic="$(modinfo -F vermagic "kernel-open/${module}")"
+      case "$actual_vermagic" in
+        "${expected_release}"*) ;;
+        *)
+          printf '%s\n' "unexpected vermagic for ${module}: ${actual_vermagic}" >&2
+          exit 1
+          ;;
+      esac
+    done
+  args:
+    executable: /bin/bash
+  changed_when: false
   when: rpi5_common_kernel_build_enabled | bool
 
 - name: rpi5 common kernel provenance hash を取得
