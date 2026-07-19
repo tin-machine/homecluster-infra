@@ -21,6 +21,9 @@
       tags:
         - ntp
     - common/daemon
+    - role: picoclaw
+      tags:
+        - picoclaw
     - role: distcc
       tags:
         - distcc

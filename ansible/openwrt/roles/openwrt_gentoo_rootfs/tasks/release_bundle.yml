@@ -447,6 +447,7 @@
       target_stages: "{{ openwrt_gentoo_release_bundle_target_stages | default([]) }}"
       required_tftp_paths: "{{ openwrt_gentoo_release_bundle_tftp_paths | default([]) }}"
       markers: "{{ openwrt_gentoo_release_bundle_marker_entries | default([]) }}"
+      metadata: "{{ openwrt_gentoo_release_bundle_manifest_metadata | default({}) }}"
   when:
     - openwrt_gentoo_enabled | bool
     - openwrt_gentoo_release_bundle_enabled | bool

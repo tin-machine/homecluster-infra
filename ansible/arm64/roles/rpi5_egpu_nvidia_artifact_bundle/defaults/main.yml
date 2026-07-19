@@ -1,0 +1,20 @@
+---
+# Native Raspberry Pi 5 NVIDIA artifact bundle. This role is inert unless an
+# operator explicitly enables and confirms it; it never writes OpenWrt paths.
+rpi5_egpu_nvidia_artifact_bundle_enabled: false
+rpi5_egpu_nvidia_artifact_bundle_apply: false
+rpi5_egpu_nvidia_artifact_bundle_confirm: ""
+rpi5_egpu_nvidia_artifact_bundle_confirm_expected: ""
+
+rpi5_egpu_nvidia_artifact_bundle_release: ""
+rpi5_egpu_nvidia_artifact_bundle_kernel_version: ""
+rpi5_egpu_nvidia_artifact_bundle_kernel_build_dir: ""
+rpi5_egpu_nvidia_artifact_bundle_modules_dir: ""
+rpi5_egpu_nvidia_artifact_bundle_open_modules_dir: ""
+rpi5_egpu_nvidia_artifact_bundle_runfile_path: ""
+rpi5_egpu_nvidia_artifact_bundle_output_dir: /var/lib/rancher/k3s/nvidia-artifacts
+rpi5_egpu_nvidia_artifact_bundle_archive_name: "rpi5-egpu-{{ rpi5_egpu_nvidia_artifact_bundle_release }}.tar.gz"
+rpi5_egpu_nvidia_artifact_bundle_archive_path: "{{ rpi5_egpu_nvidia_artifact_bundle_output_dir }}/{{ rpi5_egpu_nvidia_artifact_bundle_archive_name }}"
+rpi5_egpu_nvidia_artifact_bundle_manifest_path: "{{ rpi5_egpu_nvidia_artifact_bundle_archive_path }}.sha256"
+rpi5_egpu_nvidia_artifact_bundle_kernel_image_path: "{{ rpi5_egpu_nvidia_artifact_bundle_kernel_build_dir }}/arch/arm64/boot/Image"
+rpi5_egpu_nvidia_artifact_bundle_device_tree_path: "{{ rpi5_egpu_nvidia_artifact_bundle_kernel_build_dir }}/arch/arm64/boot/dts/broadcom/bcm2712-rpi-5-b.dtb"

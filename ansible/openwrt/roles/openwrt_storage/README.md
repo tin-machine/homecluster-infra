@@ -69,8 +69,8 @@ openwrt_storage_swap_device: /dev/sdb2
 ```yaml
 openwrt_enable_storage: true
 openwrt_storage_device: /dev/nvme0n1
-openwrt_storage_expected_model: "Micron MTFDKCD512TFK"
-openwrt_storage_expected_serial: "22173743B91B"
+openwrt_storage_expected_model: "YOUR_NVME_MODEL"
+openwrt_storage_expected_serial: "YOUR_NVME_SERIAL"
 openwrt_storage_destructive_confirm: erase-nvme0n1
 openwrt_storage_force_repartition: true
 openwrt_storage_force_format: true

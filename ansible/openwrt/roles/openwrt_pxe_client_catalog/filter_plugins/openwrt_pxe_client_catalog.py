@@ -680,6 +680,12 @@ def _build_generated_client(
         if base_vars:
             role_extra_vars["base"] = base_vars
 
+    picoclaw_cfg = hv.get("picoclaw")
+    if "base" in role_names and isinstance(picoclaw_cfg, Mapping) and picoclaw_cfg:
+        current = role_extra_vars.get("base", {})
+        merged, _ = _merge_nested_mapping(current, {"picoclaw": dict(picoclaw_cfg)})
+        role_extra_vars["base"] = merged
+
     if "k3s_stg_server" in role_names and _as_bool(
         ansible_pull_cfg.get("k3s_stg_server_vars_enabled", True)
     ):

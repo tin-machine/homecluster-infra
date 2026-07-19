@@ -1,0 +1,99 @@
+---
+picoclaw_version: "v0.2.8"
+
+picoclaw_owner_default: "{{ ansible_user | default('ansible') }}"
+picoclaw_group_default: "{{ picoclaw_owner_default }}"
+picoclaw_home_default: "/home/{{ picoclaw_owner_default }}"
+
+picoclaw_install_method_default: archive
+picoclaw_binary_path_default: /usr/local/bin/picoclaw
+picoclaw_launcher_path_default: /usr/local/bin/picoclaw-launcher
+
+picoclaw_release_arch_map:
+  x86_64: x86_64
+  amd64: x86_64
+  aarch64: arm64
+  arm64: arm64
+  armv7l: armv7
+  armv6l: armv6
+picoclaw_release_checksums:
+  v0.2.8:
+    x86_64: "sha256:e35aea853711db829e0d1969d875f2efcca9cfeec92a43dedb84b46a56b890be"
+    arm64: "sha256:9ce9fbf76da9c967baffb18c4b502dec2055b3ad050fc2381b6260429e1acf70"
+picoclaw_deb_checksums:
+  v0.2.8:
+    x86_64: "sha256:7cd3dcf0a40aad75deeee6b88cd4ae15e74c1d3687b28b019b5c95286a6bbb92"
+
+picoclaw_config_strategy_default: generate
+picoclaw_service_after_extra_default: []
+
+picoclaw_require_slack_allow_from: true
+picoclaw_fail_on_invalid_slack: false
+
+picoclaw_mcp_profiles_default:
+  ubuntu_desktop_staging_k8s:
+    enabled: true
+    discovery:
+      enabled: true
+      ttl: 5
+      max_search_results: 5
+      use_bm25: true
+      use_regex: false
+    servers:
+      fetch:
+        enabled: true
+        type: stdio
+        command: /usr/local/bin/picoclaw-local-mcp
+        args:
+          - fetch
+        deferred: true
+      search:
+        enabled: true
+        type: stdio
+        command: /usr/local/bin/picoclaw-local-mcp
+        args:
+          - search
+        deferred: true
+      systemd-status:
+        enabled: true
+        type: stdio
+        command: /usr/local/bin/picoclaw-local-mcp
+        args:
+          - systemd-status
+        deferred: true
+      sqlite-state:
+        enabled: true
+        type: stdio
+        command: /usr/local/bin/picoclaw-local-mcp
+        args:
+          - sqlite-state
+        deferred: true
+      git-status:
+        enabled: true
+        type: stdio
+        command: /usr/local/bin/picoclaw-local-mcp
+        args:
+          - git-status
+        deferred: true
+      trello:
+        enabled: true
+        type: stdio
+        command: /usr/local/bin/picoclaw-local-mcp
+        args:
+          - trello-readonly
+        env_file: "{{ picoclaw_common_home | default(picoclaw_home_default) }}/.picoclaw/mcp-trello.env"
+        deferred: true
+      k8s-status:
+        enabled: true
+        type: stdio
+        command: /usr/local/bin/kubernetes-mcp-server
+        args:
+          - --read-only
+          - --disable-multi-cluster
+          - --cluster-provider
+          - kubeconfig
+          - --kubeconfig
+          - "{{ picoclaw_common_home | default(picoclaw_home_default) }}/.picoclaw/kubeconfigs/k3s-stg-readonly.yaml"
+          - --toolsets
+          - core
+        deferred: true
