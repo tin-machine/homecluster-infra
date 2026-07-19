@@ -1,9 +1,36 @@
 ---
-- name: rpi5 eGPU NVIDIA artifact bundle を local SSD に作成
+- name: rpi5 common kernel と NVIDIA artifact bundle を local SSD に作成
   hosts: rpi5_egpu_artifact_bundle
   gather_facts: false
   become: false
-  roles:
-    - role: ../roles/rpi5_egpu_nvidia_artifact_bundle
+  vars:
+    rpi5_common_kernel_stage_date_from_openwrt: >-
+      {{
+        (
+          hostvars[(groups['openwrt'] | first)].openwrt_gentoo_release_bundle_stage_dates
+          | default({})
+        ).get(rpi5_common_kernel_build_stage | default('stg'), '')
+        | string | trim
+      }}
+  tasks:
+    - name: rpi5 common kernel をbuild
+      ansible.builtin.include_role:
+        name: ../roles/rpi5_common_kernel_build
+      vars:
+        rpi5_common_kernel_build_stage_date: "{{ rpi5_common_kernel_stage_date_from_openwrt }}"
       when:
+        - rpi5_common_kernel_build_enabled | default(false) | bool
+
+    - name: rpi5 common kernel にNVIDIA artifactを付加してbundle化
+      ansible.builtin.include_role:
+        name: ../roles/rpi5_egpu_nvidia_artifact_bundle
+      vars:
+        rpi5_egpu_nvidia_artifact_bundle_release: "{{ rpi5_common_kernel_build_release }}"
+        rpi5_egpu_nvidia_artifact_bundle_kernel_version: "{{ rpi5_common_kernel_build_kernel_release }}"
+        rpi5_egpu_nvidia_artifact_bundle_kernel_build_dir: "{{ rpi5_common_kernel_build_dir }}"
+        rpi5_egpu_nvidia_artifact_bundle_modules_dir: "{{ rpi5_common_kernel_build_modules_dir }}"
+        rpi5_egpu_nvidia_artifact_bundle_open_modules_dir: "{{ rpi5_common_kernel_build_open_modules_dir }}"
+        rpi5_egpu_nvidia_artifact_bundle_runfile_path: "{{ rpi5_common_kernel_build_nvidia_runfile_path }}"
+      when:
+        - rpi5_common_kernel_build_enabled | default(false) | bool
         - rpi5_egpu_nvidia_artifact_bundle_enabled | default(false) | bool

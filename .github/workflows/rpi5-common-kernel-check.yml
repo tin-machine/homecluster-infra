@@ -1,0 +1,42 @@
+name: rpi5-common-kernel-check
+
+on:
+  pull_request:
+    paths:
+      - 'ansible/arm64/playbooks/rpi5-egpu-nvidia-artifact-bundle.yml'
+      - 'ansible/arm64/roles/rpi5_common_kernel_build/**'
+      - 'ansible/arm64/roles/rpi5_egpu_nvidia_artifact_bundle/**'
+      - 'ansible/openwrt/playbooks/pxe-release-bundle-staging-with-common-kernel.yml'
+      - 'ansible/openwrt/roles/openwrt_rpi5_egpu_runtime_repair/**'
+      - 'scripts/ci/check-rpi5-common-kernel-build.py'
+      - '.github/workflows/rpi5-common-kernel-check.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'ansible/arm64/playbooks/rpi5-egpu-nvidia-artifact-bundle.yml'
+      - 'ansible/arm64/roles/rpi5_common_kernel_build/**'
+      - 'ansible/arm64/roles/rpi5_egpu_nvidia_artifact_bundle/**'
+      - 'ansible/openwrt/playbooks/pxe-release-bundle-staging-with-common-kernel.yml'
+      - 'ansible/openwrt/roles/openwrt_rpi5_egpu_runtime_repair/**'
+      - 'scripts/ci/check-rpi5-common-kernel-build.py'
+      - '.github/workflows/rpi5-common-kernel-check.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  source-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Check Python syntax
+        run: python3 -m py_compile scripts/ci/check-rpi5-common-kernel-build.py
+
+      - name: Check Pi5 common kernel source contract
+        run: python3 scripts/ci/check-rpi5-common-kernel-build.py
