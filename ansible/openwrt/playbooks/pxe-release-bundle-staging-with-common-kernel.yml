@@ -1,6 +1,3 @@
 ---
-- name: Pi5 common kernel と NVIDIA artifact bundle を事前生成
-  ansible.builtin.import_playbook: ../../arm64/playbooks/rpi5-egpu-nvidia-artifact-bundle.yml
-
-- name: 既存のPXE release bundle stagingを実行
-  ansible.builtin.import_playbook: pxe-release-bundle-staging.yml
+- ansible.builtin.import_playbook: ../../arm64/playbooks/rpi5-egpu-nvidia-artifact-bundle.yml
+- ansible.builtin.import_playbook: pxe-release-bundle-staging.yml
