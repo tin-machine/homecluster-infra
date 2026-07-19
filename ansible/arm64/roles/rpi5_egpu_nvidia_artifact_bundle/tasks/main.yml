@@ -8,7 +8,9 @@
   ansible.builtin.assert:
     that:
       - rpi5_egpu_nvidia_artifact_bundle_release is match('^[0-9]{8}-rpi5$')
-      - rpi5_egpu_nvidia_artifact_bundle_kernel_version is match('.+-v8-nvidia\\+$')
+      - >-
+        (rpi5_egpu_nvidia_artifact_bundle_kernel_version is match('.+-v8-homecluster\\+$'))
+        or (rpi5_egpu_nvidia_artifact_bundle_kernel_version is match('.+-v8-nvidia\\+$'))
       - rpi5_egpu_nvidia_artifact_bundle_kernel_build_dir is match('^/var/lib/rancher/k3s/')
       - rpi5_egpu_nvidia_artifact_bundle_modules_dir is match('^/var/lib/rancher/k3s/')
       - rpi5_egpu_nvidia_artifact_bundle_open_modules_dir is match('^/var/lib/rancher/k3s/')
@@ -70,7 +72,9 @@
       rm -rf "$work/payload/open-gpu-kernel-modules/.git"
       cp -a "{{ rpi5_egpu_nvidia_artifact_bundle_runfile_path }}" "$work/payload/NVIDIA-Linux-aarch64.run"
       cp -a "{{ rpi5_egpu_nvidia_artifact_bundle_kernel_image_path }}" "$work/payload/kernel8-nvidia.img"
+      cp -a "{{ rpi5_egpu_nvidia_artifact_bundle_kernel_image_path }}" "$work/payload/kernel8-homecluster.img"
       cp -a "{{ rpi5_egpu_nvidia_artifact_bundle_device_tree_path }}" "$work/payload/bcm2712-rpi-5-b-nvidia.dtb"
+      cp -a "{{ rpi5_egpu_nvidia_artifact_bundle_device_tree_path }}" "$work/payload/bcm2712-rpi-5-b-homecluster.dtb"
     fi
     (
       cd "$work/payload"
@@ -112,6 +116,26 @@
       - rpi5_egpu_nvidia_artifact_bundle_outputs.results | selectattr('stat.exists', 'defined') | selectattr('stat.exists') | list | length == 2
       - rpi5_egpu_nvidia_artifact_bundle_outputs.results | map(attribute='stat.size') | map('int') | min > 0
     fail_msg: "rpi5 eGPU artifact bundle archive または checksum manifest が生成されませんでした"
+  when:
+    - rpi5_egpu_nvidia_artifact_bundle_enabled | bool
+    - rpi5_egpu_nvidia_artifact_bundle_apply | bool
+
+- name: rpi5 eGPU generationへ共通kernel artifact factを公開
+  ansible.builtin.set_fact:
+    openwrt_rpi5_egpu_generation_artifact_archive_path: "{{ rpi5_egpu_nvidia_artifact_bundle_archive_path }}"
+    openwrt_rpi5_egpu_generation_artifact_archive_sha256_path: "{{ rpi5_egpu_nvidia_artifact_bundle_manifest_path }}"
+    openwrt_rpi5_egpu_runtime_repair_kernel_version: "{{ rpi5_egpu_nvidia_artifact_bundle_kernel_version }}"
+    openwrt_rpi5_egpu_runtime_repair_open_kernel_modules_commit: >-
+      {{
+        rpi5_common_kernel_build_open_modules_commit
+        | default(openwrt_rpi5_egpu_runtime_repair_open_kernel_modules_commit | default(''), true)
+      }}
+    openwrt_rpi5_egpu_generation_manifest_metadata: >-
+      {{
+        (openwrt_rpi5_egpu_generation_manifest_metadata | default({}))
+        | combine(rpi5_common_kernel_build_manifest_metadata | default({}), recursive=True)
+        | combine({'kernel_release': rpi5_egpu_nvidia_artifact_bundle_kernel_version}, recursive=True)
+      }}
   when:
     - rpi5_egpu_nvidia_artifact_bundle_enabled | bool
     - rpi5_egpu_nvidia_artifact_bundle_apply | bool

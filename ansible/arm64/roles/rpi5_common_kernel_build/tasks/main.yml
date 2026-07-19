@@ -1,0 +1,369 @@
+---
+- name: rpi5 common kernel build をスキップ
+  ansible.builtin.debug:
+    msg: "rpi5_common_kernel_build_enabled=false のため実行しません"
+  when: not (rpi5_common_kernel_build_enabled | bool)
+
+- name: rpi5 common kernel distcc worker を解決
+  ansible.builtin.set_fact:
+    rpi5_common_kernel_build_distcc_worker_names: >-
+      {%- set workers = [] -%}
+      {%- if rpi5_common_kernel_build_distcc_enabled | bool and rpi5_common_kernel_build_distcc_auto | bool -%}
+      {%- for host_name in groups['all'] | default([]) -%}
+      {%- set cfg = hostvars[host_name].distcc | default({}) -%}
+      {%- if host_name != inventory_hostname and cfg is mapping and (cfg.enabled | default(false) | bool) and (cfg.client_enabled | default(true) | bool) -%}
+      {%- set _ = workers.append(host_name) -%}
+      {%- endif -%}
+      {%- endfor -%}
+      {%- endif -%}
+      {{ workers }}
+    rpi5_common_kernel_build_distcc_hosts_effective: >-
+      {%- set hosts = [] -%}
+      {%- if rpi5_common_kernel_build_distcc_hosts | string | trim | length > 0 -%}
+      {{- rpi5_common_kernel_build_distcc_hosts | string | trim -}}
+      {%- elif rpi5_common_kernel_build_distcc_enabled | bool -%}
+      {%- for host_name in groups['all'] | default([]) -%}
+      {%- set hv = hostvars[host_name] -%}
+      {%- set cfg = hv.distcc | default({}) -%}
+      {%- if host_name != inventory_hostname and cfg is mapping and (cfg.enabled | default(false) | bool) and (cfg.client_enabled | default(true) | bool) -%}
+      {%- set address = cfg.host | default(cfg.address | default(hv.ansible_host | default(host_name), true), true) -%}
+      {%- set port = cfg.port | default(3632) | int -%}
+      {%- set slots = cfg.slots | default(cfg.client_slots | default(rpi5_common_kernel_build_distcc_default_slots), true) | int -%}
+      {%- set label = (address ~ ':' ~ port) if port != 3632 else address -%}
+      {%- set _ = hosts.append(label ~ '/' ~ slots) -%}
+      {%- endif -%}
+      {%- endfor -%}
+      {{- (hosts + ['localhost/' ~ (rpi5_common_kernel_build_local_slots | int), '--localslots=' ~ (rpi5_common_kernel_build_local_slots | int), '--localslots_cpp=' ~ ((rpi5_common_kernel_build_local_slots | int) * 2)]) | join(' ') -}}
+      {%- else -%}
+      localhost/{{ rpi5_common_kernel_build_local_slots | int }}
+      {%- endif -%}
+  when: rpi5_common_kernel_build_enabled | bool
+
+- name: rpi5 common kernel build 入力を検証
+  ansible.builtin.assert:
+    that:
+      - rpi5_common_kernel_build_apply | bool
+      - rpi5_common_kernel_build_confirm_expected | string | trim | length > 0
+      - rpi5_common_kernel_build_confirm == rpi5_common_kernel_build_confirm_expected
+      - rpi5_common_kernel_build_stage_date is match('^[0-9]{8}$')
+      - rpi5_common_kernel_build_release is match('^[0-9]{8}-rpi5$')
+      - rpi5_common_kernel_build_source_version | string | trim | length >= 12
+      - rpi5_common_kernel_build_work_root is match('^/var/lib/rancher/k3s/')
+      - rpi5_common_kernel_build_dir is match('^/var/lib/rancher/k3s/')
+      - rpi5_common_kernel_build_modules_dir is match('^/var/lib/rancher/k3s/')
+      - rpi5_common_kernel_build_config_seed is match('^/var/lib/rancher/k3s/')
+      - rpi5_common_kernel_build_localversion == '-v8-homecluster'
+      - rpi5_common_kernel_build_make_jobs | int > 0
+      - rpi5_common_kernel_build_local_slots | int > 0
+      - not (rpi5_common_kernel_build_distcc_enabled | bool) or (rpi5_common_kernel_build_distcc_worker_names | length > 0)
+      - not (rpi5_common_kernel_build_distcc_enabled | bool) or ('--pump' not in rpi5_common_kernel_build_distcc_hosts_effective)
+      - rpi5_common_kernel_build_open_modules_dir is match('^/var/lib/rancher/k3s/')
+      - rpi5_common_kernel_build_open_modules_commit | string | trim | length >= 12
+      - rpi5_common_kernel_build_nvidia_runfile_path is match('^/var/lib/rancher/k3s/')
+    fail_msg: >-
+      Pi5 common kernel build には stage date、Linux commit、config seed、distcc worker、
+      NVIDIA source/runfile pin、および一致する confirmation token が必要です。
+  when: rpi5_common_kernel_build_enabled | bool
+
+- name: rpi5 common kernel build command を確認
+  ansible.builtin.shell: "command -v {{ item }}"
+  args:
+    executable: /bin/bash
+  loop: "{{ rpi5_common_kernel_build_required_commands }}"
+  changed_when: false
+  when: rpi5_common_kernel_build_enabled | bool
+
+- name: rpi5 common kernel input path を確認
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ rpi5_common_kernel_build_config_seed }}"
+    - "{{ rpi5_common_kernel_build_open_modules_dir }}/.git"
+    - "{{ rpi5_common_kernel_build_nvidia_runfile_path }}"
+  register: rpi5_common_kernel_build_input_stats
+  when: rpi5_common_kernel_build_enabled | bool
+
+- name: rpi5 common kernel input path の存在を検証
+  ansible.builtin.assert:
+    that:
+      - rpi5_common_kernel_build_input_stats.results | selectattr('stat.exists', 'defined') | selectattr('stat.exists') | list | length == 3
+    fail_msg: "Pi5 common kernel config seed、NVIDIA source、またはrunfileが不足しています"
+  when: rpi5_common_kernel_build_enabled | bool
+
+- name: rpi5 common kernel builder compiler fingerprint を取得
+  ansible.builtin.shell: |
+    set -euo pipefail
+    printf 'target=%s\n' "$(gcc -dumpmachine)"
+    printf 'gcc=%s\n' "$(gcc -dumpfullversion -dumpversion)"
+    printf 'as=%s\n' "$(as --version | head -n 1)"
+  args:
+    executable: /bin/bash
+  register: rpi5_common_kernel_build_compiler_fingerprint
+  changed_when: false
+  when: rpi5_common_kernel_build_enabled | bool
+
+- name: rpi5 common kernel distccd readiness と compiler fingerprint を確認
+  ansible.builtin.shell: |
+    set -euo pipefail
+    port="{{ (hostvars[item].distcc | default({})).port | default(3632) | int }}"
+    test "$(systemctl is-enabled distccd)" = enabled
+    test "$(systemctl is-active distccd)" = active
+    ss -H -ltn "sport = :${port}" | grep -q .
+    printf 'target=%s\n' "$(gcc -dumpmachine)"
+    printf 'gcc=%s\n' "$(gcc -dumpfullversion -dumpversion)"
+    printf 'as=%s\n' "$(as --version | head -n 1)"
+  args:
+    executable: /bin/bash
+  delegate_to: "{{ item }}"
+  loop: "{{ rpi5_common_kernel_build_distcc_worker_names }}"
+  register: rpi5_common_kernel_build_distcc_preflight
+  changed_when: false
+  when:
+    - rpi5_common_kernel_build_enabled | bool
+    - rpi5_common_kernel_build_distcc_enabled | bool
+
+- name: rpi5 common kernel distcc compiler fingerprint の一致を検証
+  ansible.builtin.assert:
+    that:
+      - item.stdout_lines == rpi5_common_kernel_build_compiler_fingerprint.stdout_lines
+    fail_msg: "{{ item.item }} のGCC target/versionまたはassemblerがbuilderと一致しません"
+  loop: "{{ rpi5_common_kernel_build_distcc_preflight.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item | default('unknown') }}"
+  when:
+    - rpi5_common_kernel_build_enabled | bool
+    - rpi5_common_kernel_build_distcc_enabled | bool
+
+- name: rpi5 common kernel build directory の親を作成
+  become: true
+  ansible.builtin.file:
+    path: "{{ rpi5_common_kernel_build_dir | dirname }}"
+    state: directory
+    owner: "{{ ansible_user | default('ansible') }}"
+    group: "{{ ansible_user | default('ansible') }}"
+    mode: '0755'
+  when: rpi5_common_kernel_build_enabled | bool
+
+- name: rpi5 common kernel source を固定commitで取得
+  ansible.builtin.git:
+    repo: "{{ rpi5_common_kernel_build_source_repo }}"
+    dest: "{{ rpi5_common_kernel_build_dir }}"
+    version: "{{ rpi5_common_kernel_build_source_version }}"
+    update: true
+    force: true
+    single_branch: false
+  when: rpi5_common_kernel_build_enabled | bool
+
+- name: rpi5 common kernel config seed を配置
+  ansible.builtin.copy:
+    src: "{{ rpi5_common_kernel_build_config_seed }}"
+    dest: "{{ rpi5_common_kernel_build_dir }}/.config"
+    remote_src: true
+    mode: '0644'
+  when: rpi5_common_kernel_build_enabled | bool
+
+- name: rpi5 common kernel hard gate をconfigへ反映
+  ansible.builtin.shell: |
+    set -euo pipefail
+    cd "{{ rpi5_common_kernel_build_dir }}"
+    scripts/config --enable ARM64_4K_PAGES
+    scripts/config --disable ARM64_16K_PAGES
+    scripts/config --disable ARM64_64K_PAGES
+    scripts/config --enable ARM64_VA_BITS_48
+    scripts/config --set-val ARM64_VA_BITS 48
+    scripts/config --enable IKCONFIG
+    scripts/config --enable IKCONFIG_PROC
+    scripts/config --enable MODULES
+    scripts/config --enable PCI
+    scripts/config --enable PCIEPORTBUS
+    scripts/config --enable PCIE_BRCMSTB
+    scripts/config --enable PCI_MSI
+    scripts/config --set-str LOCALVERSION "{{ rpi5_common_kernel_build_localversion }}"
+    scripts/config --disable LOCALVERSION_AUTO
+    make olddefconfig
+  args:
+    executable: /bin/bash
+  changed_when: true
+  when: rpi5_common_kernel_build_enabled | bool
+
+- name: rpi5 common kernel config hard gate を検証
+  ansible.builtin.shell: |
+    set -euo pipefail
+    cd "{{ rpi5_common_kernel_build_dir }}"
+    grep -qx 'CONFIG_ARM64_4K_PAGES=y' .config
+    grep -qx '# CONFIG_ARM64_16K_PAGES is not set' .config
+    grep -qx '# CONFIG_ARM64_64K_PAGES is not set' .config
+    grep -qx 'CONFIG_ARM64_VA_BITS_48=y' .config
+    grep -qx 'CONFIG_ARM64_VA_BITS=48' .config
+    grep -qx 'CONFIG_IKCONFIG=y' .config
+    grep -qx 'CONFIG_IKCONFIG_PROC=y' .config
+    grep -qx 'CONFIG_MODULES=y' .config
+    grep -qx 'CONFIG_PCIE_BRCMSTB=y' .config
+    grep -qx 'CONFIG_PCI_MSI=y' .config
+    grep -qx 'CONFIG_LOCALVERSION="{{ rpi5_common_kernel_build_localversion }}"' .config
+    grep -qx '# CONFIG_LOCALVERSION_AUTO is not set' .config
+  args:
+    executable: /bin/bash
+  changed_when: false
+  when: rpi5_common_kernel_build_enabled | bool
+
+- name: rpi5 common kernel release を解決
+  ansible.builtin.command:
+    argv:
+      - make
+      - -s
+      - kernelrelease
+    chdir: "{{ rpi5_common_kernel_build_dir }}"
+  register: rpi5_common_kernel_build_kernelrelease_command
+  changed_when: false
+  when: rpi5_common_kernel_build_enabled | bool
+
+- name: rpi5 common kernel release を検証
+  ansible.builtin.assert:
+    that:
+      - rpi5_common_kernel_build_kernelrelease_command.stdout | trim is match('.+-v8-homecluster\\+$')
+    fail_msg: "kernelreleaseが-v8-homecluster+で終わっていません"
+  when: rpi5_common_kernel_build_enabled | bool
+
+- name: rpi5 common kernel をplain distccでbuild
+  ansible.builtin.shell: |
+    set -euo pipefail
+    cd "{{ rpi5_common_kernel_build_dir }}"
+    export DISTCC_HOSTS='{{ rpi5_common_kernel_build_distcc_hosts_effective }}'
+    export DISTCC_FALLBACK='{{ rpi5_common_kernel_build_distcc_fallback }}'
+    export DISTCC_IO_TIMEOUT='{{ rpi5_common_kernel_build_distcc_io_timeout | int }}'
+    make -j{{ rpi5_common_kernel_build_make_jobs | int }} \
+      CC='{{ 'distcc gcc' if (rpi5_common_kernel_build_distcc_enabled | bool) else 'gcc' }}' \
+      HOSTCC=gcc \
+      Image modules dtbs
+  args:
+    executable: /bin/bash
+  changed_when: true
+  when: rpi5_common_kernel_build_enabled | bool
+
+- name: rpi5 common kernel modules staging を作成
+  ansible.builtin.shell: |
+    set -euo pipefail
+    cd "{{ rpi5_common_kernel_build_dir }}"
+    rm -rf "{{ rpi5_common_kernel_build_modules_dir }}"
+    mkdir -p "{{ rpi5_common_kernel_build_modules_dir }}"
+    make modules_install INSTALL_MOD_PATH="{{ rpi5_common_kernel_build_modules_dir }}"
+    cp -a .config Module.symvers System.map vmlinux "{{ rpi5_common_kernel_build_modules_dir }}/"
+    test -d "{{ rpi5_common_kernel_build_modules_dir }}/lib/modules/{{ rpi5_common_kernel_build_kernelrelease_command.stdout | trim }}"
+  args:
+    executable: /bin/bash
+  changed_when: true
+  when: rpi5_common_kernel_build_enabled | bool
+
+- name: rpi5 common kernel NVIDIA source commit を確認
+  ansible.builtin.command:
+    argv:
+      - git
+      - -C
+      - "{{ rpi5_common_kernel_build_open_modules_dir }}"
+      - rev-parse
+      - HEAD
+  register: rpi5_common_kernel_build_open_modules_head
+  changed_when: false
+  when: rpi5_common_kernel_build_enabled | bool
+
+- name: rpi5 common kernel NVIDIA source commit を検証
+  ansible.builtin.assert:
+    that:
+      - rpi5_common_kernel_build_open_modules_head.stdout | trim == rpi5_common_kernel_build_open_modules_commit
+    fail_msg: "open-gpu-kernel-modules commitがinventory pinと一致しません"
+  when: rpi5_common_kernel_build_enabled | bool
+
+- name: Rpi5 common kernel NVIDIA external modules worktree を clean にする
+  ansible.builtin.shell: |
+    set -euo pipefail
+    cd "{{ rpi5_common_kernel_build_open_modules_dir }}"
+    git reset --hard "{{ rpi5_common_kernel_build_open_modules_commit }}"
+    git clean -ffdx
+    make clean
+    test "$(git rev-parse HEAD)" = "{{ rpi5_common_kernel_build_open_modules_commit }}"
+  args:
+    executable: /bin/bash
+  changed_when: true
+  when: rpi5_common_kernel_build_enabled | bool
+
+- name: Rpi5 common kernel 向け NVIDIA external modules を build
+  ansible.builtin.shell: |
+    set -euo pipefail
+    cd "{{ rpi5_common_kernel_build_open_modules_dir }}"
+    make -j{{ rpi5_common_kernel_build_nvidia_module_jobs | int }} modules \
+      SYSSRC="{{ rpi5_common_kernel_build_dir }}" \
+      TARGET_ARCH=aarch64
+  args:
+    executable: /bin/bash
+  changed_when: true
+  when: rpi5_common_kernel_build_enabled | bool
+
+- name: Rpi5 common kernel NVIDIA external modules の vermagic を検証
+  ansible.builtin.shell: |
+    set -euo pipefail
+    cd "{{ rpi5_common_kernel_build_open_modules_dir }}"
+    expected_release="{{ rpi5_common_kernel_build_kernelrelease_command.stdout | trim }}"
+    for module in nvidia.ko nvidia-modeset.ko nvidia-drm.ko nvidia-uvm.ko nvidia-peermem.ko; do
+      test -f "kernel-open/${module}"
+      actual_vermagic="$(modinfo -F vermagic "kernel-open/${module}")"
+      case "$actual_vermagic" in
+        "${expected_release}"*) ;;
+        *)
+          printf '%s\n' "unexpected vermagic for ${module}: ${actual_vermagic}" >&2
+          exit 1
+          ;;
+      esac
+    done
+  args:
+    executable: /bin/bash
+  changed_when: false
+  when: rpi5_common_kernel_build_enabled | bool
+
+- name: rpi5 common kernel provenance hash を取得
+  ansible.builtin.stat:
+    path: "{{ item.path }}"
+    checksum_algorithm: sha256
+  loop:
+    - label: config
+      path: "{{ rpi5_common_kernel_build_dir }}/.config"
+    - label: nvidia_runfile
+      path: "{{ rpi5_common_kernel_build_nvidia_runfile_path }}"
+    - label: kernel_image
+      path: "{{ rpi5_common_kernel_build_kernel_image_path }}"
+    - label: device_tree
+      path: "{{ rpi5_common_kernel_build_device_tree_path }}"
+  loop_control:
+    label: "{{ item.label }}"
+  register: rpi5_common_kernel_build_provenance_stats
+  when: rpi5_common_kernel_build_enabled | bool
+
+- name: rpi5 common kernel output fact を設定
+  ansible.builtin.set_fact:
+    rpi5_common_kernel_build_kernel_release: "{{ rpi5_common_kernel_build_kernelrelease_command.stdout | trim }}"
+    rpi5_common_kernel_build_manifest_metadata:
+      kernel_release: "{{ rpi5_common_kernel_build_kernelrelease_command.stdout | trim }}"
+      linux_commit: "{{ rpi5_common_kernel_build_source_version }}"
+      config_sha256: "{{ rpi5_common_kernel_build_provenance_stats.results[0].stat.checksum }}"
+      kernel_image_sha256: "{{ rpi5_common_kernel_build_provenance_stats.results[2].stat.checksum }}"
+      device_tree_sha256: "{{ rpi5_common_kernel_build_provenance_stats.results[3].stat.checksum }}"
+      compiler_target: "{{ rpi5_common_kernel_build_compiler_fingerprint.stdout_lines[0] | regex_replace('^target=', '') }}"
+      compiler_version: "{{ rpi5_common_kernel_build_compiler_fingerprint.stdout_lines[1] | regex_replace('^gcc=', '') }}"
+      assembler_version: "{{ rpi5_common_kernel_build_compiler_fingerprint.stdout_lines[2] | regex_replace('^as=', '') }}"
+      localversion: "{{ rpi5_common_kernel_build_localversion }}"
+      page_size: 4096
+      va_bits: 48
+      distcc_hosts: "{{ rpi5_common_kernel_build_distcc_hosts_effective }}"
+      open_kernel_modules_commit: "{{ rpi5_common_kernel_build_open_modules_commit }}"
+      nvidia_runfile_sha256: "{{ rpi5_common_kernel_build_provenance_stats.results[1].stat.checksum }}"
+  when: rpi5_common_kernel_build_enabled | bool
+
+- name: rpi5 common kernel build metadata を保存
+  become: true
+  ansible.builtin.copy:
+    dest: "{{ rpi5_common_kernel_build_metadata_path }}"
+    content: "{{ rpi5_common_kernel_build_manifest_metadata | to_nice_json }}\n"
+    owner: "{{ ansible_user | default('ansible') }}"
+    group: "{{ ansible_user | default('ansible') }}"
+    mode: '0644'
+  when: rpi5_common_kernel_build_enabled | bool
