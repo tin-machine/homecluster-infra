@@ -1,0 +1,17 @@
+---
+- name: Install Codex CLI on ARM64 Gentoo workstation hosts
+  hosts: "env_stg:&role_workstation_cli"
+  gather_facts: true
+  become: true
+  pre_tasks:
+    - name: ARM64 host であることを確認
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.architecture in ['aarch64', 'arm64']
+        fail_msg: "この playbook は ARM64 Gentoo host 専用です"
+  roles:
+    - role: common/codex_cli
+      vars:
+        codex_cli_enabled: true
+      tags:
+        - codex_cli
