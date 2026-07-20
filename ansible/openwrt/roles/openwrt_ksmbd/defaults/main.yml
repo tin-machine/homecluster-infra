@@ -1,0 +1,18 @@
+---
+openwrt_ksmbd_enabled: false
+openwrt_ksmbd_packages:
+  - ksmbd-server
+openwrt_ksmbd_service_name: ksmbd
+
+openwrt_ksmbd_workgroup: WORKGROUP
+openwrt_ksmbd_description: "SMB file server on OpenWrt"
+openwrt_ksmbd_interface: lan
+openwrt_ksmbd_allow_legacy_protocols: false
+openwrt_ksmbd_require_authenticated_shares: true
+openwrt_ksmbd_validate_listener: true
+
+# Account names and passwords are site-local secret input. Keep the public default empty.
+openwrt_ksmbd_users: []
+
+# Share paths, account names, and access policy are site-local input.
+openwrt_ksmbd_shares: []
