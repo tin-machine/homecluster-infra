@@ -1,0 +1,36 @@
+config globals
+	option workgroup {{ openwrt_ksmbd_workgroup | string | to_json }}
+	option description {{ openwrt_ksmbd_description | string | to_json }}
+	option interface {{ openwrt_ksmbd_interface | string | to_json }}
+	option allow_legacy_protocols {{ ('1' if openwrt_ksmbd_allow_legacy_protocols | bool else '0') | to_json }}
+
+{% for share in openwrt_ksmbd_shares %}
+config share
+	option name {{ share.name | string | to_json }}
+	option path {{ share.path | string | to_json }}
+{% if share.comment is defined %}
+	option comment {{ share.comment | string | to_json }}
+{% endif %}
+	option read_only {{ share.read_only | default('yes') | string | to_json }}
+	option guest_ok {{ share.guest_ok | default('no') | string | to_json }}
+{% if share.users is defined %}
+	option users {{ share.users | string | to_json }}
+{% endif %}
+{% if share.write_list is defined %}
+	option write_list {{ share.write_list | string | to_json }}
+{% endif %}
+{% if share.read_list is defined %}
+	option read_list {{ share.read_list | string | to_json }}
+{% endif %}
+	option browseable {{ share.browseable | default('yes') | string | to_json }}
+{% if share.create_mask is defined %}
+	option create_mask {{ share.create_mask | string | to_json }}
+{% endif %}
+{% if share.dir_mask is defined %}
+	option dir_mask {{ share.dir_mask | string | to_json }}
+{% endif %}
+{% if share.force_root | default(false) | bool %}
+	option force_root '1'
+{% endif %}
+
+{% endfor %}
