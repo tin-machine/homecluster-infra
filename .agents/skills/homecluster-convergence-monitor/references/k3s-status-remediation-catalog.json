@@ -1,0 +1,46 @@
+{
+  "version": "2026-07-22.1",
+  "document_base_url": "https://github.com/tin-machine/homecluster-infra/blob/main",
+  "mappings": {
+    "case:k3s_agent_registration_auth_mismatch": {
+      "id": "k3s-agent-registration-auth-mismatch",
+      "title": "k3s agent registration authentication mismatch",
+      "path": "docs/troubleshooting/k3s-agent-registration-auth-mismatch.md"
+    },
+    "case:k3s_node_password_mismatch": {
+      "id": "k3s-agent-registration-auth-mismatch",
+      "title": "k3s agent registration authentication mismatch",
+      "path": "docs/troubleshooting/k3s-agent-registration-auth-mismatch.md#node-password-mismatch"
+    },
+    "case:k3s_agent_token_mismatch": {
+      "id": "k3s-agent-registration-auth-mismatch",
+      "title": "k3s agent registration authentication mismatch",
+      "path": "docs/troubleshooting/k3s-agent-registration-auth-mismatch.md#agent-token-mismatch"
+    },
+    "case:k3s_wrong_server_endpoint": {
+      "id": "k3s-agent-registration-auth-mismatch",
+      "title": "k3s agent registration authentication mismatch",
+      "path": "docs/troubleshooting/k3s-agent-registration-auth-mismatch.md#wrong-server-endpoint"
+    },
+    "issue:node_identity_signal": {
+      "id": "k3s-agent-registration-auth-mismatch",
+      "title": "k3s agent registration authentication mismatch",
+      "path": "docs/troubleshooting/k3s-agent-registration-auth-mismatch.md"
+    },
+    "issue:nodes_not_ready": {
+      "id": "k3s-node-not-ready",
+      "title": "k3s node NotReady triage",
+      "path": "docs/troubleshooting/k3s-node-not-ready.md"
+    },
+    "issue:missing_expected_nodes": {
+      "id": "k3s-node-not-ready",
+      "title": "k3s node NotReady triage",
+      "path": "docs/troubleshooting/k3s-node-not-ready.md"
+    },
+    "trigger:nodes_not_ready": {
+      "id": "k3s-node-not-ready",
+      "title": "k3s node NotReady triage",
+      "path": "docs/troubleshooting/k3s-node-not-ready.md"
+    }
+  }
+}

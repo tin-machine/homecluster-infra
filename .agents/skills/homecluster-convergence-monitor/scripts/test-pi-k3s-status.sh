@@ -6,13 +6,21 @@ repo_root="$(cd "$script_dir/../../../.." && pwd)"
 status_script="$repo_root/scripts/pi-k3s-status"
 status_impl="$script_dir/pi-k3s-status"
 resolver="$script_dir/pi_k3s_inventory_targets.py"
+remediation="$script_dir/pi_k3s_remediation.py"
+remediation_catalog="$script_dir/../references/k3s-status-remediation-catalog.json"
 
 bash -n "$status_script"
 bash -n "$status_impl"
 grep -Fq '.agents/skills/homecluster-convergence-monitor/scripts/pi-k3s-status' "$status_script"
 grep -Fq 'repo_root="$(cd "$skill_dir/../../.." && pwd)"' "$status_impl"
-python3 -m py_compile "$resolver" "$script_dir/test_pi_k3s_inventory_targets.py"
+python3 -m py_compile \
+  "$resolver" \
+  "$script_dir/test_pi_k3s_inventory_targets.py" \
+  "$remediation" \
+  "$script_dir/test_pi_k3s_remediation.py"
 python3 -m unittest discover -s "$script_dir" -p 'test_pi_k3s_inventory_targets.py'
+python3 -m unittest discover -s "$script_dir" -p 'test_pi_k3s_remediation.py'
+python3 -m json.tool "$remediation_catalog" >/dev/null
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
@@ -44,9 +52,15 @@ cat >"$tmp/collector" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
 env | grep -E '^(MONITOR_CONTROL_SSH|MONITOR_NODE_SSH_LIST|MONITOR_EXPECTED_NODES|HOMECLUSTER_K3S_NODE_TARGET_MAP)=' | sort >"$STATUS_CAPTURE"
-cat <<'JSON'
+if [ "${FIXTURE_STATUS:-healthy}" = "converging" ]; then
+  cat <<'JSON'
+{"generated_at":"2026-07-21T00:00:00Z","assessment":{"status":"converging","issues":["nodes_not_ready"]},"nodes":{"ready_count":1,"count":2,"items":[{"name":"control-a","ready":"True","memory_pressure":"False","disk_pressure":"False","pid_pressure":"False"},{"name":"agent-a","ready":"Unknown","memory_pressure":"Unknown","disk_pressure":"Unknown","pid_pressure":"Unknown"}]},"pods":{"non_running":[],"running_not_ready":[]},"node_exporter":{"ready":1,"desired":2},"signals":[]}
+JSON
+else
+  cat <<'JSON'
 {"generated_at":"2026-07-21T00:00:00Z","assessment":{"status":"healthy","issues":[]},"nodes":{"ready_count":2,"count":2,"items":[]},"pods":{"non_running":[],"running_not_ready":[]},"node_exporter":{"ready":2,"desired":2},"signals":[]}
 JSON
+fi
 SH
 chmod +x "$tmp/collector"
 
@@ -72,7 +86,8 @@ printf '%s\n' "$output" | jq -e '
   .target_control_host == "control-a" and
   .target_node_hosts == ["control-a", "agent-a"] and
   .nodes_ready == 2 and
-  .nodes_total == 2
+  .nodes_total == 2 and
+  .remediation.status == "none"
 ' >/dev/null
 
 grep -Fxq 'MONITOR_CONTROL_SSH=ansible@control.example.invalid' "$tmp/capture.env"
@@ -80,6 +95,47 @@ grep -Fxq 'MONITOR_EXPECTED_NODES=2' "$tmp/capture.env"
 grep -Fxq 'MONITOR_NODE_SSH_LIST=ansible@control.example.invalid ops@agent.example.invalid' "$tmp/capture.env"
 grep -Eq 'HOMECLUSTER_K3S_NODE_TARGET_MAP=.*control-a=ansible@control\.example\.invalid' "$tmp/capture.env"
 grep -Eq 'HOMECLUSTER_K3S_NODE_TARGET_MAP=.*agent-a=ops@agent\.example\.invalid' "$tmp/capture.env"
+
+set +e
+converging_output="$(
+  PATH="$tmp/bin:$PATH" \
+  STATUS_CAPTURE="$tmp/capture.env" \
+  FIXTURE_STATUS=converging \
+  HOMECLUSTER_ANSIBLE_INVENTORY="$tmp/inventory.yml" \
+  HOMECLUSTER_K3S_COLLECTOR="$tmp/collector" \
+  HOMECLUSTER_K3S_DIAGNOSER="$tmp/missing-diagnoser" \
+  HOMECLUSTER_K3S_CLASSIFIER="$tmp/missing-classifier" \
+  HOMECLUSTER_K3S_CASE_LIBRARY="$tmp/missing-cases" \
+  bash "$status_script" --json
+)"
+converging_rc=$?
+set -e
+[ "$converging_rc" -eq 1 ]
+printf '%s\n' "$converging_output" | jq -e '
+  .status == "converging" and
+  .remediation.status == "matched" and
+  .remediation.match_key == "issue:nodes_not_ready" and
+  .remediation.id == "k3s-node-not-ready" and
+  (.remediation.url | endswith("/docs/troubleshooting/k3s-node-not-ready.md"))
+' >/dev/null
+
+set +e
+text_output="$(
+  PATH="$tmp/bin:$PATH" \
+  STATUS_CAPTURE="$tmp/capture.env" \
+  FIXTURE_STATUS=converging \
+  HOMECLUSTER_ANSIBLE_INVENTORY="$tmp/inventory.yml" \
+  HOMECLUSTER_K3S_COLLECTOR="$tmp/collector" \
+  HOMECLUSTER_K3S_DIAGNOSER="$tmp/missing-diagnoser" \
+  HOMECLUSTER_K3S_CLASSIFIER="$tmp/missing-classifier" \
+  HOMECLUSTER_K3S_CASE_LIBRARY="$tmp/missing-cases" \
+  bash "$status_script"
+)"
+text_rc=$?
+set -e
+[ "$text_rc" -eq 1 ]
+grep -Fxq 'remediation_status=matched' <<<"$text_output"
+grep -Fq 'remediation_url=https://github.com/tin-machine/homecluster-infra/blob/main/docs/troubleshooting/k3s-node-not-ready.md' <<<"$text_output"
 
 cat >"$tmp/bin/ansible-inventory" <<'SH'
 #!/usr/bin/env bash
@@ -101,7 +157,8 @@ printf '%s\n' "$failure_output" | jq -e '
   .status == "unknown" and
   .reason == "target_resolution_failed" and
   .target_resolution == "unresolved" and
-  .target_resolution_reason == "ansible_inventory_failed"
+  .target_resolution_reason == "ansible_inventory_failed" and
+  .remediation.status == "none"
 ' >/dev/null
 
 printf 'status=pass\n'

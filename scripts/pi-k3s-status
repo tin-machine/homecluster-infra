@@ -1,5 +1,52 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+mode="text"
+case "${1:-}" in
+  "") ;;
+  --json) mode="json" ;;
+  *)
+    printf 'usage: bash %s [--json]\n' "${0##*/}" >&2
+    exit 2
+    ;;
+esac
+
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-exec bash "$repo_root/.agents/skills/homecluster-convergence-monitor/scripts/pi-k3s-status" "$@"
+status_impl="$repo_root/.agents/skills/homecluster-convergence-monitor/scripts/pi-k3s-status"
+remediation_helper="$repo_root/.agents/skills/homecluster-convergence-monitor/scripts/pi_k3s_remediation.py"
+remediation_catalog="$repo_root/.agents/skills/homecluster-convergence-monitor/references/k3s-status-remediation-catalog.json"
+
+if ! command -v python3 >/dev/null 2>&1 || [ ! -r "$remediation_helper" ] || [ ! -r "$remediation_catalog" ]; then
+  exec bash "$status_impl" "$@"
+fi
+
+set +e
+status_json="$(bash "$status_impl" --json)"
+status_rc=$?
+set -e
+
+set +e
+formatted="$(
+  printf '%s\n' "$status_json" |
+    python3 "$remediation_helper" --catalog "$remediation_catalog" --mode "$mode"
+)"
+format_rc=$?
+set -e
+
+if [ "$format_rc" -ne 0 ]; then
+  if [ "$mode" = "json" ]; then
+    printf '%s\n' "$status_json"
+  else
+    printf '%s\n' "$status_json" | jq -r '
+      "status=\(.status // \"unknown\")",
+      "terminal=\(.terminal // true)",
+      "reason=\(.reason // \"remediation_format_failed\")",
+      "remediation_status=unknown",
+      "remediation_url=none"
+    '
+  fi
+  exit "$status_rc"
+fi
+
+printf '%s\n' "$formatted"
+exit "$status_rc"
