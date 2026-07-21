@@ -13,7 +13,7 @@ esac
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 skill_dir="$(cd "$script_dir/.." && pwd)"
-repo_root="$(cd "$skill_dir/../../../.." && pwd)"
+repo_root="$(cd "$skill_dir/../../.." && pwd)"
 
 collector="${HOMECLUSTER_K3S_COLLECTOR:-$script_dir/collect-k3s-convergence.sh}"
 diagnoser="${HOMECLUSTER_K3S_DIAGNOSER:-$script_dir/pi-k3s-diagnose.py}"
