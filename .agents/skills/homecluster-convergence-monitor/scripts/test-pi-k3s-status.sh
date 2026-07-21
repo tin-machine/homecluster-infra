@@ -6,6 +6,7 @@ status_script="$script_dir/pi-k3s-status"
 resolver="$script_dir/pi_k3s_inventory_targets.py"
 
 bash -n "$status_script"
+grep -Fq 'repo_root="$(cd "$skill_dir/../../.." && pwd)"' "$status_script"
 python3 -m py_compile "$resolver" "$script_dir/test_pi_k3s_inventory_targets.py"
 python3 -m unittest discover -s "$script_dir" -p 'test_pi_k3s_inventory_targets.py'
 
