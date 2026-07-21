@@ -2,11 +2,15 @@
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-status_script="$script_dir/pi-k3s-status"
+repo_root="$(cd "$script_dir/../../../.." && pwd)"
+status_script="$repo_root/scripts/pi-k3s-status"
+status_impl="$script_dir/pi-k3s-status"
 resolver="$script_dir/pi_k3s_inventory_targets.py"
 
 bash -n "$status_script"
-grep -Fq 'repo_root="$(cd "$skill_dir/../../.." && pwd)"' "$status_script"
+bash -n "$status_impl"
+grep -Fq '.agents/skills/homecluster-convergence-monitor/scripts/pi-k3s-status' "$status_script"
+grep -Fq 'repo_root="$(cd "$skill_dir/../../.." && pwd)"' "$status_impl"
 python3 -m py_compile "$resolver" "$script_dir/test_pi_k3s_inventory_targets.py"
 python3 -m unittest discover -s "$script_dir" -p 'test_pi_k3s_inventory_targets.py'
 
