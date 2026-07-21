@@ -21,20 +21,34 @@ changes live state.
 2. If private operational detail is required, read the private runbook from outside this repository.
    Do not copy private hostnames, addresses, serials, raw logs, credentials, kubeconfig, or tfvars
    into this repository.
-3. Run the collector script:
+3. For a one-shot status, run:
+
+   ```bash
+   bash ./.agents/skills/homecluster-convergence-monitor/scripts/pi-k3s-status
+   ```
+
+   The command resolves `k3s_stg_server` and `k3s_stg_agents` from Ansible inventory, then runs the
+   collector. It has no built-in host or address list. Override the inventory and group names with
+   `HOMECLUSTER_ANSIBLE_INVENTORY`, `HOMECLUSTER_K3S_CONTROL_GROUP`, and
+   `HOMECLUSTER_K3S_AGENT_GROUP`.
+4. For lower-level collection with targets already supplied, run:
 
    ```bash
    ./.agents/skills/homecluster-convergence-monitor/scripts/collect-k3s-convergence.sh
    ```
 
-4. Interpret the JSON output using
-   `references/convergence-output-schema.md`.
-5. Return a concise status report with:
+5. Interpret the collector JSON using `references/convergence-output-schema.md`.
+6. Return a concise status report with:
    - current phase,
    - blocking issue if any,
    - evidence from the collector,
    - next read-only check,
    - recommended Codex/operator action.
+
+`pi-k3s-status` also accepts optional diagnosis and classification helpers through
+`HOMECLUSTER_K3S_DIAGNOSER`, `HOMECLUSTER_K3S_CLASSIFIER`, and
+`HOMECLUSTER_K3S_CASE_LIBRARY`. This allows a private companion repository to extend the public
+collector without copying site-local defaults here.
 
 ## Collector Inputs
 
@@ -44,7 +58,8 @@ variables:
 - `MONITOR_CONTROL_SSH`: optional SSH target for the k3s control-plane. If set, Kubernetes checks run
   through `ssh "$MONITOR_CONTROL_SSH" 'sudo -n k3s kubectl ...'`.
 - `MONITOR_NODE_SSH_LIST`: optional space-separated SSH targets for node-level checks.
-- `MONITOR_EXPECTED_NODES`: expected Kubernetes node count. Default: `4`.
+- `MONITOR_EXPECTED_NODES`: expected Kubernetes node count. Default: `4` for direct collector use.
+  `pi-k3s-status` derives this value from inventory.
 - `MONITOR_EXPECTED_NODE_EXPORTER`: expected node-exporter ready count. Default:
   `MONITOR_EXPECTED_NODES`.
 - `MONITOR_OBS_NAMESPACE`: observability namespace. Default: `observability-stg`.
