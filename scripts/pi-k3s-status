@@ -26,9 +26,10 @@ status_rc=$?
 set -e
 
 set +e
-formatted="$([
-  -n "$status_json"
-] && printf '%s\n' "$status_json" | python3 "$remediation_helper" --catalog "$remediation_catalog" --mode "$mode")"
+formatted="$(
+  printf '%s\n' "$status_json" |
+    python3 "$remediation_helper" --catalog "$remediation_catalog" --mode "$mode"
+)"
 format_rc=$?
 set -e
 
