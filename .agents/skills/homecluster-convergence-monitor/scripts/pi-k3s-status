@@ -1,0 +1,336 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+mode="text"
+case "${1:-}" in
+  "") ;;
+  --json) mode="json" ;;
+  *)
+    printf 'usage: bash %s [--json]\n' "${0##*/}" >&2
+    exit 2
+    ;;
+esac
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+skill_dir="$(cd "$script_dir/.." && pwd)"
+repo_root="$(cd "$skill_dir/../../../.." && pwd)"
+
+collector="${HOMECLUSTER_K3S_COLLECTOR:-$script_dir/collect-k3s-convergence.sh}"
+diagnoser="${HOMECLUSTER_K3S_DIAGNOSER:-$script_dir/pi-k3s-diagnose.py}"
+classifier="${HOMECLUSTER_K3S_CLASSIFIER:-$script_dir/pi-k3s-classify.py}"
+case_library="${HOMECLUSTER_K3S_CASE_LIBRARY:-$skill_dir/references/k3s-status-known-cases.json}"
+target_resolver="${HOMECLUSTER_K3S_TARGET_RESOLVER:-$script_dir/pi_k3s_inventory_targets.py}"
+inventory_path="${HOMECLUSTER_ANSIBLE_INVENTORY:-$repo_root/../inventory.yml}"
+target_control_group="${HOMECLUSTER_K3S_CONTROL_GROUP:-k3s_stg_server}"
+target_agent_group="${HOMECLUSTER_K3S_AGENT_GROUP:-k3s_stg_agents}"
+
+control_was_explicit=false
+node_list_was_explicit=false
+node_map_was_explicit=false
+expected_nodes_was_explicit=false
+[ -n "${MONITOR_CONTROL_SSH:-}" ] && control_was_explicit=true
+[ -n "${MONITOR_NODE_SSH_LIST:-}" ] && node_list_was_explicit=true
+[ -n "${HOMECLUSTER_K3S_NODE_TARGET_MAP:-}" ] && node_map_was_explicit=true
+[ -n "${MONITOR_EXPECTED_NODES:-}" ] && expected_nodes_was_explicit=true
+
+target_resolution='unresolved'
+target_resolution_reason='resolver_not_run'
+target_inventory_path="$inventory_path"
+target_control_host="${HOMECLUSTER_K3S_CONTROL_HOST:-}"
+target_node_hosts_json='[]'
+
+empty_diagnostics='{"status":"unknown","triggers":[],"not_ready_nodes":[],"findings":[],"commands_failed":0}'
+empty_ai_analysis='{"status":"unknown","reason":"classifier_not_run","case_id":"","failure_class":"","confidence":"low","summary":"","evidence_refs":[],"recommended_check_ids":[],"secondary_case_ids":[],"new_case_signals":[],"rule_candidates":[],"model":"","case_library_version":"unknown","operator_gate_required":true,"automatic_repair_allowed":false}'
+
+emit_unknown() {
+  local reason="$1"
+  local result
+  result="$(
+    jq -cn \
+      --arg reason "$reason" \
+      --arg target_resolution "$target_resolution" \
+      --arg target_resolution_reason "$target_resolution_reason" \
+      --arg target_inventory_path "$target_inventory_path" \
+      --arg target_control_group "$target_control_group" \
+      --arg target_agent_group "$target_agent_group" \
+      --arg target_control_host "$target_control_host" \
+      --argjson target_node_hosts "$target_node_hosts_json" \
+      --argjson diagnostics "$empty_diagnostics" \
+      --argjson ai "$empty_ai_analysis" \
+      '{orchestrator:"homecluster-convergence-monitor",workflow:"k3s-status",status:"unknown",terminal:true,reason:$reason,generated_at:"",
+        target_resolution:$target_resolution,target_resolution_reason:$target_resolution_reason,
+        target_inventory_path:$target_inventory_path,target_control_group:$target_control_group,
+        target_agent_group:$target_agent_group,target_control_host:$target_control_host,
+        target_node_hosts:$target_node_hosts,
+        nodes_ready:0,nodes_total:0,node_pressure:0,non_running_pods:0,running_not_ready_pods:0,
+        node_exporter_ready:0,node_exporter_desired:0,issues:[],signals:0,
+        diagnostics_status:$diagnostics.status,diagnostic_triggers:$diagnostics.triggers,
+        not_ready_nodes:$diagnostics.not_ready_nodes,diagnostic_findings:$diagnostics.findings,
+        diagnostic_failures:$diagnostics.commands_failed,ai_analysis:$ai}'
+  )"
+  if [ "$mode" = "json" ]; then
+    printf '%s\n' "$result"
+  else
+    printf 'status=unknown\nterminal=true\nreason=%s\ntarget_resolution=%s\ntarget_resolution_reason=%s\ndiagnostics_status=unknown\nai_analysis_status=unknown\n' \
+      "$reason" "$target_resolution" "$target_resolution_reason"
+  fi
+  exit 2
+}
+
+command -v jq >/dev/null 2>&1 || {
+  printf '{"orchestrator":"homecluster-convergence-monitor","workflow":"k3s-status","status":"unknown","terminal":true,"reason":"jq_missing","generated_at":"","target_resolution":"unresolved","target_resolution_reason":"jq_missing","target_inventory_path":"","target_control_group":"","target_agent_group":"","target_control_host":"","target_node_hosts":[],"nodes_ready":0,"nodes_total":0,"node_pressure":0,"non_running_pods":0,"running_not_ready_pods":0,"node_exporter_ready":0,"node_exporter_desired":0,"issues":[],"signals":0,"diagnostics_status":"unknown","diagnostic_triggers":[],"not_ready_nodes":[],"diagnostic_findings":[],"diagnostic_failures":0,"ai_analysis":{"status":"unknown","reason":"classifier_not_run","case_id":"","failure_class":"","confidence":"low","summary":"","evidence_refs":[],"recommended_check_ids":[],"secondary_case_ids":[],"new_case_signals":[],"rule_candidates":[],"model":"","case_library_version":"unknown","operator_gate_required":true,"automatic_repair_allowed":false}}\n'
+  exit 2
+}
+
+resolver_status='fallback_required'
+resolver_reason='resolver_unavailable'
+resolver_output=''
+if command -v python3 >/dev/null 2>&1 && [ -r "$target_resolver" ]; then
+  set +e
+  resolver_output="$(
+    python3 "$target_resolver" \
+      --inventory "$inventory_path" \
+      --control-group "$target_control_group" \
+      --agent-group "$target_agent_group" \
+      2>/dev/null
+  )"
+  resolver_rc=$?
+  set -e
+  if [ "$resolver_rc" -eq 0 ] || [ "$resolver_rc" -eq 2 ]; then
+    if printf '%s\n' "$resolver_output" | jq -e '
+      .status as $status |
+      ($status | type == "string") and
+      (.reason | type == "string") and
+      (["resolved","fallback_required"] | index($status) != null)
+    ' >/dev/null 2>&1; then
+      resolver_status="$(printf '%s\n' "$resolver_output" | jq -r '.status')"
+      resolver_reason="$(printf '%s\n' "$resolver_output" | jq -r '.reason')"
+    else
+      resolver_reason='invalid_resolver_contract'
+    fi
+  else
+    resolver_reason='resolver_execution_failed'
+  fi
+fi
+
+if [ "$resolver_status" = 'resolved' ]; then
+  inventory_control_ssh="$(printf '%s\n' "$resolver_output" | jq -r '.control_ssh')"
+  inventory_node_ssh_list="$(printf '%s\n' "$resolver_output" | jq -r '.node_ssh_list | join(" ")')"
+  inventory_node_target_map="$(printf '%s\n' "$resolver_output" | jq -r '.node_target_map | to_entries | map("\(.key)=\(.value)") | join(",")')"
+  inventory_expected_nodes="$(printf '%s\n' "$resolver_output" | jq -r '.expected_nodes | tostring')"
+  target_control_host="$(printf '%s\n' "$resolver_output" | jq -r '.control_host')"
+  target_node_hosts_json="$(printf '%s\n' "$resolver_output" | jq -c '.node_hosts')"
+  target_inventory_path="$(printf '%s\n' "$resolver_output" | jq -r '.inventory_path')"
+
+  [ "$control_was_explicit" = true ] || export MONITOR_CONTROL_SSH="$inventory_control_ssh"
+  [ "$node_list_was_explicit" = true ] || export MONITOR_NODE_SSH_LIST="$inventory_node_ssh_list"
+  [ "$node_map_was_explicit" = true ] || export HOMECLUSTER_K3S_NODE_TARGET_MAP="$inventory_node_target_map"
+  [ "$expected_nodes_was_explicit" = true ] || export MONITOR_EXPECTED_NODES="$inventory_expected_nodes"
+
+  if [ "$control_was_explicit" = true ] || [ "$node_list_was_explicit" = true ] || \
+     [ "$node_map_was_explicit" = true ] || [ "$expected_nodes_was_explicit" = true ]; then
+    target_resolution='environment_plus_inventory'
+  else
+    target_resolution='ansible_inventory'
+  fi
+  target_resolution_reason="$resolver_reason"
+elif [ "$control_was_explicit" = true ] && [ "$node_list_was_explicit" = true ] && \
+     [ "$node_map_was_explicit" = true ] && [ "$expected_nodes_was_explicit" = true ]; then
+  target_resolution='environment_only'
+  target_resolution_reason="$resolver_reason"
+  if [ -z "$target_control_host" ]; then
+    target_control_host='external-control'
+  fi
+  target_node_hosts_json="$(
+    printf '%s\n' "$HOMECLUSTER_K3S_NODE_TARGET_MAP" |
+      tr ',' '\n' |
+      awk -F= 'NF >= 2 && $1 != "" { print $1 }' |
+      jq -Rsc 'split("\n") | map(select(length > 0))'
+  )"
+else
+  target_resolution='unresolved'
+  target_resolution_reason="$resolver_reason"
+  emit_unknown "target_resolution_failed"
+fi
+
+export MONITOR_EXPECTED_NODE_EXPORTER="${MONITOR_EXPECTED_NODE_EXPORTER:-0}"
+
+[ -x "$collector" ] || emit_unknown "collector_missing"
+
+snapshot_tmp="$(mktemp)"
+status_tmp="$(mktemp)"
+trap 'rm -f "$snapshot_tmp" "$status_tmp"' EXIT
+
+set +e
+"$collector" >"$snapshot_tmp"
+collector_rc=$?
+set -e
+
+[ "$collector_rc" -eq 0 ] || emit_unknown "collector_execution_failed"
+
+jq -e '
+  .assessment.status as $status |
+  (.generated_at | type == "string") and
+  ($status | type == "string") and
+  (["healthy","converging","blocked","unknown"] | index($status) != null) and
+  (.assessment.issues | type == "array") and
+  (.nodes.ready_count | type == "number") and
+  (.nodes.count | type == "number") and
+  (.nodes.items | type == "array") and
+  (.pods.non_running | type == "array") and
+  (.pods.running_not_ready | type == "array") and
+  (.node_exporter.ready | type == "number") and
+  (.node_exporter.desired | type == "number") and
+  (.signals | type == "array")
+' "$snapshot_tmp" >/dev/null || emit_unknown "invalid_collector_contract"
+
+diagnostics="$empty_diagnostics"
+if command -v python3 >/dev/null 2>&1 && [ -r "$diagnoser" ]; then
+  set +e
+  diagnostic_output="$(python3 "$diagnoser" --snapshot-file "$snapshot_tmp" 2>/dev/null)"
+  diagnostic_rc=$?
+  set -e
+  if [ "$diagnostic_rc" -eq 0 ] || [ "$diagnostic_rc" -eq 2 ]; then
+    if printf '%s\n' "$diagnostic_output" | jq -e '
+      .status as $status |
+      ($status | type == "string") and
+      (["not_needed","completed","partial","unknown"] | index($status) != null) and
+      (.triggers | type == "array") and
+      (.not_ready_nodes | type == "array") and
+      (.findings | type == "array") and
+      (.commands_failed | type == "number")
+    ' >/dev/null 2>&1; then
+      diagnostics="$diagnostic_output"
+    fi
+  fi
+fi
+
+jq -c \
+  --arg target_resolution "$target_resolution" \
+  --arg target_resolution_reason "$target_resolution_reason" \
+  --arg target_inventory_path "$target_inventory_path" \
+  --arg target_control_group "$target_control_group" \
+  --arg target_agent_group "$target_agent_group" \
+  --arg target_control_host "$target_control_host" \
+  --argjson target_node_hosts "$target_node_hosts_json" \
+  --argjson diagnostics "$diagnostics" '
+  .assessment.status as $status |
+  {
+    orchestrator:"homecluster-convergence-monitor",
+    workflow:"k3s-status",
+    status:$status,
+    terminal:true,
+    reason:(if $status == "healthy" then "cluster_healthy"
+      elif $status == "converging" then "cluster_converging"
+      elif $status == "blocked" then "cluster_blocked"
+      else "collector_unknown" end),
+    generated_at:.generated_at,
+    target_resolution:$target_resolution,
+    target_resolution_reason:$target_resolution_reason,
+    target_inventory_path:$target_inventory_path,
+    target_control_group:$target_control_group,
+    target_agent_group:$target_agent_group,
+    target_control_host:$target_control_host,
+    target_node_hosts:$target_node_hosts,
+    nodes_ready:.nodes.ready_count,
+    nodes_total:.nodes.count,
+    node_pressure:([.nodes.items[]? | select(.memory_pressure == "True" or .disk_pressure == "True" or .pid_pressure == "True")] | length),
+    non_running_pods:(.pods.non_running | length),
+    running_not_ready_pods:(.pods.running_not_ready | length),
+    node_exporter_ready:.node_exporter.ready,
+    node_exporter_desired:.node_exporter.desired,
+    issues:.assessment.issues,
+    signals:(.signals | length),
+    diagnostics_status:$diagnostics.status,
+    diagnostic_triggers:$diagnostics.triggers,
+    not_ready_nodes:$diagnostics.not_ready_nodes,
+    diagnostic_findings:$diagnostics.findings,
+    diagnostic_failures:$diagnostics.commands_failed
+  }
+' "$snapshot_tmp" >"$status_tmp"
+
+ai_analysis="$empty_ai_analysis"
+if command -v python3 >/dev/null 2>&1 && [ -r "$classifier" ] && [ -r "$case_library" ]; then
+  set +e
+  ai_output="$(python3 "$classifier" --status-file "$status_tmp" --case-library "$case_library" 2>/dev/null)"
+  ai_rc=$?
+  set -e
+  if [ "$ai_rc" -eq 0 ] || [ "$ai_rc" -eq 2 ]; then
+    if printf '%s\n' "$ai_output" | jq -e '
+      .status as $status |
+      .confidence as $confidence |
+      ($status | type == "string") and
+      (["not_needed","classified","new_case","unavailable","unknown"] | index($status) != null) and
+      (.reason | type == "string") and
+      (.case_id | type == "string") and
+      (.failure_class | type == "string") and
+      ($confidence | type == "string") and
+      (["high","medium","low"] | index($confidence) != null) and
+      (.summary | type == "string") and
+      (.evidence_refs | type == "array") and
+      (.recommended_check_ids | type == "array") and
+      (.secondary_case_ids | type == "array") and
+      (.new_case_signals | type == "array") and
+      (.rule_candidates | type == "array") and
+      (.model | type == "string") and
+      (.case_library_version | type == "string") and
+      (.operator_gate_required | type == "boolean") and
+      (.automatic_repair_allowed | type == "boolean")
+    ' >/dev/null 2>&1; then
+      ai_analysis="$ai_output"
+    fi
+  fi
+fi
+
+result="$(jq -c --argjson ai "$ai_analysis" '. + {ai_analysis:$ai}' "$status_tmp")"
+
+if [ "$mode" = "json" ]; then
+  printf '%s\n' "$result"
+else
+  printf '%s\n' "$result" | jq -r '
+    "status=\(.status)",
+    "terminal=\(.terminal)",
+    "reason=\(.reason)",
+    "generated_at=\(.generated_at)",
+    "target_resolution=\(.target_resolution)",
+    "target_resolution_reason=\(.target_resolution_reason)",
+    "target_inventory_path=\(.target_inventory_path)",
+    "target_control_group=\(.target_control_group)",
+    "target_agent_group=\(.target_agent_group)",
+    "target_control_host=\(.target_control_host)",
+    "target_node_hosts=\(if (.target_node_hosts | length) == 0 then "none" else (.target_node_hosts | join(",")) end)",
+    "nodes_ready=\(.nodes_ready)/\(.nodes_total)",
+    "node_pressure=\(.node_pressure)",
+    "non_running_pods=\(.non_running_pods)",
+    "running_not_ready_pods=\(.running_not_ready_pods)",
+    "node_exporter_ready=\(.node_exporter_ready)/\(.node_exporter_desired)",
+    "issues=\(if (.issues | length) == 0 then "none" else (.issues | join(",")) end)",
+    "signals=\(.signals)",
+    "diagnostics_status=\(.diagnostics_status)",
+    "diagnostic_triggers=\(if (.diagnostic_triggers | length) == 0 then "none" else (.diagnostic_triggers | join(",")) end)",
+    "not_ready_nodes=\(if (.not_ready_nodes | length) == 0 then "none" else (.not_ready_nodes | join(",")) end)",
+    "diagnostic_failures=\(.diagnostic_failures)",
+    (.diagnostic_findings | to_entries[] | "diagnostic_\(.key + 1)=\(.value)"),
+    "ai_analysis_status=\(.ai_analysis.status)",
+    "ai_analysis_reason=\(.ai_analysis.reason)",
+    "ai_case_id=\(if .ai_analysis.case_id == "" then "none" else .ai_analysis.case_id end)",
+    "ai_failure_class=\(if .ai_analysis.failure_class == "" then "none" else .ai_analysis.failure_class end)",
+    "ai_confidence=\(.ai_analysis.confidence)",
+    "ai_summary=\(if .ai_analysis.summary == "" then "none" else .ai_analysis.summary end)",
+    "ai_rule_candidates=\(if (.ai_analysis.rule_candidates | length) == 0 then "none" else (.ai_analysis.rule_candidates | join(",")) end)",
+    "ai_secondary_cases=\(if (.ai_analysis.secondary_case_ids | length) == 0 then "none" else (.ai_analysis.secondary_case_ids | join(",")) end)",
+    "ai_evidence_refs=\(if (.ai_analysis.evidence_refs | length) == 0 then "none" else (.ai_analysis.evidence_refs | join(",")) end)",
+    "ai_recommended_checks=\(if (.ai_analysis.recommended_check_ids | length) == 0 then "none" else (.ai_analysis.recommended_check_ids | join(",")) end)",
+    "ai_new_case_signals=\(if (.ai_analysis.new_case_signals | length) == 0 then "none" else (.ai_analysis.new_case_signals | join(" | ")) end)",
+    "ai_model=\(if .ai_analysis.model == "" then "none" else .ai_analysis.model end)",
+    "ai_case_library_version=\(.ai_analysis.case_library_version)",
+    "ai_operator_gate_required=\(.ai_analysis.operator_gate_required)",
+    "ai_automatic_repair_allowed=\(.ai_analysis.automatic_repair_allowed)"
+  '
+fi
+
+case "$(printf '%s\n' "$result" | jq -r '.status')" in
+  healthy) exit 0 ;;
+  converging|blocked) exit 1 ;;
+  *) exit 2 ;;
+esac
