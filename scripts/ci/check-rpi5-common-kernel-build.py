@@ -40,6 +40,7 @@ def main() -> int:
     staging_entrypoint = read(
         ROOT / "ansible/openwrt/playbooks/pxe-release-bundle-staging-with-common-kernel.yml"
     )
+    rootfs_tasks = read(ROOT / "ansible/openwrt/roles/openwrt_gentoo_rootfs/tasks/portage_chroot.yml")
 
     require(defaults, "rpi5_common_kernel_build_enabled: false", "disabled default")
     require(defaults, "rpi5_common_kernel_build_apply: false", "apply disabled default")
@@ -48,6 +49,9 @@ def main() -> int:
     require(defaults, "/var/lib/rancher/k3s/kernel-build", "local SSD work root")
     require(defaults, "rpi5_common_kernel_build_distcc_enabled: true", "distcc enabled default")
     require(defaults, "Plain distcc only", "plain distcc policy")
+
+    require(rootfs_tasks, "sys-devel/bc", "k3s_base_baseline_packages")
+    require(rootfs_tasks, "k3s_base_baseline_packages:", "k3s_base_baseline_packages definition")
 
     for config_gate in (
         "scripts/config --enable ARM64_4K_PAGES",
