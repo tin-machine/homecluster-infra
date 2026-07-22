@@ -1914,6 +1914,7 @@
       - sys-apps/zram-generator
       - sys-cluster/kubectl
       - sys-devel/distcc
+      - sys-devel/bc
       - sys-fs/f2fs-tools
       - sys-process/cronie
       - "{{ openwrt_gentoo_k3s_base_baseline_terraform_package_atom }}"
