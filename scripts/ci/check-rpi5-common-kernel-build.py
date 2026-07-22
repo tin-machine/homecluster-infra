@@ -50,6 +50,9 @@ def main() -> int:
     require(defaults, "rpi5_common_kernel_build_distcc_enabled: true", "distcc enabled default")
     require(defaults, "Plain distcc only", "plain distcc policy")
 
+    require(tasks, "kernel/config_data.gz", "local generated config data prebuild")
+    require(tasks, "kernel/configs.o", "local generated config object prebuild")
+
     require(rootfs_tasks, "sys-devel/bc", "k3s_base_baseline_packages")
     require(rootfs_tasks, "k3s_base_baseline_packages:", "k3s_base_baseline_packages definition")
 
