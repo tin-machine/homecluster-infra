@@ -100,6 +100,7 @@ def main() -> int:
         require(tasks, distcc_gate, f"distcc gate {distcc_gate}")
 
     require(tasks, "make modules_install INSTALL_MOD_PATH=", "staged modules install")
+    require(tasks, "NVIDIA external modules worktree の所有者を builder に戻す", "NVIDIA worktree ownership repair")
     require(tasks, "cp -a .config Module.symvers System.map vmlinux", "build provenance copy")
     require(tasks, "git reset --hard \"{{ rpi5_common_kernel_build_open_modules_commit }}\"", "clean NVIDIA worktree pin")
     require(tasks, "git clean -ffdx", "clean NVIDIA worktree artifacts")
