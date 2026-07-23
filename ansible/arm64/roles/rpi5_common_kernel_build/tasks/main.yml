@@ -317,6 +317,16 @@
     fail_msg: "open-gpu-kernel-modules commitがinventory pinと一致しません"
   when: rpi5_common_kernel_build_enabled | bool
 
+- name: Rpi5 common kernel NVIDIA external modules worktree の所有者を builder に戻す
+  become: true
+  ansible.builtin.file:
+    path: "{{ rpi5_common_kernel_build_open_modules_dir }}"
+    state: directory
+    owner: "{{ ansible_user | default('ansible') }}"
+    group: "{{ ansible_user | default('ansible') }}"
+    recurse: true
+  when: rpi5_common_kernel_build_enabled | bool
+
 - name: Rpi5 common kernel NVIDIA external modules worktree を clean にする
   ansible.builtin.shell: |
     set -euo pipefail
