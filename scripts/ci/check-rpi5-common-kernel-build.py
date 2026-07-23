@@ -53,14 +53,21 @@ def main() -> int:
     require(tasks, "kernel/config_data.gz", "local generated config data prebuild")
     require(tasks, "kernel/configs.o", "local generated config object prebuild")
     prepare_index = tasks.index("- make\n      - prepare")
-    config_data_index = tasks.index("kernel/config_data.gz")
-    configs_object_index = tasks.index("kernel/configs.o")
+    config_data_index = tasks.index(
+        "- name: Rpi5 common kernel build の kernel/config_data.gz を local で先行生成"
+    )
+    configs_object_index = tasks.index(
+        "- name: Rpi5 common kernel build の kernel/configs.o を wrapper経由で先行生成"
+    )
     if not prepare_index < config_data_index < configs_object_index:
         raise AssertionError("local generated config preparation order is not preserved")
+    wrapper_index = tasks.index(".homecluster-cc-wrapper")
+    if not prepare_index < wrapper_index < config_data_index:
+        raise AssertionError("generated config compiler wrapper order is not preserved")
     configs_task = tasks[configs_object_index : tasks.index("plain distccでbuild")]
-    require(configs_task, "CC: distcc gcc", "matching local distcc compiler command")
-    require(configs_task, "DISTCC_HOSTS:", "local-only distcc host")
-    require(configs_task, "DISTCC_FALLBACK: '0'", "local distcc fallback policy")
+    require(configs_task, "CC: ./.homecluster-cc-wrapper", "local configs compiler wrapper")
+    require(tasks, "*) exec distcc gcc", "plain distcc compiler wrapper path")
+    require(tasks, "-o kernel/configs.o", "local generated config compiler wrapper target")
 
     require(rootfs_tasks, "sys-devel/bc", "k3s_base_baseline_packages")
     require(rootfs_tasks, "k3s_base_baseline_packages:", "k3s_base_baseline_packages definition")
@@ -87,7 +94,7 @@ def main() -> int:
         "as --version",
         "DISTCC_FALLBACK",
         "DISTCC_IO_TIMEOUT",
-        "CC='{{ 'distcc gcc'",
+        "CC='{{ './.homecluster-cc-wrapper'",
         "'--pump' not in rpi5_common_kernel_build_distcc_hosts_effective",
     ):
         require(tasks, distcc_gate, f"distcc gate {distcc_gate}")

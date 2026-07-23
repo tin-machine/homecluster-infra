@@ -234,6 +234,18 @@
   changed_when: true
   when: rpi5_common_kernel_build_enabled | bool
 
+- name: Rpi5 common kernel build の generated config compiler wrapper を配置
+  ansible.builtin.copy:
+    dest: "{{ rpi5_common_kernel_build_dir }}/.homecluster-cc-wrapper"
+    content: |
+      #!/bin/sh
+      case " $* " in
+        *" -o kernel/configs.o "*) exec gcc "$@" ;;
+        *) exec distcc gcc "$@" ;;
+      esac
+    mode: '0755'
+  when: rpi5_common_kernel_build_enabled | bool
+
 - name: Rpi5 common kernel build の kernel/config_data.gz を local で先行生成
   ansible.builtin.command:
     argv:
@@ -243,7 +255,7 @@
   changed_when: true
   when: rpi5_common_kernel_build_enabled | bool
 
-- name: Rpi5 common kernel build の kernel/configs.o を local distccで先行生成
+- name: Rpi5 common kernel build の kernel/configs.o を wrapper経由で先行生成
   ansible.builtin.command:
     argv:
       - make
@@ -251,13 +263,8 @@
       - kernel/configs.o
     chdir: "{{ rpi5_common_kernel_build_dir }}"
   environment:
-    CC: distcc gcc
+    CC: ./.homecluster-cc-wrapper
     HOSTCC: gcc
-    DISTCC_HOSTS: >-
-      localhost/{{ rpi5_common_kernel_build_local_slots | int }}
-      --localslots={{ rpi5_common_kernel_build_local_slots | int }}
-      --localslots_cpp={{ (rpi5_common_kernel_build_local_slots | int) * 2 }}
-    DISTCC_FALLBACK: '0'
   changed_when: true
   when: rpi5_common_kernel_build_enabled | bool
 
@@ -269,7 +276,7 @@
     export DISTCC_FALLBACK='{{ rpi5_common_kernel_build_distcc_fallback }}'
     export DISTCC_IO_TIMEOUT='{{ rpi5_common_kernel_build_distcc_io_timeout | int }}'
     make -j{{ rpi5_common_kernel_build_make_jobs | int }} \
-      CC='{{ 'distcc gcc' if (rpi5_common_kernel_build_distcc_enabled | bool) else 'gcc' }}' \
+      CC='{{ './.homecluster-cc-wrapper' if (rpi5_common_kernel_build_distcc_enabled | bool) else 'gcc' }}' \
       HOSTCC=gcc \
       Image modules dtbs
   args:
