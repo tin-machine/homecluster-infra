@@ -225,6 +225,15 @@
     fail_msg: "kernelreleaseが-v8-homecluster+で終わっていません"
   when: rpi5_common_kernel_build_enabled | bool
 
+- name: Rpi5 common kernel build の generated config を local で準備
+  ansible.builtin.command:
+    argv:
+      - make
+      - prepare
+    chdir: "{{ rpi5_common_kernel_build_dir }}"
+  changed_when: true
+  when: rpi5_common_kernel_build_enabled | bool
+
 - name: Rpi5 common kernel build の kernel/config_data.gz を local で先行生成
   ansible.builtin.command:
     argv:
@@ -234,7 +243,7 @@
   changed_when: true
   when: rpi5_common_kernel_build_enabled | bool
 
-- name: Rpi5 common kernel build の kernel/configs.o を local GCC で先行生成
+- name: Rpi5 common kernel build の kernel/configs.o を local distccで先行生成
   ansible.builtin.command:
     argv:
       - make
@@ -242,8 +251,13 @@
       - kernel/configs.o
     chdir: "{{ rpi5_common_kernel_build_dir }}"
   environment:
-    CC: gcc
+    CC: distcc gcc
     HOSTCC: gcc
+    DISTCC_HOSTS: >-
+      localhost/{{ rpi5_common_kernel_build_local_slots | int }}
+      --localslots={{ rpi5_common_kernel_build_local_slots | int }}
+      --localslots_cpp={{ (rpi5_common_kernel_build_local_slots | int) * 2 }}
+    DISTCC_FALLBACK: '0'
   changed_when: true
   when: rpi5_common_kernel_build_enabled | bool
 
