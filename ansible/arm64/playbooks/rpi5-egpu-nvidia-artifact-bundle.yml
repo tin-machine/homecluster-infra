@@ -13,18 +13,13 @@
         | string | trim
       }}
     rpi5_common_kernel_release_from_stage: >-
-      {{
-        rpi5_common_kernel_build_release_override | default('')
-        if (rpi5_common_kernel_build_release_override | default('') | string | trim | length > 0)
-        else ((rpi5_common_kernel_stage_date_from_openwrt | string | trim) ~ '-rpi5')
-      }}
+      {{ (rpi5_common_kernel_stage_date_from_openwrt | string | trim) ~ '-rpi5' }}
   tasks:
     - name: rpi5 common kernel をbuild
       ansible.builtin.include_role:
         name: ../roles/rpi5_common_kernel_build
       vars:
         rpi5_common_kernel_build_stage_date: "{{ rpi5_common_kernel_stage_date_from_openwrt }}"
-        rpi5_common_kernel_build_release_override: "{{ rpi5_common_kernel_release_from_stage }}"
       when:
         - rpi5_common_kernel_build_enabled | default(false) | bool
 
