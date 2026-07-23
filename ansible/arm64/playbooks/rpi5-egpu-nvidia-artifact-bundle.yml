@@ -27,12 +27,12 @@
       ansible.builtin.include_role:
         name: ../roles/rpi5_egpu_nvidia_artifact_bundle
       vars:
-        rpi5_egpu_nvidia_artifact_bundle_release: "{{ rpi5_common_kernel_release_from_stage }}"
-        rpi5_egpu_nvidia_artifact_bundle_kernel_version: "{{ rpi5_common_kernel_build_kernel_release }}"
-        rpi5_egpu_nvidia_artifact_bundle_kernel_build_dir: "{{ rpi5_common_kernel_build_dir }}"
-        rpi5_egpu_nvidia_artifact_bundle_modules_dir: "{{ rpi5_common_kernel_build_modules_dir }}"
-        rpi5_egpu_nvidia_artifact_bundle_open_modules_dir: "{{ rpi5_common_kernel_build_open_modules_dir }}"
-        rpi5_egpu_nvidia_artifact_bundle_runfile_path: "{{ rpi5_common_kernel_build_nvidia_runfile_path }}"
+        rpi5_egpu_nvidia_artifact_bundle_release: "{{ rpi5_common_kernel_build_bundle_output.release }}"
+        rpi5_egpu_nvidia_artifact_bundle_kernel_version: "{{ rpi5_common_kernel_build_bundle_output.kernel_release }}"
+        rpi5_egpu_nvidia_artifact_bundle_kernel_build_dir: "{{ rpi5_common_kernel_build_bundle_output.kernel_build_dir }}"
+        rpi5_egpu_nvidia_artifact_bundle_modules_dir: "{{ rpi5_common_kernel_build_bundle_output.modules_dir }}"
+        rpi5_egpu_nvidia_artifact_bundle_open_modules_dir: "{{ rpi5_common_kernel_build_bundle_output.open_modules_dir }}"
+        rpi5_egpu_nvidia_artifact_bundle_runfile_path: "{{ rpi5_common_kernel_build_bundle_output.runfile_path }}"
       when:
         - rpi5_common_kernel_build_enabled | default(false) | bool
         - rpi5_egpu_nvidia_artifact_bundle_enabled | default(false) | bool
