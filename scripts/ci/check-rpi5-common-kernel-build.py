@@ -52,6 +52,15 @@ def main() -> int:
 
     require(tasks, "kernel/config_data.gz", "local generated config data prebuild")
     require(tasks, "kernel/configs.o", "local generated config object prebuild")
+    prepare_index = tasks.index("- make\n      - prepare")
+    config_data_index = tasks.index("kernel/config_data.gz")
+    configs_object_index = tasks.index("kernel/configs.o")
+    if not prepare_index < config_data_index < configs_object_index:
+        raise AssertionError("local generated config preparation order is not preserved")
+    configs_task = tasks[configs_object_index : tasks.index("plain distccでbuild")]
+    require(configs_task, "CC: distcc gcc", "matching local distcc compiler command")
+    require(configs_task, "DISTCC_HOSTS:", "local-only distcc host")
+    require(configs_task, "DISTCC_FALLBACK: '0'", "local distcc fallback policy")
 
     require(rootfs_tasks, "sys-devel/bc", "k3s_base_baseline_packages")
     require(rootfs_tasks, "k3s_base_baseline_packages:", "k3s_base_baseline_packages definition")
