@@ -117,6 +117,7 @@ def main() -> int:
 
     require(bundle_playbook, "name: ../roles/rpi5_common_kernel_build", "common build role include")
     require(bundle_playbook, "name: ../roles/rpi5_egpu_nvidia_artifact_bundle", "bundle role include")
+    require(bundle_playbook, "rpi5_common_kernel_release_from_stage", "caller-scoped common kernel release")
     require(staging_entrypoint, "rpi5-egpu-nvidia-artifact-bundle.yml", "builder pre-play import")
     require(staging_entrypoint, "pxe-release-bundle-staging.yml", "existing staging import")
 
