@@ -1,6 +1,24 @@
 ---
+- name: Pi5 common kernel builder targetを解決
+  hosts: localhost
+  gather_facts: false
+  become: false
+  tasks:
+    - name: Pi5 common kernel builder groupを検証
+      ansible.builtin.assert:
+        that:
+          - groups['rpi5_egpu_artifact_bundle'] | default([]) | length == 1
+        fail_msg: rpi5_egpu_artifact_bundle groupからbuilderを一意に解決できません
+      changed_when: false
+
+    - name: Pi5 common kernel builder dynamic groupを作成
+      ansible.builtin.add_host:
+        name: "{{ groups['rpi5_egpu_artifact_bundle'][0] }}"
+        groups: homecluster_common_kernel_builder
+      changed_when: false
+
 - name: Pi5 common kernel builder precheck
-  hosts: rpi5-03
+  hosts: homecluster_common_kernel_builder
   gather_facts: false
   become: false
   vars:
