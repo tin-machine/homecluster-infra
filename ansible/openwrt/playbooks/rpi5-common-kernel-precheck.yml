@@ -1,0 +1,148 @@
+---
+- name: Pi5 common kernel builder precheck
+  hosts: rpi5-03
+  gather_facts: false
+  become: false
+  vars:
+    homecluster_common_kernel_builder_min_free_kib: 8388608
+  tasks:
+    - name: Pi5 common kernel private input contractを検証
+      ansible.builtin.assert:
+        that:
+          - rpi5_common_kernel_build_enabled | bool
+          - rpi5_common_kernel_build_apply | bool
+          - rpi5_common_kernel_build_confirm_expected | default('', true) | string | trim | length > 0
+          - rpi5_common_kernel_build_confirm == rpi5_common_kernel_build_confirm_expected
+          - rpi5_common_kernel_build_stage | default('') == 'stg'
+          - rpi5_common_kernel_build_stage_date | default('', true) | string is match('^[0-9]{8}$')
+          - rpi5_common_kernel_build_source_version | default('', true) | string | trim | length >= 12
+          - rpi5_common_kernel_build_config_seed | default('', true) | string is match('^/var/lib/rancher/k3s/')
+          - rpi5_common_kernel_build_open_modules_commit | default('', true) | string | trim | length >= 12
+          - rpi5_common_kernel_build_open_modules_dir | default('', true) | string is match('^/var/lib/rancher/k3s/')
+          - rpi5_common_kernel_build_nvidia_runfile_path | default('', true) | string is match('^/var/lib/rancher/k3s/')
+          - rpi5_egpu_nvidia_artifact_bundle_enabled | default(false) | bool
+          - rpi5_egpu_nvidia_artifact_bundle_apply | default(false) | bool
+          - rpi5_egpu_nvidia_artifact_bundle_confirm_expected | default('', true) | string | trim | length > 0
+          - rpi5_egpu_nvidia_artifact_bundle_confirm == rpi5_egpu_nvidia_artifact_bundle_confirm_expected
+        fail_msg: common-kernel build / NVIDIA bundleの固定opt-inまたは入力形状が不足しています
+      no_log: true
+      changed_when: false
+
+    - name: Pi5 common kernel required commandを確認
+      ansible.builtin.shell: |
+        set -euo pipefail
+        for command_name in git make gcc as bc bison flex modinfo openssl perl rsync distcc; do
+          command -v "${command_name}" >/dev/null
+        done
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Pi5 common kernel input pathを確認
+      ansible.builtin.stat:
+        path: "{{ item }}"
+        get_attributes: false
+        get_checksum: false
+        get_mime: false
+      loop:
+        - "{{ rpi5_common_kernel_build_config_seed }}"
+        - "{{ rpi5_common_kernel_build_open_modules_dir }}/.git"
+        - "{{ rpi5_common_kernel_build_nvidia_runfile_path }}"
+      register: homecluster_common_kernel_input_stats
+      changed_when: false
+      no_log: true
+
+    - name: Pi5 common kernel input pathの存在を検証
+      ansible.builtin.assert:
+        that:
+          - homecluster_common_kernel_input_stats.results | selectattr('stat.exists', 'defined') | selectattr('stat.exists') | list | length == 3
+        fail_msg: config seed、NVIDIA source、またはrunfileが不足しています
+      changed_when: false
+      no_log: true
+
+    - name: Pi5 common kernel builder空き容量を確認
+      ansible.builtin.shell: |
+        set -euo pipefail
+        path="{{ rpi5_common_kernel_build_work_root | default('/var/lib/rancher/k3s/kernel-build') }}"
+        probe="$path"
+        while [ ! -e "$probe" ] && [ "$probe" != / ]; do probe="$(dirname "$probe")"; done
+        available="$(df -Pk "$probe" | awk 'NR==2 {print $4}')"
+        test "$available" -ge "{{ homecluster_common_kernel_builder_min_free_kib | int }}"
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Pi5 common kernel builder compiler fingerprintを取得
+      ansible.builtin.shell: |
+        set -euo pipefail
+        printf 'target=%s\n' "$(gcc -dumpmachine)"
+        printf 'gcc=%s\n' "$(gcc -dumpfullversion -dumpversion)"
+        printf 'as=%s\n' "$(as --version | head -n 1)"
+      args:
+        executable: /bin/bash
+      register: homecluster_common_kernel_builder_fingerprint
+      changed_when: false
+
+    - name: Pi5 common kernel distcc workerを解決
+      ansible.builtin.set_fact:
+        homecluster_common_kernel_distcc_workers: >-
+          {%- set result = [] -%}
+          {%- for host_name in groups['all'] | default([]) -%}
+          {%- set cfg = hostvars[host_name].distcc | default({}) -%}
+          {%- if host_name != inventory_hostname and cfg is mapping and (cfg.enabled | default(false) | bool) and (cfg.client_enabled | default(true) | bool) -%}
+          {%- set _ = result.append(host_name) -%}
+          {%- endif -%}
+          {%- endfor -%}
+          {{ result }}
+      changed_when: false
+
+    - name: Pi5 common kernel distcc worker存在を検証
+      ansible.builtin.assert:
+        that:
+          - homecluster_common_kernel_distcc_workers | length > 0
+        fail_msg: common-kernel build用distcc workerがありません
+      changed_when: false
+
+    - name: Pi5 common kernel distcc readinessとcompiler fingerprintを取得
+      ansible.builtin.shell: |
+        set -euo pipefail
+        port="{{ (hostvars[item].distcc | default({})).port | default(3632) | int }}"
+        test "$(systemctl is-enabled distccd)" = enabled
+        test "$(systemctl is-active distccd)" = active
+        ss -H -ltn "sport = :${port}" | grep -q .
+        printf 'target=%s\n' "$(gcc -dumpmachine)"
+        printf 'gcc=%s\n' "$(gcc -dumpfullversion -dumpversion)"
+        printf 'as=%s\n' "$(as --version | head -n 1)"
+      args:
+        executable: /bin/bash
+      delegate_to: "{{ item }}"
+      loop: "{{ homecluster_common_kernel_distcc_workers }}"
+      register: homecluster_common_kernel_worker_fingerprints
+      changed_when: false
+
+    - name: Pi5 common kernel distcc compiler一致を検証
+      ansible.builtin.assert:
+        that:
+          - item.stdout_lines == homecluster_common_kernel_builder_fingerprint.stdout_lines
+        fail_msg: distcc workerのcompiler fingerprintがbuilderと一致しません
+      loop: "{{ homecluster_common_kernel_worker_fingerprints.results | default([]) }}"
+      loop_control:
+        label: "{{ item.item | default('worker') }}"
+      changed_when: false
+
+- name: Pi5 common kernel OpenWrt storage precheck
+  hosts: openwrt
+  gather_facts: false
+  become: false
+  vars:
+    homecluster_common_kernel_openwrt_min_free_kib: 10485760
+  tasks:
+    - name: OpenWrt /srv空き容量を確認
+      ansible.builtin.shell: |
+        set -euo pipefail
+        test -d /srv
+        available="$(df -Pk /srv | awk 'NR==2 {print $4}')"
+        test "$available" -ge "{{ homecluster_common_kernel_openwrt_min_free_kib | int }}"
+      args:
+        executable: /bin/sh
+      changed_when: false
