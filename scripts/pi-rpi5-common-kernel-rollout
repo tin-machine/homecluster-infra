@@ -15,6 +15,8 @@ from typing import Any, Mapping, Sequence
 COLLECTOR = "homecluster-rpi5-common-kernel-rollout"
 PHASES = ("generic_canary", "egpu_canary", "fleet_rollout", "rollback_last_phase")
 RUNTIME_PHASES = ("generic_canary", "egpu_canary", "fleet_rollout")
+AGENT_GROUP = "k3s_stg_agents"
+EGPU_GROUP = "rpi5_egpu_artifact_bundle"
 SAFE_RUN_ID = re.compile(r"^[0-9]{8}T[0-9]{6}Z-[A-Za-z0-9._-]+$")
 KERNEL_RELEASE = re.compile(r"^.+-v8-homecluster\+$")
 SELECTOR = re.compile(r"^[0-9]{8}-rpi5$")
@@ -102,7 +104,7 @@ def phase_record(root: Path, phase: str) -> dict[str, Any]:
         return {}
 
 
-def inventory_hosts(root: Path, inventory: Path) -> list[str]:
+def inventory_json(root: Path, inventory: Path) -> dict[str, Any]:
     completed = run(["ansible-inventory", "-i", inventory, "--list"], cwd=root, timeout=180)
     if completed.returncode != 0:
         raise RolloutError("inventory_list_failed")
@@ -110,39 +112,60 @@ def inventory_hosts(root: Path, inventory: Path) -> list[str]:
         value = json.loads(completed.stdout)
     except (ValueError, json.JSONDecodeError) as error:
         raise RolloutError("inventory_contract_invalid", "unknown") from error
-    meta = value.get("_meta") if isinstance(value, dict) else None
-    hostvars = meta.get("hostvars") if isinstance(meta, dict) else None
-    if not isinstance(hostvars, dict):
-        raise RolloutError("inventory_hostvars_missing", "unknown")
-    return sorted(name for name in hostvars if re.fullmatch(r"rpi5-[0-9]{2}", name))
+    if not isinstance(value, dict):
+        raise RolloutError("inventory_contract_invalid", "unknown")
+    return value
 
 
-def target_policy(root: Path, phase: str, hosts: Sequence[str]) -> tuple[list[str], dict[str, Any], str]:
+def group_hosts(value: Mapping[str, Any], group: str) -> list[str]:
+    group_value = value.get(group)
+    hosts = group_value.get("hosts") if isinstance(group_value, dict) else None
+    if not isinstance(hosts, list) or any(not isinstance(item, str) or not item for item in hosts):
+        return []
+    return sorted(set(hosts))
+
+
+def inventory_targets(root: Path, inventory: Path) -> tuple[list[str], str]:
+    value = inventory_json(root, inventory)
+    agents = group_hosts(value, AGENT_GROUP)
+    egpu = group_hosts(value, EGPU_GROUP)
+    if len(egpu) != 1:
+        raise RolloutError("egpu_target_group_invalid")
+    egpu_target = egpu[0]
+    if not agents or egpu_target not in agents:
+        raise RolloutError("rollout_agent_group_invalid")
+    return agents, egpu_target
+
+
+def target_policy(
+    root: Path,
+    phase: str,
+    agents: Sequence[str],
+    egpu_target: str,
+) -> tuple[list[str], dict[str, Any], str]:
     generic = phase_record(root, "generic_canary")
     egpu = phase_record(root, "egpu_canary")
     fleet = phase_record(root, "fleet_rollout")
     if phase == "generic_canary":
         if generic.get("acceptance_status") == "pass":
             raise RolloutError("generic_canary_already_accepted")
-        for candidate in ("rpi5-01", "rpi5-02"):
-            if candidate in hosts:
-                return [candidate], {}, phase
-        raise RolloutError("generic_canary_target_unavailable")
+        candidates = sorted(name for name in agents if name != egpu_target)
+        if not candidates:
+            raise RolloutError("generic_canary_target_unavailable")
+        return [candidates[0]], {}, phase
     if phase == "egpu_canary":
         if generic.get("acceptance_status") != "pass":
             raise RolloutError("generic_canary_gate_missing")
         if egpu.get("acceptance_status") == "pass":
             raise RolloutError("egpu_canary_already_accepted")
-        if "rpi5-03" not in hosts:
-            raise RolloutError("egpu_canary_target_unavailable")
-        return ["rpi5-03"], {}, phase
+        return [egpu_target], {}, phase
     if phase == "fleet_rollout":
         if egpu.get("acceptance_status") != "pass":
             raise RolloutError("egpu_canary_gate_missing")
         if fleet.get("acceptance_status") == "pass":
             raise RolloutError("fleet_rollout_already_accepted")
         accepted_targets = set(generic.get("targets", [])) | set(egpu.get("targets", []))
-        targets = [name for name in hosts if name not in accepted_targets]
+        targets = [name for name in agents if name not in accepted_targets]
         if not targets:
             raise RolloutError("fleet_rollout_targets_empty")
         return targets, {}, phase
@@ -158,7 +181,7 @@ def target_policy(root: Path, phase: str, hosts: Sequence[str]) -> tuple[list[st
     failed_phase = str(failed.get("phase", "")) if failed else ""
     if failed_phase not in RUNTIME_PHASES or not isinstance(previous, dict) or not previous:
         raise RolloutError("known_rollback_unavailable")
-    if not isinstance(targets, list) or not targets or any(target not in hosts for target in targets):
+    if not isinstance(targets, list) or not targets or any(target not in agents for target in targets):
         raise RolloutError("rollback_target_contract_invalid", "unknown")
     for target in targets:
         selector = previous.get(target)
@@ -221,14 +244,13 @@ def run_phase_acceptance(
     inventory: Path,
     phase: str,
     targets: Sequence[str],
+    all_agents: Sequence[str],
     exact_release: str,
 ) -> tuple[bool, list[str]]:
     diagnostics: list[str] = []
     playbook = root / "ansible/openwrt/playbooks/rpi5-common-kernel-phase-acceptance.yml"
     expect_exact = phase != "rollback_last_phase"
-    acceptance_targets = list(targets)
-    if phase == "fleet_rollout":
-        acceptance_targets = inventory_hosts(root, inventory)
+    acceptance_targets = list(all_agents) if phase == "fleet_rollout" else list(targets)
     completed = run(
         [
             "ansible-playbook",
@@ -264,8 +286,11 @@ def run_phase_acceptance(
     diagnostics.append("k3s_final_acceptance=pass")
 
     if phase == "egpu_canary":
+        llm_helper = runbook / "scripts/pi-rpi5-egpu-llm-status"
+        if not llm_helper.is_file():
+            return False, [*diagnostics, "llm_acceptance_helper=missing"]
         llm = run(
-            ["bash", runbook / "scripts/pi-rpi5-03-llm-status"],
+            ["bash", llm_helper],
             cwd=runbook,
             timeout=900,
             env={**os.environ, "HOMECLUSTER_RPI5_03_EXPECTED_KERNEL_RELEASE": exact_release},
@@ -310,7 +335,7 @@ def phase_record_value(
 def fixture_result(path: Path, phase: str) -> dict[str, Any]:
     value = read_json(path)
     status = str(value.get("status", "pass"))
-    targets = value.get("targets", ["rpi5-01"])
+    targets = value.get("targets", ["generic-a"])
     if not isinstance(targets, list):
         raise RolloutError("fixture_contract_invalid", "unknown")
     record_phase = str(value.get("record_phase", "generic_canary" if phase == "rollback_last_phase" else phase))
@@ -365,8 +390,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             if dirty.returncode != 0 or dirty.stdout.strip():
                 raise RolloutError("infra_checkout_dirty")
             accepted = latest_accepted(workflow_root())
-            hosts = inventory_hosts(root, inventory)
-            targets, rollback_selectors, record_phase = target_policy(workflow_root(), args.phase, hosts)
+            agents, egpu_target = inventory_targets(root, inventory)
+            targets, rollback_selectors, record_phase = target_policy(
+                workflow_root(),
+                args.phase,
+                agents,
+                egpu_target,
+            )
             ensure_no_active_fresh_boot(runbook)
             started_at = utc_now()
             playbook = root / "ansible/openwrt/playbooks/rpi5-common-kernel-rollout.yml"
@@ -442,6 +472,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                             inventory,
                             args.phase,
                             targets,
+                            agents,
                             str(accepted["exact_kernel_release"]),
                         )
                         acceptance_status = (
