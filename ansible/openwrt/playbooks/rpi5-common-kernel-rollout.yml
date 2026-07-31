@@ -173,8 +173,6 @@
       ansible.builtin.include_role:
         name: openwrt_gentoo_rootfs
         tasks_from: tftp_switch
-      vars:
-        openwrt_pxe_hosts_effective_override: "{{ openwrt_pxe_hosts_effective_override }}"
       tags:
         - pxe_tftp_switch
 
