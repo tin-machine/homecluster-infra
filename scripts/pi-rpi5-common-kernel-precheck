@@ -13,6 +13,7 @@ from typing import Any, Mapping, Sequence
 
 COLLECTOR = "homecluster-rpi5-common-kernel-precheck"
 MIN_CONTROLLER_FREE_BYTES = 4 * 1024 * 1024 * 1024
+BUILDER_GROUP = "rpi5_egpu_artifact_bundle"
 
 
 class PrecheckError(RuntimeError):
@@ -69,13 +70,28 @@ def load_inventory(inventory: Path, root: Path) -> dict[str, Any]:
     return value
 
 
-def hostvars(inventory_json: Mapping[str, Any], host: str) -> dict[str, Any]:
+def inventory_group_hosts(inventory_json: Mapping[str, Any], group: str) -> list[str]:
+    value = inventory_json.get(group)
+    hosts = value.get("hosts") if isinstance(value, dict) else None
+    if not isinstance(hosts, list) or any(not isinstance(item, str) or not item for item in hosts):
+        return []
+    return sorted(set(hosts))
+
+
+def inventory_hostvars(inventory_json: Mapping[str, Any], host: str) -> dict[str, Any]:
     meta = inventory_json.get("_meta")
     values = meta.get("hostvars") if isinstance(meta, dict) else None
     result = values.get(host) if isinstance(values, dict) else None
     if not isinstance(result, dict):
-        raise PrecheckError("rpi5_03_inventory_host_missing")
+        raise PrecheckError("common_kernel_builder_hostvars_missing")
     return result
+
+
+def resolve_builder_host(inventory_json: Mapping[str, Any]) -> str:
+    hosts = inventory_group_hosts(inventory_json, BUILDER_GROUP)
+    if len(hosts) != 1:
+        raise PrecheckError("common_kernel_builder_group_invalid")
+    return hosts[0]
 
 
 def validate_private_contract(values: Mapping[str, Any]) -> None:
@@ -166,7 +182,8 @@ def source_checks(root: Path, inventory: Path, *, require_runtime_branch: bool) 
     diagnostics.append("fixed_playbook_contract=pass")
 
     inventory_json = load_inventory(inventory, root)
-    validate_private_contract(hostvars(inventory_json, "rpi5-03"))
+    builder = resolve_builder_host(inventory_json)
+    validate_private_contract(inventory_hostvars(inventory_json, builder))
     diagnostics.append("private_input_shape=pass")
 
     if shutil.disk_usage(root).free < MIN_CONTROLLER_FREE_BYTES:
