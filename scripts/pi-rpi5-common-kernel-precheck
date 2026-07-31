@@ -1,0 +1,276 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+from typing import Any, Mapping, Sequence
+
+COLLECTOR = "homecluster-rpi5-common-kernel-precheck"
+MIN_CONTROLLER_FREE_BYTES = 4 * 1024 * 1024 * 1024
+
+
+class PrecheckError(RuntimeError):
+    def __init__(self, reason: str, status: str = "blocked") -> None:
+        super().__init__(reason)
+        self.reason = reason
+        self.status = status
+
+
+def run(command: Sequence[str | Path], *, cwd: Path, timeout: int = 900, env: Mapping[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+    try:
+        return subprocess.run(
+            [str(item) for item in command],
+            cwd=cwd,
+            env=dict(env) if env else None,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=timeout,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise PrecheckError("precheck_command_execution_failed", "unknown") from error
+
+
+def git(root: Path, *args: str) -> str:
+    completed = run(["git", "-C", root, *args], cwd=root, timeout=60)
+    if completed.returncode != 0:
+        raise PrecheckError("infra_git_state_unavailable", "unknown")
+    return completed.stdout.strip()
+
+
+def bool_value(value: Any) -> bool:
+    return value is True
+
+
+def nonempty(value: Any) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
+def safe_path(value: Any) -> bool:
+    return isinstance(value, str) and value.startswith("/var/lib/rancher/k3s/") and ".." not in Path(value).parts
+
+
+def load_inventory(inventory: Path, root: Path) -> dict[str, Any]:
+    completed = run(["ansible-inventory", "-i", inventory, "--list"], cwd=root, timeout=180)
+    if completed.returncode != 0:
+        raise PrecheckError("inventory_list_failed")
+    try:
+        value = json.loads(completed.stdout)
+    except (ValueError, json.JSONDecodeError) as error:
+        raise PrecheckError("inventory_json_invalid", "unknown") from error
+    if not isinstance(value, dict):
+        raise PrecheckError("inventory_contract_invalid", "unknown")
+    return value
+
+
+def hostvars(inventory_json: Mapping[str, Any], host: str) -> dict[str, Any]:
+    meta = inventory_json.get("_meta")
+    values = meta.get("hostvars") if isinstance(meta, dict) else None
+    result = values.get(host) if isinstance(values, dict) else None
+    if not isinstance(result, dict):
+        raise PrecheckError("rpi5_03_inventory_host_missing")
+    return result
+
+
+def validate_private_contract(values: Mapping[str, Any]) -> None:
+    required_true = (
+        "rpi5_common_kernel_build_enabled",
+        "rpi5_common_kernel_build_apply",
+        "rpi5_egpu_nvidia_artifact_bundle_enabled",
+        "rpi5_egpu_nvidia_artifact_bundle_apply",
+        "openwrt_rpi5_egpu_generation_enabled",
+        "openwrt_rpi5_egpu_generation_apply",
+        "openwrt_rpi5_egpu_generation_artifact_bundle_enabled",
+    )
+    if any(not bool_value(values.get(key)) for key in required_true):
+        raise PrecheckError("common_kernel_opt_in_missing")
+
+    build_confirm = values.get("rpi5_common_kernel_build_confirm")
+    build_expected = values.get("rpi5_common_kernel_build_confirm_expected")
+    bundle_confirm = values.get("rpi5_egpu_nvidia_artifact_bundle_confirm")
+    bundle_expected = values.get("rpi5_egpu_nvidia_artifact_bundle_confirm_expected")
+    if not nonempty(build_expected) or build_confirm != build_expected:
+        raise PrecheckError("common_kernel_confirmation_mismatch")
+    if not nonempty(bundle_expected) or bundle_confirm != bundle_expected:
+        raise PrecheckError("nvidia_bundle_confirmation_mismatch")
+
+    if values.get("rpi5_common_kernel_build_stage") != "stg":
+        raise PrecheckError("common_kernel_stage_invalid")
+    stage_date = values.get("rpi5_common_kernel_build_stage_date")
+    stage_dates = values.get("openwrt_gentoo_release_bundle_stage_dates")
+    if not (isinstance(stage_date, str) and re.fullmatch(r"[0-9]{8}", stage_date)):
+        if not (
+            isinstance(stage_dates, dict)
+            and isinstance(stage_dates.get("stg"), (str, int))
+            and re.fullmatch(r"[0-9]{8}", str(stage_dates["stg"]))
+        ):
+            raise PrecheckError("common_kernel_stage_date_invalid")
+
+    for key in ("rpi5_common_kernel_build_source_version", "rpi5_common_kernel_build_open_modules_commit"):
+        value = values.get(key)
+        if not isinstance(value, str) or len(value.strip()) < 12:
+            raise PrecheckError("common_kernel_source_pin_missing")
+    for key in (
+        "rpi5_common_kernel_build_config_seed",
+        "rpi5_common_kernel_build_open_modules_dir",
+        "rpi5_common_kernel_build_nvidia_runfile_path",
+    ):
+        if not safe_path(values.get(key)):
+            raise PrecheckError("common_kernel_input_path_invalid")
+
+
+def source_checks(root: Path, inventory: Path, *, require_runtime_branch: bool) -> list[str]:
+    diagnostics: list[str] = []
+    required_commands = ("git", "python3", "ansible-playbook", "ansible-inventory")
+    for command in required_commands:
+        if shutil.which(command) is None:
+            raise PrecheckError(f"required_command_missing_{command}")
+    diagnostics.append("required_commands=pass")
+
+    if not inventory.is_file():
+        raise PrecheckError("inventory_entrypoint_missing")
+    mode = inventory.stat().st_mode & 0o777
+    if mode & 0o077:
+        raise PrecheckError("inventory_permissions_unsafe")
+    diagnostics.append("inventory_entrypoint=pass")
+
+    branch = git(root, "branch", "--show-current") or "detached"
+    if require_runtime_branch and branch != "stg":
+        raise PrecheckError("infra_runtime_branch_not_stg")
+    if git(root, "status", "--porcelain"):
+        raise PrecheckError("infra_checkout_dirty")
+    diagnostics.append("infra_checkout=pass")
+
+    playbooks = (
+        root / "ansible/openwrt/playbooks/pxe-release-bundle-staging-with-common-kernel.yml",
+        root / "ansible/openwrt/playbooks/rpi5-common-kernel-precheck.yml",
+    )
+    for playbook in playbooks:
+        if not playbook.is_file():
+            raise PrecheckError("fixed_playbook_missing")
+        for flag in ("--syntax-check", "--list-tasks"):
+            completed = run(
+                ["ansible-playbook", "-i", inventory, playbook, flag],
+                cwd=root / "ansible/openwrt",
+                timeout=600,
+            )
+            if completed.returncode != 0:
+                reason = "fixed_playbook_syntax_failed" if flag == "--syntax-check" else "fixed_playbook_task_list_failed"
+                raise PrecheckError(reason)
+    diagnostics.append("fixed_playbook_contract=pass")
+
+    inventory_json = load_inventory(inventory, root)
+    validate_private_contract(hostvars(inventory_json, "rpi5-03"))
+    diagnostics.append("private_input_shape=pass")
+
+    if shutil.disk_usage(root).free < MIN_CONTROLLER_FREE_BYTES:
+        raise PrecheckError("controller_capacity_insufficient")
+    diagnostics.append("controller_capacity=pass")
+    return diagnostics
+
+
+def runtime_checks(root: Path, inventory: Path, runbook: Path) -> tuple[str, list[str]]:
+    diagnostics: list[str] = []
+    playbook = root / "ansible/openwrt/playbooks/rpi5-common-kernel-precheck.yml"
+    completed = run(
+        ["ansible-playbook", "-i", inventory, playbook],
+        cwd=root / "ansible/openwrt",
+        timeout=1200,
+    )
+    if completed.returncode != 0:
+        raise PrecheckError("common_kernel_runtime_playbook_failed")
+    diagnostics.append("runtime_playbook=pass")
+
+    status_helper = runbook / "scripts/pi-k3s-status"
+    if not status_helper.is_file():
+        raise PrecheckError("runbook_k3s_status_helper_missing")
+    completed = run(["bash", status_helper, "--json"], cwd=runbook, timeout=900)
+    try:
+        status = json.loads(completed.stdout)
+    except (ValueError, json.JSONDecodeError) as error:
+        raise PrecheckError("k3s_status_contract_invalid", "unknown") from error
+    if completed.returncode != 0 or not isinstance(status, dict):
+        raise PrecheckError("k3s_status_failed")
+    cluster_status = str(status.get("status", "unknown"))
+    if cluster_status != "healthy":
+        raise PrecheckError("k3s_not_healthy")
+    diagnostics.append("k3s_status=healthy")
+    return cluster_status, diagnostics
+
+
+def fixture_result(path: Path, source_only: bool) -> dict[str, Any]:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise PrecheckError("fixture_contract_invalid", "unknown")
+    status = str(value.get("source_status" if source_only else "status", "pass"))
+    reason = str(value.get("source_reason" if source_only else "reason", "source_precheck_passed" if source_only else "precheck_passed"))
+    return {
+        "collector": COLLECTOR,
+        "status": status,
+        "reason": reason,
+        "cluster_status": str(value.get("cluster_status", "not_checked" if source_only else "healthy")),
+        "source_only": source_only,
+        "diagnostics": [str(item) for item in value.get("diagnostics", []) if isinstance(item, str)],
+    }
+
+
+def parser() -> argparse.ArgumentParser:
+    result = argparse.ArgumentParser(description="Fixed Pi5 common-kernel precheck")
+    result.add_argument("--source-only", action="store_true")
+    result.add_argument("--json", action="store_true")
+    result.add_argument("--fixture", default="", help=argparse.SUPPRESS)
+    return result
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = parser().parse_args(argv)
+    try:
+        if args.fixture:
+            result = fixture_result(Path(args.fixture), args.source_only)
+        else:
+            root = Path(__file__).resolve().parents[1]
+            inventory = Path(os.environ.get("HOMECLUSTER_ANSIBLE_INVENTORY", str(root.parent / "inventory.yml"))).resolve()
+            runbook = Path(os.environ.get("HOMECLUSTER_RUNBOOK_ROOT", str(root.parent / "homecluster-runbook"))).resolve()
+            allow_task_branch = os.environ.get("HOMECLUSTER_RPI5_COMMON_KERNEL_ALLOW_TASK_BRANCH") == "1"
+            diagnostics = source_checks(root, inventory, require_runtime_branch=not (args.source_only and allow_task_branch))
+            cluster_status = "not_checked"
+            reason = "source_precheck_passed"
+            if not args.source_only:
+                cluster_status, runtime_diagnostics = runtime_checks(root, inventory, runbook)
+                diagnostics.extend(runtime_diagnostics)
+                reason = "precheck_passed"
+            result = {
+                "collector": COLLECTOR,
+                "status": "pass",
+                "reason": reason,
+                "cluster_status": cluster_status,
+                "source_only": args.source_only,
+                "diagnostics": diagnostics,
+            }
+    except PrecheckError as error:
+        result = {
+            "collector": COLLECTOR,
+            "status": error.status,
+            "reason": error.reason,
+            "cluster_status": "unknown",
+            "source_only": args.source_only,
+            "diagnostics": [],
+        }
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
+    else:
+        for key in ("collector", "status", "reason", "cluster_status", "source_only"):
+            print(f"{key}={result[key]}")
+        for item in result["diagnostics"]:
+            print(f"diagnostic={item}")
+    return 0 if result["status"] == "pass" else 2 if result["status"] in {"blocked", "unknown"} else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
