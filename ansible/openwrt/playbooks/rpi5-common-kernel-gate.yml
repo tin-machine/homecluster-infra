@@ -1,6 +1,24 @@
 ---
+- name: Pi5 common kernel gate builder targetを解決
+  hosts: localhost
+  gather_facts: false
+  become: false
+  tasks:
+    - name: Pi5 common kernel builder groupを検証
+      ansible.builtin.assert:
+        that:
+          - groups['rpi5_egpu_artifact_bundle'] | default([]) | length == 1
+        fail_msg: rpi5_egpu_artifact_bundle groupからbuilderを一意に解決できません
+      changed_when: false
+
+    - name: Pi5 common kernel builder dynamic groupを作成
+      ansible.builtin.add_host:
+        name: "{{ groups['rpi5_egpu_artifact_bundle'][0] }}"
+        groups: homecluster_common_kernel_builder
+      changed_when: false
+
 - name: Pi5 common kernel builder artifact gate
-  hosts: rpi5-03
+  hosts: homecluster_common_kernel_builder
   gather_facts: false
   become: false
   tasks:
@@ -124,20 +142,22 @@
   hosts: openwrt
   gather_facts: false
   become: false
+  vars:
+    homecluster_common_kernel_builder_host: "{{ groups['homecluster_common_kernel_builder'][0] }}"
   tasks:
     - name: Pi5 common kernel builder gate factを検証
       ansible.builtin.assert:
         that:
-          - hostvars['rpi5-03'].homecluster_common_kernel_gate_exact_release | default('', true) | string is match('^.+-v8-homecluster\\+$')
-          - hostvars['rpi5-03'].homecluster_common_kernel_gate_candidate_selector | default('', true) | string is match('^[0-9]{8}-rpi5$')
+          - hostvars[homecluster_common_kernel_builder_host].homecluster_common_kernel_gate_exact_release | default('', true) | string is match('^.+-v8-homecluster\\+$')
+          - hostvars[homecluster_common_kernel_builder_host].homecluster_common_kernel_gate_candidate_selector | default('', true) | string is match('^[0-9]{8}-rpi5$')
         fail_msg: builder gate factがありません
       changed_when: false
       no_log: true
 
     - name: Pi5 common kernel OpenWrt pathを解決
       ansible.builtin.set_fact:
-        homecluster_common_kernel_gate_release: "{{ hostvars['rpi5-03'].homecluster_common_kernel_gate_candidate_selector }}"
-        homecluster_common_kernel_gate_kernel_release: "{{ hostvars['rpi5-03'].homecluster_common_kernel_gate_exact_release }}"
+        homecluster_common_kernel_gate_release: "{{ hostvars[homecluster_common_kernel_builder_host].homecluster_common_kernel_gate_candidate_selector }}"
+        homecluster_common_kernel_gate_kernel_release: "{{ hostvars[homecluster_common_kernel_builder_host].homecluster_common_kernel_gate_exact_release }}"
       changed_when: false
       no_log: true
 
@@ -162,6 +182,8 @@
   hosts: localhost
   gather_facts: false
   become: false
+  vars:
+    homecluster_common_kernel_builder_host: "{{ groups['homecluster_common_kernel_builder'][0] }}"
   tasks:
     - name: Pi5 common kernel gate output pathを検証
       ansible.builtin.assert:
@@ -182,10 +204,10 @@
               'generation_run_id': homecluster_common_kernel_observer_run_id,
               'infra_commit': homecluster_common_kernel_infra_commit,
               'inventory_provenance': homecluster_common_kernel_inventory_provenance,
-              'exact_kernel_release': hostvars['rpi5-03'].homecluster_common_kernel_gate_exact_release,
-              'generation_manifest_sha256': hostvars['rpi5-03'].homecluster_common_kernel_gate_generation_manifest_sha256,
-              'artifact_payload_sha256': hostvars['rpi5-03'].homecluster_common_kernel_gate_artifact_payload_sha256,
-              'pxe_candidate_selector': hostvars['rpi5-03'].homecluster_common_kernel_gate_candidate_selector,
+              'exact_kernel_release': hostvars[homecluster_common_kernel_builder_host].homecluster_common_kernel_gate_exact_release,
+              'generation_manifest_sha256': hostvars[homecluster_common_kernel_builder_host].homecluster_common_kernel_gate_generation_manifest_sha256,
+              'artifact_payload_sha256': hostvars[homecluster_common_kernel_builder_host].homecluster_common_kernel_gate_artifact_payload_sha256,
+              'pxe_candidate_selector': hostvars[homecluster_common_kernel_builder_host].homecluster_common_kernel_gate_candidate_selector,
               'gate_version': 'rpi5-common-kernel-gate-v1'
             } | to_json
           }}
