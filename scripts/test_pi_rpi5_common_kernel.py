@@ -103,7 +103,7 @@ class CliFixtureTests(unittest.TestCase):
         self.assertEqual(value["reason"], "missing_HOMECLUSTER_RPI5_COMMON_KERNEL_ROLLOUT_APPLY")
 
     def test_rollout_fixture_returns_phase_record(self):
-        temporary, fixture = self.fixture({"status": "pass", "targets": ["rpi5-01"]})
+        temporary, fixture = self.fixture({"status": "pass", "targets": ["generic-a"]})
         try:
             completed, value = self.run_json(
                 ROLLOUT,
@@ -153,28 +153,29 @@ class PolicyTests(unittest.TestCase):
         directory.mkdir(parents=True, exist_ok=True)
         (directory / f"{phase}.json").write_text(json.dumps(value), encoding="utf-8")
 
-    def test_rollout_order_and_fixed_targets(self):
+    def test_rollout_order_and_group_driven_targets(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            targets, _, phase = ROLLOUT_MODULE.target_policy(root, "generic_canary", ["rpi5-01", "rpi5-02", "rpi5-03"])
-            self.assertEqual((targets, phase), (["rpi5-01"], "generic_canary"))
-            self.write_record(root, "generic_canary", {"acceptance_status": "pass", "targets": ["rpi5-01"]})
-            targets, _, phase = ROLLOUT_MODULE.target_policy(root, "egpu_canary", ["rpi5-01", "rpi5-02", "rpi5-03"])
-            self.assertEqual((targets, phase), (["rpi5-03"], "egpu_canary"))
-            self.write_record(root, "egpu_canary", {"acceptance_status": "pass", "targets": ["rpi5-03"]})
-            targets, _, phase = ROLLOUT_MODULE.target_policy(root, "fleet_rollout", ["rpi5-01", "rpi5-02", "rpi5-03"])
-            self.assertEqual((targets, phase), (["rpi5-02"], "fleet_rollout"))
+            agents = ["generic-a", "generic-b", "egpu-a"]
+            targets, _, phase = ROLLOUT_MODULE.target_policy(root, "generic_canary", agents, "egpu-a")
+            self.assertEqual((targets, phase), (["generic-a"], "generic_canary"))
+            self.write_record(root, "generic_canary", {"acceptance_status": "pass", "targets": ["generic-a"]})
+            targets, _, phase = ROLLOUT_MODULE.target_policy(root, "egpu_canary", agents, "egpu-a")
+            self.assertEqual((targets, phase), (["egpu-a"], "egpu_canary"))
+            self.write_record(root, "egpu_canary", {"acceptance_status": "pass", "targets": ["egpu-a"]})
+            targets, _, phase = ROLLOUT_MODULE.target_policy(root, "fleet_rollout", agents, "egpu-a")
+            self.assertEqual((targets, phase), (["generic-b"], "fleet_rollout"))
 
     def test_rollback_uses_only_recorded_previous_selectors(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            previous = {"rpi5-01": {"tftp_release": "20260730-rpi5", "rootfs_release": "20260730-rpi5"}}
+            previous = {"generic-a": {"tftp_release": "20260730-rpi5", "rootfs_release": "20260730-rpi5"}}
             self.write_record(
                 root,
                 "generic_canary",
                 {
                     "phase": "generic_canary",
-                    "targets": ["rpi5-01"],
+                    "targets": ["generic-a"],
                     "acceptance_status": "fail",
                     "previous_selector_by_node": previous,
                 },
@@ -182,9 +183,10 @@ class PolicyTests(unittest.TestCase):
             targets, selectors, failed_phase = ROLLOUT_MODULE.target_policy(
                 root,
                 "rollback_last_phase",
-                ["rpi5-01", "rpi5-02", "rpi5-03"],
+                ["generic-a", "generic-b", "egpu-a"],
+                "egpu-a",
             )
-            self.assertEqual(targets, ["rpi5-01"])
+            self.assertEqual(targets, ["generic-a"])
             self.assertEqual(selectors, previous)
             self.assertEqual(failed_phase, "generic_canary")
 
@@ -200,6 +202,8 @@ class SourceContractTests(unittest.TestCase):
         self.assertNotIn('add_argument("--playbook"', precheck + gate + rollout)
         self.assertIn("automatic_rollback=false", rollout)
         self.assertIn("choices=PHASES", rollout)
+        self.assertIn('AGENT_GROUP = "k3s_stg_agents"', rollout)
+        self.assertIn('EGPU_GROUP = "rpi5_egpu_artifact_bundle"', rollout)
 
     def test_rollout_playbook_records_previous_selector_before_mutation(self):
         playbook = (HERE.parent / "ansible/openwrt/playbooks/rpi5-common-kernel-rollout.yml").read_text(encoding="utf-8")
