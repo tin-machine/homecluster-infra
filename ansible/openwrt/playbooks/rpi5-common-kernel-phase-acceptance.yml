@@ -1,0 +1,67 @@
+---
+- name: Pi5 common kernel phase acceptance
+  hosts: all
+  gather_facts: false
+  become: false
+  tasks:
+    - name: Pi5 common kernel acceptance inputを検証
+      ansible.builtin.assert:
+        that:
+          - homecluster_common_kernel_acceptance_phase in ['generic_canary', 'egpu_canary', 'fleet_rollout', 'rollback_last_phase']
+          - homecluster_common_kernel_expect_exact_release is boolean
+          - >-
+            not (homecluster_common_kernel_expect_exact_release | bool)
+            or (homecluster_common_kernel_exact_release | string is match('^.+-v8-homecluster\\+$'))
+        fail_msg: common-kernel acceptance input contractが不正です
+      changed_when: false
+
+    - name: Pi5 common kernel runtime releaseを取得
+      ansible.builtin.command: uname -r
+      register: homecluster_common_kernel_runtime_release
+      changed_when: false
+
+    - name: Pi5 common kernel exact releaseを検証
+      ansible.builtin.assert:
+        that:
+          - homecluster_common_kernel_runtime_release.stdout | trim == homecluster_common_kernel_exact_release
+        fail_msg: runtime kernel releaseがaccepted exact releaseと一致しません
+      when: homecluster_common_kernel_expect_exact_release | bool
+      changed_when: false
+
+    - name: Pi5 common kernel runtime hard gateを検証
+      ansible.builtin.shell: |
+        set -euo pipefail
+        test "$(getconf PAGESIZE)" = 4096
+        test -d "/lib/modules/$(uname -r)"
+        test -d /sys/bus/pci
+        ip route show | grep -q .
+        zcat /proc/config.gz | grep -qx 'CONFIG_ARM64_4K_PAGES=y'
+        zcat /proc/config.gz | grep -qx 'CONFIG_ARM64_VA_BITS_48=y'
+        zcat /proc/config.gz | grep -qx 'CONFIG_ARM64_VA_BITS=48'
+        zcat /proc/config.gz | grep -qx 'CONFIG_MODULES=y'
+        zcat /proc/config.gz | grep -qx 'CONFIG_IKCONFIG=y'
+        zcat /proc/config.gz | grep -qx 'CONFIG_IKCONFIG_PROC=y'
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Generic canaryでNVIDIA module非autoloadを検証
+      ansible.builtin.shell: |
+        set -euo pipefail
+        if lsmod | awk '{print $1}' | grep -q '^nvidia'; then
+          exit 1
+        fi
+      args:
+        executable: /bin/bash
+      when: homecluster_common_kernel_acceptance_phase == 'generic_canary'
+      changed_when: false
+
+    - name: eGPU canaryでNVIDIAとLLM serviceを検証
+      ansible.builtin.shell: |
+        set -euo pipefail
+        lsmod | awk '{print $1}' | grep -q '^nvidia$'
+        test "$(systemctl is-active llama-vulkan.service)" = active
+      args:
+        executable: /bin/bash
+      when: homecluster_common_kernel_acceptance_phase == 'egpu_canary'
+      changed_when: false

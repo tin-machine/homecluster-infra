@@ -1,0 +1,212 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import re
+import subprocess
+import tempfile
+from pathlib import Path
+from typing import Any, Sequence
+
+COLLECTOR = "homecluster-rpi5-common-kernel-gate"
+SAFE_RUN_ID = re.compile(r"^[0-9]{8}T[0-9]{6}Z-[A-Za-z0-9._-]+$")
+SHA256 = re.compile(r"^[0-9a-f]{64}$")
+COMMIT = re.compile(r"^[0-9a-f]{40}$")
+KERNEL = re.compile(r"^.+-v8-homecluster\+$")
+SELECTOR = re.compile(r"^[0-9]{8}-rpi5$")
+
+
+class GateError(RuntimeError):
+    def __init__(self, reason: str, status: str = "blocked") -> None:
+        super().__init__(reason)
+        self.reason = reason
+        self.status = status
+
+
+def run(command: Sequence[str | Path], *, cwd: Path, timeout: int = 900) -> subprocess.CompletedProcess[str]:
+    try:
+        return subprocess.run(
+            [str(item) for item in command],
+            cwd=cwd,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=timeout,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise GateError("generation_gate_execution_failed", "unknown") from error
+
+
+def parse_env(path: Path) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        if "=" not in raw or raw.startswith("#"):
+            continue
+        key, value = raw.split("=", 1)
+        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
+            result[key] = value
+    return result
+
+
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def git(root: Path, *args: str) -> str:
+    completed = run(["git", "-C", root, *args], cwd=root, timeout=60)
+    if completed.returncode != 0:
+        raise GateError("infra_git_state_unavailable", "unknown")
+    return completed.stdout.strip()
+
+
+def validate_observer_run(run_id: str, infra: Path) -> str:
+    state_home = Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state"))).expanduser()
+    directory = state_home / "homecluster/ansible-observer" / run_id
+    run_path = directory / "run.env"
+    result_path = directory / "result.env"
+    if not run_path.is_file() or not result_path.is_file():
+        raise GateError("observer_terminal_contract_missing")
+    run_values = parse_env(run_path)
+    result_values = parse_env(result_path)
+    if run_values.get("workflow") != "stg-generation" or run_values.get("generation_variant") != "rpi5-common-kernel":
+        raise GateError("observer_run_not_common_kernel")
+    if result_values.get("status") != "pass" or result_values.get("job_terminal") != "true":
+        raise GateError("observer_generation_not_passed")
+    infra_commit = run_values.get("infra_commit", "")
+    if not COMMIT.fullmatch(infra_commit) or infra_commit != git(infra, "rev-parse", "HEAD"):
+        raise GateError("observer_infra_commit_mismatch")
+    return infra_commit
+
+
+def validate_result(value: Any, run_id: str, infra_commit: str, inventory_provenance: str) -> dict[str, Any]:
+    if not isinstance(value, dict) or value.get("status") != "pass":
+        reason = value.get("reason", "generation_gate_failed") if isinstance(value, dict) else "generation_gate_contract_invalid"
+        raise GateError(str(reason))
+    required = {
+        "generation_run_id": SAFE_RUN_ID,
+        "infra_commit": COMMIT,
+        "inventory_provenance": SHA256,
+        "exact_kernel_release": KERNEL,
+        "generation_manifest_sha256": SHA256,
+        "artifact_payload_sha256": SHA256,
+        "pxe_candidate_selector": SELECTOR,
+    }
+    for key, pattern in required.items():
+        field = value.get(key)
+        if not isinstance(field, str) or not pattern.fullmatch(field):
+            raise GateError("generation_gate_contract_invalid", "unknown")
+    if value["generation_run_id"] != run_id:
+        raise GateError("generation_gate_run_id_mismatch", "unknown")
+    if value["infra_commit"] != infra_commit:
+        raise GateError("generation_gate_infra_commit_mismatch", "unknown")
+    if value["inventory_provenance"] != inventory_provenance:
+        raise GateError("generation_gate_inventory_provenance_mismatch", "unknown")
+    if value.get("gate_version") != "rpi5-common-kernel-gate-v1":
+        raise GateError("generation_gate_version_invalid", "unknown")
+    return value
+
+
+def fixture_result(path: Path, run_id: str) -> dict[str, Any]:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise GateError("fixture_contract_invalid", "unknown")
+    status = str(value.get("status", "pass"))
+    if status != "pass":
+        return {
+            "collector": COLLECTOR,
+            "status": status,
+            "reason": str(value.get("reason", "fixture_gate_failed")),
+        }
+    return {
+        "collector": COLLECTOR,
+        "status": "pass",
+        "reason": "generation_gate_passed",
+        "generation_run_id": run_id,
+        "infra_commit": "a" * 40,
+        "inventory_provenance": "b" * 64,
+        "exact_kernel_release": str(value.get("exact_kernel_release", "6.18.37-v8-homecluster+")),
+        "generation_manifest_sha256": "c" * 64,
+        "artifact_payload_sha256": "d" * 64,
+        "pxe_candidate_selector": str(value.get("pxe_candidate_selector", "20260731-rpi5")),
+        "gate_version": "rpi5-common-kernel-gate-v1",
+    }
+
+
+def parser() -> argparse.ArgumentParser:
+    result = argparse.ArgumentParser(description="Fixed Pi5 common-kernel generation acceptance gate")
+    result.add_argument("--json", action="store_true")
+    result.add_argument("--observer-run-id", required=True)
+    result.add_argument("--fixture", default="", help=argparse.SUPPRESS)
+    return result
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = parser().parse_args(argv)
+    try:
+        if not SAFE_RUN_ID.fullmatch(args.observer_run_id):
+            raise GateError("generation_run_id_invalid", "unknown")
+        if args.fixture:
+            result = fixture_result(Path(args.fixture), args.observer_run_id)
+        else:
+            root = Path(__file__).resolve().parents[1]
+            inventory = Path(os.environ.get("HOMECLUSTER_ANSIBLE_INVENTORY", str(root.parent / "inventory.yml"))).resolve()
+            if not inventory.is_file():
+                raise GateError("inventory_entrypoint_missing")
+            if inventory.stat().st_mode & 0o077:
+                raise GateError("inventory_permissions_unsafe")
+            if git(root, "branch", "--show-current") != "stg":
+                raise GateError("infra_runtime_branch_not_stg")
+            if git(root, "status", "--porcelain"):
+                raise GateError("infra_checkout_dirty")
+            infra_commit = validate_observer_run(args.observer_run_id, root)
+            inventory_provenance = file_sha256(inventory)
+            playbook = root / "ansible/openwrt/playbooks/rpi5-common-kernel-gate.yml"
+            if not playbook.is_file():
+                raise GateError("generation_gate_playbook_missing")
+            with tempfile.TemporaryDirectory(prefix="homecluster-common-kernel-gate-", dir="/tmp") as temporary:
+                output = Path(temporary) / "result.json"
+                extra = {
+                    "homecluster_common_kernel_gate_output": str(output),
+                    "homecluster_common_kernel_inventory_provenance": inventory_provenance,
+                    "homecluster_common_kernel_observer_run_id": args.observer_run_id,
+                    "homecluster_common_kernel_infra_commit": infra_commit,
+                }
+                completed = run(
+                    [
+                        "ansible-playbook",
+                        "-i",
+                        inventory,
+                        playbook,
+                        "--extra-vars",
+                        json.dumps(extra, separators=(",", ":")),
+                    ],
+                    cwd=root / "ansible/openwrt",
+                    timeout=1200,
+                )
+                if completed.returncode != 0 or not output.is_file():
+                    raise GateError("generation_gate_playbook_failed")
+                try:
+                    raw = json.loads(output.read_text(encoding="utf-8"))
+                except (ValueError, json.JSONDecodeError) as error:
+                    raise GateError("generation_gate_contract_invalid", "unknown") from error
+                value = validate_result(raw, args.observer_run_id, infra_commit, inventory_provenance)
+                result = {"collector": COLLECTOR, **value}
+    except GateError as error:
+        result = {"collector": COLLECTOR, "status": error.status, "reason": error.reason}
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
+    else:
+        for key, value in result.items():
+            print(f"{key}={value}")
+    return 0 if result["status"] == "pass" else 2 if result["status"] in {"blocked", "unknown"} else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

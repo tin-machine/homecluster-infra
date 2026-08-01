@@ -1,0 +1,222 @@
+---
+- name: Pi5 common kernel fixed PXE selector rollout
+  hosts: openwrt
+  gather_facts: false
+  become: false
+  vars_files:
+    - ../group_vars/openwrt.yml
+  tasks:
+    - name: Pi5 common kernel rollout inputを検証
+      ansible.builtin.assert:
+        that:
+          - homecluster_common_kernel_rollout_phase in ['generic_canary', 'egpu_canary', 'fleet_rollout', 'rollback_last_phase']
+          - homecluster_common_kernel_rollout_output | string is match('^/tmp/homecluster-common-kernel-rollout-[A-Za-z0-9._/-]+/result.json$')
+          - homecluster_common_kernel_rollout_targets is iterable
+          - homecluster_common_kernel_rollout_targets | length > 0
+          - homecluster_common_kernel_accepted_generation_run_id | string is match('^[0-9]{8}T[0-9]{6}Z-[A-Za-z0-9._-]+$')
+          - homecluster_common_kernel_exact_release | string is match('^.+-v8-homecluster\\+$')
+          - homecluster_common_kernel_accepted_selector | string is match('^[0-9]{8}-rpi5$')
+          - homecluster_common_kernel_rollback_selectors is mapping
+        fail_msg: common-kernel rollout input contractが不正です
+      changed_when: false
+      no_log: true
+
+    - name: PXE client catalogを合成
+      ansible.builtin.include_role:
+        name: openwrt_pxe_client_catalog
+        apply:
+          tags:
+            - always
+      tags:
+        - always
+
+    - name: Pi5 common kernel target current selectorを解決
+      ansible.builtin.set_fact:
+        homecluster_common_kernel_current_selectors: >-
+          {%- set result = {} -%}
+          {%- for item in openwrt_pxe_hosts_effective | default([]) -%}
+          {%- set name = item.name | default('', true) | string | trim -%}
+          {%- if name in homecluster_common_kernel_rollout_targets -%}
+          {%- set _ = result.update({name: {
+            'tftp_release': item.tftp_release | default('', true) | string | trim,
+            'rootfs_release': item.rootfs_release | default(item.tftp_release | default('', true), true) | string | trim
+          }}) -%}
+          {%- endif -%}
+          {%- endfor -%}
+          {{ result }}
+      changed_when: false
+      no_log: true
+
+    - name: Pi5 common kernel target selector存在を検証
+      ansible.builtin.assert:
+        that:
+          - homecluster_common_kernel_current_selectors | length == homecluster_common_kernel_rollout_targets | length
+          - item in homecluster_common_kernel_current_selectors
+          - homecluster_common_kernel_current_selectors[item].tftp_release | string is match('^[0-9]{8}-rpi5$')
+          - homecluster_common_kernel_current_selectors[item].rootfs_release | string is match('^[0-9]{8}-rpi5$')
+        fail_msg: rollout targetの現在selectorを一意に解決できません
+      loop: "{{ homecluster_common_kernel_rollout_targets }}"
+      changed_when: false
+      no_log: true
+
+    - name: Pi5 common kernel applied selectorを解決
+      ansible.builtin.set_fact:
+        homecluster_common_kernel_applied_selectors: >-
+          {%- set result = {} -%}
+          {%- for name in homecluster_common_kernel_rollout_targets -%}
+          {%- if homecluster_common_kernel_rollout_phase == 'rollback_last_phase' -%}
+          {%- set previous = homecluster_common_kernel_rollback_selectors[name] | default({}) -%}
+          {%- set _ = result.update({name: {
+            'tftp_release': previous.tftp_release | default('', true) | string | trim,
+            'rootfs_release': previous.rootfs_release | default('', true) | string | trim
+          }}) -%}
+          {%- else -%}
+          {%- set _ = result.update({name: {
+            'tftp_release': homecluster_common_kernel_accepted_selector,
+            'rootfs_release': homecluster_common_kernel_accepted_selector
+          }}) -%}
+          {%- endif -%}
+          {%- endfor -%}
+          {{ result }}
+      changed_when: false
+      no_log: true
+
+    - name: Pi5 common kernel applied selectorを検証
+      ansible.builtin.assert:
+        that:
+          - homecluster_common_kernel_applied_selectors[item].tftp_release | string is match('^[0-9]{8}-rpi5$')
+          - homecluster_common_kernel_applied_selectors[item].rootfs_release | string is match('^[0-9]{8}-rpi5$')
+        fail_msg: applied selectorが固定release contractを満たしません
+      loop: "{{ homecluster_common_kernel_rollout_targets }}"
+      changed_when: false
+      no_log: true
+
+    - name: Pi5 common kernel selector source artifactを確認
+      ansible.builtin.stat:
+        path: "{{ item }}"
+        get_attributes: false
+        get_checksum: false
+        get_mime: false
+      loop: >-
+        {{
+          (
+            homecluster_common_kernel_applied_selectors
+            | dict2items
+            | map(attribute='value.tftp_release')
+            | map('regex_replace', '^(.*)$', '/srv/gentoo/tftp-root/dates/\\1')
+            | list
+          )
+          +
+          (
+            homecluster_common_kernel_applied_selectors
+            | dict2items
+            | map(attribute='value.rootfs_release')
+            | map('regex_replace', '^(.*)$', '/srv/gentoo/\\1/nfs')
+            | list
+          )
+        }}
+      register: homecluster_common_kernel_selector_source_stats
+      changed_when: false
+      no_log: true
+
+    - name: Pi5 common kernel selector source artifactを検証
+      ansible.builtin.assert:
+        that:
+          - item.stat.isdir | default(false)
+        fail_msg: applied selectorのTFTPまたはrootfs sourceがありません
+      loop: "{{ homecluster_common_kernel_selector_source_stats.results | default([]) }}"
+      changed_when: false
+      no_log: true
+
+    - name: Pi5 common kernel modified PXE host listを作成
+      ansible.builtin.set_fact:
+        openwrt_pxe_hosts_effective_override: >-
+          {%- set result = [] -%}
+          {%- for item in openwrt_pxe_hosts_effective | default([]) -%}
+          {%- set name = item.name | default('', true) | string | trim -%}
+          {%- if name in homecluster_common_kernel_rollout_targets -%}
+          {%- set selector = homecluster_common_kernel_applied_selectors[name] -%}
+          {%- set _ = result.append(item | combine({
+            'tftp_release': selector.tftp_release,
+            'rootfs_release': selector.rootfs_release
+          })) -%}
+          {%- else -%}
+          {%- set _ = result.append(item) -%}
+          {%- endif -%}
+          {%- endfor -%}
+          {{ result }}
+      changed_when: false
+      no_log: true
+
+    - name: Pi5 common kernel rollback可能なpre-mutation planをcontrollerへ保存
+      ansible.builtin.copy:
+        dest: "{{ homecluster_common_kernel_rollout_output }}"
+        mode: '0600'
+        content: >-
+          {{
+            {
+              'status': 'planned',
+              'reason': 'selector_plan_recorded',
+              'phase': homecluster_common_kernel_rollout_phase,
+              'targets': homecluster_common_kernel_rollout_targets,
+              'previous_selector_by_node': homecluster_common_kernel_current_selectors,
+              'applied_selector_by_node': homecluster_common_kernel_applied_selectors,
+              'accepted_generation_run_id': homecluster_common_kernel_accepted_generation_run_id,
+              'exact_kernel_release': homecluster_common_kernel_exact_release
+            } | to_json
+          }}
+      delegate_to: localhost
+      changed_when: false
+      no_log: true
+
+    - name: Pi5 common kernel fixed PXE selectorを適用
+      ansible.builtin.include_role:
+        name: openwrt_gentoo_rootfs
+        tasks_from: tftp_switch
+      tags:
+        - pxe_tftp_switch
+
+    - name: Pi5 common kernel applied selectorを検証
+      ansible.builtin.assert:
+        that:
+          - >-
+            (
+              openwrt_pxe_hosts_effective_override
+              | selectattr('name', 'equalto', item)
+              | map(attribute='tftp_release')
+              | list
+              | first
+            ) == homecluster_common_kernel_applied_selectors[item].tftp_release
+          - >-
+            (
+              openwrt_pxe_hosts_effective_override
+              | selectattr('name', 'equalto', item)
+              | map(attribute='rootfs_release')
+              | list
+              | first
+            ) == homecluster_common_kernel_applied_selectors[item].rootfs_release
+        fail_msg: applied selectorのpost-checkが不一致です
+      loop: "{{ homecluster_common_kernel_rollout_targets }}"
+      changed_when: false
+      no_log: true
+
+    - name: Pi5 common kernel selector apply resultをcontrollerへ保存
+      ansible.builtin.copy:
+        dest: "{{ homecluster_common_kernel_rollout_output }}"
+        mode: '0600'
+        content: >-
+          {{
+            {
+              'status': 'applied',
+              'reason': 'selector_applied',
+              'phase': homecluster_common_kernel_rollout_phase,
+              'targets': homecluster_common_kernel_rollout_targets,
+              'previous_selector_by_node': homecluster_common_kernel_current_selectors,
+              'applied_selector_by_node': homecluster_common_kernel_applied_selectors,
+              'accepted_generation_run_id': homecluster_common_kernel_accepted_generation_run_id,
+              'exact_kernel_release': homecluster_common_kernel_exact_release
+            } | to_json
+          }}
+      delegate_to: localhost
+      changed_when: false
+      no_log: true

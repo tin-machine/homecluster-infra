@@ -1,0 +1,515 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import subprocess
+import tempfile
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Mapping, Sequence
+
+COLLECTOR = "homecluster-rpi5-common-kernel-rollout"
+PHASES = ("generic_canary", "egpu_canary", "fleet_rollout", "rollback_last_phase")
+RUNTIME_PHASES = ("generic_canary", "egpu_canary", "fleet_rollout")
+AGENT_GROUP = "k3s_stg_agents"
+EGPU_GROUP = "rpi5_egpu_artifact_bundle"
+SAFE_RUN_ID = re.compile(r"^[0-9]{8}T[0-9]{6}Z-[A-Za-z0-9._-]+$")
+KERNEL_RELEASE = re.compile(r"^.+-v8-homecluster\+$")
+SELECTOR = re.compile(r"^[0-9]{8}-rpi5$")
+MAX_WAIT_SECONDS = 2 * 60 * 60
+
+
+class RolloutError(RuntimeError):
+    def __init__(self, reason: str, status: str = "blocked") -> None:
+        super().__init__(reason)
+        self.reason = reason
+        self.status = status
+
+
+def utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def run(
+    command: Sequence[str | Path],
+    *,
+    cwd: Path,
+    timeout: int,
+    env: Mapping[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    try:
+        return subprocess.run(
+            [str(item) for item in command],
+            cwd=cwd,
+            env=dict(env) if env else None,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=timeout,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise RolloutError("rollout_command_execution_failed", "unknown") from error
+
+
+def parse_kv(output: str) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for raw in output.splitlines():
+        if "=" not in raw:
+            continue
+        key, value = raw.split("=", 1)
+        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
+            result[key] = value
+    return result
+
+
+def read_json(path: Path) -> dict[str, Any]:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise ValueError("json_object_required")
+    return value
+
+
+def workflow_root() -> Path:
+    state_home = Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state"))).expanduser()
+    return state_home / "homecluster/rpi5-common-kernel"
+
+
+def latest_accepted(root: Path) -> dict[str, Any]:
+    directory = root / "accepted-generation"
+    if not directory.is_dir():
+        raise RolloutError("accepted_generation_missing")
+    for path in sorted(directory.glob("*.json"), reverse=True):
+        try:
+            value = read_json(path)
+        except (OSError, ValueError, json.JSONDecodeError):
+            continue
+        if (
+            SAFE_RUN_ID.fullmatch(str(value.get("generation_run_id", "")))
+            and KERNEL_RELEASE.fullmatch(str(value.get("exact_kernel_release", "")))
+            and SELECTOR.fullmatch(str(value.get("pxe_candidate_selector", "")))
+        ):
+            return value
+    raise RolloutError("accepted_generation_contract_invalid", "unknown")
+
+
+def phase_record(root: Path, phase: str) -> dict[str, Any]:
+    path = root / "rollout-phases" / f"{phase}.json"
+    try:
+        return read_json(path)
+    except (OSError, ValueError, json.JSONDecodeError):
+        return {}
+
+
+def inventory_json(root: Path, inventory: Path) -> dict[str, Any]:
+    completed = run(["ansible-inventory", "-i", inventory, "--list"], cwd=root, timeout=180)
+    if completed.returncode != 0:
+        raise RolloutError("inventory_list_failed")
+    try:
+        value = json.loads(completed.stdout)
+    except (ValueError, json.JSONDecodeError) as error:
+        raise RolloutError("inventory_contract_invalid", "unknown") from error
+    if not isinstance(value, dict):
+        raise RolloutError("inventory_contract_invalid", "unknown")
+    return value
+
+
+def group_hosts(value: Mapping[str, Any], group: str) -> list[str]:
+    group_value = value.get(group)
+    hosts = group_value.get("hosts") if isinstance(group_value, dict) else None
+    if not isinstance(hosts, list) or any(not isinstance(item, str) or not item for item in hosts):
+        return []
+    return sorted(set(hosts))
+
+
+def inventory_targets(root: Path, inventory: Path) -> tuple[list[str], str]:
+    value = inventory_json(root, inventory)
+    agents = group_hosts(value, AGENT_GROUP)
+    egpu = group_hosts(value, EGPU_GROUP)
+    if len(egpu) != 1:
+        raise RolloutError("egpu_target_group_invalid")
+    egpu_target = egpu[0]
+    if not agents or egpu_target not in agents:
+        raise RolloutError("rollout_agent_group_invalid")
+    return agents, egpu_target
+
+
+def target_policy(
+    root: Path,
+    phase: str,
+    agents: Sequence[str],
+    egpu_target: str,
+) -> tuple[list[str], dict[str, Any], str]:
+    generic = phase_record(root, "generic_canary")
+    egpu = phase_record(root, "egpu_canary")
+    fleet = phase_record(root, "fleet_rollout")
+    if phase == "generic_canary":
+        if generic.get("acceptance_status") == "pass":
+            raise RolloutError("generic_canary_already_accepted")
+        candidates = sorted(name for name in agents if name != egpu_target)
+        if not candidates:
+            raise RolloutError("generic_canary_target_unavailable")
+        return [candidates[0]], {}, phase
+    if phase == "egpu_canary":
+        if generic.get("acceptance_status") != "pass":
+            raise RolloutError("generic_canary_gate_missing")
+        if egpu.get("acceptance_status") == "pass":
+            raise RolloutError("egpu_canary_already_accepted")
+        return [egpu_target], {}, phase
+    if phase == "fleet_rollout":
+        if egpu.get("acceptance_status") != "pass":
+            raise RolloutError("egpu_canary_gate_missing")
+        if fleet.get("acceptance_status") == "pass":
+            raise RolloutError("fleet_rollout_already_accepted")
+        accepted_targets = set(generic.get("targets", [])) | set(egpu.get("targets", []))
+        targets = [name for name in agents if name not in accepted_targets]
+        if not targets:
+            raise RolloutError("fleet_rollout_targets_empty")
+        return targets, {}, phase
+
+    failed: dict[str, Any] = {}
+    for candidate in reversed(RUNTIME_PHASES):
+        value = phase_record(root, candidate)
+        if value.get("acceptance_status") == "fail":
+            failed = value
+            break
+    previous = failed.get("previous_selector_by_node") if failed else None
+    targets = failed.get("targets") if failed else None
+    failed_phase = str(failed.get("phase", "")) if failed else ""
+    if failed_phase not in RUNTIME_PHASES or not isinstance(previous, dict) or not previous:
+        raise RolloutError("known_rollback_unavailable")
+    if not isinstance(targets, list) or not targets or any(target not in agents for target in targets):
+        raise RolloutError("rollback_target_contract_invalid", "unknown")
+    for target in targets:
+        selector = previous.get(target)
+        if not isinstance(selector, dict):
+            raise RolloutError("rollback_selector_contract_invalid", "unknown")
+        if not SELECTOR.fullmatch(str(selector.get("tftp_release", ""))) or not SELECTOR.fullmatch(
+            str(selector.get("rootfs_release", ""))
+        ):
+            raise RolloutError("rollback_selector_contract_invalid", "unknown")
+    return [str(item) for item in targets], previous, failed_phase
+
+
+def ensure_no_active_fresh_boot(runbook: Path) -> None:
+    script = runbook / ".agents/skills/homecluster-k3s-fresh-boot-acceptance/scripts/status-k3s-fresh-boot-acceptance-job.sh"
+    if not script.is_file():
+        raise RolloutError("fresh_boot_status_helper_missing")
+    completed = run([script], cwd=runbook, timeout=30)
+    values = parse_kv(completed.stdout)
+    if values.get("status") == "in_progress":
+        raise RolloutError("fresh_boot_job_already_active")
+
+
+def run_fresh_boot(runbook: Path) -> tuple[str, str]:
+    scripts = runbook / ".agents/skills/homecluster-k3s-fresh-boot-acceptance/scripts"
+    start = scripts / "start-k3s-fresh-boot-acceptance-job.sh"
+    wait = scripts / "wait-k3s-fresh-boot-acceptance-job.sh"
+    if not start.is_file() or not wait.is_file():
+        raise RolloutError("fresh_boot_helper_missing")
+    environment = {**os.environ, "HOMECLUSTER_K3S_FRESH_BOOT_POWER_APPLY": "1"}
+    started = run([start], cwd=runbook, timeout=60, env=environment)
+    start_values = parse_kv(started.stdout)
+    if start_values.get("status") not in {"started", "in_progress"}:
+        raise RolloutError(start_values.get("reason", "fresh_boot_start_failed"))
+    run_id = start_values.get("run_id", "")
+    if not re.fullmatch(r"[0-9]{8}T[0-9]{6}Z", run_id):
+        raise RolloutError("fresh_boot_run_id_invalid", "unknown")
+
+    deadline = time.monotonic() + MAX_WAIT_SECONDS
+    while time.monotonic() < deadline:
+        completed = run(
+            [wait],
+            cwd=runbook,
+            timeout=600,
+            env={**environment, "WAIT_TIMEOUT_SECONDS": "540", "POLL_SECONDS": "30"},
+        )
+        values = parse_kv(completed.stdout)
+        status = values.get("status", "unknown")
+        if status == "pass":
+            return run_id, "pass"
+        if status in {"fail", "blocked", "unknown"}:
+            return run_id, status
+        if status != "in_progress":
+            return run_id, "unknown"
+    return run_id, "in_progress"
+
+
+def run_phase_acceptance(
+    root: Path,
+    runbook: Path,
+    inventory: Path,
+    phase: str,
+    targets: Sequence[str],
+    all_agents: Sequence[str],
+    exact_release: str,
+) -> tuple[bool, list[str]]:
+    diagnostics: list[str] = []
+    playbook = root / "ansible/openwrt/playbooks/rpi5-common-kernel-phase-acceptance.yml"
+    expect_exact = phase != "rollback_last_phase"
+    acceptance_targets = list(all_agents) if phase == "fleet_rollout" else list(targets)
+    completed = run(
+        [
+            "ansible-playbook",
+            "-i",
+            inventory,
+            playbook,
+            "--limit",
+            ",".join(acceptance_targets),
+            "--extra-vars",
+            json.dumps(
+                {
+                    "homecluster_common_kernel_acceptance_phase": phase,
+                    "homecluster_common_kernel_expect_exact_release": expect_exact,
+                    "homecluster_common_kernel_exact_release": exact_release,
+                },
+                separators=(",", ":"),
+            ),
+        ],
+        cwd=root / "ansible/openwrt",
+        timeout=900,
+    )
+    if completed.returncode != 0:
+        return False, ["phase_runtime_acceptance=fail"]
+    diagnostics.append("phase_runtime_acceptance=pass")
+
+    k3s_status = run(["bash", runbook / "scripts/pi-k3s-status", "--json"], cwd=runbook, timeout=900)
+    try:
+        k3s = json.loads(k3s_status.stdout)
+    except (ValueError, json.JSONDecodeError):
+        return False, [*diagnostics, "k3s_final_acceptance=unknown"]
+    if k3s_status.returncode != 0 or not isinstance(k3s, dict) or k3s.get("status") != "healthy":
+        return False, [*diagnostics, "k3s_final_acceptance=fail"]
+    diagnostics.append("k3s_final_acceptance=pass")
+
+    if phase == "egpu_canary":
+        llm_helper = runbook / "scripts/pi-rpi5-egpu-llm-status"
+        if not llm_helper.is_file():
+            return False, [*diagnostics, "llm_acceptance_helper=missing"]
+        llm = run(
+            ["bash", llm_helper],
+            cwd=runbook,
+            timeout=900,
+            env={**os.environ, "HOMECLUSTER_RPI5_03_EXPECTED_KERNEL_RELEASE": exact_release},
+        )
+        values = parse_kv(llm.stdout)
+        if (
+            llm.returncode != 0
+            or values.get("llm_status") != "healthy"
+            or values.get("llm_failed_check_ids") != "none"
+            or values.get("llm_unknown_check_ids") != "none"
+        ):
+            return False, [*diagnostics, "llm_acceptance=fail"]
+        diagnostics.append("llm_acceptance=pass")
+    return True, diagnostics
+
+
+def phase_record_value(
+    *,
+    phase: str,
+    targets: Sequence[str],
+    selector_result: Mapping[str, Any],
+    accepted: Mapping[str, Any],
+    fresh_boot_run_id: str,
+    acceptance_status: str,
+    started_at: str,
+) -> dict[str, Any]:
+    return {
+        "phase": phase,
+        "targets": list(targets),
+        "previous_selector_by_node": selector_result.get("previous_selector_by_node", {}),
+        "applied_selector_by_node": selector_result.get("applied_selector_by_node", {}),
+        "accepted_generation_run_id": str(accepted["generation_run_id"]),
+        "exact_kernel_release": str(accepted["exact_kernel_release"]),
+        "fresh_boot_run_id": fresh_boot_run_id,
+        "acceptance_status": acceptance_status,
+        "acceptance_version": "rpi5-common-kernel-phase-v1",
+        "started_at": started_at,
+        "completed_at": utc_now(),
+    }
+
+
+def fixture_result(path: Path, phase: str) -> dict[str, Any]:
+    value = read_json(path)
+    status = str(value.get("status", "pass"))
+    targets = value.get("targets", ["generic-a"])
+    if not isinstance(targets, list):
+        raise RolloutError("fixture_contract_invalid", "unknown")
+    record_phase = str(value.get("record_phase", "generic_canary" if phase == "rollback_last_phase" else phase))
+    acceptance = str(value.get("acceptance_status", "rolled_back" if phase == "rollback_last_phase" else status))
+    record = {
+        "phase": record_phase,
+        "targets": targets,
+        "previous_selector_by_node": {str(target): {"tftp_release": "20260730-rpi5", "rootfs_release": "20260730-rpi5"} for target in targets},
+        "applied_selector_by_node": {str(target): {"tftp_release": "20260731-rpi5", "rootfs_release": "20260731-rpi5"} for target in targets},
+        "accepted_generation_run_id": "20260731T000000Z-stg-generation-1",
+        "exact_kernel_release": "6.18.37-v8-homecluster+",
+        "fresh_boot_run_id": "20260731T010000Z",
+        "acceptance_status": acceptance,
+        "acceptance_version": "rpi5-common-kernel-phase-v1",
+        "started_at": utc_now(),
+        "completed_at": utc_now(),
+    }
+    return {
+        "collector": COLLECTOR,
+        "status": status,
+        "reason": str(value.get("reason", f"{phase}_accepted")),
+        "phase_record": record,
+        "diagnostics": [str(item) for item in value.get("diagnostics", []) if isinstance(item, str)],
+    }
+
+
+def parser() -> argparse.ArgumentParser:
+    result = argparse.ArgumentParser(description="Fixed Pi5 common-kernel rollout phase")
+    result.add_argument("--json", action="store_true")
+    result.add_argument("--phase", required=True, choices=PHASES)
+    result.add_argument("--fixture", default="", help=argparse.SUPPRESS)
+    return result
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = parser().parse_args(argv)
+    try:
+        if args.fixture:
+            result = fixture_result(Path(args.fixture), args.phase)
+        else:
+            if os.environ.get("HOMECLUSTER_RPI5_COMMON_KERNEL_ROLLOUT_APPLY") != "1":
+                raise RolloutError("missing_HOMECLUSTER_RPI5_COMMON_KERNEL_ROLLOUT_APPLY")
+            root = Path(__file__).resolve().parents[1]
+            runbook = Path(os.environ.get("HOMECLUSTER_RUNBOOK_ROOT", str(root.parent / "homecluster-runbook"))).resolve()
+            inventory = Path(os.environ.get("HOMECLUSTER_ANSIBLE_INVENTORY", str(root.parent / "inventory.yml"))).resolve()
+            if not inventory.is_file() or inventory.stat().st_mode & 0o077:
+                raise RolloutError("inventory_entrypoint_invalid")
+            branch = run(["git", "-C", root, "branch", "--show-current"], cwd=root, timeout=60)
+            dirty = run(["git", "-C", root, "status", "--porcelain"], cwd=root, timeout=60)
+            if branch.returncode != 0 or branch.stdout.strip() != "stg":
+                raise RolloutError("infra_runtime_branch_not_stg")
+            if dirty.returncode != 0 or dirty.stdout.strip():
+                raise RolloutError("infra_checkout_dirty")
+            accepted = latest_accepted(workflow_root())
+            agents, egpu_target = inventory_targets(root, inventory)
+            targets, rollback_selectors, record_phase = target_policy(
+                workflow_root(),
+                args.phase,
+                agents,
+                egpu_target,
+            )
+            ensure_no_active_fresh_boot(runbook)
+            started_at = utc_now()
+            playbook = root / "ansible/openwrt/playbooks/rpi5-common-kernel-rollout.yml"
+            with tempfile.TemporaryDirectory(prefix="homecluster-common-kernel-rollout-", dir="/tmp") as temporary:
+                output = Path(temporary) / "result.json"
+                extra = {
+                    "homecluster_common_kernel_rollout_phase": args.phase,
+                    "homecluster_common_kernel_rollout_output": str(output),
+                    "homecluster_common_kernel_rollout_targets": targets,
+                    "homecluster_common_kernel_accepted_generation_run_id": accepted["generation_run_id"],
+                    "homecluster_common_kernel_exact_release": accepted["exact_kernel_release"],
+                    "homecluster_common_kernel_accepted_selector": accepted["pxe_candidate_selector"],
+                    "homecluster_common_kernel_rollback_selectors": rollback_selectors,
+                }
+                selector_apply = run(
+                    [
+                        "ansible-playbook",
+                        "-i",
+                        inventory,
+                        playbook,
+                        "--extra-vars",
+                        json.dumps(extra, separators=(",", ":")),
+                    ],
+                    cwd=root / "ansible/openwrt",
+                    timeout=1200,
+                )
+                selector_result: dict[str, Any] = {}
+                if output.is_file():
+                    try:
+                        selector_result = read_json(output)
+                    except (ValueError, json.JSONDecodeError):
+                        selector_result = {}
+                if selector_apply.returncode != 0 or selector_result.get("status") != "applied":
+                    record = phase_record_value(
+                        phase=record_phase,
+                        targets=targets,
+                        selector_result=selector_result,
+                        accepted=accepted,
+                        fresh_boot_run_id="",
+                        acceptance_status="fail",
+                        started_at=started_at,
+                    )
+                    result = {
+                        "collector": COLLECTOR,
+                        "status": "fail",
+                        "reason": "selector_apply_failed",
+                        "phase_record": record,
+                        "diagnostics": ["selector_apply=fail", "automatic_rollback=false"],
+                    }
+                else:
+                    fresh_boot_run_id, fresh_boot_status = run_fresh_boot(runbook)
+                    if fresh_boot_status != "pass":
+                        record = phase_record_value(
+                            phase=record_phase,
+                            targets=targets,
+                            selector_result=selector_result,
+                            accepted=accepted,
+                            fresh_boot_run_id=fresh_boot_run_id,
+                            acceptance_status="fail",
+                            started_at=started_at,
+                        )
+                        result = {
+                            "collector": COLLECTOR,
+                            "status": "fail" if fresh_boot_status == "fail" else "unknown",
+                            "reason": f"fresh_boot_{fresh_boot_status}",
+                            "phase_record": record,
+                            "diagnostics": ["selector_apply=pass", f"fresh_boot={fresh_boot_status}", "automatic_rollback=false"],
+                        }
+                    else:
+                        accepted_phase, diagnostics = run_phase_acceptance(
+                            root,
+                            runbook,
+                            inventory,
+                            args.phase,
+                            targets,
+                            agents,
+                            str(accepted["exact_kernel_release"]),
+                        )
+                        acceptance_status = (
+                            "rolled_back" if args.phase == "rollback_last_phase" and accepted_phase else "pass" if accepted_phase else "fail"
+                        )
+                        record = phase_record_value(
+                            phase=record_phase,
+                            targets=targets,
+                            selector_result=selector_result,
+                            accepted=accepted,
+                            fresh_boot_run_id=fresh_boot_run_id,
+                            acceptance_status=acceptance_status,
+                            started_at=started_at,
+                        )
+                        result = {
+                            "collector": COLLECTOR,
+                            "status": "pass" if accepted_phase else "fail",
+                            "reason": (
+                                "rollback_accepted"
+                                if args.phase == "rollback_last_phase" and accepted_phase
+                                else f"{args.phase}_accepted"
+                                if accepted_phase
+                                else f"{args.phase}_acceptance_failed"
+                            ),
+                            "phase_record": record,
+                            "diagnostics": ["selector_apply=pass", "fresh_boot=pass", *diagnostics, "automatic_rollback=false"],
+                        }
+    except RolloutError as error:
+        result = {"collector": COLLECTOR, "status": error.status, "reason": error.reason, "diagnostics": []}
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
+    else:
+        print(f"collector={result['collector']}")
+        print(f"status={result['status']}")
+        print(f"reason={result['reason']}")
+    return 0 if result["status"] == "pass" else 2 if result["status"] in {"blocked", "unknown"} else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
