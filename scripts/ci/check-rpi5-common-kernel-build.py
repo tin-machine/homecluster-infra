@@ -50,19 +50,16 @@ def main() -> int:
     require(defaults, "rpi5_common_kernel_build_distcc_enabled: true", "distcc enabled default")
     require(defaults, "Plain distcc only", "plain distcc policy")
 
-    require(tasks, "kernel/config_data.gz", "local generated config data prebuild")
     require(tasks, "kernel/configs.o", "local generated config object prebuild")
+    require_not(tasks, "make\n      - kernel/config_data.gz", "direct config data prebuild target")
     prepare_index = tasks.index("- make\n      - prepare")
-    config_data_index = tasks.index(
-        "- name: Rpi5 common kernel build の kernel/config_data.gz を local で先行生成"
-    )
     configs_object_index = tasks.index(
         "- name: Rpi5 common kernel build の kernel/configs.o を wrapper経由で先行生成"
     )
-    if not prepare_index < config_data_index < configs_object_index:
+    if not prepare_index < configs_object_index:
         raise AssertionError("local generated config preparation order is not preserved")
     wrapper_index = tasks.index(".homecluster-cc-wrapper")
-    if not prepare_index < wrapper_index < config_data_index:
+    if not prepare_index < wrapper_index < configs_object_index:
         raise AssertionError("generated config compiler wrapper order is not preserved")
     configs_task = tasks[configs_object_index : tasks.index("plain distccでbuild")]
     require(configs_task, "CC: ./.homecluster-cc-wrapper", "local configs compiler wrapper")
