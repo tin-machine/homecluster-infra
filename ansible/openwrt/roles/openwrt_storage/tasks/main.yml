@@ -100,8 +100,10 @@
     that:
       - item.number is defined
       - item.fstype is defined
-      - item.fstype in ['vfat', 'fat32', 'f2fs', 'swap']
+      - item.fstype in ['vfat', 'fat32', 'f2fs', 'ext4', 'swap']
       - item.label is defined
+      - item.mkfs_options is not defined or (item.mkfs_options is sequence and item.mkfs_options is not string)
+      - item.mkfs_options is not defined or (item.mkfs_options | select('string') | list | length == item.mkfs_options | length)
       - (not openwrt_storage_force_repartition | bool) or item.start is defined
       - (not openwrt_storage_force_repartition | bool) or item.end is defined
     fail_msg: "openwrt_storage_partition_map item に number/fstype/label/start/end が不足、または fstype が未対応です: {{ item }}"
@@ -157,10 +159,13 @@
   ansible.builtin.assert:
     that:
       - openwrt_storage_destructive_confirm == openwrt_storage_destructive_confirm_expected
+      - openwrt_storage_expected_model | string | length > 0
+      - openwrt_storage_expected_serial | string | length > 0
     fail_msg: >-
       openwrt_storage_force_repartition/openwrt_storage_force_format には
-      openwrt_storage_destructive_confirm={{ openwrt_storage_destructive_confirm_expected }}
-      の明示が必要です。target={{ openwrt_storage_device }}
+      openwrt_storage_destructive_confirm={{ openwrt_storage_destructive_confirm_expected }}、
+      openwrt_storage_expected_model、openwrt_storage_expected_serial の明示が必要です。
+      target={{ openwrt_storage_device }}
   when: openwrt_storage_destructive_requested | bool
 
 - name: destructive storage 操作の対象 device を検証
@@ -303,6 +308,9 @@
         ;;
       f2fs)
         /usr/sbin/mkfs.f2fs -f -l "$label" "$part"
+        ;;
+      ext4)
+        /usr/sbin/mkfs.ext4 -F -L "$label"{% for option in item.mkfs_options | default([]) %} {{ option | quote }}{% endfor %} "$part"
         ;;
       swap)
         mkswap -L "$label" "$part"
