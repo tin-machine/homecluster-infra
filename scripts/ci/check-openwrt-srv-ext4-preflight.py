@@ -205,6 +205,8 @@ def test_ext4_format_uses_partition_scoped_options() -> None:
     required_task_fragments = (
         "item.fstype in ['vfat', 'fat32', 'f2fs', 'ext4', 'swap']",
         "item.mkfs_options is not defined or (item.mkfs_options is sequence and item.mkfs_options is not string)",
+        "- openwrt_storage_expected_model | string | length > 0",
+        "- openwrt_storage_expected_serial | string | length > 0",
         "ext4)",
         "/usr/sbin/mkfs.ext4 -F -L \"$label\"{% for option in item.mkfs_options | default([]) %} {{ option | quote }}{% endfor %} \"$part\"",
         "- item.format | default(true) | bool",

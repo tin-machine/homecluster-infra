@@ -159,10 +159,13 @@
   ansible.builtin.assert:
     that:
       - openwrt_storage_destructive_confirm == openwrt_storage_destructive_confirm_expected
+      - openwrt_storage_expected_model | string | length > 0
+      - openwrt_storage_expected_serial | string | length > 0
     fail_msg: >-
       openwrt_storage_force_repartition/openwrt_storage_force_format には
-      openwrt_storage_destructive_confirm={{ openwrt_storage_destructive_confirm_expected }}
-      の明示が必要です。target={{ openwrt_storage_device }}
+      openwrt_storage_destructive_confirm={{ openwrt_storage_destructive_confirm_expected }}、
+      openwrt_storage_expected_model、openwrt_storage_expected_serial の明示が必要です。
+      target={{ openwrt_storage_device }}
   when: openwrt_storage_destructive_requested | bool
 
 - name: destructive storage 操作の対象 device を検証
