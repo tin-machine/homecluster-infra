@@ -53,6 +53,11 @@ openwrt_storage_packages:
   - block-mount
   - f2fs-tools
   - kmod-fs-f2fs
+  - e2fsprogs
+  - tune2fs
+  - dumpe2fs
+  - fstrim
+  - kmod-fs-ext4
   - kmod-nvme
   - dosfstools
   - kmod-fs-vfat

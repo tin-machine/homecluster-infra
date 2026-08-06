@@ -9,6 +9,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 PLAYBOOK_PATH = (
     REPO_ROOT / "ansible/openwrt/playbooks/openwrt-srv-ext4-preflight.yml"
 )
+STORAGE_DEFAULTS_PATH = REPO_ROOT / "ansible/openwrt/roles/openwrt_storage/defaults/main.yml"
 
 FORMAT_READY_REQUIRED = {
     "source_mounted": "true",
@@ -133,10 +134,23 @@ def test_playbook_read_only_contract() -> None:
     assert content.count("changed_when: false") >= 4
 
 
+def test_ext4_preflight_packages_are_declared() -> None:
+    content = STORAGE_DEFAULTS_PATH.read_text(encoding="utf-8")
+    for package_name in (
+        "e2fsprogs",
+        "tune2fs",
+        "dumpe2fs",
+        "fstrim",
+        "kmod-fs-ext4",
+    ):
+        assert re.search(rf"(?m)^  - {re.escape(package_name)}$", content), package_name
+
+
 def main() -> None:
     test_format_ready_positive_fixture()
     test_format_ready_negative_fixtures()
     test_playbook_read_only_contract()
+    test_ext4_preflight_packages_are_declared()
     print("openwrt /srv ext4 preflight checks ok")
 
 
