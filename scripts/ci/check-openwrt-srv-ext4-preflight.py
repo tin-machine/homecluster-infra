@@ -224,6 +224,7 @@ def test_initial_backup_is_scoped_to_a_marked_data_directory() -> None:
         "nested_mountpoints_present",
         ".homecluster-ext4-initial-backup",
         "format=rsync-aHAXSx-numeric-ids",
+        "- --no-specials",
         "- --delete",
         '- "{{ openwrt_srv_ext4_backup_data_path }}/"',
     )

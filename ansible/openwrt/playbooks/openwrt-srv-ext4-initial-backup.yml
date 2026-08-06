@@ -129,6 +129,7 @@
         argv:
           - rsync
           - -aHAXSx
+          - --no-specials
           - --numeric-ids
           - --delete
           - "{{ openwrt_srv_ext4_backup_source_path }}/"
