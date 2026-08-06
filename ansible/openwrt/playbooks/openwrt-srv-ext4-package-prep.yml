@@ -1,0 +1,11 @@
+---
+- name: OpenWrt /srv ext4 migration package preparation
+  hosts: openwrt
+  gather_facts: false
+  become: false
+
+  tasks:
+    - name: OpenWrt /srv ext4 migration packageだけを導入
+      ansible.builtin.include_role:
+        name: openwrt_storage
+        tasks_from: package_prep.yml
