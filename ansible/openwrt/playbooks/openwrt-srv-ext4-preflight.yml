@@ -1,0 +1,286 @@
+---
+- name: OpenWrt /srv ext4 migration read-only preflight
+  hosts: openwrt
+  gather_facts: false
+  become: false
+  vars:
+    openwrt_srv_ext4_preflight_mode: baseline
+    openwrt_srv_ext4_preflight_source_path: /srv
+    openwrt_srv_ext4_preflight_backup_root: ""
+    openwrt_srv_ext4_preflight_backup_byte_multiplier: 1.2
+    openwrt_srv_ext4_preflight_backup_inode_multiplier: 1.2
+
+  tasks:
+    - name: OpenWrt /srv ext4 preflight入力を検証
+      ansible.builtin.assert:
+        that:
+          - openwrt_srv_ext4_preflight_mode in ['baseline', 'format_ready']
+          - openwrt_srv_ext4_preflight_source_path is match('^/')
+          - openwrt_srv_ext4_preflight_backup_root | length == 0 or openwrt_srv_ext4_preflight_backup_root is match('^/')
+          - openwrt_srv_ext4_preflight_backup_byte_multiplier | float >= 1.0
+          - openwrt_srv_ext4_preflight_backup_inode_multiplier | float >= 1.0
+        fail_msg: OpenWrt /srv ext4 preflightのmode、path、またはbackup余裕率が不正です
+      changed_when: false
+
+    - name: OpenWrt /srv ext4 preflightをread-onlyで収集
+      ansible.builtin.shell: |
+        set -u
+
+        mode={{ openwrt_srv_ext4_preflight_mode | quote }}
+        source_path={{ openwrt_srv_ext4_preflight_source_path | quote }}
+        backup_root={{ openwrt_srv_ext4_preflight_backup_root | quote }}
+        byte_multiplier={{ openwrt_srv_ext4_preflight_backup_byte_multiplier | float | quote }}
+        inode_multiplier={{ openwrt_srv_ext4_preflight_backup_inode_multiplier | float | quote }}
+
+        source_mounted=false
+        source_device=unknown
+        source_fstype=unknown
+        source_mount_options=unknown
+        source_readonly=false
+        source_used_kib=unknown
+        source_available_kib=unknown
+        source_inodes_used=unknown
+        source_inodes_available=unknown
+
+        source_mount_record="$(awk -v path="$source_path" '$2 == path {print $1 "|" $3 "|" $4; exit}' /proc/mounts)"
+        if [ -n "$source_mount_record" ]; then
+          source_mounted=true
+          source_device="${source_mount_record%%|*}"
+          source_mount_tail="${source_mount_record#*|}"
+          source_fstype="${source_mount_tail%%|*}"
+          source_mount_options="${source_mount_tail#*|}"
+          case ",$source_mount_options," in
+            *,ro,*) source_readonly=true ;;
+          esac
+        fi
+
+        source_df="$(df -Pk "$source_path" 2>/dev/null | awk 'NR == 2 {printf "%s|%s|%s", $1, $3, $4}')"
+        if [ -n "$source_df" ]; then
+          source_device="${source_df%%|*}"
+          source_df_tail="${source_df#*|}"
+          source_used_kib="${source_df_tail%%|*}"
+          source_available_kib="${source_df_tail#*|}"
+        fi
+        source_inode_df="$(df -Pi "$source_path" 2>/dev/null | awk 'NR == 2 {printf "%s|%s", $3, $4}')"
+        if [ -n "$source_inode_df" ]; then
+          source_inodes_used="${source_inode_df%%|*}"
+          source_inodes_available="${source_inode_df#*|}"
+        fi
+
+        required_commands_missing=
+        for command_name in python3 rsync mkfs.ext4 e2fsck tune2fs dumpe2fs fstrim; do
+          if ! command -v "$command_name" >/dev/null 2>&1; then
+            required_commands_missing="${required_commands_missing:+${required_commands_missing},}$command_name"
+          fi
+        done
+        required_commands_missing="${required_commands_missing:-none}"
+
+        rsync_acl_xattrs=false
+        if command -v rsync >/dev/null 2>&1; then
+          rsync_version="$(rsync --version 2>/dev/null || true)"
+          if printf '%s\n' "$rsync_version" | grep -qi 'ACLs' && printf '%s\n' "$rsync_version" | grep -qi 'xattrs'; then
+            rsync_acl_xattrs=true
+          fi
+        fi
+
+        backup_path_exists=false
+        backup_under_source=false
+        backup_same_device=false
+        backup_byte_capacity=false
+        backup_inode_capacity=false
+        backup_device=unknown
+        backup_available_kib=unknown
+        backup_inodes_available=unknown
+        if [ -n "$backup_root" ]; then
+          case "$backup_root/" in
+            "$source_path/"*) backup_under_source=true ;;
+          esac
+          if [ -d "$backup_root" ]; then
+            backup_path_exists=true
+            backup_df="$(df -Pk "$backup_root" 2>/dev/null | awk 'NR == 2 {printf "%s|%s", $1, $4}')"
+            backup_inode_df="$(df -Pi "$backup_root" 2>/dev/null | awk 'NR == 2 {print $4}')"
+            if [ -n "$backup_df" ]; then
+              backup_device="${backup_df%%|*}"
+              backup_available_kib="${backup_df#*|}"
+            fi
+            backup_inodes_available="${backup_inode_df:-unknown}"
+            if [ "$source_device" = "$backup_device" ]; then
+              backup_same_device=true
+            fi
+            if awk -v available="$backup_available_kib" -v used="$source_used_kib" -v multiplier="$byte_multiplier" 'BEGIN { exit !(available >= used * multiplier) }'; then
+              backup_byte_capacity=true
+            fi
+            if awk -v available="$backup_inodes_available" -v used="$source_inodes_used" -v multiplier="$inode_multiplier" 'BEGIN { exit !(available >= used * multiplier) }'; then
+              backup_inode_capacity=true
+            fi
+          fi
+        fi
+
+        writer_processes=unknown
+        if command -v pgrep >/dev/null 2>&1; then
+          writer_processes=
+          for process_name in dnsmasq tgtd ksmbd nfsd; do
+            if pgrep -x "$process_name" >/dev/null 2>&1; then
+              writer_processes="${writer_processes:+${writer_processes},}$process_name"
+            fi
+          done
+          writer_processes="${writer_processes:-none}"
+        fi
+
+        detected_tcp_clients=unknown
+        if command -v ss >/dev/null 2>&1; then
+          if tcp_client_output="$(ss -Htn state established 2>/dev/null)"; then
+            detected_tcp_clients="$(printf '%s\n' "$tcp_client_output" | awk '$4 ~ /:(2049|445|3260)$/ {count++} END {print count + 0}')"
+          fi
+        elif command -v netstat >/dev/null 2>&1; then
+          if tcp_client_output="$(netstat -tn 2>/dev/null)"; then
+            detected_tcp_clients="$(printf '%s\n' "$tcp_client_output" | awk '$4 ~ /:(2049|445|3260)$/ && $6 == "ESTABLISHED" {count++} END {print count + 0}')"
+          fi
+        fi
+
+        iscsi_sessions=unknown
+        if command -v iscsiadm >/dev/null 2>&1; then
+          if iscsi_output="$(iscsiadm -m session 2>&1)"; then
+            iscsi_sessions="$(printf '%s\n' "$iscsi_output" | awk 'NF {count++} END {print count + 0}')"
+          elif printf '%s\n' "$iscsi_output" | grep -q 'No active sessions'; then
+            iscsi_sessions=0
+          fi
+        fi
+
+        entry_count=unknown
+        entry_scan_errors=unknown
+        nested_mountpoints=unknown
+        same_device_nested_mountpoints=unknown
+        if [ "$mode" = format_ready ] && [ "$source_mounted" = true ] && command -v python3 >/dev/null 2>&1; then
+          python3 - "$source_path" <<'PY'
+        import os
+        import re
+        import sys
+
+        source_path = os.path.normpath(sys.argv[1])
+        source_prefix = source_path.rstrip("/") + "/"
+
+        def unescape_mount_path(value):
+            return re.sub(
+                r"\\([0-7]{3})",
+                lambda match: chr(int(match.group(1), 8)),
+                value,
+            )
+
+        source_device = None
+        mount_records = []
+        with open("/proc/self/mountinfo", encoding="utf-8") as mountinfo:
+            for line in mountinfo:
+                fields = line.rstrip("\n").split()
+                if "-" not in fields or len(fields) < 7:
+                    continue
+                mountpoint = unescape_mount_path(fields[4])
+                device = fields[2]
+                mount_records.append((mountpoint, device))
+                if mountpoint == source_path:
+                    source_device = device
+
+        nested_mountpoints = {
+            mountpoint
+            for mountpoint, _ in mount_records
+            if mountpoint.startswith(source_prefix)
+        }
+        same_device_nested_mountpoints = set()
+        if source_device is not None:
+            same_device_nested_mountpoints = {
+                mountpoint
+                for mountpoint, device in mount_records
+                if device == source_device and mountpoint.startswith(source_prefix)
+            }
+
+        errors = []
+        entry_count = 0
+
+        def onerror(error):
+            errors.append(str(error))
+
+        for root, directories, files in os.walk(
+            source_path,
+            topdown=True,
+            onerror=onerror,
+            followlinks=False,
+        ):
+            kept_directories = []
+            for directory in directories:
+                child = os.path.join(root, directory)
+                if child in nested_mountpoints:
+                    continue
+                kept_directories.append(directory)
+                entry_count += 1
+            directories[:] = kept_directories
+            entry_count += len(files)
+
+        print(f"entry_count={entry_count}")
+        print(f"entry_scan_errors={len(errors)}")
+        print(f"nested_mountpoints={len(nested_mountpoints)}")
+        print(f"same_device_nested_mountpoints={len(same_device_nested_mountpoints)}")
+        PY
+        else
+          printf 'entry_count=%s\n' "$entry_count"
+          printf 'entry_scan_errors=%s\n' "$entry_scan_errors"
+          printf 'nested_mountpoints=%s\n' "$nested_mountpoints"
+          printf 'same_device_nested_mountpoints=%s\n' "$same_device_nested_mountpoints"
+        fi
+
+        printf 'mode=%s\n' "$mode"
+        printf 'source_path=%s\n' "$source_path"
+        printf 'source_mounted=%s\n' "$source_mounted"
+        printf 'source_device=%s\n' "$source_device"
+        printf 'source_fstype=%s\n' "$source_fstype"
+        printf 'source_mount_options=%s\n' "$source_mount_options"
+        printf 'source_readonly=%s\n' "$source_readonly"
+        printf 'source_used_kib=%s\n' "$source_used_kib"
+        printf 'source_available_kib=%s\n' "$source_available_kib"
+        printf 'source_inodes_used=%s\n' "$source_inodes_used"
+        printf 'source_inodes_available=%s\n' "$source_inodes_available"
+        printf 'required_commands_missing=%s\n' "$required_commands_missing"
+        printf 'rsync_acl_xattrs=%s\n' "$rsync_acl_xattrs"
+        printf 'backup_root=%s\n' "$backup_root"
+        printf 'backup_path_exists=%s\n' "$backup_path_exists"
+        printf 'backup_under_source=%s\n' "$backup_under_source"
+        printf 'backup_same_device=%s\n' "$backup_same_device"
+        printf 'backup_device=%s\n' "$backup_device"
+        printf 'backup_available_kib=%s\n' "$backup_available_kib"
+        printf 'backup_inodes_available=%s\n' "$backup_inodes_available"
+        printf 'backup_byte_capacity=%s\n' "$backup_byte_capacity"
+        printf 'backup_inode_capacity=%s\n' "$backup_inode_capacity"
+        printf 'writer_processes=%s\n' "$writer_processes"
+        printf 'detected_tcp_clients=%s\n' "$detected_tcp_clients"
+        printf 'iscsi_sessions=%s\n' "$iscsi_sessions"
+      args:
+        executable: /bin/sh
+      register: openwrt_srv_ext4_preflight
+      changed_when: false
+
+    - name: OpenWrt /srv ext4 preflight証跡を表示
+      ansible.builtin.debug:
+        var: openwrt_srv_ext4_preflight.stdout_lines
+      changed_when: false
+
+    - name: OpenWrt /srv ext4 format_ready hard gateを検証
+      ansible.builtin.assert:
+        that:
+          - "'source_mounted=true' in openwrt_srv_ext4_preflight.stdout_lines"
+          - "'source_readonly=true' in openwrt_srv_ext4_preflight.stdout_lines"
+          - "'required_commands_missing=none' in openwrt_srv_ext4_preflight.stdout_lines"
+          - "'rsync_acl_xattrs=true' in openwrt_srv_ext4_preflight.stdout_lines"
+          - "'backup_path_exists=true' in openwrt_srv_ext4_preflight.stdout_lines"
+          - "'backup_under_source=false' in openwrt_srv_ext4_preflight.stdout_lines"
+          - "'backup_same_device=false' in openwrt_srv_ext4_preflight.stdout_lines"
+          - "'backup_byte_capacity=true' in openwrt_srv_ext4_preflight.stdout_lines"
+          - "'backup_inode_capacity=true' in openwrt_srv_ext4_preflight.stdout_lines"
+          - "'writer_processes=none' in openwrt_srv_ext4_preflight.stdout_lines"
+          - "'detected_tcp_clients=0' in openwrt_srv_ext4_preflight.stdout_lines"
+          - "'iscsi_sessions=0' in openwrt_srv_ext4_preflight.stdout_lines"
+          - openwrt_srv_ext4_preflight.stdout is search('(?m)^entry_count=[1-9][0-9]*$')
+          - "'entry_scan_errors=0' in openwrt_srv_ext4_preflight.stdout_lines"
+          - "'nested_mountpoints=0' in openwrt_srv_ext4_preflight.stdout_lines"
+          - "'same_device_nested_mountpoints=0' in openwrt_srv_ext4_preflight.stdout_lines"
+        fail_msg: OpenWrt /srv ext4 format_ready hard gateを満たしていません
+      when: openwrt_srv_ext4_preflight_mode == 'format_ready'
+      changed_when: false
