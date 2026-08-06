@@ -249,12 +249,14 @@ if command -v python3 >/dev/null 2>&1; then
   python3 -m py_compile scripts/ci/check-changed-markdown-style.py
   python3 -m py_compile scripts/ci/check-k3s-converge-contract.py
   python3 -m py_compile scripts/ci/check-openwrt-pxe-ansible-pull-chain.py
+  python3 -m py_compile scripts/ci/check-openwrt-srv-ext4-preflight.py
   python3 -m py_compile .agents/skills/homecluster-ansible-implementer/scripts/check_opencode_session_export.py
   python3 -m py_compile .agents/skills/homecluster-openwrt-package-boundary-auditor/scripts/check_openwrt_package_boundaries.py
   python3 -m py_compile .agents/skills/homecluster-openwrt-postupgrade-check/scripts/check_openwrt_postupgrade_source_contract.py
   python3 scripts/ci/check-openwrt-pxe-client-catalog.py
   python3 scripts/ci/check-k3s-converge-contract.py
   python3 scripts/ci/check-openwrt-pxe-ansible-pull-chain.py
+  python3 scripts/ci/check-openwrt-srv-ext4-preflight.py
   python3 scripts/ansible/convert_openwrt_package_task.py --self-test
   .agents/skills/homecluster-ansible-implementer/scripts/check_opencode_session_export.py --self-test
   .agents/skills/homecluster-openwrt-package-boundary-auditor/scripts/check_openwrt_package_boundaries.py --self-test
