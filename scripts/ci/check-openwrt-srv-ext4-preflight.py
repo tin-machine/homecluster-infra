@@ -10,6 +10,11 @@ PLAYBOOK_PATH = (
     REPO_ROOT / "ansible/openwrt/playbooks/openwrt-srv-ext4-preflight.yml"
 )
 STORAGE_DEFAULTS_PATH = REPO_ROOT / "ansible/openwrt/roles/openwrt_storage/defaults/main.yml"
+STORAGE_TASKS_PATH = REPO_ROOT / "ansible/openwrt/roles/openwrt_storage/tasks/main.yml"
+STORAGE_PACKAGE_PREP_PATH = REPO_ROOT / "ansible/openwrt/roles/openwrt_storage/tasks/package_prep.yml"
+PACKAGE_PREP_PLAYBOOK_PATH = (
+    REPO_ROOT / "ansible/openwrt/playbooks/openwrt-srv-ext4-package-prep.yml"
+)
 
 FORMAT_READY_REQUIRED = {
     "source_mounted": "true",
@@ -146,11 +151,26 @@ def test_ext4_preflight_packages_are_declared() -> None:
         assert re.search(rf"(?m)^  - {re.escape(package_name)}$", content), package_name
 
 
+def test_ext4_package_prep_is_isolated_from_storage_mutation() -> None:
+    storage_tasks = STORAGE_TASKS_PATH.read_text(encoding="utf-8")
+    package_prep = STORAGE_PACKAGE_PREP_PATH.read_text(encoding="utf-8")
+    playbook = PACKAGE_PREP_PLAYBOOK_PATH.read_text(encoding="utf-8")
+
+    assert "ansible.builtin.import_tasks: package_prep.yml" in storage_tasks
+    assert 'openwrt_package_names: "{{ openwrt_storage_packages }}"' in package_prep
+    assert "openwrt_storage" in playbook
+    assert "tasks_from: package_prep.yml" in playbook
+    assert "openwrt_storage_force_format" not in playbook
+    assert "openwrt_storage_manage_fstab" not in playbook
+    assert "openwrt_storage_apply_mounts" not in playbook
+
+
 def main() -> None:
     test_format_ready_positive_fixture()
     test_format_ready_negative_fixtures()
     test_playbook_read_only_contract()
     test_ext4_preflight_packages_are_declared()
+    test_ext4_package_prep_is_isolated_from_storage_mutation()
     print("openwrt /srv ext4 preflight checks ok")
 
 
