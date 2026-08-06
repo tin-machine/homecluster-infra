@@ -8,7 +8,7 @@ OpenWrt ルーターに接続されたストレージを PXE 用に初期化し�
 
 - ストレージ操作で必要となるパッケージ（`fdisk`, `parted`, `block-mount`, `f2fs-tools`, `dosfstools`, `kmod-fs-f2fs`, `kmod-fs-vfat`, `kmod-nls-*`）の導入
 - legacy mode では `/dev/sda1` を FAT32、`/dev/sda2` を f2fs として扱う
-- `openwrt_storage_partition_map` 指定時は partition 番号、start/end、fstype、label、mount target を明示できる
+- `openwrt_storage_partition_map` 指定時は partition 番号、start/end、fstype、label、mount target、filesystem 固有の `mkfs_options` を明示できる
 - destructive 操作は `force_*` だけでなく `openwrt_storage_destructive_confirm=erase-<device>` と model/serial guard で保護する
 - swap は `openwrt_storage_swap_device: auto` で `TYPE="swap"` から autodetect できる
 - `block mount` を実行して即座にマウントを反映（任意）
@@ -26,7 +26,7 @@ OpenWrt ルーターに接続されたストレージを PXE 用に初期化し�
 | `openwrt_storage_destructive_confirm` | `""` | 破壊的操作時に必要な確認 token。例: `erase-nvme0n1` |
 | `openwrt_storage_expected_model` | `""` | 破壊的操作時の model guard |
 | `openwrt_storage_expected_serial` | `""` | 破壊的操作時の serial guard |
-| `openwrt_storage_partition_map` | `[]` | 空なら legacy layout。指定時は任意 layout を使う |
+| `openwrt_storage_partition_map` | `[]` | 空なら legacy layout。指定時は任意 layout を使う。`mkfs_options` は format 対象 partition にだけ指定する文字列配列 |
 | `openwrt_storage_manage_fstab` | `true` | `false` の場合、partition/format 準備だけ行い fstab は切り替えない |
 | `openwrt_storage_swap_identifier_mode` | `auto` | `auto`, `uuid`, `label`, `device` |
 | `openwrt_storage_apply_mounts` | `true` | `block mount` を実行するかどうか |
@@ -84,16 +84,49 @@ openwrt_storage_partition_map:
     fstype: swap
     parted_type: linux-swap
     label: OWRT_SWAP
+    format: true
   - number: 2
     start: 8193MiB
     end: 100%
     fstype: f2fs
     label: GENTOO_SRV_NEW
+    format: true
     target: /srv
     fstab_section: srv
     mount_options: rw,noatime,noacl
     mount_mode: '0755'
 ```
+
+### ext4 の明示的な inode 設計
+
+`fstype: ext4` では、`mkfs_options` を文字列配列として指定する。role は
+`mkfs.ext4 -F -L <label>` に続けて各要素を 1 引数ずつ渡す。既定値に
+任せた inode 数や lazy initialization を、playbook 外の手作業 command に逃がさない。
+
+```yaml
+  - number: 2
+    partition: /dev/nvme0n1p2
+    fstype: ext4
+    label: GENTOO_SRV
+    format: true
+    target: /srv
+    fstab_section: srv
+    mount_options: rw,noatime
+    mkfs_options:
+      - -b
+      - '4096'
+      - -I
+      - '256'
+      - -m
+      - '1'
+      - -N
+      - '67108864'
+      - -E
+      - lazy_itable_init=0,lazy_journal_init=0
+```
+
+`format: false` の map item は、`openwrt_storage_force_format=true` でも
+format しない。swap など今回変更しない partition は明示的に `false` にする。
 
 `manage_fstab=false` は「新ディスクを作るだけ」の段階で使います。`/srv` copy と rollback evidence が揃った後に、同じ partition map で `manage_fstab=true`、`force_repartition=false`、`force_format=false` にして fstab 切替を行います。swap は `openwrt_storage_swap_device: auto` により `TYPE="swap"` の autodetect 結果から選びます。partition map に swap が含まれる場合は、その map 内の swap partition に候補を絞ります。
 

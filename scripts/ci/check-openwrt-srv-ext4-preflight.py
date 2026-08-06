@@ -198,6 +198,37 @@ def test_ext4_preflight_packages_are_declared() -> None:
         assert re.search(rf"(?m)^  - {re.escape(package_name)}$", content), package_name
 
 
+def test_ext4_format_uses_partition_scoped_options() -> None:
+    storage_tasks = STORAGE_TASKS_PATH.read_text(encoding="utf-8")
+    storage_readme = (STORAGE_TASKS_PATH.parent.parent / "README.md").read_text(encoding="utf-8")
+
+    required_task_fragments = (
+        "item.fstype in ['vfat', 'fat32', 'f2fs', 'ext4', 'swap']",
+        "item.mkfs_options is not defined or (item.mkfs_options is sequence and item.mkfs_options is not string)",
+        "ext4)",
+        "/usr/sbin/mkfs.ext4 -F -L \"$label\"{% for option in item.mkfs_options | default([]) %} {{ option | quote }}{% endfor %} \"$part\"",
+        "- item.format | default(true) | bool",
+    )
+    for fragment in required_task_fragments:
+        assert fragment in storage_tasks, fragment
+
+    required_readme_fragments = (
+        "mkfs_options:",
+        "- -b",
+        "- '4096'",
+        "- -I",
+        "- '256'",
+        "- -m",
+        "- '1'",
+        "- -N",
+        "- '67108864'",
+        "lazy_itable_init=0,lazy_journal_init=0",
+        "format: false",
+    )
+    for fragment in required_readme_fragments:
+        assert fragment in storage_readme, fragment
+
+
 def test_ext4_package_prep_is_isolated_from_storage_mutation() -> None:
     storage_tasks = STORAGE_TASKS_PATH.read_text(encoding="utf-8")
     package_prep = STORAGE_PACKAGE_PREP_PATH.read_text(encoding="utf-8")
@@ -251,6 +282,7 @@ def main() -> None:
     test_copy_ready_negative_fixtures()
     test_playbook_read_only_contract()
     test_ext4_preflight_packages_are_declared()
+    test_ext4_format_uses_partition_scoped_options()
     test_ext4_package_prep_is_isolated_from_storage_mutation()
     test_initial_backup_is_scoped_to_a_marked_data_directory()
     print("openwrt /srv ext4 preflight checks ok")
