@@ -14,7 +14,7 @@
     - name: OpenWrt /srv ext4 preflight入力を検証
       ansible.builtin.assert:
         that:
-          - openwrt_srv_ext4_preflight_mode in ['baseline', 'format_ready']
+          - openwrt_srv_ext4_preflight_mode in ['baseline', 'copy_ready', 'format_ready']
           - openwrt_srv_ext4_preflight_source_path is match('^/')
           - openwrt_srv_ext4_preflight_backup_root | length == 0 or openwrt_srv_ext4_preflight_backup_root is match('^/')
           - openwrt_srv_ext4_preflight_backup_byte_multiplier | float >= 1.0
@@ -190,7 +190,7 @@
         entry_scan_errors=unknown
         nested_mountpoints=unknown
         same_device_nested_mountpoints=unknown
-        if [ "$mode" = format_ready ] && [ "$source_mounted" = true ] && command -v python3 >/dev/null 2>&1; then
+        if { [ "$mode" = copy_ready ] || [ "$mode" = format_ready ]; } && [ "$source_mounted" = true ] && command -v python3 >/dev/null 2>&1; then
           python3 - "$source_path" <<'PY'
         import os
         import re
@@ -302,6 +302,25 @@
     - name: OpenWrt /srv ext4 preflight証跡を表示
       ansible.builtin.debug:
         var: openwrt_srv_ext4_preflight.stdout_lines
+      changed_when: false
+
+    - name: OpenWrt /srv ext4 copy_ready hard gateを検証
+      ansible.builtin.assert:
+        that:
+          - "'source_mounted=true' in openwrt_srv_ext4_preflight.stdout_lines"
+          - "'required_commands_missing=none' in openwrt_srv_ext4_preflight.stdout_lines"
+          - "'rsync_acl_xattrs=true' in openwrt_srv_ext4_preflight.stdout_lines"
+          - "'backup_path_exists=true' in openwrt_srv_ext4_preflight.stdout_lines"
+          - "'backup_under_source=false' in openwrt_srv_ext4_preflight.stdout_lines"
+          - "'backup_same_device=false' in openwrt_srv_ext4_preflight.stdout_lines"
+          - "'backup_byte_capacity=true' in openwrt_srv_ext4_preflight.stdout_lines"
+          - "'backup_inode_capacity=true' in openwrt_srv_ext4_preflight.stdout_lines"
+          - openwrt_srv_ext4_preflight.stdout is search('(?m)^entry_count=[1-9][0-9]*$')
+          - "'entry_scan_errors=0' in openwrt_srv_ext4_preflight.stdout_lines"
+          - "'nested_mountpoints=0' in openwrt_srv_ext4_preflight.stdout_lines"
+          - "'same_device_nested_mountpoints=0' in openwrt_srv_ext4_preflight.stdout_lines"
+        fail_msg: OpenWrt /srv ext4 copy_ready hard gateを満たしていません
+      when: openwrt_srv_ext4_preflight_mode == 'copy_ready'
       changed_when: false
 
     - name: OpenWrt /srv ext4 format_ready hard gateを検証
