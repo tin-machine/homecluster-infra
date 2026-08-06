@@ -109,13 +109,14 @@ def test_playbook_read_only_contract() -> None:
         "dnsmasq_running=true",
         "iscsi_target_running=false",
         'if tcp_client_output="$(ss -Htn state established 2>/dev/null)"; then',
-        'df -i "$source_path"',
-        'df -i "$backup_root"',
+        "statvfs = os.statvfs(sys.argv[1])",
+        "print(f\"{statvfs.f_files - statvfs.f_ffree}|{statvfs.f_favail}\")",
         "tgtadm --mode conn --op show",
     )
     for fragment in required_fragments:
         assert fragment in content, fragment
     assert "df -Pi" not in content
+    assert "df -i" not in content
     assert "iscsiadm" not in content
     assert "dnsmasq stop" not in content
 
