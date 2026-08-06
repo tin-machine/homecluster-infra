@@ -36,6 +36,20 @@ FORMAT_READY_REQUIRED = {
     "same_device_nested_mountpoints": "0",
 }
 
+COPY_READY_REQUIRED = {
+    "source_mounted": "true",
+    "required_commands_missing": "none",
+    "rsync_acl_xattrs": "true",
+    "backup_path_exists": "true",
+    "backup_under_source": "false",
+    "backup_same_device": "false",
+    "backup_byte_capacity": "true",
+    "backup_inode_capacity": "true",
+    "entry_scan_errors": "0",
+    "nested_mountpoints": "0",
+    "same_device_nested_mountpoints": "0",
+}
+
 
 def parse_receipt(lines: list[str]) -> dict[str, str]:
     return dict(line.split("=", 1) for line in lines if "=" in line)
@@ -44,6 +58,16 @@ def parse_receipt(lines: list[str]) -> dict[str, str]:
 def format_ready_passes(lines: list[str]) -> bool:
     receipt = parse_receipt(lines)
     if any(receipt.get(key) != value for key, value in FORMAT_READY_REQUIRED.items()):
+        return False
+    for key in ("source_inodes_used", "backup_inodes_available"):
+        if not re.fullmatch(r"[0-9]+", receipt.get(key, "")):
+            return False
+    return bool(re.fullmatch(r"[1-9][0-9]*", receipt.get("entry_count", "")))
+
+
+def copy_ready_passes(lines: list[str]) -> bool:
+    receipt = parse_receipt(lines)
+    if any(receipt.get(key) != value for key, value in COPY_READY_REQUIRED.items()):
         return False
     for key in ("source_inodes_used", "backup_inodes_available"):
         if not re.fullmatch(r"[0-9]+", receipt.get(key, "")):
@@ -81,6 +105,10 @@ def test_format_ready_positive_fixture() -> None:
     assert format_ready_passes(valid_format_ready_receipt())
 
 
+def test_copy_ready_positive_fixture() -> None:
+    assert copy_ready_passes(valid_format_ready_receipt())
+
+
 def test_format_ready_negative_fixtures() -> None:
     for replacement in (
         "source_readonly=false",
@@ -99,13 +127,29 @@ def test_format_ready_negative_fixtures() -> None:
         assert not format_ready_passes(receipt), replacement
 
 
+def test_copy_ready_negative_fixtures() -> None:
+    for replacement in (
+        "backup_same_device=true",
+        "entry_scan_errors=1",
+        "nested_mountpoints=1",
+        "source_inodes_used=unknown",
+    ):
+        receipt = valid_format_ready_receipt()
+        key = replacement.partition("=")[0] + "="
+        receipt = [line for line in receipt if not line.startswith(key)]
+        receipt.append(replacement)
+        assert not copy_ready_passes(receipt), replacement
+
+
 def test_playbook_read_only_contract() -> None:
     content = PLAYBOOK_PATH.read_text(encoding="utf-8")
     required_fragments = (
         "openwrt_srv_ext4_preflight_mode: baseline",
+        "['baseline', 'copy_ready', 'format_ready']",
         "openwrt_srv_ext4_preflight_backup_root",
         "OpenWrt /srv ext4 preflightをread-onlyで収集",
         "OpenWrt /srv ext4 format_ready hard gateを検証",
+        "OpenWrt /srv ext4 copy_ready hard gateを検証",
         "source_readonly=true",
         "backup_same_device=false",
         "same_device_nested_mountpoints=0",
@@ -167,7 +211,9 @@ def test_ext4_package_prep_is_isolated_from_storage_mutation() -> None:
 
 def main() -> None:
     test_format_ready_positive_fixture()
+    test_copy_ready_positive_fixture()
     test_format_ready_negative_fixtures()
+    test_copy_ready_negative_fixtures()
     test_playbook_read_only_contract()
     test_ext4_preflight_packages_are_declared()
     test_ext4_package_prep_is_isolated_from_storage_mutation()
