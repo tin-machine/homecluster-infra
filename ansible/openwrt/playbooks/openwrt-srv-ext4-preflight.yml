@@ -32,6 +32,13 @@
         byte_multiplier={{ openwrt_srv_ext4_preflight_backup_byte_multiplier | float | quote }}
         inode_multiplier={{ openwrt_srv_ext4_preflight_backup_inode_multiplier | float | quote }}
 
+        is_decimal() {
+          case "$1" in
+            ''|*[!0-9]*) return 1 ;;
+            *) return 0 ;;
+          esac
+        }
+
         source_mounted=false
         source_device=unknown
         source_fstype=unknown
@@ -61,7 +68,7 @@
           source_used_kib="${source_df_tail%%|*}"
           source_available_kib="${source_df_tail#*|}"
         fi
-        source_inode_df="$(df -Pi "$source_path" 2>/dev/null | awk 'NR == 2 {printf "%s|%s", $3, $4}')"
+        source_inode_df="$(df -i "$source_path" 2>/dev/null | awk 'NR == 2 {printf "%s|%s", $3, $4}')"
         if [ -n "$source_inode_df" ]; then
           source_inodes_used="${source_inode_df%%|*}"
           source_inodes_available="${source_inode_df#*|}"
@@ -98,7 +105,7 @@
           if [ -d "$backup_root" ]; then
             backup_path_exists=true
             backup_df="$(df -Pk "$backup_root" 2>/dev/null | awk 'NR == 2 {printf "%s|%s", $1, $4}')"
-            backup_inode_df="$(df -Pi "$backup_root" 2>/dev/null | awk 'NR == 2 {print $4}')"
+            backup_inode_df="$(df -i "$backup_root" 2>/dev/null | awk 'NR == 2 {print $4}')"
             if [ -n "$backup_df" ]; then
               backup_device="${backup_df%%|*}"
               backup_available_kib="${backup_df#*|}"
@@ -107,24 +114,40 @@
             if [ "$source_device" = "$backup_device" ]; then
               backup_same_device=true
             fi
-            if awk -v available="$backup_available_kib" -v used="$source_used_kib" -v multiplier="$byte_multiplier" 'BEGIN { exit !(available >= used * multiplier) }'; then
+            if is_decimal "$backup_available_kib" && is_decimal "$source_used_kib" && awk -v available="$backup_available_kib" -v used="$source_used_kib" -v multiplier="$byte_multiplier" 'BEGIN { exit !(available >= used * multiplier) }'; then
               backup_byte_capacity=true
             fi
-            if awk -v available="$backup_inodes_available" -v used="$source_inodes_used" -v multiplier="$inode_multiplier" 'BEGIN { exit !(available >= used * multiplier) }'; then
+            if is_decimal "$backup_inodes_available" && is_decimal "$source_inodes_used" && awk -v available="$backup_inodes_available" -v used="$source_inodes_used" -v multiplier="$inode_multiplier" 'BEGIN { exit !(available >= used * multiplier) }'; then
               backup_inode_capacity=true
             fi
           fi
         fi
 
         writer_processes=unknown
+        blocking_writer_processes=unknown
+        dnsmasq_running=unknown
+        iscsi_target_running=unknown
         if command -v pgrep >/dev/null 2>&1; then
           writer_processes=
+          blocking_writer_processes=
+          dnsmasq_running=false
           for process_name in dnsmasq tgtd ksmbd nfsd; do
             if pgrep -x "$process_name" >/dev/null 2>&1; then
               writer_processes="${writer_processes:+${writer_processes},}$process_name"
+              if [ "$process_name" = dnsmasq ]; then
+                dnsmasq_running=true
+              else
+                blocking_writer_processes="${blocking_writer_processes:+${blocking_writer_processes},}$process_name"
+              fi
             fi
           done
           writer_processes="${writer_processes:-none}"
+          blocking_writer_processes="${blocking_writer_processes:-none}"
+          if pgrep -x tgtd >/dev/null 2>&1; then
+            iscsi_target_running=true
+          else
+            iscsi_target_running=false
+          fi
         fi
 
         detected_tcp_clients=unknown
@@ -139,12 +162,14 @@
         fi
 
         iscsi_sessions=unknown
-        if command -v iscsiadm >/dev/null 2>&1; then
-          if iscsi_output="$(iscsiadm -m session 2>&1)"; then
-            iscsi_sessions="$(printf '%s\n' "$iscsi_output" | awk 'NF {count++} END {print count + 0}')"
-          elif printf '%s\n' "$iscsi_output" | grep -q 'No active sessions'; then
+        if command -v tgtadm >/dev/null 2>&1; then
+          if iscsi_output="$(tgtadm --mode conn --op show 2>&1)"; then
+            iscsi_sessions="$(printf '%s\n' "$iscsi_output" | awk '/^[[:space:]]*Session:/ {count++} END {print count + 0}')"
+          elif [ "$iscsi_target_running" = false ]; then
             iscsi_sessions=0
           fi
+        elif [ "$iscsi_target_running" = false ]; then
+          iscsi_sessions=0
         fi
 
         entry_count=unknown
@@ -250,6 +275,9 @@
         printf 'backup_byte_capacity=%s\n' "$backup_byte_capacity"
         printf 'backup_inode_capacity=%s\n' "$backup_inode_capacity"
         printf 'writer_processes=%s\n' "$writer_processes"
+        printf 'blocking_writer_processes=%s\n' "$blocking_writer_processes"
+        printf 'dnsmasq_running=%s\n' "$dnsmasq_running"
+        printf 'iscsi_target_running=%s\n' "$iscsi_target_running"
         printf 'detected_tcp_clients=%s\n' "$detected_tcp_clients"
         printf 'iscsi_sessions=%s\n' "$iscsi_sessions"
       args:
@@ -274,7 +302,9 @@
           - "'backup_same_device=false' in openwrt_srv_ext4_preflight.stdout_lines"
           - "'backup_byte_capacity=true' in openwrt_srv_ext4_preflight.stdout_lines"
           - "'backup_inode_capacity=true' in openwrt_srv_ext4_preflight.stdout_lines"
-          - "'writer_processes=none' in openwrt_srv_ext4_preflight.stdout_lines"
+          - "'blocking_writer_processes=none' in openwrt_srv_ext4_preflight.stdout_lines"
+          - "'dnsmasq_running=true' in openwrt_srv_ext4_preflight.stdout_lines"
+          - "'iscsi_target_running=false' in openwrt_srv_ext4_preflight.stdout_lines"
           - "'detected_tcp_clients=0' in openwrt_srv_ext4_preflight.stdout_lines"
           - "'iscsi_sessions=0' in openwrt_srv_ext4_preflight.stdout_lines"
           - openwrt_srv_ext4_preflight.stdout is search('(?m)^entry_count=[1-9][0-9]*$')

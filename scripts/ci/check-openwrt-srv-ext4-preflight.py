@@ -20,7 +20,9 @@ FORMAT_READY_REQUIRED = {
     "backup_same_device": "false",
     "backup_byte_capacity": "true",
     "backup_inode_capacity": "true",
-    "writer_processes": "none",
+    "blocking_writer_processes": "none",
+    "dnsmasq_running": "true",
+    "iscsi_target_running": "false",
     "detected_tcp_clients": "0",
     "iscsi_sessions": "0",
     "entry_scan_errors": "0",
@@ -37,6 +39,9 @@ def format_ready_passes(lines: list[str]) -> bool:
     receipt = parse_receipt(lines)
     if any(receipt.get(key) != value for key, value in FORMAT_READY_REQUIRED.items()):
         return False
+    for key in ("source_inodes_used", "backup_inodes_available"):
+        if not re.fullmatch(r"[0-9]+", receipt.get(key, "")):
+            return False
     return bool(re.fullmatch(r"[1-9][0-9]*", receipt.get("entry_count", "")))
 
 
@@ -51,7 +56,12 @@ def valid_format_ready_receipt() -> list[str]:
         "backup_same_device=false",
         "backup_byte_capacity=true",
         "backup_inode_capacity=true",
-        "writer_processes=none",
+        "source_inodes_used=100",
+        "backup_inodes_available=1000",
+        "writer_processes=dnsmasq",
+        "blocking_writer_processes=none",
+        "dnsmasq_running=true",
+        "iscsi_target_running=false",
         "detected_tcp_clients=0",
         "iscsi_sessions=0",
         "entry_count=42",
@@ -71,6 +81,10 @@ def test_format_ready_negative_fixtures() -> None:
         "required_commands_missing=tune2fs",
         "backup_same_device=true",
         "entry_scan_errors=1",
+        "source_inodes_used=unknown",
+        "blocking_writer_processes=nfsd",
+        "dnsmasq_running=false",
+        "iscsi_target_running=true",
     ):
         receipt = valid_format_ready_receipt()
         key = replacement.partition("=")[0] + "="
@@ -91,11 +105,19 @@ def test_playbook_read_only_contract() -> None:
         "same_device_nested_mountpoints=0",
         "nested_mountpoints=0",
         "iscsi_sessions=0",
+        "blocking_writer_processes=none",
+        "dnsmasq_running=true",
+        "iscsi_target_running=false",
         'if tcp_client_output="$(ss -Htn state established 2>/dev/null)"; then',
-        "No active sessions",
+        'df -i "$source_path"',
+        'df -i "$backup_root"',
+        "tgtadm --mode conn --op show",
     )
     for fragment in required_fragments:
         assert fragment in content, fragment
+    assert "df -Pi" not in content
+    assert "iscsiadm" not in content
+    assert "dnsmasq stop" not in content
 
     disallowed_patterns = (
         r"ansible\.builtin\.(?:file|package|mount|service|systemd):",
