@@ -15,6 +15,9 @@ STORAGE_PACKAGE_PREP_PATH = REPO_ROOT / "ansible/openwrt/roles/openwrt_storage/t
 PACKAGE_PREP_PLAYBOOK_PATH = (
     REPO_ROOT / "ansible/openwrt/playbooks/openwrt-srv-ext4-package-prep.yml"
 )
+INITIAL_BACKUP_PLAYBOOK_PATH = (
+    REPO_ROOT / "ansible/openwrt/playbooks/openwrt-srv-ext4-initial-backup.yml"
+)
 
 FORMAT_READY_REQUIRED = {
     "source_mounted": "true",
@@ -209,6 +212,37 @@ def test_ext4_package_prep_is_isolated_from_storage_mutation() -> None:
     assert "openwrt_storage_apply_mounts" not in playbook
 
 
+def test_initial_backup_is_scoped_to_a_marked_data_directory() -> None:
+    content = INITIAL_BACKUP_PLAYBOOK_PATH.read_text(encoding="utf-8")
+
+    required_fragments = (
+        "openwrt_srv_ext4_backup_source_path: /srv",
+        'openwrt_srv_ext4_backup_root: ""',
+        "openwrt_srv_ext4_initial_backup_confirm_expected: initial-backup-20260806",
+        "openwrt_srv_ext4_backup_id is match('^[A-Za-z0-9][A-Za-z0-9._-]*$')",
+        "backup_same_device",
+        "nested_mountpoints_present",
+        ".homecluster-ext4-initial-backup",
+        "format=rsync-aHAXSx-numeric-ids",
+        "- --delete",
+        '- "{{ openwrt_srv_ext4_backup_data_path }}/"',
+    )
+    for fragment in required_fragments:
+        assert fragment in content, fragment
+
+    assert ("backup" + "-disk") not in content
+
+    forbidden_fragments = (
+        "mkfs.ext4",
+        "umount ",
+        "block mount",
+        "/etc/init.d/",
+        '- "{{ openwrt_srv_ext4_backup_root }}/"',
+    )
+    for fragment in forbidden_fragments:
+        assert fragment not in content, fragment
+
+
 def main() -> None:
     test_format_ready_positive_fixture()
     test_copy_ready_positive_fixture()
@@ -217,6 +251,7 @@ def main() -> None:
     test_playbook_read_only_contract()
     test_ext4_preflight_packages_are_declared()
     test_ext4_package_prep_is_isolated_from_storage_mutation()
+    test_initial_backup_is_scoped_to_a_marked_data_directory()
     print("openwrt /srv ext4 preflight checks ok")
 
 
