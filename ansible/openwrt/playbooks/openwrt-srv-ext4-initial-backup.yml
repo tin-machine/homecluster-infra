@@ -1,0 +1,137 @@
+---
+- name: OpenWrt /srv ext4 migration initial backup
+  hosts: openwrt
+  gather_facts: false
+  become: false
+  vars:
+    openwrt_srv_ext4_backup_source_path: /srv
+    openwrt_srv_ext4_backup_root: ""
+    openwrt_srv_ext4_backup_id: openwrt-srv-ext4-migration-20260806
+    openwrt_srv_ext4_initial_backup_confirm: ""
+    openwrt_srv_ext4_initial_backup_confirm_expected: initial-backup-20260806
+
+  tasks:
+    - name: OpenWrt /srv ext4 initial backup入力を検証
+      ansible.builtin.assert:
+        that:
+          - openwrt_srv_ext4_backup_source_path == '/srv'
+          - openwrt_srv_ext4_backup_root is match('^/.+')
+          - openwrt_srv_ext4_backup_id is match('^[A-Za-z0-9][A-Za-z0-9._-]*$')
+          - openwrt_srv_ext4_initial_backup_confirm == openwrt_srv_ext4_initial_backup_confirm_expected
+        fail_msg: OpenWrt /srv ext4 initial backupのsource、backup root、backup ID、または確認tokenが不正です
+      changed_when: false
+
+    - name: OpenWrt /srv ext4 initial backupのruntime hard gateを検証
+      ansible.builtin.shell: |
+        set -eu
+        source_path={{ openwrt_srv_ext4_backup_source_path | quote }}
+        backup_root={{ openwrt_srv_ext4_backup_root | quote }}
+
+        python3 - "$source_path" "$backup_root" <<'PY'
+        import os
+        import sys
+
+        source_path, backup_root = sys.argv[1:]
+        if not os.path.isdir(source_path):
+            raise SystemExit("source_path_missing")
+        if not os.path.isdir(backup_root):
+            raise SystemExit("backup_root_missing")
+        if not os.path.ismount(source_path):
+            raise SystemExit("source_not_mounted")
+        if not os.path.ismount(backup_root):
+            raise SystemExit("backup_root_not_mounted")
+        source_device = os.stat(source_path).st_dev
+        backup_device = os.stat(backup_root).st_dev
+        if source_device == backup_device:
+            raise SystemExit("backup_same_device")
+
+        source_prefix = source_path.rstrip("/") + "/"
+        nested_mounts = []
+        with open("/proc/self/mountinfo", encoding="utf-8") as mountinfo:
+            for line in mountinfo:
+                fields = line.split()
+                if len(fields) > 4 and fields[4].startswith(source_prefix):
+                    nested_mounts.append(fields[4])
+        if nested_mounts:
+            raise SystemExit("nested_mountpoints_present")
+
+        print("source_mounted=true")
+        print("backup_mounted=true")
+        print("backup_same_device=false")
+        print("nested_mountpoints=0")
+        PY
+      args:
+        executable: /bin/sh
+      register: openwrt_srv_ext4_initial_backup_gate
+      changed_when: false
+
+    - name: OpenWrt /srv ext4 initial backup hard gateを確認
+      ansible.builtin.assert:
+        that:
+          - "'source_mounted=true' in openwrt_srv_ext4_initial_backup_gate.stdout_lines"
+          - "'backup_mounted=true' in openwrt_srv_ext4_initial_backup_gate.stdout_lines"
+          - "'backup_same_device=false' in openwrt_srv_ext4_initial_backup_gate.stdout_lines"
+          - "'nested_mountpoints=0' in openwrt_srv_ext4_initial_backup_gate.stdout_lines"
+        fail_msg: OpenWrt /srv ext4 initial backupのruntime hard gateを満たしていません
+      changed_when: false
+
+    - name: OpenWrt /srv ext4 initial backup pathを設定
+      ansible.builtin.set_fact:
+        openwrt_srv_ext4_backup_migration_root: >-
+          {{ openwrt_srv_ext4_backup_root }}/{{ openwrt_srv_ext4_backup_id }}
+        openwrt_srv_ext4_backup_data_path: >-
+          {{ openwrt_srv_ext4_backup_root }}/{{ openwrt_srv_ext4_backup_id }}/data
+      changed_when: false
+
+    - name: OpenWrt /srv ext4 initial backup既存directoryを検証
+      ansible.builtin.shell: |
+        set -eu
+        root={{ openwrt_srv_ext4_backup_migration_root | quote }}
+        marker="$root/.homecluster-ext4-initial-backup"
+        if [ -e "$root" ]; then
+          test -f "$marker"
+          grep -Fx 'source=/srv' "$marker" >/dev/null
+          grep -Fx 'format=rsync-aHAXSx-numeric-ids' "$marker" >/dev/null
+        fi
+      args:
+        executable: /bin/sh
+      changed_when: false
+
+    - name: OpenWrt /srv ext4 initial backup migration directoryを作成
+      ansible.builtin.file:
+        path: "{{ openwrt_srv_ext4_backup_migration_root }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0700'
+
+    - name: OpenWrt /srv ext4 initial backup markerを固定
+      ansible.builtin.copy:
+        dest: "{{ openwrt_srv_ext4_backup_migration_root }}/.homecluster-ext4-initial-backup"
+        content: |
+          source=/srv
+          format=rsync-aHAXSx-numeric-ids
+        owner: root
+        group: root
+        mode: '0600'
+        force: false
+
+    - name: OpenWrt /srv ext4 initial backup data directoryを作成
+      ansible.builtin.file:
+        path: "{{ openwrt_srv_ext4_backup_data_path }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0700'
+
+    - name: OpenWrt /srv ext4 initial backupをrsyncで同期
+      ansible.builtin.command:
+        argv:
+          - rsync
+          - -aHAXSx
+          - --numeric-ids
+          - --delete
+          - "{{ openwrt_srv_ext4_backup_source_path }}/"
+          - "{{ openwrt_srv_ext4_backup_data_path }}/"
+      register: openwrt_srv_ext4_initial_backup_rsync
+      changed_when: true
