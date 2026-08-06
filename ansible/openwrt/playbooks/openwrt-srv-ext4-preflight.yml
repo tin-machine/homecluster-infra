@@ -39,6 +39,16 @@
           esac
         }
 
+        inode_usage() {
+          python3 - "$1" <<'PY'
+        import os
+        import sys
+
+        statvfs = os.statvfs(sys.argv[1])
+        print(f"{statvfs.f_files - statvfs.f_ffree}|{statvfs.f_favail}")
+        PY
+        }
+
         source_mounted=false
         source_device=unknown
         source_fstype=unknown
@@ -68,10 +78,12 @@
           source_used_kib="${source_df_tail%%|*}"
           source_available_kib="${source_df_tail#*|}"
         fi
-        source_inode_df="$(df -i "$source_path" 2>/dev/null | awk 'NR == 2 {printf "%s|%s", $3, $4}')"
-        if [ -n "$source_inode_df" ]; then
-          source_inodes_used="${source_inode_df%%|*}"
-          source_inodes_available="${source_inode_df#*|}"
+        if command -v python3 >/dev/null 2>&1; then
+          source_inode_df="$(inode_usage "$source_path" 2>/dev/null || true)"
+          if [ -n "$source_inode_df" ]; then
+            source_inodes_used="${source_inode_df%%|*}"
+            source_inodes_available="${source_inode_df#*|}"
+          fi
         fi
 
         required_commands_missing=
@@ -105,12 +117,14 @@
           if [ -d "$backup_root" ]; then
             backup_path_exists=true
             backup_df="$(df -Pk "$backup_root" 2>/dev/null | awk 'NR == 2 {printf "%s|%s", $1, $4}')"
-            backup_inode_df="$(df -i "$backup_root" 2>/dev/null | awk 'NR == 2 {print $4}')"
+            backup_inode_df="$(inode_usage "$backup_root" 2>/dev/null || true)"
             if [ -n "$backup_df" ]; then
               backup_device="${backup_df%%|*}"
               backup_available_kib="${backup_df#*|}"
             fi
-            backup_inodes_available="${backup_inode_df:-unknown}"
+            if [ -n "$backup_inode_df" ]; then
+              backup_inodes_available="${backup_inode_df#*|}"
+            fi
             if [ "$source_device" = "$backup_device" ]; then
               backup_same_device=true
             fi
