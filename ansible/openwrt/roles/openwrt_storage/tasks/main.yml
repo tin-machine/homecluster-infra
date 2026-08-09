@@ -396,6 +396,43 @@
     - item.target is defined
     - (item.target | string | length) > 0
 
+- name: /srv を early direct-mount する OpenWrt init script を配置
+  ansible.builtin.copy:
+    dest: /etc/init.d/homecluster-srv-mount
+    owner: root
+    group: root
+    mode: '0755'
+    content: |
+      #!/bin/sh /etc/rc.common
+      # Managed by Ansible. Keep /srv available before storage-backed services start.
+      START=05
+      STOP=99
+
+      start() {
+        target={{ item.target | quote }}
+        device={{ item.partition | quote }}
+        fstype={{ item.fstype | quote }}
+        options={{ item.mount_options | default('rw,noatime') | quote }}
+
+        mount | grep -F " on $target " >/dev/null 2>&1 && return 0
+        mkdir -p "$target"
+        mount -t "$fstype" -o "$options" "$device" "$target"
+      }
+  when:
+    - openwrt_storage_manage_fstab | bool
+    - item.target | default('') == '/srv'
+    - item.fstype != 'swap'
+  loop: "{{ openwrt_storage_effective_partitions }}"
+  loop_control:
+    label: "{{ item.partition }} -> {{ item.target | default('') }}"
+
+- name: /srv early direct-mount init script を有効化
+  ansible.builtin.command: /etc/init.d/homecluster-srv-mount enable
+  changed_when: false
+  when:
+    - openwrt_storage_manage_fstab | bool
+    - openwrt_storage_effective_partitions | selectattr('target', 'defined') | selectattr('target', 'equalto', '/srv') | list | length > 0
+
 - name: swap デバイス候補を autodetect
   ansible.builtin.set_fact:
     openwrt_storage_swap_partitions_autodetect: >-
