@@ -826,6 +826,37 @@
         - heavy_prebuilt
         - k3s_base_baseline
 
+    - name: heavy prebuilt の unversioned binary-only contract を検証
+      ansible.builtin.assert:
+        that:
+          - openwrt_gentoo_heavy_prebuilt_emerge_args is string
+          - openwrt_gentoo_heavy_prebuilt_emerge_args is match('^[-A-Za-z0-9_=,:./+ ]+$')
+          - "'--getbinpkgonly' in (openwrt_gentoo_heavy_prebuilt_emerge_args | string).split()"
+          - "'--usepkgonly' not in (openwrt_gentoo_heavy_prebuilt_emerge_args | string).split()"
+          - openwrt_gentoo_heavy_prebuilt_packages is iterable
+          - openwrt_gentoo_heavy_prebuilt_packages is not string
+          - >-
+            (
+              openwrt_gentoo_heavy_prebuilt_packages
+              | select('match', '^[A-Za-z0-9+_.-]+/[A-Za-z0-9+_.-]+$')
+              | list
+              | length
+            ) == (openwrt_gentoo_heavy_prebuilt_packages | length)
+          - >-
+            (
+              openwrt_gentoo_heavy_prebuilt_packages
+              | select('match', '.*-[0-9].*')
+              | list
+              | length
+            ) == 0
+        fail_msg: "heavy package は unversioned atom と --getbinpkgonly で指定し、source fallback を許可しないでください"
+      when:
+        - openwrt_gentoo_heavy_prebuilt_enabled | bool
+      tags:
+        - gentoo_packages
+        - heavy_prebuilt
+        - k3s_base_baseline
+
     - name: source build 版 Rust が prebuilt package list に混入していないことを確認
       ansible.builtin.assert:
         that:
