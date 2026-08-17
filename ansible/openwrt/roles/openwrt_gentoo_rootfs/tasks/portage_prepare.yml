@@ -250,9 +250,10 @@
         or (openwrt_gentoo_pxe_users_required | default(false))
         or (openwrt_gentoo_portage_sync_required | default(false))
         or (openwrt_gentoo_ansible_pull_required | default(false))
+        or (openwrt_gentoo_official_binhost_enabled | bool)
         or (
-          (openwrt_gentoo_official_binhost_enabled | bool)
-          and ((openwrt_gentoo_official_binhost_packages | default([])) | length > 0)
+          (openwrt_gentoo_heavy_prebuilt_enabled | bool)
+          and ((openwrt_gentoo_heavy_prebuilt_packages | default([])) | length > 0)
         )
         or (openwrt_gentoo_distcc_enabled | bool)
         or (openwrt_gentoo_rpi_eeprom_enabled | bool)

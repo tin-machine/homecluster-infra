@@ -109,16 +109,18 @@ OpenWrt role の default policy:
 - `default()` は task / template の各所に散らさず、role 入口で effective value を作って assert する。
 - `openwrt_gentoo_server_host | default(openwrt_lan_ipaddr)` のような live endpoint の fallback chain は避ける。
 
-PXE Gentoo official binhost opt-in:
+PXE Gentoo binary preseed:
 
 | 変数 | 外部入力 |
 | --- | --- |
-| `openwrt_gentoo_official_binhost_enabled` | 公式 Gentoo binhost から特定 package を取得する場合だけ外部 inventory で `true` にする。public default は disabled |
-| `openwrt_gentoo_official_binhost_packages` | `--getbinpkgonly` で取得する package atom の明示 list。空 list が public default |
+| `openwrt_gentoo_official_binhost_enabled` | 公式 Gentoo binhost を configured binpkg repository として使う場合に外部 inventory で `true` にする。public default は disabled |
+| `openwrt_gentoo_heavy_prebuilt_packages` | source build を許可しない expensive package の unversioned atom list。role default を正とし、通常は external inventory で上書きしない |
+| `openwrt_gentoo_heavy_prebuilt_emerge_args` | heavy package 用の binary-only option string。role default は `--getbinpkgonly --update` を含み、official/local の compatible binary が無ければ fail-closed する |
+| `openwrt_gentoo_official_binhost_packages` | legacy の明示 preseed list。backward compatibility のため残すが、heavy package はこの external list へ追加しない。空 list が public default |
 | `openwrt_gentoo_official_binhost_uri` | 通常は role default の Gentoo arm64 公式 binhost を使う。mirror / profile を変える場合だけ外部 inventory で上書きする |
-| `openwrt_gentoo_official_binhost_emerge_args` | `emerge` に渡す option list。public default は `--getbinpkgonly` と `--binpkg-respect-use=y` を含み、source build fallback を許さない |
+| `openwrt_gentoo_official_binhost_emerge_args` | legacy 明示 preseed に渡す option list。public default は `--getbinpkgonly` と `--binpkg-respect-use=y` を含み、source build fallback を許さない |
 
-この opt-in は `PORTAGE_BINHOST` を該当 emerge の環境変数として一時上書きする。通常の Portage run を global に `getbinpkg` 化せず、公式 binhost に無い場合は source build へ落ちずに fail-closed する。shell に渡す `name` / `uri` / `location` / `emerge_args` / `packages` は role 側で文字種を検証する。
+official binhost を有効にすると、package list が空でも `binrepos.conf` を rootfs へ配置する。heavy preseed は Python target migration と通常 runtime emerge より先に、configured official binhost と local binpkg cache から compatible binary だけを選ぶ。version pin、`--usepkgonly`、source fallback は role 側の assert で拒否する。legacy 明示 preseed だけは `PORTAGE_BINHOST` を該当 emerge の環境変数として一時上書きする。
 
 ## ARM64 host role live input
 

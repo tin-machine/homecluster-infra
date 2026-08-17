@@ -190,14 +190,16 @@ openwrt_gentoo_homecluster_unit_chain:
 
 # PXE k3s staging の base role で毎 boot 導入していた共通 userland。
 # lower rootfs へ事前導入し、boot 後の tmpfs overlay 消費と ansible-pull@base 時間を抑える。
-# Rust など大きい package は source build へ落ちると rootfs 作成時間が大きく伸びるため、
-# k3s base baseline の前に local binpkg cache からだけ導入する。
+# Rust など大きい package は official Gentoo binhost または local binpkg の
+# compatible binary だけを k3s base baseline より先に導入し、source fallback を禁止する。
 # `dev-lang/rust` ではなく upstream binary artifact を使う `dev-lang/rust-bin` に寄せる。
 openwrt_gentoo_heavy_prebuilt_enabled: true
-openwrt_gentoo_heavy_prebuilt_emerge_args: "--usepkgonly --binpkg-respect-use=y --changed-use --quiet-build=y"
+openwrt_gentoo_heavy_prebuilt_emerge_args: "--getbinpkgonly --update --binpkg-respect-use=y --changed-use --quiet-build=y"
 openwrt_gentoo_heavy_prebuilt_packages:
   - dev-lang/rust-bin
   - dev-lang/go
+  - dev-util/maturin
+  - sys-devel/gcc
   - app-shells/fish
   - app-editors/neovim
   - net-libs/nodejs
