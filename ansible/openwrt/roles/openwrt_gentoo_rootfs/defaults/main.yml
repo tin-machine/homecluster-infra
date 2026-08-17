@@ -193,11 +193,15 @@ openwrt_gentoo_homecluster_unit_chain:
 # Rust など大きい package は source build へ落ちると rootfs 作成時間が大きく伸びるため、
 # k3s base baseline の前に local binpkg cache からだけ導入する。
 # `dev-lang/rust` ではなく upstream binary artifact を使う `dev-lang/rust-bin` に寄せる。
+# Prefer compatible binaries from official Gentoo binhost and local binpkg,
+# avoiding source builds for heavy packages to reduce rootfs generation time.
 openwrt_gentoo_heavy_prebuilt_enabled: true
-openwrt_gentoo_heavy_prebuilt_emerge_args: "--usepkgonly --binpkg-respect-use=y --changed-use --quiet-build=y"
+openwrt_gentoo_heavy_prebuilt_emerge_args: "--getbinpkgonly --update --binpkg-respect-use=y --changed-use --quiet-build=y"
 openwrt_gentoo_heavy_prebuilt_packages:
   - dev-lang/rust-bin
   - dev-lang/go
+  - dev-util/maturin
+  - sys-devel/gcc
   - app-shells/fish
   - app-editors/neovim
   - net-libs/nodejs
