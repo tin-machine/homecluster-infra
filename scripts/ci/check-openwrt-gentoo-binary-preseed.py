@@ -146,6 +146,36 @@ def validate(
         failures.append("binary preseed must run before Python migration and runtime emerge")
 
     try:
+        getuto_init = task_block(
+            chroot, "Portage binpkg GPG trust anchor を getuto で初期化"
+        )
+        for fragment in (
+            "/usr/bin/getuto",
+            "creates: \"{{ openwrt_gentoo_rootfs_dir }}/etc/portage/gnupg/mykeyid\"",
+            "when: openwrt_gentoo_official_binhost_enabled | bool",
+        ):
+            if fragment not in getuto_init:
+                failures.append(f"getuto initialization task is missing: {fragment}")
+        if positions[0] >= 0 and chroot.index("/usr/bin/getuto") > positions[0]:
+            failures.append("getuto trust anchor must be initialized before heavy preseed")
+    except ValueError as exc:
+        failures.append(str(exc))
+
+    try:
+        getuto_verify = task_block(
+            chroot, "Portage binpkg GPG trust anchor を検証"
+        )
+        for fragment in (
+            "test -s /etc/portage/gnupg/mykeyid",
+            "test -r /etc/portage/gnupg/trustdb.gpg",
+            "when: openwrt_gentoo_official_binhost_enabled | bool",
+        ):
+            if fragment not in getuto_verify:
+                failures.append(f"getuto verification task is missing: {fragment}")
+    except ValueError as exc:
+        failures.append(str(exc))
+
+    try:
         binary_assert = task_block(
             chroot, "heavy prebuilt の unversioned binary-only contract を検証"
         )
@@ -173,13 +203,32 @@ def validate(
     ):
         failures.append("chroot work gate still couples official binhost to the legacy package list")
 
-    for fragment in (
-        'BINPKG_GPG_VERIFY_GPG_HOME="/etc/portage/gnupg"',
-        'GPG_VERIFY_USER_DROP="{{ openwrt_gentoo_portage_gpg_owner }}"',
-        'GPG_VERIFY_GROUP_DROP="{{ openwrt_gentoo_portage_gpg_group }}"',
-    ):
+    for fragment in ('BINPKG_GPG_VERIFY_GPG_HOME="/etc/portage/gnupg"',):
         if fragment not in make_conf:
-            failures.append(f"binpkg GPG verification identity contract is missing: {fragment}")
+            failures.append(f"binpkg GPG verification home contract is missing: {fragment}")
+
+    for fragment in (
+        "GPG_VERIFY_USER_DROP=",
+        "GPG_VERIFY_GROUP_DROP=",
+    ):
+        if fragment in make_conf:
+            failures.append(f"binpkg GPG verification overrides Gentoo privilege drop: {fragment}")
+
+    for fragment in (
+        "/usr/bin/getuto",
+        "/etc/portage/gnupg/mykeyid",
+        "/etc/portage/gnupg/trustdb.gpg",
+    ):
+        if fragment not in chroot:
+            failures.append(f"getuto trust anchor contract is missing: {fragment}")
+
+    for fragment in (
+        "install -d -m 700 -o",
+        "gpg --homedir /etc/portage/gnupg --keyserver",
+        "--recv-keys",
+    ):
+        if fragment in chroot:
+            failures.append(f"manual binpkg GPG setup bypasses getuto initialization: {fragment}")
 
     for fragment in (
         "role default を正とし",
@@ -231,14 +280,32 @@ def self_test(texts: tuple[str, str, str, str, str]) -> None:
         "reversed preseed order", (defaults, reversed_order, prepare, make_conf, contract)
     )
 
-    missing_drop_user = make_conf.replace(
-        'GPG_VERIFY_USER_DROP="{{ openwrt_gentoo_portage_gpg_owner }}"',
-        '# GPG verify user contract removed',
+    missing_getuto = chroot.replace(
+        "/usr/bin/getuto",
+        "/bin/true",
         1,
     )
     require_failure(
-        "missing GPG verify user alignment",
-        (defaults, chroot, prepare, missing_drop_user, contract),
+        "missing getuto trust helper",
+        (defaults, missing_getuto, prepare, make_conf, contract),
+    )
+
+    precreated_gpg_home = chroot + "\ninstall -d -m 700 -o portage /etc/portage/gnupg\n"
+    require_failure(
+        "precreated empty GPG home",
+        (defaults, precreated_gpg_home, prepare, make_conf, contract),
+    )
+
+    manual_recv_key = chroot + "\ngpg --recv-keys 2C44695DB9F6043D\n"
+    require_failure(
+        "manual GPG key receive",
+        (defaults, manual_recv_key, prepare, make_conf, contract),
+    )
+
+    overridden_drop_user = make_conf + '\nGPG_VERIFY_USER_DROP="portage"\n'
+    require_failure(
+        "overridden GPG verification user",
+        (defaults, chroot, prepare, overridden_drop_user, contract),
     )
 
 
