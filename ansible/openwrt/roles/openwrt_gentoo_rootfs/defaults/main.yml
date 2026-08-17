@@ -417,10 +417,6 @@ openwrt_gentoo_portage_profile: /var/db/repos/gentoo/profiles/default/linux/arm6
 openwrt_gentoo_portage_sync_args: "--quiet"
 openwrt_gentoo_portage_sync_marker: "{{ openwrt_gentoo_rootfs_dir }}/var/db/repos/.portage_synced"
 openwrt_gentoo_portage_init_force: false
-openwrt_gentoo_portage_binpkg_keys:
-  - 2C44695DB9F6043D
-openwrt_gentoo_portage_gpg_owner: portage
-openwrt_gentoo_portage_gpg_group: portage
 openwrt_gentoo_locale: ja_JP.UTF-8
 openwrt_gentoo_locale_gen_entries:
   - "ja_JP.UTF-8 UTF-8"

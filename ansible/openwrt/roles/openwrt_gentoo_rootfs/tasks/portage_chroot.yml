@@ -276,39 +276,30 @@
         mode: '0755'
       when: openwrt_gentoo_enabled | bool
 
-    - name: Portage binpkg GPG ホームを整備
+    - name: Portage binpkg GPG trust anchor を getuto で初期化
       ansible.builtin.shell: |
         set -euo pipefail
         chroot {{ openwrt_gentoo_rootfs_dir }} {{ openwrt_gentoo_chroot_shell }} -lc '
-          install -d -m 700 -o {{ openwrt_gentoo_portage_gpg_owner }} -g {{ openwrt_gentoo_portage_gpg_group }} /etc/portage/gnupg
-          find /etc/portage/gnupg -mindepth 1 -maxdepth 1 -print0 | xargs -0 -r chown {{ openwrt_gentoo_portage_gpg_owner }}:{{ openwrt_gentoo_portage_gpg_group }} || true
-          chown {{ openwrt_gentoo_portage_gpg_owner }}:{{ openwrt_gentoo_portage_gpg_group }} /etc/portage/gnupg
-          chmod 700 /etc/portage/gnupg
+          /usr/bin/getuto
+        '
+      args:
+        executable: /bin/ash
+        creates: "{{ openwrt_gentoo_rootfs_dir }}/etc/portage/gnupg/mykeyid"
+      when: openwrt_gentoo_official_binhost_enabled | bool
+      tags:
+        - gentoo_portage_gpg
+
+    - name: Portage binpkg GPG trust anchor を検証
+      ansible.builtin.shell: |
+        set -euo pipefail
+        chroot {{ openwrt_gentoo_rootfs_dir }} {{ openwrt_gentoo_chroot_shell }} -lc '
+          test -s /etc/portage/gnupg/mykeyid
+          test -r /etc/portage/gnupg/trustdb.gpg
         '
       args:
         executable: /bin/ash
       changed_when: false
-      when:
-        - openwrt_gentoo_portage_binpkg_keys | length > 0
-      tags:
-        - gentoo_portage_gpg
-
-    - name: Portage binpkg GPG 鍵を取得
-      ansible.builtin.shell: |
-        set -euo pipefail
-        chroot {{ openwrt_gentoo_rootfs_dir }} {{ openwrt_gentoo_chroot_shell }} -lc '
-          gpg --homedir /etc/portage/gnupg --keyserver hkps://keys.gentoo.org --recv-keys {{ item }}
-        '
-      args:
-        executable: /bin/ash
-      loop: "{{ openwrt_gentoo_portage_binpkg_keys }}"
-      loop_control:
-        label: "{{ item }}"
-      register: openwrt_gentoo_portage_gpg
-      changed_when: "'imported' in (openwrt_gentoo_portage_gpg.stdout | default(''))"
-      failed_when: openwrt_gentoo_portage_gpg.rc != 0
-      when:
-        - openwrt_gentoo_portage_binpkg_keys | length > 0
+      when: openwrt_gentoo_official_binhost_enabled | bool
       tags:
         - gentoo_portage_gpg
 

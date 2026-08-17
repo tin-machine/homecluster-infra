@@ -17,8 +17,6 @@ BINPKG_COMPRESS="zstd"
 BINPKG_COMPRESS_FLAGS="-15"
 PORTAGE_BINHOST="{{ openwrt_gentoo_binhost }}"
 BINPKG_GPG_VERIFY_GPG_HOME="/etc/portage/gnupg"
-GPG_VERIFY_USER_DROP="{{ openwrt_gentoo_portage_gpg_owner }}"
-GPG_VERIFY_GROUP_DROP="{{ openwrt_gentoo_portage_gpg_group }}"
 
 {% if openwrt_gentoo_distcc_enabled | bool %}
 FEATURES="buildpkg distcc -getbinpkg binpkg-multi-instance clean-logs compress-build-logs parallel-fetch parallel-install -userpriv -usersandbox -network-sandbox -pid-sandbox "
