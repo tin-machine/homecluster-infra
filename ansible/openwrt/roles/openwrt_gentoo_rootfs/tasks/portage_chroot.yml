@@ -665,7 +665,6 @@
         fail_msg: "openwrt_gentoo_official_binhost_enabled=true の場合、name / uri / location / emerge_args / packages は shell-safe な値で指定してください"
       when:
         - openwrt_gentoo_official_binhost_enabled | bool
-        - (openwrt_gentoo_official_binhost_packages | default([])) | length > 0
       tags:
         - gentoo_packages
         - official_binhost
@@ -681,7 +680,6 @@
       register: openwrt_gentoo_official_binhost_rootfs_stats
       when:
         - openwrt_gentoo_official_binhost_enabled | bool
-        - (openwrt_gentoo_official_binhost_packages | default([])) | length > 0
       tags:
         - gentoo_packages
         - official_binhost
@@ -704,7 +702,6 @@
         fail_msg: "official binhost package を導入する前に対象 rootfs の /etc/portage が存在している必要があります"
       when:
         - openwrt_gentoo_official_binhost_enabled | bool
-        - (openwrt_gentoo_official_binhost_packages | default([])) | length > 0
       tags:
         - gentoo_packages
         - official_binhost
@@ -723,7 +720,6 @@
         label: "{{ item }}"
       when:
         - openwrt_gentoo_official_binhost_enabled | bool
-        - (openwrt_gentoo_official_binhost_packages | default([])) | length > 0
       tags:
         - gentoo_packages
         - official_binhost
@@ -747,7 +743,6 @@
         label: "{{ item }}"
       when:
         - openwrt_gentoo_official_binhost_enabled | bool
-        - (openwrt_gentoo_official_binhost_packages | default([])) | length > 0
       tags:
         - gentoo_packages
         - official_binhost
