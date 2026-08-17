@@ -13,6 +13,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULTS_PATH = REPO_ROOT / "ansible/openwrt/roles/openwrt_gentoo_rootfs/defaults/main.yml"
 CHROOT_PATH = REPO_ROOT / "ansible/openwrt/roles/openwrt_gentoo_rootfs/tasks/portage_chroot.yml"
 PREPARE_PATH = REPO_ROOT / "ansible/openwrt/roles/openwrt_gentoo_rootfs/tasks/portage_prepare.yml"
+MAKE_CONF_PATH = REPO_ROOT / "ansible/openwrt/roles/openwrt_gentoo_rootfs/templates/portage/make.conf.j2"
 CONTRACT_PATH = REPO_ROOT / "docs/site-input-contract.md"
 
 EXPECTED_PACKAGES = (
@@ -86,7 +87,9 @@ def extract_args(defaults: str) -> str:
     return match.group(1) if match else ""
 
 
-def validate(defaults: str, chroot: str, prepare: str, contract: str) -> list[str]:
+def validate(
+    defaults: str, chroot: str, prepare: str, make_conf: str, contract: str
+) -> list[str]:
     failures: list[str] = []
 
     packages = extract_packages(defaults)
@@ -171,6 +174,14 @@ def validate(defaults: str, chroot: str, prepare: str, contract: str) -> list[st
         failures.append("chroot work gate still couples official binhost to the legacy package list")
 
     for fragment in (
+        'BINPKG_GPG_VERIFY_GPG_HOME="/etc/portage/gnupg"',
+        'GPG_VERIFY_USER_DROP="{{ openwrt_gentoo_portage_gpg_owner }}"',
+        'GPG_VERIFY_GROUP_DROP="{{ openwrt_gentoo_portage_gpg_group }}"',
+    ):
+        if fragment not in make_conf:
+            failures.append(f"binpkg GPG verification identity contract is missing: {fragment}")
+
+    for fragment in (
         "role default を正とし",
         "official/local の compatible binary",
         "Python target migration と通常 runtime emerge より先",
@@ -181,34 +192,54 @@ def validate(defaults: str, chroot: str, prepare: str, contract: str) -> list[st
     return failures
 
 
-def source_texts() -> tuple[str, str, str, str]:
-    return read(DEFAULTS_PATH), read(CHROOT_PATH), read(PREPARE_PATH), read(CONTRACT_PATH)
+def source_texts() -> tuple[str, str, str, str, str]:
+    return (
+        read(DEFAULTS_PATH),
+        read(CHROOT_PATH),
+        read(PREPARE_PATH),
+        read(MAKE_CONF_PATH),
+        read(CONTRACT_PATH),
+    )
 
 
-def require_failure(label: str, texts: tuple[str, str, str, str]) -> None:
+def require_failure(label: str, texts: tuple[str, str, str, str, str]) -> None:
     if not validate(*texts):
         raise AssertionError(f"negative fixture unexpectedly passed: {label}")
 
 
-def self_test(texts: tuple[str, str, str, str]) -> None:
-    defaults, chroot, prepare, contract = texts
+def self_test(texts: tuple[str, str, str, str, str]) -> None:
+    defaults, chroot, prepare, make_conf, contract = texts
 
     versioned = defaults.replace("  - net-libs/nodejs\n", "  - =net-libs/nodejs-26.3.0\n", 1)
-    require_failure("versioned atom", (versioned, chroot, prepare, contract))
+    require_failure("versioned atom", (versioned, chroot, prepare, make_conf, contract))
 
     source_fallback = defaults.replace(
         'openwrt_gentoo_heavy_prebuilt_emerge_args: "--getbinpkgonly',
         'openwrt_gentoo_heavy_prebuilt_emerge_args: "--usepkgonly',
         1,
     )
-    require_failure("local-only option", (source_fallback, chroot, prepare, contract))
+    require_failure(
+        "local-only option", (source_fallback, chroot, prepare, make_conf, contract)
+    )
 
     heavy_name = "heavy prebuilt パッケージを configured binpkg repositories から事前導入"
     python_name = "Gentoo Portage を profile default Python 対応へ先行移行"
     reversed_order = chroot.replace(heavy_name, "__ORDER_SENTINEL__", 1)
     reversed_order = reversed_order.replace(python_name, heavy_name, 1)
     reversed_order = reversed_order.replace("__ORDER_SENTINEL__", python_name, 1)
-    require_failure("reversed preseed order", (defaults, reversed_order, prepare, contract))
+    require_failure(
+        "reversed preseed order", (defaults, reversed_order, prepare, make_conf, contract)
+    )
+
+    missing_drop_user = make_conf.replace(
+        'GPG_VERIFY_USER_DROP="{{ openwrt_gentoo_portage_gpg_owner }}"',
+        '# GPG verify user contract removed',
+        1,
+    )
+    require_failure(
+        "missing GPG verify user alignment",
+        (defaults, chroot, prepare, missing_drop_user, contract),
+    )
 
 
 def main() -> int:

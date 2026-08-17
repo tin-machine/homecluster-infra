@@ -122,6 +122,8 @@ PXE Gentoo binary preseed:
 
 official binhost を有効にすると、package list が空でも `binrepos.conf` を rootfs へ配置する。heavy preseed は Python target migration と通常 runtime emerge より先に、configured official binhost と local binpkg cache から compatible binary だけを選ぶ。version pin、`--usepkgonly`、source fallback は role 側の assert で拒否する。legacy 明示 preseed だけは `PORTAGE_BINHOST` を該当 emerge の環境変数として一時上書きする。
 
+gpkg signature verificationでは、Portageのprivilege drop user/groupを`/etc/portage/gnupg`のowner/groupと同じ値に固定する。role defaultは`portage:portage`であり、GnuPG homedirを別user所有の`0700`にしてverification processだけを`nobody:nogroup`へdropする構成を作らない。
+
 ## ARM64 host role live input
 
 ARM64 host role でも、network exposure を変える値は外部 inventory を正とする。
