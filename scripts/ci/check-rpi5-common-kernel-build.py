@@ -118,6 +118,9 @@ def main() -> int:
     require(tasks, "rpi5_common_kernel_build_bundle_output", "common kernel bundle output fact")
     require(staging_entrypoint, "rpi5-egpu-nvidia-artifact-bundle.yml", "builder pre-play import")
     require(staging_entrypoint, "pxe-release-bundle-staging.yml", "existing staging import")
+    precheck_helper = read(ROOT / "scripts/pi-rpi5-common-kernel-precheck")
+    require(precheck_helper, "common_kernel_stage_date_mismatch", "stage date mismatch guard")
+    require(precheck_helper, "stage_date_alignment=pass", "stage date alignment diagnostic")
 
     for text, label in (
         (bundle_tasks, "artifact bundle"),

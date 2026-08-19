@@ -26,6 +26,7 @@ def load(path: Path, name: str):
 
 
 ROLLOUT_MODULE = load(ROLLOUT, "pi_rpi5_common_kernel_rollout")
+PRECHECK_MODULE = load(PRECHECK, "pi_rpi5_common_kernel_precheck")
 
 
 class CliFixtureTests(unittest.TestCase):
@@ -148,6 +149,23 @@ class CliFixtureTests(unittest.TestCase):
 
 
 class PolicyTests(unittest.TestCase):
+    def test_stage_date_alignment_accepts_matching_stg_dates(self):
+        builder = {
+            "rpi5_common_kernel_build_stage": "stg",
+            "rpi5_common_kernel_build_stage_date": "20260820",
+        }
+        openwrt = {"openwrt_gentoo_release_bundle_stage_dates": {"stg": "20260820"}}
+        PRECHECK_MODULE.validate_stage_date_alignment(builder, openwrt)
+
+    def test_stage_date_alignment_rejects_mismatch_before_runtime_build(self):
+        builder = {
+            "rpi5_common_kernel_build_stage": "stg",
+            "rpi5_common_kernel_build_stage_date": "20260801",
+        }
+        openwrt = {"openwrt_gentoo_release_bundle_stage_dates": {"stg": "20260820"}}
+        with self.assertRaisesRegex(PRECHECK_MODULE.PrecheckError, "common_kernel_stage_date_mismatch"):
+            PRECHECK_MODULE.validate_stage_date_alignment(builder, openwrt)
+
     def write_record(self, root: Path, phase: str, value: dict) -> None:
         directory = root / "rollout-phases"
         directory.mkdir(parents=True, exist_ok=True)
@@ -204,6 +222,12 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("choices=PHASES", rollout)
         self.assertIn('AGENT_GROUP = "k3s_stg_agents"', rollout)
         self.assertIn('EGPU_GROUP = "rpi5_egpu_artifact_bundle"', rollout)
+
+    def test_precheck_requires_stage_date_alignment(self):
+        precheck = PRECHECK.read_text(encoding="utf-8")
+        self.assertIn('OPENWRT_GROUP = "openwrt"', precheck)
+        self.assertIn("common_kernel_stage_date_mismatch", precheck)
+        self.assertIn("stage_date_alignment=pass", precheck)
 
     def test_rollout_playbook_records_previous_selector_before_mutation(self):
         playbook = (HERE.parent / "ansible/openwrt/playbooks/rpi5-common-kernel-rollout.yml").read_text(encoding="utf-8")
