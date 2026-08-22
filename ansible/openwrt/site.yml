@@ -23,6 +23,9 @@
       tags: ['never', 'pxe', 'pxe_rootfs']
     - role: openwrt_backup_share
       tags: ['backup_share']
+    - role: openwrt_ksmbd
+      tags: ['never', 'ksmbd', 'backup_share']
+      when: openwrt_ksmbd_enabled | default(false) | bool
     - role: openwrt_nfs_server
       tags: ['pxe', 'pxe_nfs', 'backup_share']
     - role: openwrt_network
@@ -30,7 +33,7 @@
     - role: openwrt_ntp
       tags: ['ntp', 'openwrt_ntp']
     - role: openwrt_firewall
-      tags: ['firewall']
+      tags: ['firewall', 'ksmbd']
     - role: openwrt_banip
       tags: ['banip', 'openwrt_banip']
       when: (openwrt_banip_install | default(false) | bool) or (openwrt_banip_enabled | default(false) | bool)

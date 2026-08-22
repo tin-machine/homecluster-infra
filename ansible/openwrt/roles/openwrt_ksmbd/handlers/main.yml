@@ -1,0 +1,6 @@
+---
+- name: Restart ksmbd
+  ansible.builtin.command: "/etc/init.d/{{ openwrt_ksmbd_service_name }} restart"
+  when:
+    - openwrt_ksmbd_enabled | bool
+    - not ansible_check_mode

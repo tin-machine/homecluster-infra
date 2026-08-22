@@ -24,3 +24,7 @@ jobs:
       - name: Run static checks
         shell: bash
         run: bash scripts/ci/static-check.sh
+
+      - name: Validate convergence monitor status
+        shell: bash
+        run: bash .agents/skills/homecluster-convergence-monitor/scripts/test-pi-k3s-status.sh
