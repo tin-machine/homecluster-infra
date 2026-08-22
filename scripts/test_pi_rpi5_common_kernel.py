@@ -25,6 +25,7 @@ def load(path: Path, name: str):
     return module
 
 
+PRECHECK_MODULE = load(PRECHECK, "pi_rpi5_common_kernel_precheck")
 ROLLOUT_MODULE = load(ROLLOUT, "pi_rpi5_common_kernel_rollout")
 
 
@@ -55,14 +56,24 @@ class CliFixtureTests(unittest.TestCase):
         self.assertEqual(value["status"], "pass")
         self.assertTrue(value["source_only"])
 
+    def test_generation_precheck_fixture_does_not_require_cluster_health(self):
+        temporary, fixture = self.fixture({"status": "pass"})
+        try:
+            completed, value = self.run_json(PRECHECK, "--json", "--fixture", str(fixture))
+        finally:
+            temporary.cleanup()
+        self.assertEqual(completed.returncode, 0)
+        self.assertEqual(value["status"], "pass")
+        self.assertEqual(value["cluster_status"], "not_required_for_generation")
+
     def test_precheck_blocked_fixture(self):
-        temporary, fixture = self.fixture({"status": "blocked", "reason": "distccd_inactive"})
+        temporary, fixture = self.fixture({"status": "blocked", "reason": "builder_unavailable"})
         try:
             completed, value = self.run_json(PRECHECK, "--json", "--fixture", str(fixture))
         finally:
             temporary.cleanup()
         self.assertEqual(completed.returncode, 2)
-        self.assertEqual(value["reason"], "distccd_inactive")
+        self.assertEqual(value["reason"], "builder_unavailable")
 
     def test_generation_gate_fixture(self):
         temporary, fixture = self.fixture({"status": "pass"})
@@ -147,6 +158,22 @@ class CliFixtureTests(unittest.TestCase):
         self.assertIn("invalid choice", completed.stderr)
 
 
+class PrecheckPolicyTests(unittest.TestCase):
+    def test_stage_date_alignment_accepts_match(self):
+        PRECHECK_MODULE.validate_stage_date_alignment(
+            {"rpi5_common_kernel_build_stage_date": "20260822"},
+            {"openwrt_gentoo_release_bundle_stage_dates": {"stg": "20260822"}},
+        )
+
+    def test_stage_date_alignment_rejects_mismatch(self):
+        with self.assertRaises(PRECHECK_MODULE.PrecheckError) as context:
+            PRECHECK_MODULE.validate_stage_date_alignment(
+                {"rpi5_common_kernel_build_stage_date": "20260821"},
+                {"openwrt_gentoo_release_bundle_stage_dates": {"stg": "20260822"}},
+            )
+        self.assertEqual(context.exception.reason, "common_kernel_stage_date_mismatch")
+
+
 class PolicyTests(unittest.TestCase):
     def write_record(self, root: Path, phase: str, value: dict) -> None:
         directory = root / "rollout-phases"
@@ -204,6 +231,27 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("choices=PHASES", rollout)
         self.assertIn('AGENT_GROUP = "k3s_stg_agents"', rollout)
         self.assertIn('EGPU_GROUP = "rpi5_egpu_artifact_bundle"', rollout)
+
+    def test_generation_gate_is_builder_scoped_and_rollout_gate_is_cluster_scoped(self):
+        precheck = PRECHECK.read_text(encoding="utf-8")
+        rollout = ROLLOUT.read_text(encoding="utf-8")
+        generation_playbook = (
+            HERE.parent / "ansible/arm64/playbooks/rpi5-egpu-nvidia-artifact-bundle.yml"
+        ).read_text(encoding="utf-8")
+        precheck_playbook = (
+            HERE.parent / "ansible/openwrt/playbooks/rpi5-common-kernel-precheck.yml"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("k3s_gate=deferred_to_rollout", precheck)
+        self.assertNotIn("k3s_not_healthy", precheck)
+        self.assertIn("def ensure_cluster_healthy", rollout)
+        self.assertIn("if args.phase in RUNTIME_PHASES", rollout)
+        self.assertLess(rollout.index("ensure_cluster_healthy(runbook)"), rollout.index("selector_apply = run"))
+        self.assertIn("ignore_unreachable: true", generation_playbook)
+        self.assertIn("local-only", generation_playbook)
+        self.assertIn("LC_ALL: C", generation_playbook)
+        self.assertIn("remote workers are optional for generation precheck", precheck_playbook)
+        self.assertIn("homecluster_common_kernel_stg_stage_date_from_openwrt", precheck_playbook)
 
     def test_rollout_playbook_records_previous_selector_before_mutation(self):
         playbook = (HERE.parent / "ansible/openwrt/playbooks/rpi5-common-kernel-rollout.yml").read_text(encoding="utf-8")
