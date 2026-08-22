@@ -4,11 +4,12 @@
   gather_facts: false
   become: false
   tasks:
-    - name: Pi5 common kernel builder groupを検証
+    - name: Pi5 common kernel builder / OpenWrt groupを検証
       ansible.builtin.assert:
         that:
           - groups['rpi5_egpu_artifact_bundle'] | default([]) | length == 1
-        fail_msg: rpi5_egpu_artifact_bundle groupからbuilderを一意に解決できません
+          - groups['openwrt'] | default([]) | length == 1
+        fail_msg: common-kernel builderまたはOpenWrtを一意に解決できません
       changed_when: false
 
     - name: Pi5 common kernel builder dynamic groupを作成
@@ -23,6 +24,17 @@
   become: false
   vars:
     homecluster_common_kernel_builder_min_free_kib: 8388608
+    homecluster_common_kernel_stg_stage_date_from_openwrt: >-
+      {{
+        (
+          hostvars[(groups['openwrt'] | first)].openwrt_gentoo_release_bundle_stage_dates
+          | default({})
+        ).get('stg', '')
+        | string | trim
+      }}
+  environment:
+    LC_ALL: C
+    LANG: C
   tasks:
     - name: Pi5 common kernel private input contractを検証
       ansible.builtin.assert:
@@ -33,6 +45,8 @@
           - rpi5_common_kernel_build_confirm == rpi5_common_kernel_build_confirm_expected
           - rpi5_common_kernel_build_stage | default('') == 'stg'
           - rpi5_common_kernel_build_stage_date | default('', true) | string is match('^[0-9]{8}$')
+          - homecluster_common_kernel_stg_stage_date_from_openwrt is match('^[0-9]{8}$')
+          - (rpi5_common_kernel_build_stage_date | string | trim) == homecluster_common_kernel_stg_stage_date_from_openwrt
           - rpi5_common_kernel_build_source_version | default('', true) | string | trim | length >= 12
           - rpi5_common_kernel_build_config_seed | default('', true) | string is match('^/var/lib/rancher/k3s/')
           - rpi5_common_kernel_build_open_modules_commit | default('', true) | string | trim | length >= 12
@@ -42,7 +56,7 @@
           - rpi5_egpu_nvidia_artifact_bundle_apply | default(false) | bool
           - rpi5_egpu_nvidia_artifact_bundle_confirm_expected | default('', true) | string | trim | length > 0
           - rpi5_egpu_nvidia_artifact_bundle_confirm == rpi5_egpu_nvidia_artifact_bundle_confirm_expected
-        fail_msg: common-kernel build / NVIDIA bundleの固定opt-inまたは入力形状が不足しています
+        fail_msg: common-kernel build / NVIDIA bundleの固定opt-in、入力形状、またはstg stage dateが一致していません
       no_log: true
       changed_when: false
 
@@ -101,7 +115,7 @@
       register: homecluster_common_kernel_builder_fingerprint
       changed_when: false
 
-    - name: Pi5 common kernel distcc workerを解決
+    - name: Pi5 common kernel distcc worker候補を解決
       ansible.builtin.set_fact:
         homecluster_common_kernel_distcc_workers: >-
           {%- set result = [] -%}
@@ -114,14 +128,7 @@
           {{ result }}
       changed_when: false
 
-    - name: Pi5 common kernel distcc worker存在を検証
-      ansible.builtin.assert:
-        that:
-          - homecluster_common_kernel_distcc_workers | length > 0
-        fail_msg: common-kernel build用distcc workerがありません
-      changed_when: false
-
-    - name: Pi5 common kernel distcc readinessとcompiler fingerprintを取得
+    - name: Pi5 common kernel distcc readinessとcompiler fingerprintをbest-effort取得
       ansible.builtin.shell: |
         set -euo pipefail
         port="{{ (hostvars[item].distcc | default({})).port | default(3632) | int }}"
@@ -137,15 +144,31 @@
       loop: "{{ homecluster_common_kernel_distcc_workers }}"
       register: homecluster_common_kernel_worker_fingerprints
       changed_when: false
+      failed_when: false
+      ignore_unreachable: true
+      vars:
+        ansible_ssh_timeout: 5
 
-    - name: Pi5 common kernel distcc compiler一致を検証
-      ansible.builtin.assert:
-        that:
-          - item.stdout_lines == homecluster_common_kernel_builder_fingerprint.stdout_lines
-        fail_msg: distcc workerのcompiler fingerprintがbuilderと一致しません
-      loop: "{{ homecluster_common_kernel_worker_fingerprints.results | default([]) }}"
-      loop_control:
-        label: "{{ item.item | default('worker') }}"
+    - name: Pi5 common kernel usable distcc workerを集計
+      ansible.builtin.set_fact:
+        homecluster_common_kernel_usable_distcc_workers: >-
+          {%- set result = [] -%}
+          {%- for probe in homecluster_common_kernel_worker_fingerprints.results | default([]) -%}
+          {%- if not (probe.unreachable | default(false) | bool)
+                and (probe.rc | default(1) | int) == 0
+                and (probe.stdout_lines | default([])) == (homecluster_common_kernel_builder_fingerprint.stdout_lines | default([])) -%}
+          {%- set _ = result.append(probe.item) -%}
+          {%- endif -%}
+          {%- endfor -%}
+          {{ result }}
+      changed_when: false
+
+    - name: Pi5 common kernel distcc availabilityを表示
+      ansible.builtin.debug:
+        msg: >-
+          distcc candidates={{ homecluster_common_kernel_distcc_workers | length }},
+          usable={{ homecluster_common_kernel_usable_distcc_workers | length }};
+          remote workers are optional for generation precheck
       changed_when: false
 
 - name: Pi5 common kernel OpenWrt storage precheck

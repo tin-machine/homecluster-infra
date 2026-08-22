@@ -14,6 +14,7 @@ from typing import Any, Mapping, Sequence
 COLLECTOR = "homecluster-rpi5-common-kernel-precheck"
 MIN_CONTROLLER_FREE_BYTES = 4 * 1024 * 1024 * 1024
 BUILDER_GROUP = "rpi5_egpu_artifact_bundle"
+OPENWRT_GROUP = "openwrt"
 
 
 class PrecheckError(RuntimeError):
@@ -83,14 +84,14 @@ def inventory_hostvars(inventory_json: Mapping[str, Any], host: str) -> dict[str
     values = meta.get("hostvars") if isinstance(meta, dict) else None
     result = values.get(host) if isinstance(values, dict) else None
     if not isinstance(result, dict):
-        raise PrecheckError("common_kernel_builder_hostvars_missing")
+        raise PrecheckError("inventory_hostvars_missing")
     return result
 
 
-def resolve_builder_host(inventory_json: Mapping[str, Any]) -> str:
-    hosts = inventory_group_hosts(inventory_json, BUILDER_GROUP)
+def resolve_single_host(inventory_json: Mapping[str, Any], group: str, reason: str) -> str:
+    hosts = inventory_group_hosts(inventory_json, group)
     if len(hosts) != 1:
-        raise PrecheckError("common_kernel_builder_group_invalid")
+        raise PrecheckError(reason)
     return hosts[0]
 
 
@@ -119,14 +120,8 @@ def validate_private_contract(values: Mapping[str, Any]) -> None:
     if values.get("rpi5_common_kernel_build_stage") != "stg":
         raise PrecheckError("common_kernel_stage_invalid")
     stage_date = values.get("rpi5_common_kernel_build_stage_date")
-    stage_dates = values.get("openwrt_gentoo_release_bundle_stage_dates")
     if not (isinstance(stage_date, str) and re.fullmatch(r"[0-9]{8}", stage_date)):
-        if not (
-            isinstance(stage_dates, dict)
-            and isinstance(stage_dates.get("stg"), (str, int))
-            and re.fullmatch(r"[0-9]{8}", str(stage_dates["stg"]))
-        ):
-            raise PrecheckError("common_kernel_stage_date_invalid")
+        raise PrecheckError("common_kernel_stage_date_invalid")
 
     for key in ("rpi5_common_kernel_build_source_version", "rpi5_common_kernel_build_open_modules_commit"):
         value = values.get(key)
@@ -139,6 +134,18 @@ def validate_private_contract(values: Mapping[str, Any]) -> None:
     ):
         if not safe_path(values.get(key)):
             raise PrecheckError("common_kernel_input_path_invalid")
+
+
+def validate_stage_date_alignment(builder_values: Mapping[str, Any], openwrt_values: Mapping[str, Any]) -> None:
+    build_date = str(builder_values.get("rpi5_common_kernel_build_stage_date", "")).strip()
+    stage_dates = openwrt_values.get("openwrt_gentoo_release_bundle_stage_dates")
+    if not isinstance(stage_dates, dict):
+        raise PrecheckError("common_kernel_stage_date_invalid")
+    stg_date = str(stage_dates.get("stg", "")).strip()
+    if not re.fullmatch(r"[0-9]{8}", stg_date):
+        raise PrecheckError("common_kernel_stage_date_invalid")
+    if build_date != stg_date:
+        raise PrecheckError("common_kernel_stage_date_mismatch")
 
 
 def source_checks(root: Path, inventory: Path, *, require_runtime_branch: bool) -> list[str]:
@@ -182,9 +189,13 @@ def source_checks(root: Path, inventory: Path, *, require_runtime_branch: bool) 
     diagnostics.append("fixed_playbook_contract=pass")
 
     inventory_json = load_inventory(inventory, root)
-    builder = resolve_builder_host(inventory_json)
-    validate_private_contract(inventory_hostvars(inventory_json, builder))
+    builder = resolve_single_host(inventory_json, BUILDER_GROUP, "common_kernel_builder_group_invalid")
+    openwrt = resolve_single_host(inventory_json, OPENWRT_GROUP, "common_kernel_openwrt_group_invalid")
+    builder_values = inventory_hostvars(inventory_json, builder)
+    validate_private_contract(builder_values)
+    validate_stage_date_alignment(builder_values, inventory_hostvars(inventory_json, openwrt))
     diagnostics.append("private_input_shape=pass")
+    diagnostics.append("stage_date_alignment=pass")
 
     if shutil.disk_usage(root).free < MIN_CONTROLLER_FREE_BYTES:
         raise PrecheckError("controller_capacity_insufficient")
@@ -192,7 +203,7 @@ def source_checks(root: Path, inventory: Path, *, require_runtime_branch: bool) 
     return diagnostics
 
 
-def runtime_checks(root: Path, inventory: Path, runbook: Path) -> tuple[str, list[str]]:
+def runtime_checks(root: Path, inventory: Path) -> tuple[str, list[str]]:
     diagnostics: list[str] = []
     playbook = root / "ansible/openwrt/playbooks/rpi5-common-kernel-precheck.yml"
     completed = run(
@@ -203,22 +214,8 @@ def runtime_checks(root: Path, inventory: Path, runbook: Path) -> tuple[str, lis
     if completed.returncode != 0:
         raise PrecheckError("common_kernel_runtime_playbook_failed")
     diagnostics.append("runtime_playbook=pass")
-
-    status_helper = runbook / "scripts/pi-k3s-status"
-    if not status_helper.is_file():
-        raise PrecheckError("runbook_k3s_status_helper_missing")
-    completed = run(["bash", status_helper, "--json"], cwd=runbook, timeout=900)
-    try:
-        status = json.loads(completed.stdout)
-    except (ValueError, json.JSONDecodeError) as error:
-        raise PrecheckError("k3s_status_contract_invalid", "unknown") from error
-    if completed.returncode != 0 or not isinstance(status, dict):
-        raise PrecheckError("k3s_status_failed")
-    cluster_status = str(status.get("status", "unknown"))
-    if cluster_status != "healthy":
-        raise PrecheckError("k3s_not_healthy")
-    diagnostics.append("k3s_status=healthy")
-    return cluster_status, diagnostics
+    diagnostics.append("k3s_gate=deferred_to_rollout")
+    return "not_required_for_generation", diagnostics
 
 
 def fixture_result(path: Path, source_only: bool) -> dict[str, Any]:
@@ -231,7 +228,7 @@ def fixture_result(path: Path, source_only: bool) -> dict[str, Any]:
         "collector": COLLECTOR,
         "status": status,
         "reason": reason,
-        "cluster_status": str(value.get("cluster_status", "not_checked" if source_only else "healthy")),
+        "cluster_status": str(value.get("cluster_status", "not_checked" if source_only else "not_required_for_generation")),
         "source_only": source_only,
         "diagnostics": [str(item) for item in value.get("diagnostics", []) if isinstance(item, str)],
     }
@@ -253,13 +250,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         else:
             root = Path(__file__).resolve().parents[1]
             inventory = Path(os.environ.get("HOMECLUSTER_ANSIBLE_INVENTORY", str(root.parent / "inventory.yml"))).resolve()
-            runbook = Path(os.environ.get("HOMECLUSTER_RUNBOOK_ROOT", str(root.parent / "homecluster-runbook"))).resolve()
             allow_task_branch = os.environ.get("HOMECLUSTER_RPI5_COMMON_KERNEL_ALLOW_TASK_BRANCH") == "1"
             diagnostics = source_checks(root, inventory, require_runtime_branch=not (args.source_only and allow_task_branch))
             cluster_status = "not_checked"
             reason = "source_precheck_passed"
             if not args.source_only:
-                cluster_status, runtime_diagnostics = runtime_checks(root, inventory, runbook)
+                cluster_status, runtime_diagnostics = runtime_checks(root, inventory)
                 diagnostics.extend(runtime_diagnostics)
                 reason = "precheck_passed"
             result = {

@@ -3,6 +3,9 @@
   hosts: rpi5_egpu_artifact_bundle
   gather_facts: false
   become: false
+  environment:
+    LC_ALL: C
+    LANG: C
   vars:
     rpi5_common_kernel_stage_date_from_openwrt: >-
       {{
@@ -15,6 +18,119 @@
     rpi5_common_kernel_release_from_stage: >-
       {{ (rpi5_common_kernel_stage_date_from_openwrt | string | trim) ~ '-rpi5' }}
   tasks:
+    - name: rpi5 common kernel distcc runtime policyを記録
+      ansible.builtin.set_fact:
+        rpi5_common_kernel_distcc_requested: "{{ rpi5_common_kernel_build_distcc_enabled | default(false) | bool }}"
+        rpi5_common_kernel_distcc_runtime_auto: >-
+          {{
+            (rpi5_common_kernel_build_distcc_enabled | default(false) | bool)
+            and (rpi5_common_kernel_build_distcc_auto | default(true) | bool)
+            and (rpi5_common_kernel_build_distcc_hosts | default('', true) | string | trim | length == 0)
+          }}
+      changed_when: false
+      when:
+        - rpi5_common_kernel_build_enabled | default(false) | bool
+
+    - name: rpi5 common kernel distcc worker候補を解決
+      ansible.builtin.set_fact:
+        rpi5_common_kernel_distcc_candidate_names: >-
+          {%- set workers = [] -%}
+          {%- if rpi5_common_kernel_distcc_runtime_auto | default(false) | bool -%}
+          {%- for host_name in groups['all'] | default([]) -%}
+          {%- set cfg = hostvars[host_name].distcc | default({}) -%}
+          {%- if host_name != inventory_hostname and cfg is mapping and (cfg.enabled | default(false) | bool) and (cfg.client_enabled | default(true) | bool) -%}
+          {%- set _ = workers.append(host_name) -%}
+          {%- endif -%}
+          {%- endfor -%}
+          {%- endif -%}
+          {{ workers }}
+      changed_when: false
+      when:
+        - rpi5_common_kernel_build_enabled | default(false) | bool
+
+    - name: rpi5 common kernel builder compiler fingerprintを取得
+      ansible.builtin.shell: |
+        set -euo pipefail
+        printf 'target=%s\n' "$(gcc -dumpmachine)"
+        printf 'gcc=%s\n' "$(gcc -dumpfullversion -dumpversion)"
+        printf 'as=%s\n' "$(as --version | head -n 1)"
+      args:
+        executable: /bin/bash
+      register: rpi5_common_kernel_distcc_builder_fingerprint
+      changed_when: false
+      when:
+        - rpi5_common_kernel_build_enabled | default(false) | bool
+        - rpi5_common_kernel_distcc_runtime_auto | default(false) | bool
+
+    - name: rpi5 common kernel distcc workerをbest-effort検証
+      ansible.builtin.shell: |
+        set -euo pipefail
+        port="{{ (hostvars[item].distcc | default({})).port | default(3632) | int }}"
+        test "$(systemctl is-enabled distccd)" = enabled
+        test "$(systemctl is-active distccd)" = active
+        ss -H -ltn "sport = :${port}" | grep -q .
+        printf 'target=%s\n' "$(gcc -dumpmachine)"
+        printf 'gcc=%s\n' "$(gcc -dumpfullversion -dumpversion)"
+        printf 'as=%s\n' "$(as --version | head -n 1)"
+      args:
+        executable: /bin/bash
+      delegate_to: "{{ item }}"
+      loop: "{{ rpi5_common_kernel_distcc_candidate_names | default([]) }}"
+      register: rpi5_common_kernel_distcc_runtime_probes
+      changed_when: false
+      failed_when: false
+      ignore_unreachable: true
+      vars:
+        ansible_ssh_timeout: 5
+      when:
+        - rpi5_common_kernel_build_enabled | default(false) | bool
+        - rpi5_common_kernel_distcc_runtime_auto | default(false) | bool
+
+    - name: rpi5 common kernel usable distcc workerを集計
+      ansible.builtin.set_fact:
+        rpi5_common_kernel_distcc_usable_names: >-
+          {%- set workers = [] -%}
+          {%- for probe in rpi5_common_kernel_distcc_runtime_probes.results | default([]) -%}
+          {%- if not (probe.unreachable | default(false) | bool)
+                and (probe.rc | default(1) | int) == 0
+                and (probe.stdout_lines | default([])) == (rpi5_common_kernel_distcc_builder_fingerprint.stdout_lines | default([])) -%}
+          {%- set _ = workers.append(probe.item) -%}
+          {%- endif -%}
+          {%- endfor -%}
+          {{ workers }}
+      changed_when: false
+      when:
+        - rpi5_common_kernel_build_enabled | default(false) | bool
+        - rpi5_common_kernel_distcc_runtime_auto | default(false) | bool
+
+    - name: rpi5 common kernel distccをruntime availabilityに合わせる
+      ansible.builtin.set_fact:
+        rpi5_common_kernel_build_distcc_enabled: >-
+          {{
+            (rpi5_common_kernel_distcc_requested | default(false) | bool)
+            and (
+              not (rpi5_common_kernel_distcc_runtime_auto | default(false) | bool)
+              or (
+                (rpi5_common_kernel_distcc_candidate_names | default([]) | length) > 0
+                and (rpi5_common_kernel_distcc_usable_names | default([]) | length)
+                  == (rpi5_common_kernel_distcc_candidate_names | default([]) | length)
+              )
+            )
+          }}
+      changed_when: false
+      when:
+        - rpi5_common_kernel_build_enabled | default(false) | bool
+
+    - name: rpi5 common kernel distcc runtime modeを表示
+      ansible.builtin.debug:
+        msg: >-
+          distcc={{ 'enabled' if (rpi5_common_kernel_build_distcc_enabled | bool) else 'local-only' }},
+          candidates={{ rpi5_common_kernel_distcc_candidate_names | default([]) | length }},
+          usable={{ rpi5_common_kernel_distcc_usable_names | default([]) | length }}
+      changed_when: false
+      when:
+        - rpi5_common_kernel_build_enabled | default(false) | bool
+
     - name: rpi5 common kernel をbuild
       ansible.builtin.include_role:
         name: ../roles/rpi5_common_kernel_build

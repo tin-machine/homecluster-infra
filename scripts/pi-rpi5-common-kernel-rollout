@@ -194,6 +194,21 @@ def target_policy(
     return [str(item) for item in targets], previous, failed_phase
 
 
+def ensure_cluster_healthy(runbook: Path) -> None:
+    helper = runbook / "scripts/pi-k3s-status"
+    if not helper.is_file():
+        raise RolloutError("runbook_k3s_status_helper_missing")
+    completed = run(["bash", helper, "--json"], cwd=runbook, timeout=900)
+    try:
+        status = json.loads(completed.stdout)
+    except (ValueError, json.JSONDecodeError) as error:
+        raise RolloutError("rollout_k3s_status_contract_invalid", "unknown") from error
+    if completed.returncode != 0 or not isinstance(status, dict):
+        raise RolloutError("rollout_k3s_status_failed", "unknown")
+    if status.get("status") != "healthy":
+        raise RolloutError("rollout_cluster_not_healthy")
+
+
 def ensure_no_active_fresh_boot(runbook: Path) -> None:
     script = runbook / ".agents/skills/homecluster-k3s-fresh-boot-acceptance/scripts/status-k3s-fresh-boot-acceptance-job.sh"
     if not script.is_file():
@@ -397,6 +412,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 agents,
                 egpu_target,
             )
+            if args.phase in RUNTIME_PHASES:
+                ensure_cluster_healthy(runbook)
             ensure_no_active_fresh_boot(runbook)
             started_at = utc_now()
             playbook = root / "ansible/openwrt/playbooks/rpi5-common-kernel-rollout.yml"
