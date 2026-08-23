@@ -12,8 +12,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from homecluster_ansible_failure import failure_diagnostics
-
 COLLECTOR = "homecluster-rpi5-common-kernel-rollout"
 PHASES = ("generic_canary", "egpu_canary", "fleet_rollout", "rollback_last_phase")
 RUNTIME_PHASES = ("generic_canary", "egpu_canary", "fleet_rollout")
@@ -22,6 +20,11 @@ EGPU_GROUP = "rpi5_egpu_artifact_bundle"
 SAFE_RUN_ID = re.compile(r"^[0-9]{8}T[0-9]{6}Z-[A-Za-z0-9._-]+$")
 KERNEL_RELEASE = re.compile(r"^.+-v8-homecluster\+$")
 SELECTOR = re.compile(r"^[0-9]{8}-rpi5$")
+TASK_LINE = re.compile(r"^TASK \[(.+?)\](?:\s+\*+)?$")
+FAILED_HOST_LINE = re.compile(r"^(?:fatal|failed): \[([^\]]+)\]")
+ORIGIN_LINE = re.compile(r"^Origin:\s+(.+)$")
+ERROR_LINE = re.compile(r"^\[ERROR\]:\s*(.+)$")
+RC_FIELD = re.compile(r'"rc"\s*:\s*(-?\d+)')
 MAX_WAIT_SECONDS = 2 * 60 * 60
 
 
@@ -35,6 +38,79 @@ class RolloutError(RuntimeError):
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def bounded_text(value: object, limit: int = 500) -> str:
+    return " ".join(str(value).replace("\x00", "").split())[:limit]
+
+
+def ansible_failure_diagnostics(
+    stdout: str,
+    stderr: str = "",
+    *,
+    stage: str,
+    mutation_committed: bool,
+    power_cycle_started: bool,
+    next_check_id: str = "",
+) -> list[str]:
+    task = ""
+    host = ""
+    origin = ""
+    message = ""
+    rc = ""
+    for raw in (stdout + "\n" + stderr).splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        task_match = TASK_LINE.match(line)
+        if task_match:
+            task = bounded_text(task_match.group(1), 240)
+            continue
+        origin_match = ORIGIN_LINE.match(line)
+        if origin_match:
+            origin = bounded_text(origin_match.group(1), 300)
+            continue
+        error_match = ERROR_LINE.match(line)
+        if error_match:
+            message = bounded_text(error_match.group(1))
+            continue
+        host_match = FAILED_HOST_LINE.match(line)
+        if not host_match:
+            continue
+        host = bounded_text(host_match.group(1), 120)
+        if "=>" in line:
+            raw_payload = line.split("=>", 1)[1].strip()
+            if raw_payload.startswith("{"):
+                try:
+                    payload = json.loads(raw_payload)
+                except (ValueError, json.JSONDecodeError):
+                    payload = {}
+                if isinstance(payload, dict):
+                    payload_message = payload.get("msg")
+                    if isinstance(payload_message, str) and payload_message.strip():
+                        message = bounded_text(payload_message)
+                    payload_rc = payload.get("rc")
+                    if isinstance(payload_rc, int):
+                        rc = str(payload_rc)
+                    elif isinstance(payload_rc, str) and re.fullmatch(r"-?\d+", payload_rc.strip()):
+                        rc = payload_rc.strip()
+        if not rc:
+            rc_match = RC_FIELD.search(line)
+            if rc_match:
+                rc = rc_match.group(1)
+
+    diagnostics = [
+        f"ansible_failure_stage={bounded_text(stage, 120)}",
+        f"ansible_failed_task={task}" if task else "",
+        f"ansible_failed_host={host}" if host else "",
+        f"ansible_failed_origin={origin}" if origin else "",
+        f"ansible_error={message}" if message else "",
+        f"ansible_failed_rc={rc}" if rc else "",
+        f"runtime_mutation_committed={'true' if mutation_committed else 'false'}",
+        f"power_cycle_started={'true' if power_cycle_started else 'false'}",
+        f"ansible_next_check_id={bounded_text(next_check_id, 120)}" if next_check_id else "",
+    ]
+    return [item for item in diagnostics if item][:20]
 
 
 def run(
@@ -321,7 +397,7 @@ def run_phase_acceptance(
     if completed.returncode != 0:
         return False, [
             "phase_runtime_acceptance=fail",
-            *failure_diagnostics(
+            *ansible_failure_diagnostics(
                 completed.stdout,
                 completed.stderr,
                 stage="phase_acceptance_after_power_cycle",
@@ -506,7 +582,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         "diagnostics": [
                             "selector_apply=fail",
                             f"rollout_targets={','.join(targets)}",
-                            *failure_diagnostics(
+                            *ansible_failure_diagnostics(
                                 selector_apply.stdout,
                                 selector_apply.stderr,
                                 stage="selector_mutation_or_postcheck" if plan_recorded else "pre_mutation_selector_validation",
