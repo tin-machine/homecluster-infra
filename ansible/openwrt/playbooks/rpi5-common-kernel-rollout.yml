@@ -21,12 +21,10 @@
       changed_when: false
       no_log: true
 
-    - name: PXE client catalogを合成
+    - name: Pi5 common kernel current PXE releaseをstage dateから解決
       ansible.builtin.include_role:
-        name: openwrt_pxe_client_catalog
-        apply:
-          tags:
-            - always
+        name: openwrt_gentoo_rootfs
+        tasks_from: pxe_host_releases
       tags:
         - always
 
