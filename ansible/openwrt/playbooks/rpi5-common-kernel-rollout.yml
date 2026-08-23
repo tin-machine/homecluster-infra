@@ -172,6 +172,8 @@
             } | to_json
           }}
       delegate_to: localhost
+      vars:
+        ansible_connection: local
       changed_when: false
       no_log: true
 
@@ -224,5 +226,7 @@
             } | to_json
           }}
       delegate_to: localhost
+      vars:
+        ansible_connection: local
       changed_when: false
       no_log: true
