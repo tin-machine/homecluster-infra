@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="0.1.0"
+VERSION="0.1.1"
 CONTROL_SSH="${MONITOR_CONTROL_SSH:-}"
 NODE_SSH_LIST="${MONITOR_NODE_SSH_LIST:-}"
 EXPECTED_NODES="${MONITOR_EXPECTED_NODES:-4}"
@@ -17,36 +17,16 @@ require_cmd() {
   }
 }
 
-json_string() {
-  jq -Rn --arg v "$1" '$v'
-}
-
 sanitize_output() {
   local output="$1"
   case "$output" in
-    *"REMOTE HOST IDENTIFICATION HAS CHANGED"*)
-      printf '%s' "ssh_host_key_changed"
-      ;;
-    *"Host key verification failed"*)
-      printf '%s' "ssh_host_key_verification_failed"
-      ;;
-    *"Permission denied"*)
-      printf '%s' "ssh_permission_denied"
-      ;;
-    *"Could not resolve hostname"*)
-      printf '%s' "ssh_name_resolution_failed"
-      ;;
-    *"Connection timed out"*|*"No route to host"*)
-      printf '%s' "ssh_connect_failed"
-      ;;
-    *)
-      printf '%s' "$output"
-      ;;
+    *"REMOTE HOST IDENTIFICATION HAS CHANGED"*) printf '%s' "ssh_host_key_changed" ;;
+    *"Host key verification failed"*) printf '%s' "ssh_host_key_verification_failed" ;;
+    *"Permission denied"*) printf '%s' "ssh_permission_denied" ;;
+    *"Could not resolve hostname"*) printf '%s' "ssh_name_resolution_failed" ;;
+    *"Connection timed out"*|*"No route to host"*) printf '%s' "ssh_connect_failed" ;;
+    *) printf '%s' "$output" ;;
   esac
-}
-
-run_local() {
-  timeout "$TIMEOUT_SECONDS" bash -lc "$1"
 }
 
 run_control() {
@@ -61,55 +41,62 @@ run_control() {
 
 capture_control_json() {
   local command_text="$1"
-  local output status tmp
+  local status stdout_file stderr_file output stderr
+  stdout_file="$(mktemp)"
+  stderr_file="$(mktemp)"
   set +e
-  output="$(run_control "$command_text" 2>&1)"
+  run_control "$command_text" >"$stdout_file" 2>"$stderr_file"
   status=$?
   set -e
-  output="$(sanitize_output "$output")"
-  tmp="$(mktemp)"
-  printf '%s' "$output" > "$tmp"
-  jq -n --argjson status "$status" --rawfile output "$tmp" \
-    '{status:$status, ok:($status == 0), output:$output}'
-  rm -f "$tmp"
+  output="$(cat "$stdout_file")"
+  stderr="$(sanitize_output "$(cat "$stderr_file")")"
+  jq -n \
+    --argjson status "$status" \
+    --rawfile output "$stdout_file" \
+    --arg stderr "$stderr" \
+    '{status:$status, ok:($status == 0), output:$output, stderr:$stderr}'
+  rm -f "$stdout_file" "$stderr_file"
 }
 
 capture_control_text_tail() {
   local command_text="$1"
   local max_lines="$2"
-  local output status tmp
+  local status stdout_file stderr_file stderr
+  stdout_file="$(mktemp)"
+  stderr_file="$(mktemp)"
   set +e
-  if [ -n "$CONTROL_SSH" ]; then
-    output="$(timeout "$TIMEOUT_SECONDS" ssh -oBatchMode=yes -oConnectTimeout=5 "$CONTROL_SSH" \
-      "sudo -n k3s kubectl $command_text" 2>&1)"
-  else
-    output="$(timeout "$TIMEOUT_SECONDS" bash -lc "kubectl $command_text" 2>&1)"
-  fi
+  run_control "$command_text" >"$stdout_file" 2>"$stderr_file"
   status=$?
   set -e
-  output="$(sanitize_output "$output")"
-  output="$(printf '%s\n' "$output" | tail -n "$max_lines")"
-  tmp="$(mktemp)"
-  printf '%s' "$output" > "$tmp"
-  jq -n --argjson status "$status" --rawfile output "$tmp" \
-    '{status:$status, ok:($status == 0), output:$output}'
-  rm -f "$tmp"
+  tail -n "$max_lines" "$stdout_file" >"${stdout_file}.tail"
+  stderr="$(sanitize_output "$(cat "$stderr_file")")"
+  jq -n \
+    --argjson status "$status" \
+    --rawfile output "${stdout_file}.tail" \
+    --arg stderr "$stderr" \
+    '{status:$status, ok:($status == 0), output:$output, stderr:$stderr}'
+  rm -f "$stdout_file" "${stdout_file}.tail" "$stderr_file"
 }
 
 capture_ssh_json() {
   local target="$1"
   local command_text="$2"
-  local output status tmp
+  local status stdout_file stderr_file stderr
+  stdout_file="$(mktemp)"
+  stderr_file="$(mktemp)"
   set +e
-  output="$(timeout "$TIMEOUT_SECONDS" ssh -oBatchMode=yes -oConnectTimeout=5 "$target" "$command_text" 2>&1)"
+  timeout "$TIMEOUT_SECONDS" ssh -oBatchMode=yes -oConnectTimeout=5 "$target" "$command_text" \
+    >"$stdout_file" 2>"$stderr_file"
   status=$?
   set -e
-  output="$(sanitize_output "$output")"
-  tmp="$(mktemp)"
-  printf '%s' "$output" > "$tmp"
-  jq -n --arg target "$target" --argjson status "$status" --rawfile output "$tmp" \
-    '{target:$target, status:$status, ok:($status == 0), output:$output}'
-  rm -f "$tmp"
+  stderr="$(sanitize_output "$(cat "$stderr_file")")"
+  jq -n \
+    --arg target "$target" \
+    --argjson status "$status" \
+    --rawfile output "$stdout_file" \
+    --arg stderr "$stderr" \
+    '{target:$target, status:$status, ok:($status == 0), output:$output, stderr:$stderr}'
+  rm -f "$stdout_file" "$stderr_file"
 }
 
 require_cmd jq
@@ -131,8 +118,8 @@ if [ -n "$NODE_SSH_LIST" ]; then
     tmp="$(mktemp)"
     for target in $NODE_SSH_LIST; do
       capture_ssh_json "$target" \
-        'printf "host="; hostname; printf " uptime="; uptime -p 2>/dev/null || true; printf "\nmount="; findmnt -rn /var/lib/rancher/k3s 2>/dev/null || true; printf "\nrootfs="; df -h / /run /var/lib/rancher/k3s 2>/dev/null || true; printf "\nunits="; systemctl is-active ansible-pull@base.service ansible-pull@k3s_stg_server.service ansible-pull@k3s_stg_agent.service k3s.service k3s-agent.service 2>/dev/null || true' >> "$tmp"
-      printf '\n' >> "$tmp"
+        'printf "host="; hostname; printf " uptime="; uptime -p 2>/dev/null || true; printf "\nmount="; findmnt -rn /var/lib/rancher/k3s 2>/dev/null || true; printf "\nrootfs="; df -h / /run /var/lib/rancher/k3s 2>/dev/null || true; printf "\nunits="; systemctl is-active ansible-pull@base.service ansible-pull@k3s_stg_server.service ansible-pull@k3s_stg_agent.service k3s.service k3s-agent.service 2>/dev/null || true' >>"$tmp"
+      printf '\n' >>"$tmp"
     done
     jq -s '.' "$tmp"
     rm -f "$tmp"
@@ -223,19 +210,20 @@ jq -n \
     map({line:.})) as $signals |
 
   ([
-    $nodes_raw.output,
-    $pods_raw.output,
-    $node_exporter_raw.output,
-    $events_tail_raw.output
-  ] + ($node_checks | map(.output))) as $diagnostic_outputs |
+    $nodes_raw.output, $nodes_raw.stderr,
+    $pods_raw.output, $pods_raw.stderr,
+    $node_exporter_raw.output, $node_exporter_raw.stderr,
+    $events_tail_raw.output, $events_tail_raw.stderr
+  ] + ($node_checks | map(.output)) + ($node_checks | map(.stderr))) as $diagnostic_outputs |
 
   (($signals | map(select((.line // "" | test("Node password|hash does not match|authorization"; "i")))) | length) > 0) as $node_identity_signal_seen |
   (($nodes | length) < $expected_nodes_n or (($nodes | map(select(.ready != "True")) | length) > 0)) as $node_identity_still_actionable |
 
   ([
     (if ($nodes_raw.ok | not) then "kubernetes_api_unreachable" else empty end),
-    (if ($nodes | length) < $expected_nodes_n then "missing_expected_nodes" else empty end),
-    (if ($nodes | map(select(.ready != "True")) | length) > 0 then "nodes_not_ready" else empty end),
+    (if ($nodes_raw.ok and $nodes_json == null) then "kubernetes_api_invalid_json" else empty end),
+    (if ($nodes_json != null and ($nodes | length) < $expected_nodes_n) then "missing_expected_nodes" else empty end),
+    (if ($nodes_json != null and ($nodes | map(select(.ready != "True")) | length) > 0) then "nodes_not_ready" else empty end),
     (if ($nodes | map(select(.disk_pressure == "True" or .memory_pressure == "True" or .pid_pressure == "True")) | length) > 0 then "node_pressure" else empty end),
     (if ($non_running | length) > 0 then "non_running_pods" else empty end),
     (if ($running_not_ready | length) > 0 then "running_pods_not_ready" else empty end),
@@ -255,8 +243,14 @@ jq -n \
       obs_namespace:$obs_namespace,
       node_exporter_selector:$node_exporter_selector
     },
+    control_stderr:{
+      nodes:($nodes_raw.stderr // ""),
+      pods:($pods_raw.stderr // ""),
+      node_exporter:($node_exporter_raw.stderr // ""),
+      events:($events_tail_raw.stderr // "")
+    },
     nodes:{
-      api_ok:$nodes_raw.ok,
+      api_ok:($nodes_raw.ok and $nodes_json != null),
       count:($nodes | length),
       ready_count:($nodes | map(select(.ready == "True")) | length),
       items:$nodes
@@ -268,7 +262,7 @@ jq -n \
       running_not_ready:$running_not_ready
     },
     node_exporter:{
-      api_ok:$node_exporter_raw.ok,
+      api_ok:($node_exporter_raw.ok and $node_exporter_json != null),
       desired:$node_exporter_desired,
       ready:$node_exporter_ready_pod_count,
       pods:$node_exporter_pods
@@ -276,7 +270,7 @@ jq -n \
     node_checks:$node_checks,
     signals:$signals,
     assessment:{
-      status:(if ($nodes_raw.ok | not) then "unknown"
+      status:(if (($nodes_raw.ok | not) or $nodes_json == null) then "unknown"
         elif ($issues | length) == 0 then "healthy"
         elif ($issues | index("node_pressure")) then "blocked"
         elif (($issues | index("node_identity_signal")) and (($issues | index("missing_expected_nodes")) | not)) then "blocked"

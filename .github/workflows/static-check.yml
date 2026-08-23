@@ -28,3 +28,10 @@ jobs:
       - name: Validate convergence monitor status
         shell: bash
         run: bash .agents/skills/homecluster-convergence-monitor/scripts/test-pi-k3s-status.sh
+
+      - name: Validate convergence collector stdout stderr contract
+        shell: bash
+        run: bash .agents/skills/homecluster-convergence-monitor/scripts/test-collect-k3s-convergence.sh
+
+      - name: Validate common-kernel rollout health diagnostics
+        run: python3 -m unittest discover -s scripts -p 'test_pi_rpi5_common_kernel_rollout_health.py' -v
