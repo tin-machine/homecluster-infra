@@ -89,42 +89,50 @@
       changed_when: false
       no_log: true
 
+    - name: Pi5 common kernel selector source pathを解決
+      ansible.builtin.set_fact:
+        homecluster_common_kernel_selector_source_paths: >-
+          {%- set result = [] -%}
+          {%- for item in homecluster_common_kernel_applied_selectors | dict2items -%}
+          {%- set _ = result.append('/srv/gentoo/tftp-root/dates/' ~ item.value.tftp_release) -%}
+          {%- set _ = result.append('/srv/gentoo/' ~ item.value.rootfs_release ~ '/nfs') -%}
+          {%- endfor -%}
+          {{ result }}
+      changed_when: false
+      no_log: true
+
     - name: Pi5 common kernel selector source artifactを確認
       ansible.builtin.stat:
         path: "{{ item }}"
         get_attributes: false
         get_checksum: false
         get_mime: false
-      loop: >-
-        {{
-          (
-            homecluster_common_kernel_applied_selectors
-            | dict2items
-            | map(attribute='value.tftp_release')
-            | map('regex_replace', '^(.*)$', '/srv/gentoo/tftp-root/dates/\\1')
-            | list
-          )
-          +
-          (
-            homecluster_common_kernel_applied_selectors
-            | dict2items
-            | map(attribute='value.rootfs_release')
-            | map('regex_replace', '^(.*)$', '/srv/gentoo/\\1/nfs')
-            | list
-          )
-        }}
+      loop: "{{ homecluster_common_kernel_selector_source_paths }}"
       register: homecluster_common_kernel_selector_source_stats
+      changed_when: false
+      no_log: true
+
+    - name: Pi5 common kernel missing selector source pathを解決
+      ansible.builtin.set_fact:
+        homecluster_common_kernel_missing_selector_source_paths: >-
+          {%- set result = [] -%}
+          {%- for item in homecluster_common_kernel_selector_source_stats.results | default([]) -%}
+          {%- if not (item.stat.isdir | default(false)) -%}
+          {%- set _ = result.append(item.item | string) -%}
+          {%- endif -%}
+          {%- endfor -%}
+          {{ result }}
       changed_when: false
       no_log: true
 
     - name: Pi5 common kernel selector source artifactを検証
       ansible.builtin.assert:
         that:
-          - item.stat.isdir | default(false)
-        fail_msg: applied selectorのTFTPまたはrootfs sourceがありません
-      loop: "{{ homecluster_common_kernel_selector_source_stats.results | default([]) }}"
+          - homecluster_common_kernel_missing_selector_source_paths | length == 0
+        fail_msg: >-
+          applied selectorのTFTPまたはrootfs sourceがありません:
+          {{ homecluster_common_kernel_missing_selector_source_paths | join(',') }}
       changed_when: false
-      no_log: true
 
     - name: Pi5 common kernel modified PXE host listを作成
       ansible.builtin.set_fact:
