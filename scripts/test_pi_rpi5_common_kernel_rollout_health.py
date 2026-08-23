@@ -88,7 +88,7 @@ TASK [Pi5 common kernel target selector存在を検証] ********
 task path: /repo/ansible/openwrt/playbooks/rpi5-common-kernel-rollout.yml:50
 [ERROR]: Task failed: Action failed: rollout targetの現在selectorを一意に解決できません
 Origin: /repo/ansible/openwrt/playbooks/rpi5-common-kernel-rollout.yml:50:7
-failed: [home-router] (item=(censored due to no_log)) => {"censored":"hidden","changed":false}
+failed: [router-a] (item=(censored due to no_log)) => {"censored":"hidden","changed":false}
 """
         diagnostics = ROLLOUT_MODULE.ansible_failure_diagnostics(
             output,
@@ -98,7 +98,7 @@ failed: [home-router] (item=(censored due to no_log)) => {"censored":"hidden","c
             next_check_id="common_kernel_selector_apply",
         )
         self.assertIn("ansible_failed_task=Pi5 common kernel target selector存在を検証", diagnostics)
-        self.assertIn("ansible_failed_host=home-router", diagnostics)
+        self.assertIn("ansible_failed_host=router-a", diagnostics)
         self.assertTrue(any(item.startswith("ansible_error=Task failed: Action failed:") for item in diagnostics))
         self.assertTrue(any("rpi5-common-kernel-rollout.yml:50:7" in item for item in diagnostics))
         self.assertIn("runtime_mutation_committed=false", diagnostics)
