@@ -20,9 +20,10 @@ SELECTOR = re.compile(r"^[0-9]{8}-rpi5$")
 TASK_LINE = re.compile(r"^TASK \[(.+)\]")
 FATAL_LINE = re.compile(r"^fatal: \[([^\]]+)\]: FAILED!")
 RC_FIELD = re.compile(r'"rc":\s*(-?[0-9]+)')
-GATE_ONLY_PATHS = frozenset(
+NON_GENERATION_PATHS = frozenset(
     {
         "ansible/openwrt/playbooks/rpi5-common-kernel-gate.yml",
+        "ansible/openwrt/playbooks/rpi5-common-kernel-precheck.yml",
         "scripts/pi-rpi5-common-kernel-gate",
         "scripts/test_pi_rpi5_common_kernel.py",
     }
@@ -94,7 +95,7 @@ def validate_gate_revision(root: Path, generation_commit: str, validation_commit
         for line in git(root, "diff", "--name-only", f"{generation_commit}..{validation_commit}", "--").splitlines()
         if line.strip()
     ]
-    disallowed = sorted(set(changed) - GATE_ONLY_PATHS)
+    disallowed = sorted(set(changed) - NON_GENERATION_PATHS)
     if disallowed:
         raise GateError(
             "generation_source_changed_since_observer",
@@ -191,6 +192,8 @@ def fixture_result(path: Path, run_id: str) -> dict[str, Any]:
         "reason": "generation_gate_passed",
         "generation_run_id": run_id,
         "infra_commit": "a" * 40,
+        "validation_infra_commit": "a" * 40,
+        "revision_compatibility": "exact",
         "inventory_provenance": "b" * 64,
         "exact_kernel_release": str(value.get("exact_kernel_release", "6.18.37-v8-homecluster+")),
         "generation_manifest_sha256": "c" * 64,
@@ -229,11 +232,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             generation_infra_commit = validate_observer_run(args.observer_run_id, root)
             validation_infra_commit = git(root, "rev-parse", "HEAD")
             changed_paths = validate_gate_revision(root, generation_infra_commit, validation_infra_commit)
+            revision_compatibility = "exact" if not changed_paths else "compatible_non_generation_change"
             revision_diagnostics = [
                 f"generation_infra_commit={generation_infra_commit}",
                 f"validation_infra_commit={validation_infra_commit}",
-                "gate_revision=exact" if not changed_paths else "gate_revision=compatible",
-                *[f"gate_only_path={path}" for path in changed_paths[:10]],
+                f"revision_compatibility={revision_compatibility}",
+                *[f"non_generation_path={path}" for path in changed_paths[:10]],
             ]
             inventory_provenance = file_sha256(inventory)
             playbook = root / "ansible/openwrt/playbooks/rpi5-common-kernel-gate.yml"
@@ -269,7 +273,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                 except (ValueError, json.JSONDecodeError) as error:
                     raise GateError("generation_gate_contract_invalid", "unknown", revision_diagnostics) from error
                 value = validate_result(raw, args.observer_run_id, generation_infra_commit, inventory_provenance)
-                result = {"collector": COLLECTOR, **value, "diagnostics": revision_diagnostics}
+                result = {
+                    "collector": COLLECTOR,
+                    **value,
+                    "validation_infra_commit": validation_infra_commit,
+                    "revision_compatibility": revision_compatibility,
+                    "diagnostics": revision_diagnostics,
+                }
     except GateError as error:
         result = {"collector": COLLECTOR, "status": error.status, "reason": error.reason}
         if error.diagnostics:
