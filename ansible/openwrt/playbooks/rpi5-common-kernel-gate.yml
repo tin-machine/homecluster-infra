@@ -171,8 +171,8 @@
         test -d "$rootfs/lib/modules/$kernel_release"
         test -d "$tftp"
         test -x "$rootfs/usr/bin/bc" -o -x "$rootfs/bin/bc"
-        find "$rootfs/var/db/pkg/sys-devel" -maxdepth 1 -type d -name 'bc-*' -print -quit | grep -q .
-        find "$tftp" -maxdepth 2 -type f -name 'bcm2712-rpi-5-b.dtb' -print -quit | grep -q .
+        test -n "$(find "$rootfs/var/db/pkg/sys-devel" -maxdepth 1 -type d -name 'bc-*' -print | sed -n '1p')"
+        test -n "$(find "$tftp" -maxdepth 2 -type f -name 'bcm2712-rpi-5-b.dtb' -print | sed -n '1p')"
         test "$(find "$tftp" -maxdepth 2 -type f | wc -l)" -ge 3
       args:
         executable: /bin/sh

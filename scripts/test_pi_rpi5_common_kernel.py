@@ -26,6 +26,7 @@ def load(path: Path, name: str):
 
 
 PRECHECK_MODULE = load(PRECHECK, "pi_rpi5_common_kernel_precheck")
+GATE_MODULE = load(GATE, "pi_rpi5_common_kernel_gate")
 ROLLOUT_MODULE = load(ROLLOUT, "pi_rpi5_common_kernel_rollout")
 
 
@@ -91,6 +92,8 @@ class CliFixtureTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 0)
         self.assertEqual(value["status"], "pass")
         self.assertRegex(value["exact_kernel_release"], r"-v8-homecluster\+$")
+        self.assertEqual(value["validation_infra_commit"], "a" * 40)
+        self.assertEqual(value["revision_compatibility"], "exact")
 
     def test_generation_gate_rejects_unsafe_run_id(self):
         temporary, fixture = self.fixture({"status": "pass"})
@@ -174,6 +177,46 @@ class PrecheckPolicyTests(unittest.TestCase):
         self.assertEqual(context.exception.reason, "common_kernel_stage_date_mismatch")
 
 
+class GateRevisionPolicyTests(unittest.TestCase):
+    def make_repo(self, root: Path) -> tuple[str, str]:
+        subprocess.run(["git", "init", "-q", root], check=True)
+        subprocess.run(["git", "-C", root, "config", "user.name", "fixture"], check=True)
+        subprocess.run(["git", "-C", root, "config", "user.email", "fixture@example.invalid"], check=True)
+        subprocess.run(["git", "-C", root, "checkout", "-qb", "stg"], check=True)
+        gate = root / "ansible/openwrt/playbooks/rpi5-common-kernel-gate.yml"
+        gate.parent.mkdir(parents=True)
+        gate.write_text("gate-v1\n", encoding="utf-8")
+        subprocess.run(["git", "-C", root, "add", "."], check=True)
+        subprocess.run(["git", "-C", root, "commit", "-qm", "generation source"], check=True)
+        generation = subprocess.check_output(["git", "-C", root, "rev-parse", "HEAD"], text=True).strip()
+        gate.write_text("gate-v2\n", encoding="utf-8")
+        subprocess.run(["git", "-C", root, "add", "."], check=True)
+        subprocess.run(["git", "-C", root, "commit", "-qm", "gate only"], check=True)
+        validation = subprocess.check_output(["git", "-C", root, "rev-parse", "HEAD"], text=True).strip()
+        return generation, validation
+
+    def test_gate_only_descendant_revision_is_compatible(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            generation, validation = self.make_repo(root)
+            changed = GATE_MODULE.validate_gate_revision(root, generation, validation)
+            self.assertEqual(changed, ["ansible/openwrt/playbooks/rpi5-common-kernel-gate.yml"])
+
+    def test_generation_affecting_revision_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            generation, _ = self.make_repo(root)
+            role = root / "ansible/arm64/roles/rpi5_common_kernel_build/tasks/main.yml"
+            role.parent.mkdir(parents=True)
+            role.write_text("generation-change\n", encoding="utf-8")
+            subprocess.run(["git", "-C", root, "add", "."], check=True)
+            subprocess.run(["git", "-C", root, "commit", "-qm", "generation change"], check=True)
+            current = subprocess.check_output(["git", "-C", root, "rev-parse", "HEAD"], text=True).strip()
+            with self.assertRaises(GATE_MODULE.GateError) as context:
+                GATE_MODULE.validate_gate_revision(root, generation, current)
+            self.assertEqual(context.exception.reason, "generation_source_changed_since_observer")
+
+
 class PolicyTests(unittest.TestCase):
     def write_record(self, root: Path, phase: str, value: dict) -> None:
         directory = root / "rollout-phases"
@@ -241,6 +284,9 @@ class SourceContractTests(unittest.TestCase):
         precheck_playbook = (
             HERE.parent / "ansible/openwrt/playbooks/rpi5-common-kernel-precheck.yml"
         ).read_text(encoding="utf-8")
+        gate_playbook = (
+            HERE.parent / "ansible/openwrt/playbooks/rpi5-common-kernel-gate.yml"
+        ).read_text(encoding="utf-8")
 
         self.assertIn("k3s_gate=deferred_to_rollout", precheck)
         self.assertNotIn("k3s_not_healthy", precheck)
@@ -252,6 +298,11 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("LC_ALL: C", generation_playbook)
         self.assertIn("remote workers are optional for generation precheck", precheck_playbook)
         self.assertIn("homecluster_common_kernel_stg_stage_date_from_openwrt", precheck_playbook)
+        self.assertIn("cat /etc/resolv.conf >/dev/null", precheck_playbook)
+        self.assertIn("getent ahostsv4 github.com >/dev/null", precheck_playbook)
+        self.assertIn("git ls-remote --exit-code", precheck_playbook)
+        self.assertNotIn("-print -quit", gate_playbook)
+        self.assertIn("sed -n '1p'", gate_playbook)
 
     def test_rollout_playbook_records_previous_selector_before_mutation(self):
         playbook = (HERE.parent / "ansible/openwrt/playbooks/rpi5-common-kernel-rollout.yml").read_text(encoding="utf-8")

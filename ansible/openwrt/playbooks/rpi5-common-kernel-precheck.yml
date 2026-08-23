@@ -63,9 +63,19 @@
     - name: Pi5 common kernel required commandを確認
       ansible.builtin.shell: |
         set -euo pipefail
-        for command_name in git make gcc as bc bison flex modinfo openssl perl rsync distcc; do
+        for command_name in git make gcc as bc bison flex modinfo openssl perl rsync distcc getent; do
           command -v "${command_name}" >/dev/null
         done
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Pi5 common kernel resolverとsource remoteを確認
+      ansible.builtin.shell: |
+        set -euo pipefail
+        cat /etc/resolv.conf >/dev/null
+        getent ahostsv4 github.com >/dev/null
+        git ls-remote --exit-code "{{ rpi5_common_kernel_build_source_repo }}" HEAD >/dev/null
       args:
         executable: /bin/bash
       changed_when: false

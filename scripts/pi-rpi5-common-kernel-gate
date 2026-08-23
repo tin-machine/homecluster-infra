@@ -17,13 +17,25 @@ SHA256 = re.compile(r"^[0-9a-f]{64}$")
 COMMIT = re.compile(r"^[0-9a-f]{40}$")
 KERNEL = re.compile(r"^.+-v8-homecluster\+$")
 SELECTOR = re.compile(r"^[0-9]{8}-rpi5$")
+TASK_LINE = re.compile(r"^TASK \[(.+)\]")
+FATAL_LINE = re.compile(r"^fatal: \[([^\]]+)\]: FAILED!")
+RC_FIELD = re.compile(r'"rc":\s*(-?[0-9]+)')
+NON_GENERATION_PATHS = frozenset(
+    {
+        "ansible/openwrt/playbooks/rpi5-common-kernel-gate.yml",
+        "ansible/openwrt/playbooks/rpi5-common-kernel-precheck.yml",
+        "scripts/pi-rpi5-common-kernel-gate",
+        "scripts/test_pi_rpi5_common_kernel.py",
+    }
+)
 
 
 class GateError(RuntimeError):
-    def __init__(self, reason: str, status: str = "blocked") -> None:
+    def __init__(self, reason: str, status: str = "blocked", diagnostics: Sequence[str] = ()) -> None:
         super().__init__(reason)
         self.reason = reason
         self.status = status
+        self.diagnostics = [str(item)[:300] for item in diagnostics][:20]
 
 
 def run(command: Sequence[str | Path], *, cwd: Path, timeout: int = 900) -> subprocess.CompletedProcess[str]:
@@ -66,6 +78,56 @@ def git(root: Path, *args: str) -> str:
     return completed.stdout.strip()
 
 
+def validate_gate_revision(root: Path, generation_commit: str, validation_commit: str) -> list[str]:
+    if not COMMIT.fullmatch(generation_commit) or not COMMIT.fullmatch(validation_commit):
+        raise GateError("generation_gate_revision_invalid", "unknown")
+    if generation_commit == validation_commit:
+        return []
+    ancestor = run(
+        ["git", "-C", root, "merge-base", "--is-ancestor", generation_commit, validation_commit],
+        cwd=root,
+        timeout=60,
+    )
+    if ancestor.returncode != 0:
+        raise GateError("generation_gate_revision_not_descendant")
+    changed = [
+        line.strip()
+        for line in git(root, "diff", "--name-only", f"{generation_commit}..{validation_commit}", "--").splitlines()
+        if line.strip()
+    ]
+    disallowed = sorted(set(changed) - NON_GENERATION_PATHS)
+    if disallowed:
+        raise GateError(
+            "generation_source_changed_since_observer",
+            diagnostics=[f"disallowed_path={path}" for path in disallowed[:10]],
+        )
+    return changed
+
+
+def playbook_failure_diagnostics(completed: subprocess.CompletedProcess[str]) -> list[str]:
+    task = ""
+    host = ""
+    rc = ""
+    for line in (completed.stdout + "\n" + completed.stderr).splitlines():
+        task_match = TASK_LINE.match(line.strip())
+        if task_match:
+            task = task_match.group(1).strip()
+        fatal_match = FATAL_LINE.match(line.strip())
+        if fatal_match:
+            host = fatal_match.group(1).strip()
+            rc_match = RC_FIELD.search(line)
+            if rc_match:
+                rc = rc_match.group(1)
+    diagnostics = [f"ansible_rc={completed.returncode}"]
+    if task:
+        diagnostics.append(f"failed_task={task[:220]}")
+    if host:
+        diagnostics.append(f"failed_host={host[:120]}")
+    if rc:
+        diagnostics.append(f"failed_task_rc={rc}")
+    return diagnostics
+
+
 def validate_observer_run(run_id: str, infra: Path) -> str:
     state_home = Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state"))).expanduser()
     directory = state_home / "homecluster/ansible-observer" / run_id
@@ -80,8 +142,8 @@ def validate_observer_run(run_id: str, infra: Path) -> str:
     if result_values.get("status") != "pass" or result_values.get("job_terminal") != "true":
         raise GateError("observer_generation_not_passed")
     infra_commit = run_values.get("infra_commit", "")
-    if not COMMIT.fullmatch(infra_commit) or infra_commit != git(infra, "rev-parse", "HEAD"):
-        raise GateError("observer_infra_commit_mismatch")
+    if not COMMIT.fullmatch(infra_commit):
+        raise GateError("observer_infra_commit_invalid", "unknown")
     return infra_commit
 
 
@@ -130,6 +192,8 @@ def fixture_result(path: Path, run_id: str) -> dict[str, Any]:
         "reason": "generation_gate_passed",
         "generation_run_id": run_id,
         "infra_commit": "a" * 40,
+        "validation_infra_commit": "a" * 40,
+        "revision_compatibility": "exact",
         "inventory_provenance": "b" * 64,
         "exact_kernel_release": str(value.get("exact_kernel_release", "6.18.37-v8-homecluster+")),
         "generation_manifest_sha256": "c" * 64,
@@ -165,7 +229,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                 raise GateError("infra_runtime_branch_not_stg")
             if git(root, "status", "--porcelain"):
                 raise GateError("infra_checkout_dirty")
-            infra_commit = validate_observer_run(args.observer_run_id, root)
+            generation_infra_commit = validate_observer_run(args.observer_run_id, root)
+            validation_infra_commit = git(root, "rev-parse", "HEAD")
+            changed_paths = validate_gate_revision(root, generation_infra_commit, validation_infra_commit)
+            revision_compatibility = "exact" if not changed_paths else "compatible_non_generation_change"
+            revision_diagnostics = [
+                f"generation_infra_commit={generation_infra_commit}",
+                f"validation_infra_commit={validation_infra_commit}",
+                f"revision_compatibility={revision_compatibility}",
+                *[f"non_generation_path={path}" for path in changed_paths[:10]],
+            ]
             inventory_provenance = file_sha256(inventory)
             playbook = root / "ansible/openwrt/playbooks/rpi5-common-kernel-gate.yml"
             if not playbook.is_file():
@@ -176,7 +249,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     "homecluster_common_kernel_gate_output": str(output),
                     "homecluster_common_kernel_inventory_provenance": inventory_provenance,
                     "homecluster_common_kernel_observer_run_id": args.observer_run_id,
-                    "homecluster_common_kernel_infra_commit": infra_commit,
+                    "homecluster_common_kernel_infra_commit": generation_infra_commit,
                 }
                 completed = run(
                     [
@@ -191,15 +264,26 @@ def main(argv: Sequence[str] | None = None) -> int:
                     timeout=1200,
                 )
                 if completed.returncode != 0 or not output.is_file():
-                    raise GateError("generation_gate_playbook_failed")
+                    raise GateError(
+                        "generation_gate_playbook_failed",
+                        diagnostics=[*revision_diagnostics, *playbook_failure_diagnostics(completed)],
+                    )
                 try:
                     raw = json.loads(output.read_text(encoding="utf-8"))
                 except (ValueError, json.JSONDecodeError) as error:
-                    raise GateError("generation_gate_contract_invalid", "unknown") from error
-                value = validate_result(raw, args.observer_run_id, infra_commit, inventory_provenance)
-                result = {"collector": COLLECTOR, **value}
+                    raise GateError("generation_gate_contract_invalid", "unknown", revision_diagnostics) from error
+                value = validate_result(raw, args.observer_run_id, generation_infra_commit, inventory_provenance)
+                result = {
+                    "collector": COLLECTOR,
+                    **value,
+                    "validation_infra_commit": validation_infra_commit,
+                    "revision_compatibility": revision_compatibility,
+                    "diagnostics": revision_diagnostics,
+                }
     except GateError as error:
         result = {"collector": COLLECTOR, "status": error.status, "reason": error.reason}
+        if error.diagnostics:
+            result["diagnostics"] = error.diagnostics
     if args.json:
         print(json.dumps(result, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
     else:
