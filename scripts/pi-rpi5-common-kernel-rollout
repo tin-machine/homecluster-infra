@@ -24,10 +24,11 @@ MAX_WAIT_SECONDS = 2 * 60 * 60
 
 
 class RolloutError(RuntimeError):
-    def __init__(self, reason: str, status: str = "blocked") -> None:
+    def __init__(self, reason: str, status: str = "blocked", diagnostics: Sequence[str] = ()) -> None:
         super().__init__(reason)
         self.reason = reason
         self.status = status
+        self.diagnostics = [str(item)[:300] for item in diagnostics][:20]
 
 
 def utc_now() -> str:
@@ -194,6 +195,18 @@ def target_policy(
     return [str(item) for item in targets], previous, failed_phase
 
 
+def k3s_health_diagnostics(status: Mapping[str, Any]) -> list[str]:
+    issues = status.get("issues", [])
+    issue_text = ",".join(str(item) for item in issues[:10]) if isinstance(issues, list) else "invalid"
+    return [
+        f"k3s_status={status.get('status', 'unknown')}",
+        f"k3s_reason={status.get('reason', 'unknown')}",
+        f"k3s_nodes_ready={status.get('nodes_ready', 'unknown')}",
+        f"k3s_nodes_total={status.get('nodes_total', 'unknown')}",
+        f"k3s_issues={issue_text or 'none'}",
+    ]
+
+
 def ensure_cluster_healthy(runbook: Path) -> None:
     helper = runbook / "scripts/pi-k3s-status"
     if not helper.is_file():
@@ -203,10 +216,26 @@ def ensure_cluster_healthy(runbook: Path) -> None:
         status = json.loads(completed.stdout)
     except (ValueError, json.JSONDecodeError) as error:
         raise RolloutError("rollout_k3s_status_contract_invalid", "unknown") from error
-    if completed.returncode != 0 or not isinstance(status, dict):
-        raise RolloutError("rollout_k3s_status_failed", "unknown")
-    if status.get("status") != "healthy":
-        raise RolloutError("rollout_cluster_not_healthy")
+    if not isinstance(status, dict):
+        raise RolloutError("rollout_k3s_status_contract_invalid", "unknown")
+
+    state = status.get("status")
+    diagnostics = k3s_health_diagnostics(status)
+    if state == "healthy":
+        if completed.returncode != 0:
+            raise RolloutError(
+                "rollout_k3s_status_exit_mismatch",
+                "unknown",
+                [*diagnostics, f"k3s_exit_code={completed.returncode}"],
+            )
+        return
+    if state == "converging":
+        raise RolloutError("rollout_cluster_converging", "blocked", diagnostics)
+    if state == "blocked":
+        raise RolloutError("rollout_cluster_blocked", "blocked", diagnostics)
+    if state == "unknown":
+        raise RolloutError("rollout_cluster_unknown", "unknown", diagnostics)
+    raise RolloutError("rollout_k3s_status_contract_invalid", "unknown", diagnostics)
 
 
 def ensure_no_active_fresh_boot(runbook: Path) -> None:
@@ -518,7 +547,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                             "diagnostics": ["selector_apply=pass", "fresh_boot=pass", *diagnostics, "automatic_rollback=false"],
                         }
     except RolloutError as error:
-        result = {"collector": COLLECTOR, "status": error.status, "reason": error.reason, "diagnostics": []}
+        result = {
+            "collector": COLLECTOR,
+            "status": error.status,
+            "reason": error.reason,
+            "diagnostics": error.diagnostics,
+        }
     if args.json:
         print(json.dumps(result, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
     else:
