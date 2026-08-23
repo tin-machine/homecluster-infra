@@ -82,6 +82,47 @@ class RolloutHealthTests(unittest.TestCase):
             self.assertEqual(context.exception.status, "unknown")
             self.assertIn("k3s_exit_code=1", context.exception.diagnostics)
 
+    def test_ansible_failure_diagnostics_parse_modern_error(self):
+        output = """
+TASK [Pi5 common kernel target selector存在を検証] ********
+task path: /repo/ansible/openwrt/playbooks/rpi5-common-kernel-rollout.yml:50
+[ERROR]: Task failed: Action failed: rollout targetの現在selectorを一意に解決できません
+Origin: /repo/ansible/openwrt/playbooks/rpi5-common-kernel-rollout.yml:50:7
+failed: [router-a] (item=(censored due to no_log)) => {"censored":"hidden","changed":false}
+"""
+        diagnostics = ROLLOUT_MODULE.ansible_failure_diagnostics(
+            output,
+            stage="pre_mutation_selector_validation",
+            mutation_committed=False,
+            power_cycle_started=False,
+            next_check_id="common_kernel_selector_apply",
+        )
+        self.assertIn("ansible_failed_task=Pi5 common kernel target selector存在を検証", diagnostics)
+        self.assertIn("ansible_failed_host=router-a", diagnostics)
+        self.assertTrue(any(item.startswith("ansible_error=Task failed: Action failed:") for item in diagnostics))
+        self.assertTrue(any("rpi5-common-kernel-rollout.yml:50:7" in item for item in diagnostics))
+        self.assertIn("runtime_mutation_committed=false", diagnostics)
+        self.assertIn("power_cycle_started=false", diagnostics)
+
+    def test_ansible_failure_diagnostics_parse_classic_fatal_json(self):
+        output = """
+TASK [Run command] ***
+fatal: [node-a]: FAILED! => {"changed": false, "msg": "command failed", "rc": 7}
+"""
+        diagnostics = ROLLOUT_MODULE.ansible_failure_diagnostics(
+            output,
+            stage="phase_acceptance_after_power_cycle",
+            mutation_committed=True,
+            power_cycle_started=True,
+            next_check_id="common_kernel_phase_acceptance",
+        )
+        self.assertIn("ansible_failed_task=Run command", diagnostics)
+        self.assertIn("ansible_failed_host=node-a", diagnostics)
+        self.assertIn("ansible_error=command failed", diagnostics)
+        self.assertIn("ansible_failed_rc=7", diagnostics)
+        self.assertIn("runtime_mutation_committed=true", diagnostics)
+        self.assertIn("power_cycle_started=true", diagnostics)
+
 
 if __name__ == "__main__":
     unittest.main()
