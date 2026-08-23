@@ -12,6 +12,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from homecluster_ansible_failure import failure_diagnostics
+
 COLLECTOR = "homecluster-rpi5-common-kernel-rollout"
 PHASES = ("generic_canary", "egpu_canary", "fleet_rollout", "rollback_last_phase")
 RUNTIME_PHASES = ("generic_canary", "egpu_canary", "fleet_rollout")
@@ -317,7 +319,17 @@ def run_phase_acceptance(
         timeout=900,
     )
     if completed.returncode != 0:
-        return False, ["phase_runtime_acceptance=fail"]
+        return False, [
+            "phase_runtime_acceptance=fail",
+            *failure_diagnostics(
+                completed.stdout,
+                completed.stderr,
+                stage="phase_acceptance_after_power_cycle",
+                mutation_committed=True,
+                power_cycle_started=True,
+                next_check_id="common_kernel_phase_acceptance",
+            ),
+        ]
     diagnostics.append("phase_runtime_acceptance=pass")
 
     k3s_status = run(["bash", runbook / "scripts/pi-k3s-status", "--json"], cwd=runbook, timeout=900)
@@ -485,12 +497,25 @@ def main(argv: Sequence[str] | None = None) -> int:
                         acceptance_status="fail",
                         started_at=started_at,
                     )
+                    plan_recorded = selector_result.get("status") == "planned"
                     result = {
                         "collector": COLLECTOR,
                         "status": "fail",
                         "reason": "selector_apply_failed",
                         "phase_record": record,
-                        "diagnostics": ["selector_apply=fail", "automatic_rollback=false"],
+                        "diagnostics": [
+                            "selector_apply=fail",
+                            f"rollout_targets={','.join(targets)}",
+                            *failure_diagnostics(
+                                selector_apply.stdout,
+                                selector_apply.stderr,
+                                stage="selector_mutation_or_postcheck" if plan_recorded else "pre_mutation_selector_validation",
+                                mutation_committed=False,
+                                power_cycle_started=False,
+                                next_check_id="common_kernel_selector_apply",
+                            ),
+                            "automatic_rollback=false",
+                        ],
                     }
                 else:
                     fresh_boot_run_id, fresh_boot_status = run_fresh_boot(runbook)
