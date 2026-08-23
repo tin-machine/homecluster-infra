@@ -166,7 +166,7 @@ jq -n \
     else
       (($pod.status.containerStatuses // []) | map(select(.ready == true)) | length) as $ready |
       (($pod.status.containerStatuses // []) | length) as $total |
-      {ready:$ready,total:$total,text:(($ready|tostring)+"/"+($total|tostring))})
+      {ready:$ready,total:$total,text:(($ready|tostring)+"/"+($total|tostring))}
     end;
 
   (parse_json($nodes_raw)) as $nodes_json |
