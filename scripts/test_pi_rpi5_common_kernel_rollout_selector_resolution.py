@@ -46,10 +46,16 @@ class RolloutSelectorResolutionContractTests(unittest.TestCase):
         self.assertLess(pre_mutation_plan, mutation)
         self.assertIn("homecluster_common_kernel_missing_selector_source_paths | join(',')", text)
 
-    def test_controller_records_force_local_connection(self) -> None:
+    def test_controller_records_force_local_connection_and_controller_tmp(self) -> None:
         text = PLAYBOOK.read_text(encoding="utf-8")
-        local_delegate = "delegate_to: localhost\n      vars:\n        ansible_connection: local"
+        local_delegate = (
+            "delegate_to: localhost\n"
+            "      vars:\n"
+            "        ansible_connection: local\n"
+            "        ansible_remote_tmp: /tmp/homecluster-ansible-tmp"
+        )
         self.assertEqual(text.count(local_delegate), 2)
+        self.assertEqual(text.count("ansible_remote_tmp: /tmp/homecluster-ansible-tmp"), 2)
         self.assertLess(
             text.index("rollback可能なpre-mutation planをcontrollerへ保存"),
             text.index("fixed PXE selectorを適用"),
