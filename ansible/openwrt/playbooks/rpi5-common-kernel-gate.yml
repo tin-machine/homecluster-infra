@@ -4,11 +4,12 @@
   gather_facts: false
   become: false
   tasks:
-    - name: Pi5 common kernel builder groupを検証
+    - name: Pi5 common kernel builder / OpenWrt groupを検証
       ansible.builtin.assert:
         that:
           - groups['rpi5_egpu_artifact_bundle'] | default([]) | length == 1
-        fail_msg: rpi5_egpu_artifact_bundle groupからbuilderを一意に解決できません
+          - groups['openwrt'] | default([]) | length == 1
+        fail_msg: common-kernel builderまたはOpenWrtを一意に解決できません
       changed_when: false
 
     - name: Pi5 common kernel builder dynamic groupを作成
@@ -35,9 +36,9 @@
       changed_when: false
       no_log: true
 
-    - name: Pi5 common kernel gate pathを解決
+    - name: Pi5 common kernel artifact pathを解決
       ansible.builtin.set_fact:
-        homecluster_common_kernel_release: "{{ rpi5_common_kernel_build_stage_date }}-rpi5"
+        homecluster_common_kernel_build_release: "{{ rpi5_common_kernel_build_stage_date }}-rpi5"
         homecluster_common_kernel_label: "{{ rpi5_common_kernel_build_stage_date }}-rpi5-homecluster"
         homecluster_common_kernel_build_dir: "/var/lib/rancher/k3s/kernel-build/{{ rpi5_common_kernel_build_stage_date }}-rpi5-homecluster/linux"
         homecluster_common_kernel_modules_dir: "/var/lib/rancher/k3s/kernel-build/{{ rpi5_common_kernel_build_stage_date }}-rpi5-homecluster/staging"
@@ -129,43 +130,97 @@
       changed_when: false
       no_log: true
 
-    - name: Pi5 common kernel builder gate factを保存
+    - name: Pi5 common kernel content-addressed artifact identityを保存
       ansible.builtin.set_fact:
+        homecluster_common_kernel_gate_artifact_id: "sha256:{{ homecluster_common_kernel_metadata_stat.stat.checksum }}"
+        homecluster_common_kernel_gate_build_release: "{{ homecluster_common_kernel_build_release }}"
         homecluster_common_kernel_gate_exact_release: "{{ homecluster_common_kernel_metadata.kernel_release }}"
         homecluster_common_kernel_gate_generation_manifest_sha256: "{{ homecluster_common_kernel_metadata_stat.stat.checksum }}"
         homecluster_common_kernel_gate_artifact_payload_sha256: "{{ homecluster_common_kernel_archive_sha.stdout | trim }}"
-        homecluster_common_kernel_gate_candidate_selector: "{{ homecluster_common_kernel_release }}"
       changed_when: false
       no_log: true
 
-- name: Pi5 common kernel OpenWrt artifact gate
+- name: Pi5 common kernel OpenWrt PXE release reference gate
   hosts: openwrt
   gather_facts: false
   become: false
   vars:
     homecluster_common_kernel_builder_host: "{{ groups['homecluster_common_kernel_builder'][0] }}"
   tasks:
-    - name: Pi5 common kernel builder gate factを検証
+    - name: Pi5 common kernel builder artifact identityを検証
       ansible.builtin.assert:
         that:
+          - hostvars[homecluster_common_kernel_builder_host].homecluster_common_kernel_gate_artifact_id | default('', true) | string is match('^sha256:[0-9a-f]{64}$')
+          - hostvars[homecluster_common_kernel_builder_host].homecluster_common_kernel_gate_build_release | default('', true) | string is match('^[0-9]{8}-rpi5$')
           - hostvars[homecluster_common_kernel_builder_host].homecluster_common_kernel_gate_exact_release | default('', true) | string is match('^.+-v8-homecluster\\+$')
-          - hostvars[homecluster_common_kernel_builder_host].homecluster_common_kernel_gate_candidate_selector | default('', true) | string is match('^[0-9]{8}-rpi5$')
-        fail_msg: builder gate factがありません
+          - openwrt_gentoo_release_bundle_stage_dates.stg | default('', true) | string is match('^[0-9]{8}$')
+        fail_msg: builder artifact identityまたはOpenWrt stg PXE release identityがありません
       changed_when: false
       no_log: true
 
-    - name: Pi5 common kernel OpenWrt pathを解決
+    - name: Pi5 common kernel PXE release pathを解決
       ansible.builtin.set_fact:
-        homecluster_common_kernel_gate_release: "{{ hostvars[homecluster_common_kernel_builder_host].homecluster_common_kernel_gate_candidate_selector }}"
-        homecluster_common_kernel_gate_kernel_release: "{{ hostvars[homecluster_common_kernel_builder_host].homecluster_common_kernel_gate_exact_release }}"
+        homecluster_common_kernel_gate_pxe_release_date: "{{ openwrt_gentoo_release_bundle_stage_dates.stg | string | trim }}"
+        homecluster_common_kernel_gate_pxe_release_id: "{{ openwrt_gentoo_release_bundle_stage_dates.stg | string | trim }}-rpi5"
+        homecluster_common_kernel_gate_pxe_manifest_path: "/srv/gentoo/releases/{{ openwrt_gentoo_release_bundle_stage_dates.stg | string | trim }}.json"
       changed_when: false
       no_log: true
 
-    - name: Pi5 common kernel OpenWrt artifactを検証
+    - name: Pi5 common kernel PXE release manifestを取得
+      ansible.builtin.slurp:
+        src: "{{ homecluster_common_kernel_gate_pxe_manifest_path }}"
+      register: homecluster_common_kernel_gate_pxe_manifest_raw
+      changed_when: false
+      no_log: true
+
+    - name: Pi5 common kernel PXE release manifest hashを取得
+      ansible.builtin.stat:
+        path: "{{ homecluster_common_kernel_gate_pxe_manifest_path }}"
+        checksum_algorithm: sha256
+        get_attributes: false
+        get_mime: false
+      register: homecluster_common_kernel_gate_pxe_manifest_stat
+      changed_when: false
+      no_log: true
+
+    - name: Pi5 common kernel PXE release manifestを解決
+      ansible.builtin.set_fact:
+        homecluster_common_kernel_gate_pxe_manifest: "{{ homecluster_common_kernel_gate_pxe_manifest_raw.content | b64decode | from_json }}"
+      changed_when: false
+      no_log: true
+
+    - name: Pi5 common kernel PXE release artifact referenceを解決
+      ansible.builtin.set_fact:
+        homecluster_common_kernel_gate_pxe_artifact_ref: >-
+          {{
+            homecluster_common_kernel_gate_pxe_manifest
+            .get('metadata', {})
+            .get('rpi5_nvidia', {})
+            .get('common_kernel_artifact', {})
+          }}
+      changed_when: false
+      no_log: true
+
+    - name: Pi5 common kernel PXE release artifact referenceを検証
+      ansible.builtin.assert:
+        that:
+          - homecluster_common_kernel_gate_pxe_manifest.schema | int == 1
+          - homecluster_common_kernel_gate_pxe_manifest.releases.rpi5 | default('') == homecluster_common_kernel_gate_pxe_release_id
+          - homecluster_common_kernel_gate_pxe_artifact_ref.id | default('') == hostvars[homecluster_common_kernel_builder_host].homecluster_common_kernel_gate_artifact_id
+          - homecluster_common_kernel_gate_pxe_artifact_ref.build_release | default('') == hostvars[homecluster_common_kernel_builder_host].homecluster_common_kernel_gate_build_release
+          - homecluster_common_kernel_gate_pxe_artifact_ref.kernel_release | default('') == hostvars[homecluster_common_kernel_builder_host].homecluster_common_kernel_gate_exact_release
+          - homecluster_common_kernel_gate_pxe_artifact_ref.manifest_sha256 | default('') == hostvars[homecluster_common_kernel_builder_host].homecluster_common_kernel_gate_generation_manifest_sha256
+          - homecluster_common_kernel_gate_pxe_artifact_ref.payload_sha256 | default('') == hostvars[homecluster_common_kernel_builder_host].homecluster_common_kernel_gate_artifact_payload_sha256
+          - homecluster_common_kernel_gate_pxe_manifest_stat.stat.checksum | default('', true) | string is match('^[0-9a-f]{64}$')
+        fail_msg: PXE release manifestがaccepted common-kernel artifact identityを参照していません
+      changed_when: false
+      no_log: true
+
+    - name: Pi5 common kernel OpenWrt PXE artifactsを検証
       ansible.builtin.shell: |
         set -euo pipefail
-        release="{{ homecluster_common_kernel_gate_release }}"
-        kernel_release="{{ homecluster_common_kernel_gate_kernel_release }}"
+        release="{{ homecluster_common_kernel_gate_pxe_release_id }}"
+        kernel_release="{{ hostvars[homecluster_common_kernel_builder_host].homecluster_common_kernel_gate_exact_release }}"
         rootfs="/srv/gentoo/${release}/nfs"
         tftp="/srv/gentoo/tftp-root/dates/${release}"
         test -d "$rootfs/lib/modules/$kernel_release"
@@ -178,12 +233,19 @@
         executable: /bin/sh
       changed_when: false
 
+    - name: Pi5 common kernel OpenWrt PXE gate factを保存
+      ansible.builtin.set_fact:
+        homecluster_common_kernel_gate_pxe_release_manifest_sha256: "{{ homecluster_common_kernel_gate_pxe_manifest_stat.stat.checksum }}"
+      changed_when: false
+      no_log: true
+
 - name: Pi5 common kernel safe gate resultをcontrollerへ保存
   hosts: localhost
   gather_facts: false
   become: false
   vars:
     homecluster_common_kernel_builder_host: "{{ groups['homecluster_common_kernel_builder'][0] }}"
+    homecluster_common_kernel_openwrt_host: "{{ groups['openwrt'][0] }}"
   tasks:
     - name: Pi5 common kernel gate output pathを検証
       ansible.builtin.assert:
@@ -205,10 +267,16 @@
               'infra_commit': homecluster_common_kernel_infra_commit,
               'inventory_provenance': homecluster_common_kernel_inventory_provenance,
               'exact_kernel_release': hostvars[homecluster_common_kernel_builder_host].homecluster_common_kernel_gate_exact_release,
+              'kernel_artifact_id': hostvars[homecluster_common_kernel_builder_host].homecluster_common_kernel_gate_artifact_id,
+              'kernel_artifact_build_release': hostvars[homecluster_common_kernel_builder_host].homecluster_common_kernel_gate_build_release,
+              'kernel_artifact_manifest_sha256': hostvars[homecluster_common_kernel_builder_host].homecluster_common_kernel_gate_generation_manifest_sha256,
+              'kernel_artifact_payload_sha256': hostvars[homecluster_common_kernel_builder_host].homecluster_common_kernel_gate_artifact_payload_sha256,
+              'pxe_release_id': hostvars[homecluster_common_kernel_openwrt_host].homecluster_common_kernel_gate_pxe_release_id,
+              'pxe_release_manifest_sha256': hostvars[homecluster_common_kernel_openwrt_host].homecluster_common_kernel_gate_pxe_release_manifest_sha256,
               'generation_manifest_sha256': hostvars[homecluster_common_kernel_builder_host].homecluster_common_kernel_gate_generation_manifest_sha256,
               'artifact_payload_sha256': hostvars[homecluster_common_kernel_builder_host].homecluster_common_kernel_gate_artifact_payload_sha256,
-              'pxe_candidate_selector': hostvars[homecluster_common_kernel_builder_host].homecluster_common_kernel_gate_candidate_selector,
-              'gate_version': 'rpi5-common-kernel-gate-v1'
+              'pxe_candidate_selector': hostvars[homecluster_common_kernel_openwrt_host].homecluster_common_kernel_gate_pxe_release_id,
+              'gate_version': 'rpi5-common-kernel-gate-v2'
             } | to_json
           }}
       changed_when: false

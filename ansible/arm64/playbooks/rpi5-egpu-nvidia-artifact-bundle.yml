@@ -6,17 +6,6 @@
   environment:
     LC_ALL: C
     LANG: C
-  vars:
-    rpi5_common_kernel_stage_date_from_openwrt: >-
-      {{
-        (
-          hostvars[(groups['openwrt'] | first)].openwrt_gentoo_release_bundle_stage_dates
-          | default({})
-        ).get(rpi5_common_kernel_build_stage | default('stg'), '')
-        | string | trim
-      }}
-    rpi5_common_kernel_release_from_stage: >-
-      {{ (rpi5_common_kernel_stage_date_from_openwrt | string | trim) ~ '-rpi5' }}
   tasks:
     - name: rpi5 common kernel distcc runtime policyを記録
       ansible.builtin.set_fact:
@@ -131,11 +120,18 @@
       when:
         - rpi5_common_kernel_build_enabled | default(false) | bool
 
+    - name: rpi5 common kernel artifact build dateを表示
+      ansible.builtin.debug:
+        msg: >-
+          kernel_artifact_build_date={{ rpi5_common_kernel_build_stage_date | string | trim }};
+          PXE release date is resolved independently by the OpenWrt release-bundle playbook
+      changed_when: false
+      when:
+        - rpi5_common_kernel_build_enabled | default(false) | bool
+
     - name: rpi5 common kernel をbuild
       ansible.builtin.include_role:
         name: ../roles/rpi5_common_kernel_build
-      vars:
-        rpi5_common_kernel_build_stage_date: "{{ rpi5_common_kernel_stage_date_from_openwrt }}"
       when:
         - rpi5_common_kernel_build_enabled | default(false) | bool
 
