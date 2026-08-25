@@ -6,7 +6,6 @@ from __future__ import annotations
 from pathlib import Path
 import sys
 
-
 ROOT = Path(__file__).resolve().parents[2]
 BUILD_ROLE = ROOT / "ansible/arm64/roles/rpi5_common_kernel_build"
 BUNDLE_ROLE = ROOT / "ansible/arm64/roles/rpi5_egpu_nvidia_artifact_bundle"
@@ -37,9 +36,9 @@ def main() -> int:
     bundle_tasks = read(BUNDLE_ROLE / "tasks/main.yml")
     repair_preflight = read(REPAIR_ROLE / "tasks/preflight.yml")
     bundle_playbook = read(ROOT / "ansible/arm64/playbooks/rpi5-egpu-nvidia-artifact-bundle.yml")
-    staging_entrypoint = read(
-        ROOT / "ansible/openwrt/playbooks/pxe-release-bundle-staging-with-common-kernel.yml"
-    )
+    staging_entrypoint = read(ROOT / "ansible/openwrt/playbooks/pxe-release-bundle-staging-with-common-kernel.yml")
+    precheck = read(ROOT / "ansible/openwrt/playbooks/rpi5-common-kernel-precheck.yml")
+    gate = read(ROOT / "ansible/openwrt/playbooks/rpi5-common-kernel-gate.yml")
     rootfs_tasks = read(ROOT / "ansible/openwrt/roles/openwrt_gentoo_rootfs/tasks/portage_chroot.yml")
 
     require(defaults, "rpi5_common_kernel_build_enabled: false", "disabled default")
@@ -53,9 +52,7 @@ def main() -> int:
     require(tasks, "kernel/configs.o", "local generated config object prebuild")
     require_not(tasks, "make\n      - kernel/config_data.gz", "direct config data prebuild target")
     prepare_index = tasks.index("- make\n      - prepare")
-    configs_object_index = tasks.index(
-        "- name: Rpi5 common kernel build の kernel/configs.o を wrapper経由で先行生成"
-    )
+    configs_object_index = tasks.index("- name: Rpi5 common kernel build の kernel/configs.o を wrapper経由で先行生成")
     if not prepare_index < configs_object_index:
         raise AssertionError("local generated config preparation order is not preserved")
     wrapper_index = tasks.index(".homecluster-cc-wrapper")
@@ -114,15 +111,14 @@ def main() -> int:
 
     require(bundle_playbook, "name: ../roles/rpi5_common_kernel_build", "common build role include")
     require(bundle_playbook, "name: ../roles/rpi5_egpu_nvidia_artifact_bundle", "bundle role include")
-    require(bundle_playbook, "rpi5_common_kernel_release_from_stage", "caller-scoped common kernel release")
+    require_not(bundle_playbook, "rpi5_common_kernel_stage_date_from_openwrt", "PXE-derived kernel build date")
+    require_not(bundle_playbook, "rpi5_common_kernel_build_stage_date:", "caller stage-date override")
+    require(bundle_playbook, "PXE release date is resolved independently", "identity separation explanation")
     require(tasks, "rpi5_common_kernel_build_bundle_output", "common kernel bundle output fact")
     require(staging_entrypoint, "rpi5-egpu-nvidia-artifact-bundle.yml", "builder pre-play import")
     require(staging_entrypoint, "pxe-release-bundle-staging.yml", "existing staging import")
 
-    for text, label in (
-        (bundle_tasks, "artifact bundle"),
-        (repair_preflight, "lower-rootfs repair"),
-    ):
+    for text, label in ((bundle_tasks, "artifact bundle"), (repair_preflight, "lower-rootfs repair")):
         require(text, ".+-v8-homecluster\\\\+", f"{label} common suffix")
         require(text, ".+-v8-nvidia\\\\+", f"{label} legacy suffix")
 
@@ -130,11 +126,18 @@ def main() -> int:
     require(bundle_tasks, "bcm2712-rpi-5-b-homecluster.dtb", "canonical DTB alias")
     require(bundle_tasks, "openwrt_rpi5_egpu_generation_artifact_archive_path", "generation archive fact")
     require(bundle_tasks, "openwrt_rpi5_egpu_runtime_repair_kernel_version", "generation kernel fact")
-    require_not(
-        repair_preflight,
-        "rpi5_egpu_nvidia_artifact_bundle_inputs.results",
-        "cross-role register reference",
-    )
+    require(bundle_tasks, "rpi5_common_kernel_artifact_identity", "content-addressed artifact identity")
+    require(bundle_tasks, "common_kernel_artifact", "release manifest artifact reference metadata")
+    require(bundle_tasks, 'id: "sha256:', "sha256 artifact id")
+    require_not(repair_preflight, "rpi5_egpu_nvidia_artifact_bundle_inputs.results", "cross-role register reference")
+
+    require_not(precheck, "homecluster_common_kernel_stg_stage_date_from_openwrt", "stage-date equality precheck")
+    require(precheck, "PXE release identity", "independent PXE release validation")
+    require(gate, "common_kernel_artifact", "PXE manifest artifact reference")
+    require(gate, "kernel_artifact_id", "gate artifact identity output")
+    require(gate, "pxe_release_id", "gate PXE identity output")
+    require(gate, "pxe_release_manifest_sha256", "PXE manifest hash")
+    require(gate, "rpi5-common-kernel-gate-v2", "gate schema v2")
 
     print("rpi5 common kernel build contract ok")
     return 0
@@ -143,6 +146,6 @@ def main() -> int:
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except Exception as exc:  # noqa: BLE001 - CI helper should print compact failure.
+    except Exception as exc:  # noqa: BLE001
         print(f"rpi5 common kernel build contract failed: {exc}", file=sys.stderr)
         raise SystemExit(1)
