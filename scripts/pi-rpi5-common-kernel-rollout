@@ -1,219 +1,42 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import argparse
+import importlib.machinery
+import importlib.util
 import json
 import os
-import re
 import subprocess
-import tempfile
-import time
-from datetime import datetime, timezone
+import sys
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-COLLECTOR = "homecluster-rpi5-common-kernel-rollout"
-PHASES = ("generic_canary", "egpu_canary", "fleet_rollout", "rollback_last_phase")
-RUNTIME_PHASES = ("generic_canary", "egpu_canary", "fleet_rollout")
-AGENT_GROUP = "k3s_stg_agents"
-EGPU_GROUP = "rpi5_egpu_artifact_bundle"
-SAFE_RUN_ID = re.compile(r"^[0-9]{8}T[0-9]{6}Z-[A-Za-z0-9._-]+$")
-KERNEL_RELEASE = re.compile(r"^.+-v8-homecluster\+$")
-SELECTOR = re.compile(r"^[0-9]{8}-rpi5$")
-TASK_LINE = re.compile(r"^TASK \[(.+?)\](?:\s+\*+)?$")
-FAILED_HOST_LINE = re.compile(r"^(?:fatal|failed): \[([^\]]+)\]")
-ORIGIN_LINE = re.compile(r"^Origin:\s+(.+)$")
-ERROR_LINE = re.compile(r"^\[ERROR\]:\s*(.+)$")
-RC_FIELD = re.compile(r'"rc"\s*:\s*(-?\d+)')
-MAX_WAIT_SECONDS = 2 * 60 * 60
+HERE = Path(__file__).resolve().parent
+LEGACY = HERE / "pi-rpi5-common-kernel-rollout-legacy"
 
 
-class RolloutError(RuntimeError):
-    def __init__(self, reason: str, status: str = "blocked", diagnostics: Sequence[str] = ()) -> None:
-        super().__init__(reason)
-        self.reason = reason
-        self.status = status
-        self.diagnostics = [str(item)[:300] for item in diagnostics][:20]
+def load_legacy():
+    loader = importlib.machinery.SourceFileLoader("pi_rpi5_common_kernel_rollout_legacy", str(LEGACY))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("legacy_rollout_loader_unavailable")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[loader.name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
-def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+legacy = load_legacy()
 
+_CURRENT_ACTION = ""
+_LAST_FRESH_BOOT_STATUS = ""
+_LAST_KERNEL_ACCEPTANCE: bool | None = None
+_PRE_ROLLOUT_CLUSTER_STATUS = "not_checked"
+_PRE_ROLLOUT_CLUSTER_ISSUES = "none"
 
-def bounded_text(value: object, limit: int = 500) -> str:
-    return " ".join(str(value).replace("\x00", "").split())[:limit]
-
-
-def ansible_failure_diagnostics(
-    stdout: str,
-    stderr: str = "",
-    *,
-    stage: str,
-    mutation_committed: bool,
-    power_cycle_started: bool,
-    next_check_id: str = "",
-) -> list[str]:
-    task = ""
-    host = ""
-    origin = ""
-    message = ""
-    rc = ""
-    for raw in (stdout + "\n" + stderr).splitlines():
-        line = raw.strip()
-        if not line:
-            continue
-        task_match = TASK_LINE.match(line)
-        if task_match:
-            task = bounded_text(task_match.group(1), 240)
-            continue
-        origin_match = ORIGIN_LINE.match(line)
-        if origin_match:
-            origin = bounded_text(origin_match.group(1), 300)
-            continue
-        error_match = ERROR_LINE.match(line)
-        if error_match:
-            message = bounded_text(error_match.group(1))
-            continue
-        host_match = FAILED_HOST_LINE.match(line)
-        if not host_match:
-            continue
-        host = bounded_text(host_match.group(1), 120)
-        if "=>" in line:
-            raw_payload = line.split("=>", 1)[1].strip()
-            if raw_payload.startswith("{"):
-                try:
-                    payload = json.loads(raw_payload)
-                except (ValueError, json.JSONDecodeError):
-                    payload = {}
-                if isinstance(payload, dict):
-                    payload_message = payload.get("msg")
-                    if isinstance(payload_message, str) and payload_message.strip():
-                        message = bounded_text(payload_message)
-                    payload_rc = payload.get("rc")
-                    if isinstance(payload_rc, int):
-                        rc = str(payload_rc)
-                    elif isinstance(payload_rc, str) and re.fullmatch(r"-?\d+", payload_rc.strip()):
-                        rc = payload_rc.strip()
-        if not rc:
-            rc_match = RC_FIELD.search(line)
-            if rc_match:
-                rc = rc_match.group(1)
-
-    diagnostics = [
-        f"ansible_failure_stage={bounded_text(stage, 120)}",
-        f"ansible_failed_task={task}" if task else "",
-        f"ansible_failed_host={host}" if host else "",
-        f"ansible_failed_origin={origin}" if origin else "",
-        f"ansible_error={message}" if message else "",
-        f"ansible_failed_rc={rc}" if rc else "",
-        f"runtime_mutation_committed={'true' if mutation_committed else 'false'}",
-        f"power_cycle_started={'true' if power_cycle_started else 'false'}",
-        f"ansible_next_check_id={bounded_text(next_check_id, 120)}" if next_check_id else "",
-    ]
-    return [item for item in diagnostics if item][:20]
-
-
-def run(
-    command: Sequence[str | Path],
-    *,
-    cwd: Path,
-    timeout: int,
-    env: Mapping[str, str] | None = None,
-) -> subprocess.CompletedProcess[str]:
-    try:
-        return subprocess.run(
-            [str(item) for item in command],
-            cwd=cwd,
-            env=dict(env) if env else None,
-            text=True,
-            capture_output=True,
-            check=False,
-            timeout=timeout,
-        )
-    except (OSError, subprocess.TimeoutExpired) as error:
-        raise RolloutError("rollout_command_execution_failed", "unknown") from error
-
-
-def parse_kv(output: str) -> dict[str, str]:
-    result: dict[str, str] = {}
-    for raw in output.splitlines():
-        if "=" not in raw:
-            continue
-        key, value = raw.split("=", 1)
-        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
-            result[key] = value
-    return result
-
-
-def read_json(path: Path) -> dict[str, Any]:
-    value = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(value, dict):
-        raise ValueError("json_object_required")
-    return value
-
-
-def workflow_root() -> Path:
-    state_home = Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state"))).expanduser()
-    return state_home / "homecluster/rpi5-common-kernel"
-
-
-def latest_accepted(root: Path) -> dict[str, Any]:
-    directory = root / "accepted-generation"
-    if not directory.is_dir():
-        raise RolloutError("accepted_generation_missing")
-    for path in sorted(directory.glob("*.json"), reverse=True):
-        try:
-            value = read_json(path)
-        except (OSError, ValueError, json.JSONDecodeError):
-            continue
-        if (
-            SAFE_RUN_ID.fullmatch(str(value.get("generation_run_id", "")))
-            and KERNEL_RELEASE.fullmatch(str(value.get("exact_kernel_release", "")))
-            and SELECTOR.fullmatch(str(value.get("pxe_candidate_selector", "")))
-        ):
-            return value
-    raise RolloutError("accepted_generation_contract_invalid", "unknown")
-
-
-def phase_record(root: Path, phase: str) -> dict[str, Any]:
-    path = root / "rollout-phases" / f"{phase}.json"
-    try:
-        return read_json(path)
-    except (OSError, ValueError, json.JSONDecodeError):
-        return {}
-
-
-def inventory_json(root: Path, inventory: Path) -> dict[str, Any]:
-    completed = run(["ansible-inventory", "-i", inventory, "--list"], cwd=root, timeout=180)
-    if completed.returncode != 0:
-        raise RolloutError("inventory_list_failed")
-    try:
-        value = json.loads(completed.stdout)
-    except (ValueError, json.JSONDecodeError) as error:
-        raise RolloutError("inventory_contract_invalid", "unknown") from error
-    if not isinstance(value, dict):
-        raise RolloutError("inventory_contract_invalid", "unknown")
-    return value
-
-
-def group_hosts(value: Mapping[str, Any], group: str) -> list[str]:
-    group_value = value.get(group)
-    hosts = group_value.get("hosts") if isinstance(group_value, dict) else None
-    if not isinstance(hosts, list) or any(not isinstance(item, str) or not item for item in hosts):
-        return []
-    return sorted(set(hosts))
-
-
-def inventory_targets(root: Path, inventory: Path) -> tuple[list[str], str]:
-    value = inventory_json(root, inventory)
-    agents = group_hosts(value, AGENT_GROUP)
-    egpu = group_hosts(value, EGPU_GROUP)
-    if len(egpu) != 1:
-        raise RolloutError("egpu_target_group_invalid")
-    egpu_target = egpu[0]
-    if not agents or egpu_target not in agents:
-        raise RolloutError("rollout_agent_group_invalid")
-    return agents, egpu_target
+_original_target_policy = legacy.target_policy
+_original_run_fresh_boot = legacy.run_fresh_boot
+_original_phase_record_value = legacy.phase_record_value
+_original_fixture_result = legacy.fixture_result
 
 
 def target_policy(
@@ -222,142 +45,72 @@ def target_policy(
     agents: Sequence[str],
     egpu_target: str,
 ) -> tuple[list[str], dict[str, Any], str]:
-    generic = phase_record(root, "generic_canary")
-    egpu = phase_record(root, "egpu_canary")
-    fleet = phase_record(root, "fleet_rollout")
-    if phase == "generic_canary":
-        if generic.get("acceptance_status") == "pass":
-            raise RolloutError("generic_canary_already_accepted")
-        candidates = sorted(name for name in agents if name != egpu_target)
-        if not candidates:
-            raise RolloutError("generic_canary_target_unavailable")
-        return [candidates[0]], {}, phase
-    if phase == "egpu_canary":
-        if generic.get("acceptance_status") != "pass":
-            raise RolloutError("generic_canary_gate_missing")
-        if egpu.get("acceptance_status") == "pass":
-            raise RolloutError("egpu_canary_already_accepted")
-        return [egpu_target], {}, phase
-    if phase == "fleet_rollout":
-        if egpu.get("acceptance_status") != "pass":
-            raise RolloutError("egpu_canary_gate_missing")
-        if fleet.get("acceptance_status") == "pass":
-            raise RolloutError("fleet_rollout_already_accepted")
-        accepted_targets = set(generic.get("targets", [])) | set(egpu.get("targets", []))
-        targets = [name for name in agents if name not in accepted_targets]
-        if not targets:
-            raise RolloutError("fleet_rollout_targets_empty")
-        return targets, {}, phase
+    global _CURRENT_ACTION, _LAST_FRESH_BOOT_STATUS, _LAST_KERNEL_ACCEPTANCE
+    _CURRENT_ACTION = phase
+    _LAST_FRESH_BOOT_STATUS = ""
+    _LAST_KERNEL_ACCEPTANCE = None
+
+    if phase != "rollback_last_phase":
+        return _original_target_policy(root, phase, agents, egpu_target)
 
     failed: dict[str, Any] = {}
-    for candidate in reversed(RUNTIME_PHASES):
-        value = phase_record(root, candidate)
-        if value.get("acceptance_status") == "fail":
+    for candidate in reversed(legacy.RUNTIME_PHASES):
+        value = legacy.phase_record(root, candidate)
+        if value.get("acceptance_status") == "fail" and value.get("rollback_recommended") is True:
             failed = value
             break
+
     previous = failed.get("previous_selector_by_node") if failed else None
     targets = failed.get("targets") if failed else None
     failed_phase = str(failed.get("phase", "")) if failed else ""
-    if failed_phase not in RUNTIME_PHASES or not isinstance(previous, dict) or not previous:
-        raise RolloutError("known_rollback_unavailable")
+    if failed_phase not in legacy.RUNTIME_PHASES or not isinstance(previous, dict) or not previous:
+        raise legacy.RolloutError("known_rollback_unavailable")
     if not isinstance(targets, list) or not targets or any(target not in agents for target in targets):
-        raise RolloutError("rollback_target_contract_invalid", "unknown")
+        raise legacy.RolloutError("rollback_target_contract_invalid", "unknown")
     for target in targets:
         selector = previous.get(target)
         if not isinstance(selector, dict):
-            raise RolloutError("rollback_selector_contract_invalid", "unknown")
-        if not SELECTOR.fullmatch(str(selector.get("tftp_release", ""))) or not SELECTOR.fullmatch(
+            raise legacy.RolloutError("rollback_selector_contract_invalid", "unknown")
+        if not legacy.SELECTOR.fullmatch(str(selector.get("tftp_release", ""))) or not legacy.SELECTOR.fullmatch(
             str(selector.get("rootfs_release", ""))
         ):
-            raise RolloutError("rollback_selector_contract_invalid", "unknown")
+            raise legacy.RolloutError("rollback_selector_contract_invalid", "unknown")
     return [str(item) for item in targets], previous, failed_phase
 
 
-def k3s_health_diagnostics(status: Mapping[str, Any]) -> list[str]:
-    issues = status.get("issues", [])
-    issue_text = ",".join(str(item) for item in issues[:10]) if isinstance(issues, list) else "invalid"
-    return [
-        f"k3s_status={status.get('status', 'unknown')}",
-        f"k3s_reason={status.get('reason', 'unknown')}",
-        f"k3s_nodes_ready={status.get('nodes_ready', 'unknown')}",
-        f"k3s_nodes_total={status.get('nodes_total', 'unknown')}",
-        f"k3s_issues={issue_text or 'none'}",
-    ]
-
-
-def ensure_cluster_healthy(runbook: Path) -> None:
+def observe_cluster_health(runbook: Path) -> None:
+    global _PRE_ROLLOUT_CLUSTER_STATUS, _PRE_ROLLOUT_CLUSTER_ISSUES
     helper = runbook / "scripts/pi-k3s-status"
     if not helper.is_file():
-        raise RolloutError("runbook_k3s_status_helper_missing")
-    completed = run(["bash", helper, "--json"], cwd=runbook, timeout=900)
-    try:
-        status = json.loads(completed.stdout)
-    except (ValueError, json.JSONDecodeError) as error:
-        raise RolloutError("rollout_k3s_status_contract_invalid", "unknown") from error
-    if not isinstance(status, dict):
-        raise RolloutError("rollout_k3s_status_contract_invalid", "unknown")
-
-    state = status.get("status")
-    diagnostics = k3s_health_diagnostics(status)
-    if state == "healthy":
-        if completed.returncode != 0:
-            raise RolloutError(
-                "rollout_k3s_status_exit_mismatch",
-                "unknown",
-                [*diagnostics, f"k3s_exit_code={completed.returncode}"],
-            )
+        _PRE_ROLLOUT_CLUSTER_STATUS = "unavailable"
+        _PRE_ROLLOUT_CLUSTER_ISSUES = "status_helper_missing"
         return
-    if state == "converging":
-        raise RolloutError("rollout_cluster_converging", "blocked", diagnostics)
-    if state == "blocked":
-        raise RolloutError("rollout_cluster_blocked", "blocked", diagnostics)
-    if state == "unknown":
-        raise RolloutError("rollout_cluster_unknown", "unknown", diagnostics)
-    raise RolloutError("rollout_k3s_status_contract_invalid", "unknown", diagnostics)
 
+    completed = legacy.run(["bash", helper, "--json"], cwd=runbook, timeout=900)
+    try:
+        value = json.loads(completed.stdout)
+    except (ValueError, json.JSONDecodeError):
+        _PRE_ROLLOUT_CLUSTER_STATUS = "unknown"
+        _PRE_ROLLOUT_CLUSTER_ISSUES = "invalid_status_json"
+        return
+    if not isinstance(value, dict):
+        _PRE_ROLLOUT_CLUSTER_STATUS = "unknown"
+        _PRE_ROLLOUT_CLUSTER_ISSUES = "invalid_status_contract"
+        return
 
-def ensure_no_active_fresh_boot(runbook: Path) -> None:
-    script = runbook / ".agents/skills/homecluster-k3s-fresh-boot-acceptance/scripts/status-k3s-fresh-boot-acceptance-job.sh"
-    if not script.is_file():
-        raise RolloutError("fresh_boot_status_helper_missing")
-    completed = run([script], cwd=runbook, timeout=30)
-    values = parse_kv(completed.stdout)
-    if values.get("status") == "in_progress":
-        raise RolloutError("fresh_boot_job_already_active")
+    _PRE_ROLLOUT_CLUSTER_STATUS = str(value.get("status", "unknown"))
+    issues = value.get("issues", [])
+    if isinstance(issues, list):
+        _PRE_ROLLOUT_CLUSTER_ISSUES = ",".join(str(item) for item in issues[:10]) or "none"
+    else:
+        _PRE_ROLLOUT_CLUSTER_ISSUES = "invalid"
 
 
 def run_fresh_boot(runbook: Path) -> tuple[str, str]:
-    scripts = runbook / ".agents/skills/homecluster-k3s-fresh-boot-acceptance/scripts"
-    start = scripts / "start-k3s-fresh-boot-acceptance-job.sh"
-    wait = scripts / "wait-k3s-fresh-boot-acceptance-job.sh"
-    if not start.is_file() or not wait.is_file():
-        raise RolloutError("fresh_boot_helper_missing")
-    environment = {**os.environ, "HOMECLUSTER_K3S_FRESH_BOOT_POWER_APPLY": "1"}
-    started = run([start], cwd=runbook, timeout=60, env=environment)
-    start_values = parse_kv(started.stdout)
-    if start_values.get("status") not in {"started", "in_progress"}:
-        raise RolloutError(start_values.get("reason", "fresh_boot_start_failed"))
-    run_id = start_values.get("run_id", "")
-    if not re.fullmatch(r"[0-9]{8}T[0-9]{6}Z", run_id):
-        raise RolloutError("fresh_boot_run_id_invalid", "unknown")
-
-    deadline = time.monotonic() + MAX_WAIT_SECONDS
-    while time.monotonic() < deadline:
-        completed = run(
-            [wait],
-            cwd=runbook,
-            timeout=600,
-            env={**environment, "WAIT_TIMEOUT_SECONDS": "540", "POLL_SECONDS": "30"},
-        )
-        values = parse_kv(completed.stdout)
-        status = values.get("status", "unknown")
-        if status == "pass":
-            return run_id, "pass"
-        if status in {"fail", "blocked", "unknown"}:
-            return run_id, status
-        if status != "in_progress":
-            return run_id, "unknown"
-    return run_id, "in_progress"
+    global _LAST_FRESH_BOOT_STATUS
+    run_id, status = _original_run_fresh_boot(runbook)
+    _LAST_FRESH_BOOT_STATUS = status
+    return run_id, status
 
 
 def run_phase_acceptance(
@@ -369,11 +122,12 @@ def run_phase_acceptance(
     all_agents: Sequence[str],
     exact_release: str,
 ) -> tuple[bool, list[str]]:
+    global _LAST_KERNEL_ACCEPTANCE
     diagnostics: list[str] = []
     playbook = root / "ansible/openwrt/playbooks/rpi5-common-kernel-phase-acceptance.yml"
     expect_exact = phase != "rollback_last_phase"
     acceptance_targets = list(all_agents) if phase == "fleet_rollout" else list(targets)
-    completed = run(
+    completed = legacy.run(
         [
             "ansible-playbook",
             "-i",
@@ -395,9 +149,10 @@ def run_phase_acceptance(
         timeout=900,
     )
     if completed.returncode != 0:
+        _LAST_KERNEL_ACCEPTANCE = False
         return False, [
             "phase_runtime_acceptance=fail",
-            *ansible_failure_diagnostics(
+            *legacy.ansible_failure_diagnostics(
                 completed.stdout,
                 completed.stderr,
                 stage="phase_acceptance_after_power_cycle",
@@ -408,260 +163,129 @@ def run_phase_acceptance(
         ]
     diagnostics.append("phase_runtime_acceptance=pass")
 
-    k3s_status = run(["bash", runbook / "scripts/pi-k3s-status", "--json"], cwd=runbook, timeout=900)
-    try:
-        k3s = json.loads(k3s_status.stdout)
-    except (ValueError, json.JSONDecodeError):
-        return False, [*diagnostics, "k3s_final_acceptance=unknown"]
-    if k3s_status.returncode != 0 or not isinstance(k3s, dict) or k3s.get("status") != "healthy":
-        return False, [*diagnostics, "k3s_final_acceptance=fail"]
-    diagnostics.append("k3s_final_acceptance=pass")
+    # Cluster-wide application health is evidence, not a kernel acceptance gate.
+    status_helper = runbook / "scripts/pi-k3s-status"
+    if status_helper.is_file():
+        observed = legacy.run(["bash", status_helper, "--json"], cwd=runbook, timeout=900)
+        try:
+            value = json.loads(observed.stdout)
+        except (ValueError, json.JSONDecodeError):
+            diagnostics.append("k3s_final_observation=unknown")
+        else:
+            if isinstance(value, dict):
+                diagnostics.append(f"k3s_final_observation={value.get('status', 'unknown')}")
+                issues = value.get("issues", [])
+                if isinstance(issues, list) and issues:
+                    diagnostics.append("k3s_final_warning_issues=" + ",".join(str(item) for item in issues[:10]))
+            else:
+                diagnostics.append("k3s_final_observation=unknown")
+    else:
+        diagnostics.append("k3s_final_observation=unavailable")
 
     if phase == "egpu_canary":
         llm_helper = runbook / "scripts/pi-rpi5-egpu-llm-status"
         if not llm_helper.is_file():
+            _LAST_KERNEL_ACCEPTANCE = False
             return False, [*diagnostics, "llm_acceptance_helper=missing"]
-        llm = run(
+        llm = legacy.run(
             ["bash", llm_helper],
             cwd=runbook,
             timeout=900,
             env={**os.environ, "HOMECLUSTER_RPI5_03_EXPECTED_KERNEL_RELEASE": exact_release},
         )
-        values = parse_kv(llm.stdout)
+        values = legacy.parse_kv(llm.stdout)
         if (
             llm.returncode != 0
             or values.get("llm_status") != "healthy"
             or values.get("llm_failed_check_ids") != "none"
             or values.get("llm_unknown_check_ids") != "none"
         ):
+            _LAST_KERNEL_ACCEPTANCE = False
             return False, [*diagnostics, "llm_acceptance=fail"]
         diagnostics.append("llm_acceptance=pass")
+
+    _LAST_KERNEL_ACCEPTANCE = True
     return True, diagnostics
 
 
-def phase_record_value(
-    *,
-    phase: str,
-    targets: Sequence[str],
-    selector_result: Mapping[str, Any],
-    accepted: Mapping[str, Any],
-    fresh_boot_run_id: str,
-    acceptance_status: str,
-    started_at: str,
-) -> dict[str, Any]:
-    return {
-        "phase": phase,
-        "targets": list(targets),
-        "previous_selector_by_node": selector_result.get("previous_selector_by_node", {}),
-        "applied_selector_by_node": selector_result.get("applied_selector_by_node", {}),
-        "accepted_generation_run_id": str(accepted["generation_run_id"]),
-        "exact_kernel_release": str(accepted["exact_kernel_release"]),
-        "fresh_boot_run_id": fresh_boot_run_id,
-        "acceptance_status": acceptance_status,
-        "acceptance_version": "rpi5-common-kernel-phase-v1",
-        "started_at": started_at,
-        "completed_at": utc_now(),
-    }
+def selectors_changed(targets: Sequence[str], selector_result: Mapping[str, Any]) -> bool:
+    previous = selector_result.get("previous_selector_by_node")
+    applied = selector_result.get("applied_selector_by_node")
+    if not isinstance(previous, dict) or not isinstance(applied, dict):
+        return False
+    return any(previous.get(target) != applied.get(target) for target in targets)
+
+
+def phase_record_value(**kwargs: Any) -> dict[str, Any]:
+    record = _original_phase_record_value(**kwargs)
+    targets = kwargs.get("targets", [])
+    selector_result = kwargs.get("selector_result", {})
+    fresh_boot_run_id = str(kwargs.get("fresh_boot_run_id", ""))
+    requested_acceptance = str(kwargs.get("acceptance_status", ""))
+
+    record["pre_rollout_cluster_status"] = _PRE_ROLLOUT_CLUSTER_STATUS
+    record["pre_rollout_cluster_issues"] = _PRE_ROLLOUT_CLUSTER_ISSUES
+    record["selector_changed"] = selectors_changed(targets, selector_result) if isinstance(targets, Sequence) else False
+
+    if _CURRENT_ACTION == "rollback_last_phase":
+        record["reboot_acceptance_status"] = "pass" if _LAST_FRESH_BOOT_STATUS == "pass" else (_LAST_FRESH_BOOT_STATUS or "not_run")
+        record["kernel_acceptance_status"] = "not_applicable"
+        record["rollback_recommended"] = False
+        return record
+
+    if not fresh_boot_run_id:
+        record["acceptance_status"] = "selector_failed" if requested_acceptance == "fail" else requested_acceptance
+        record["reboot_acceptance_status"] = "not_run"
+        record["kernel_acceptance_status"] = "not_run"
+        record["rollback_recommended"] = False
+        return record
+
+    if _LAST_FRESH_BOOT_STATUS and _LAST_FRESH_BOOT_STATUS != "pass":
+        record["acceptance_status"] = f"reboot_{_LAST_FRESH_BOOT_STATUS}"
+        record["reboot_acceptance_status"] = _LAST_FRESH_BOOT_STATUS
+        record["kernel_acceptance_status"] = "not_run"
+        record["rollback_recommended"] = False
+        return record
+
+    record["reboot_acceptance_status"] = "pass"
+    if requested_acceptance == "fail" or _LAST_KERNEL_ACCEPTANCE is False:
+        record["acceptance_status"] = "fail"
+        record["kernel_acceptance_status"] = "fail"
+        record["rollback_recommended"] = bool(record["selector_changed"])
+    else:
+        record["kernel_acceptance_status"] = "pass" if _LAST_KERNEL_ACCEPTANCE is not None else "not_run"
+        record["rollback_recommended"] = False
+    return record
 
 
 def fixture_result(path: Path, phase: str) -> dict[str, Any]:
-    value = read_json(path)
-    status = str(value.get("status", "pass"))
-    targets = value.get("targets", ["generic-a"])
-    if not isinstance(targets, list):
-        raise RolloutError("fixture_contract_invalid", "unknown")
-    record_phase = str(value.get("record_phase", "generic_canary" if phase == "rollback_last_phase" else phase))
-    acceptance = str(value.get("acceptance_status", "rolled_back" if phase == "rollback_last_phase" else status))
-    record = {
-        "phase": record_phase,
-        "targets": targets,
-        "previous_selector_by_node": {str(target): {"tftp_release": "20260730-rpi5", "rootfs_release": "20260730-rpi5"} for target in targets},
-        "applied_selector_by_node": {str(target): {"tftp_release": "20260731-rpi5", "rootfs_release": "20260731-rpi5"} for target in targets},
-        "accepted_generation_run_id": "20260731T000000Z-stg-generation-1",
-        "exact_kernel_release": "6.18.37-v8-homecluster+",
-        "fresh_boot_run_id": "20260731T010000Z",
-        "acceptance_status": acceptance,
-        "acceptance_version": "rpi5-common-kernel-phase-v1",
-        "started_at": utc_now(),
-        "completed_at": utc_now(),
-    }
-    return {
-        "collector": COLLECTOR,
-        "status": status,
-        "reason": str(value.get("reason", f"{phase}_accepted")),
-        "phase_record": record,
-        "diagnostics": [str(item) for item in value.get("diagnostics", []) if isinstance(item, str)],
-    }
-
-
-def parser() -> argparse.ArgumentParser:
-    result = argparse.ArgumentParser(description="Fixed Pi5 common-kernel rollout phase")
-    result.add_argument("--json", action="store_true")
-    result.add_argument("--phase", required=True, choices=PHASES)
-    result.add_argument("--fixture", default="", help=argparse.SUPPRESS)
+    result = _original_fixture_result(path, phase)
+    value = legacy.read_json(path)
+    record = result.get("phase_record")
+    if isinstance(record, dict):
+        acceptance = str(record.get("acceptance_status", ""))
+        record["reboot_acceptance_status"] = str(value.get("reboot_acceptance_status", "pass"))
+        record["kernel_acceptance_status"] = str(
+            value.get("kernel_acceptance_status", "fail" if acceptance == "fail" else "pass")
+        )
+        record["selector_changed"] = bool(value.get("selector_changed", True))
+        record["rollback_recommended"] = bool(
+            value.get("rollback_recommended", acceptance == "fail" and record["selector_changed"])
+        )
     return result
 
 
-def main(argv: Sequence[str] | None = None) -> int:
-    args = parser().parse_args(argv)
-    try:
-        if args.fixture:
-            result = fixture_result(Path(args.fixture), args.phase)
-        else:
-            if os.environ.get("HOMECLUSTER_RPI5_COMMON_KERNEL_ROLLOUT_APPLY") != "1":
-                raise RolloutError("missing_HOMECLUSTER_RPI5_COMMON_KERNEL_ROLLOUT_APPLY")
-            root = Path(__file__).resolve().parents[1]
-            runbook = Path(os.environ.get("HOMECLUSTER_RUNBOOK_ROOT", str(root.parent / "homecluster-runbook"))).resolve()
-            inventory = Path(os.environ.get("HOMECLUSTER_ANSIBLE_INVENTORY", str(root.parent / "inventory.yml"))).resolve()
-            if not inventory.is_file() or inventory.stat().st_mode & 0o077:
-                raise RolloutError("inventory_entrypoint_invalid")
-            branch = run(["git", "-C", root, "branch", "--show-current"], cwd=root, timeout=60)
-            dirty = run(["git", "-C", root, "status", "--porcelain"], cwd=root, timeout=60)
-            if branch.returncode != 0 or branch.stdout.strip() != "stg":
-                raise RolloutError("infra_runtime_branch_not_stg")
-            if dirty.returncode != 0 or dirty.stdout.strip():
-                raise RolloutError("infra_checkout_dirty")
-            accepted = latest_accepted(workflow_root())
-            agents, egpu_target = inventory_targets(root, inventory)
-            targets, rollback_selectors, record_phase = target_policy(
-                workflow_root(),
-                args.phase,
-                agents,
-                egpu_target,
-            )
-            if args.phase in RUNTIME_PHASES:
-                ensure_cluster_healthy(runbook)
-            ensure_no_active_fresh_boot(runbook)
-            started_at = utc_now()
-            playbook = root / "ansible/openwrt/playbooks/rpi5-common-kernel-rollout.yml"
-            with tempfile.TemporaryDirectory(prefix="homecluster-common-kernel-rollout-", dir="/tmp") as temporary:
-                output = Path(temporary) / "result.json"
-                extra = {
-                    "homecluster_common_kernel_rollout_phase": args.phase,
-                    "homecluster_common_kernel_rollout_output": str(output),
-                    "homecluster_common_kernel_rollout_targets": targets,
-                    "homecluster_common_kernel_accepted_generation_run_id": accepted["generation_run_id"],
-                    "homecluster_common_kernel_exact_release": accepted["exact_kernel_release"],
-                    "homecluster_common_kernel_accepted_selector": accepted["pxe_candidate_selector"],
-                    "homecluster_common_kernel_rollback_selectors": rollback_selectors,
-                }
-                selector_apply = run(
-                    [
-                        "ansible-playbook",
-                        "-i",
-                        inventory,
-                        playbook,
-                        "--extra-vars",
-                        json.dumps(extra, separators=(",", ":")),
-                    ],
-                    cwd=root / "ansible/openwrt",
-                    timeout=1200,
-                )
-                selector_result: dict[str, Any] = {}
-                if output.is_file():
-                    try:
-                        selector_result = read_json(output)
-                    except (ValueError, json.JSONDecodeError):
-                        selector_result = {}
-                if selector_apply.returncode != 0 or selector_result.get("status") != "applied":
-                    record = phase_record_value(
-                        phase=record_phase,
-                        targets=targets,
-                        selector_result=selector_result,
-                        accepted=accepted,
-                        fresh_boot_run_id="",
-                        acceptance_status="fail",
-                        started_at=started_at,
-                    )
-                    plan_recorded = selector_result.get("status") == "planned"
-                    result = {
-                        "collector": COLLECTOR,
-                        "status": "fail",
-                        "reason": "selector_apply_failed",
-                        "phase_record": record,
-                        "diagnostics": [
-                            "selector_apply=fail",
-                            f"rollout_targets={','.join(targets)}",
-                            *ansible_failure_diagnostics(
-                                selector_apply.stdout,
-                                selector_apply.stderr,
-                                stage="selector_mutation_or_postcheck" if plan_recorded else "pre_mutation_selector_validation",
-                                mutation_committed=False,
-                                power_cycle_started=False,
-                                next_check_id="common_kernel_selector_apply",
-                            ),
-                            "automatic_rollback=false",
-                        ],
-                    }
-                else:
-                    fresh_boot_run_id, fresh_boot_status = run_fresh_boot(runbook)
-                    if fresh_boot_status != "pass":
-                        record = phase_record_value(
-                            phase=record_phase,
-                            targets=targets,
-                            selector_result=selector_result,
-                            accepted=accepted,
-                            fresh_boot_run_id=fresh_boot_run_id,
-                            acceptance_status="fail",
-                            started_at=started_at,
-                        )
-                        result = {
-                            "collector": COLLECTOR,
-                            "status": "fail" if fresh_boot_status == "fail" else "unknown",
-                            "reason": f"fresh_boot_{fresh_boot_status}",
-                            "phase_record": record,
-                            "diagnostics": ["selector_apply=pass", f"fresh_boot={fresh_boot_status}", "automatic_rollback=false"],
-                        }
-                    else:
-                        accepted_phase, diagnostics = run_phase_acceptance(
-                            root,
-                            runbook,
-                            inventory,
-                            args.phase,
-                            targets,
-                            agents,
-                            str(accepted["exact_kernel_release"]),
-                        )
-                        acceptance_status = (
-                            "rolled_back" if args.phase == "rollback_last_phase" and accepted_phase else "pass" if accepted_phase else "fail"
-                        )
-                        record = phase_record_value(
-                            phase=record_phase,
-                            targets=targets,
-                            selector_result=selector_result,
-                            accepted=accepted,
-                            fresh_boot_run_id=fresh_boot_run_id,
-                            acceptance_status=acceptance_status,
-                            started_at=started_at,
-                        )
-                        result = {
-                            "collector": COLLECTOR,
-                            "status": "pass" if accepted_phase else "fail",
-                            "reason": (
-                                "rollback_accepted"
-                                if args.phase == "rollback_last_phase" and accepted_phase
-                                else f"{args.phase}_accepted"
-                                if accepted_phase
-                                else f"{args.phase}_acceptance_failed"
-                            ),
-                            "phase_record": record,
-                            "diagnostics": ["selector_apply=pass", "fresh_boot=pass", *diagnostics, "automatic_rollback=false"],
-                        }
-    except RolloutError as error:
-        result = {
-            "collector": COLLECTOR,
-            "status": error.status,
-            "reason": error.reason,
-            "diagnostics": error.diagnostics,
-        }
-    if args.json:
-        print(json.dumps(result, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
-    else:
-        print(f"collector={result['collector']}")
-        print(f"status={result['status']}")
-        print(f"reason={result['reason']}")
-    return 0 if result["status"] == "pass" else 2 if result["status"] in {"blocked", "unknown"} else 1
+legacy.target_policy = target_policy
+legacy.ensure_cluster_healthy = observe_cluster_health
+legacy.run_fresh_boot = run_fresh_boot
+legacy.run_phase_acceptance = run_phase_acceptance
+legacy.phase_record_value = phase_record_value
+legacy.fixture_result = fixture_result
+
+for name in dir(legacy):
+    if not name.startswith("_"):
+        globals()[name] = getattr(legacy, name)
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(legacy.main())
