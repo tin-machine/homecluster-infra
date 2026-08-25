@@ -24,14 +24,6 @@
   become: false
   vars:
     homecluster_common_kernel_builder_min_free_kib: 8388608
-    homecluster_common_kernel_stg_stage_date_from_openwrt: >-
-      {{
-        (
-          hostvars[(groups['openwrt'] | first)].openwrt_gentoo_release_bundle_stage_dates
-          | default({})
-        ).get('stg', '')
-        | string | trim
-      }}
   environment:
     LC_ALL: C
     LANG: C
@@ -45,8 +37,6 @@
           - rpi5_common_kernel_build_confirm == rpi5_common_kernel_build_confirm_expected
           - rpi5_common_kernel_build_stage | default('') == 'stg'
           - rpi5_common_kernel_build_stage_date | default('', true) | string is match('^[0-9]{8}$')
-          - homecluster_common_kernel_stg_stage_date_from_openwrt is match('^[0-9]{8}$')
-          - (rpi5_common_kernel_build_stage_date | string | trim) == homecluster_common_kernel_stg_stage_date_from_openwrt
           - rpi5_common_kernel_build_source_version | default('', true) | string | trim | length >= 12
           - rpi5_common_kernel_build_config_seed | default('', true) | string is match('^/var/lib/rancher/k3s/')
           - rpi5_common_kernel_build_open_modules_commit | default('', true) | string | trim | length >= 12
@@ -56,8 +46,15 @@
           - rpi5_egpu_nvidia_artifact_bundle_apply | default(false) | bool
           - rpi5_egpu_nvidia_artifact_bundle_confirm_expected | default('', true) | string | trim | length > 0
           - rpi5_egpu_nvidia_artifact_bundle_confirm == rpi5_egpu_nvidia_artifact_bundle_confirm_expected
-        fail_msg: common-kernel build / NVIDIA bundleの固定opt-in、入力形状、またはstg stage dateが一致していません
+        fail_msg: common-kernel build / NVIDIA bundleの固定opt-inまたは入力形状が不正です
       no_log: true
+      changed_when: false
+
+    - name: Pi5 common kernel artifact identity policyを表示
+      ansible.builtin.debug:
+        msg: >-
+          kernel artifact build date={{ rpi5_common_kernel_build_stage_date | string | trim }};
+          PXE release date is an independent OpenWrt release identity
       changed_when: false
 
     - name: Pi5 common kernel required commandを確認
@@ -188,6 +185,14 @@
   vars:
     homecluster_common_kernel_openwrt_min_free_kib: 10485760
   tasks:
+    - name: OpenWrt PXE release identityを検証
+      ansible.builtin.assert:
+        that:
+          - (openwrt_gentoo_release_bundle_stage_dates | default({})) is mapping
+          - openwrt_gentoo_release_bundle_stage_dates.stg | default('', true) | string is match('^[0-9]{8}$')
+        fail_msg: OpenWrt stg PXE release identityはYYYYMMDDで指定してください
+      changed_when: false
+
     - name: OpenWrt /srv空き容量を確認
       ansible.builtin.shell: |
         set -euo pipefail
