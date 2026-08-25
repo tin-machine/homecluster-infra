@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import importlib.util
-import json
 import sys
 import tempfile
 import unittest
@@ -68,6 +67,42 @@ def test_rollback_rejects_failed_phase_without_recommendation(self):
         self.assertEqual(context.exception.reason, "known_rollback_unavailable")
 
 
+def test_build_and_pxe_release_dates_are_independent(self):
+    builder = {
+        "rpi5_common_kernel_build_enabled": True,
+        "rpi5_common_kernel_build_apply": True,
+        "rpi5_egpu_nvidia_artifact_bundle_enabled": True,
+        "rpi5_egpu_nvidia_artifact_bundle_apply": True,
+        "openwrt_rpi5_egpu_generation_enabled": True,
+        "openwrt_rpi5_egpu_generation_apply": True,
+        "openwrt_rpi5_egpu_generation_artifact_bundle_enabled": True,
+        "rpi5_common_kernel_build_confirm": "build",
+        "rpi5_common_kernel_build_confirm_expected": "build",
+        "rpi5_egpu_nvidia_artifact_bundle_confirm": "bundle",
+        "rpi5_egpu_nvidia_artifact_bundle_confirm_expected": "bundle",
+        "rpi5_common_kernel_build_stage": "stg",
+        "rpi5_common_kernel_build_stage_date": "20260820",
+        "rpi5_common_kernel_build_source_version": "a" * 40,
+        "rpi5_common_kernel_build_open_modules_commit": "b" * 40,
+        "rpi5_common_kernel_build_config_seed": "/var/lib/rancher/k3s/config/kernel",
+        "rpi5_common_kernel_build_open_modules_dir": "/var/lib/rancher/k3s/open-modules",
+        "rpi5_common_kernel_build_nvidia_runfile_path": "/var/lib/rancher/k3s/nvidia.run",
+    }
+    legacy.PRECHECK_MODULE.validate_private_contract(builder)
+    legacy.PRECHECK_MODULE.validate_pxe_release_contract(
+        {"openwrt_gentoo_release_bundle_stage_dates": {"stg": "20260826"}}
+    )
+    self.assertNotEqual(builder["rpi5_common_kernel_build_stage_date"], "20260826")
+
+
+def test_invalid_pxe_release_identity_is_rejected(self):
+    with self.assertRaises(legacy.PRECHECK_MODULE.PrecheckError) as context:
+        legacy.PRECHECK_MODULE.validate_pxe_release_contract(
+            {"openwrt_gentoo_release_bundle_stage_dates": {"stg": "invalid"}}
+        )
+    self.assertEqual(context.exception.reason, "pxe_release_identity_invalid")
+
+
 def test_helpers_accept_no_arbitrary_host_release_or_path(self):
     precheck = legacy.PRECHECK.read_text(encoding="utf-8")
     gate = legacy.GATE.read_text(encoding="utf-8")
@@ -81,41 +116,46 @@ def test_helpers_accept_no_arbitrary_host_release_or_path(self):
     self.assertIn("legacy.main()", rollout)
 
 
-def test_generation_gate_is_builder_scoped_and_rollout_health_is_observation(self):
+def test_generation_gate_uses_artifact_reference_not_stage_date_equality(self):
     precheck = legacy.PRECHECK.read_text(encoding="utf-8")
     rollout = legacy.ROLLOUT.read_text(encoding="utf-8")
-    generation_playbook = (
-        HERE.parent / "ansible/arm64/playbooks/rpi5-egpu-nvidia-artifact-bundle.yml"
-    ).read_text(encoding="utf-8")
-    precheck_playbook = (
-        HERE.parent / "ansible/openwrt/playbooks/rpi5-common-kernel-precheck.yml"
-    ).read_text(encoding="utf-8")
-    gate_playbook = (
-        HERE.parent / "ansible/openwrt/playbooks/rpi5-common-kernel-gate.yml"
-    ).read_text(encoding="utf-8")
+    generation_playbook = (HERE.parent / "ansible/arm64/playbooks/rpi5-egpu-nvidia-artifact-bundle.yml").read_text(encoding="utf-8")
+    artifact_role = (HERE.parent / "ansible/arm64/roles/rpi5_egpu_nvidia_artifact_bundle/tasks/main.yml").read_text(encoding="utf-8")
+    precheck_playbook = (HERE.parent / "ansible/openwrt/playbooks/rpi5-common-kernel-precheck.yml").read_text(encoding="utf-8")
+    gate_playbook = (HERE.parent / "ansible/openwrt/playbooks/rpi5-common-kernel-gate.yml").read_text(encoding="utf-8")
 
     self.assertIn("k3s_gate=deferred_to_rollout", precheck)
-    self.assertNotIn("k3s_not_healthy", precheck)
+    self.assertNotIn("common_kernel_stage_date_mismatch", precheck)
+    self.assertNotIn("validate_stage_date_alignment", precheck)
+    self.assertIn("kernel_artifact_and_pxe_release_identity=independent", precheck)
     self.assertIn("def observe_cluster_health", rollout)
-    self.assertIn("legacy.ensure_cluster_healthy = observe_cluster_health", rollout)
     self.assertIn("pre_rollout_cluster_status", rollout)
-    self.assertIn("ignore_unreachable: true", generation_playbook)
-    self.assertIn("local-only", generation_playbook)
-    self.assertIn("LC_ALL: C", generation_playbook)
+
+    self.assertNotIn("rpi5_common_kernel_stage_date_from_openwrt", generation_playbook)
+    self.assertNotIn("rpi5_common_kernel_build_stage_date:", generation_playbook)
+    self.assertIn("PXE release date is resolved independently", generation_playbook)
+    self.assertIn("common_kernel_artifact", artifact_role)
+    self.assertIn("sha256:", artifact_role)
+
+    self.assertNotIn("homecluster_common_kernel_stg_stage_date_from_openwrt", precheck_playbook)
+    self.assertIn("PXE release identity", precheck_playbook)
     self.assertIn("remote workers are optional for generation precheck", precheck_playbook)
-    self.assertIn("homecluster_common_kernel_stg_stage_date_from_openwrt", precheck_playbook)
     self.assertIn("cat /etc/resolv.conf >/dev/null", precheck_playbook)
-    self.assertIn("getent ahostsv4 github.com >/dev/null", precheck_playbook)
     self.assertIn("git ls-remote --exit-code", precheck_playbook)
-    self.assertNotIn("-print -quit", gate_playbook)
-    self.assertIn("sed -n '1p'", gate_playbook)
+
+    self.assertIn("common_kernel_artifact", gate_playbook)
+    self.assertIn("pxe_release_manifest_sha256", gate_playbook)
+    self.assertIn("rpi5-common-kernel-gate-v2", gate_playbook)
+    self.assertNotIn("homecluster_common_kernel_gate_candidate_selector", gate_playbook)
 
 
 legacy.PolicyTests.test_rollback_uses_only_recorded_previous_selectors = test_rollback_uses_only_recorded_previous_selectors
 legacy.PolicyTests.test_rollback_rejects_failed_phase_without_recommendation = test_rollback_rejects_failed_phase_without_recommendation
+legacy.PrecheckPolicyTests.test_stage_date_alignment_accepts_match = test_build_and_pxe_release_dates_are_independent
+legacy.PrecheckPolicyTests.test_stage_date_alignment_rejects_mismatch = test_invalid_pxe_release_identity_is_rejected
 legacy.SourceContractTests.test_helpers_accept_no_arbitrary_host_release_or_path = test_helpers_accept_no_arbitrary_host_release_or_path
 legacy.SourceContractTests.test_generation_gate_is_builder_scoped_and_rollout_gate_is_cluster_scoped = (
-    test_generation_gate_is_builder_scoped_and_rollout_health_is_observation
+    test_generation_gate_uses_artifact_reference_not_stage_date_equality
 )
 
 for name in dir(legacy):
