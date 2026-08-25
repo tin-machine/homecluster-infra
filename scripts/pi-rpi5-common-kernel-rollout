@@ -5,7 +5,6 @@ import importlib.machinery
 import importlib.util
 import json
 import os
-import subprocess
 import sys
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -39,12 +38,7 @@ _original_phase_record_value = legacy.phase_record_value
 _original_fixture_result = legacy.fixture_result
 
 
-def target_policy(
-    root: Path,
-    phase: str,
-    agents: Sequence[str],
-    egpu_target: str,
-) -> tuple[list[str], dict[str, Any], str]:
+def target_policy(root: Path, phase: str, agents: Sequence[str], egpu_target: str) -> tuple[list[str], dict[str, Any], str]:
     global _CURRENT_ACTION, _LAST_FRESH_BOOT_STATUS, _LAST_KERNEL_ACCEPTANCE
     _CURRENT_ACTION = phase
     _LAST_FRESH_BOOT_STATUS = ""
@@ -71,9 +65,7 @@ def target_policy(
         selector = previous.get(target)
         if not isinstance(selector, dict):
             raise legacy.RolloutError("rollback_selector_contract_invalid", "unknown")
-        if not legacy.SELECTOR.fullmatch(str(selector.get("tftp_release", ""))) or not legacy.SELECTOR.fullmatch(
-            str(selector.get("rootfs_release", ""))
-        ):
+        if not legacy.SELECTOR.fullmatch(str(selector.get("tftp_release", ""))) or not legacy.SELECTOR.fullmatch(str(selector.get("rootfs_release", ""))):
             raise legacy.RolloutError("rollback_selector_contract_invalid", "unknown")
     return [str(item) for item in targets], previous, failed_phase
 
@@ -85,7 +77,6 @@ def observe_cluster_health(runbook: Path) -> None:
         _PRE_ROLLOUT_CLUSTER_STATUS = "unavailable"
         _PRE_ROLLOUT_CLUSTER_ISSUES = "status_helper_missing"
         return
-
     completed = legacy.run(["bash", helper, "--json"], cwd=runbook, timeout=900)
     try:
         value = json.loads(completed.stdout)
@@ -97,13 +88,9 @@ def observe_cluster_health(runbook: Path) -> None:
         _PRE_ROLLOUT_CLUSTER_STATUS = "unknown"
         _PRE_ROLLOUT_CLUSTER_ISSUES = "invalid_status_contract"
         return
-
     _PRE_ROLLOUT_CLUSTER_STATUS = str(value.get("status", "unknown"))
     issues = value.get("issues", [])
-    if isinstance(issues, list):
-        _PRE_ROLLOUT_CLUSTER_ISSUES = ",".join(str(item) for item in issues[:10]) or "none"
-    else:
-        _PRE_ROLLOUT_CLUSTER_ISSUES = "invalid"
+    _PRE_ROLLOUT_CLUSTER_ISSUES = ",".join(str(item) for item in issues[:10]) or "none" if isinstance(issues, list) else "invalid"
 
 
 def run_fresh_boot(runbook: Path) -> tuple[str, str]:
@@ -163,7 +150,6 @@ def run_phase_acceptance(
         ]
     diagnostics.append("phase_runtime_acceptance=pass")
 
-    # Cluster-wide application health is evidence, not a kernel acceptance gate.
     status_helper = runbook / "scripts/pi-k3s-status"
     if status_helper.is_file():
         observed = legacy.run(["bash", status_helper, "--json"], cwd=runbook, timeout=900)
@@ -216,13 +202,32 @@ def selectors_changed(targets: Sequence[str], selector_result: Mapping[str, Any]
     return any(previous.get(target) != applied.get(target) for target in targets)
 
 
+def artifact_reference(accepted: Mapping[str, Any]) -> dict[str, str]:
+    manifest = str(accepted.get("kernel_artifact_manifest_sha256") or accepted.get("generation_manifest_sha256") or "")
+    payload = str(accepted.get("kernel_artifact_payload_sha256") or accepted.get("artifact_payload_sha256") or "")
+    pxe_release = str(accepted.get("pxe_release_id") or accepted.get("pxe_candidate_selector") or "")
+    artifact_id = str(accepted.get("kernel_artifact_id") or (f"sha256:{manifest}" if manifest else ""))
+    build_release = str(accepted.get("kernel_artifact_build_release") or accepted.get("pxe_candidate_selector") or "")
+    return {
+        "kernel_artifact_id": artifact_id,
+        "kernel_artifact_build_release": build_release,
+        "kernel_artifact_manifest_sha256": manifest,
+        "kernel_artifact_payload_sha256": payload,
+        "pxe_release_id": pxe_release,
+        "pxe_release_manifest_sha256": str(accepted.get("pxe_release_manifest_sha256") or ""),
+    }
+
+
 def phase_record_value(**kwargs: Any) -> dict[str, Any]:
     record = _original_phase_record_value(**kwargs)
     targets = kwargs.get("targets", [])
     selector_result = kwargs.get("selector_result", {})
     fresh_boot_run_id = str(kwargs.get("fresh_boot_run_id", ""))
     requested_acceptance = str(kwargs.get("acceptance_status", ""))
+    accepted = kwargs.get("accepted", {})
 
+    record["requested_action"] = _CURRENT_ACTION or str(kwargs.get("phase", ""))
+    record.update(artifact_reference(accepted if isinstance(accepted, Mapping) else {}))
     record["pre_rollout_cluster_status"] = _PRE_ROLLOUT_CLUSTER_STATUS
     record["pre_rollout_cluster_issues"] = _PRE_ROLLOUT_CLUSTER_ISSUES
     record["selector_changed"] = selectors_changed(targets, selector_result) if isinstance(targets, Sequence) else False
@@ -264,14 +269,18 @@ def fixture_result(path: Path, phase: str) -> dict[str, Any]:
     record = result.get("phase_record")
     if isinstance(record, dict):
         acceptance = str(record.get("acceptance_status", ""))
+        manifest = str(value.get("kernel_artifact_manifest_sha256", "c" * 64))
+        record["requested_action"] = phase
+        record["kernel_artifact_id"] = str(value.get("kernel_artifact_id", f"sha256:{manifest}"))
+        record["kernel_artifact_build_release"] = str(value.get("kernel_artifact_build_release", "20260730-rpi5"))
+        record["kernel_artifact_manifest_sha256"] = manifest
+        record["kernel_artifact_payload_sha256"] = str(value.get("kernel_artifact_payload_sha256", "d" * 64))
+        record["pxe_release_id"] = str(value.get("pxe_release_id", "20260731-rpi5"))
+        record["pxe_release_manifest_sha256"] = str(value.get("pxe_release_manifest_sha256", "e" * 64))
         record["reboot_acceptance_status"] = str(value.get("reboot_acceptance_status", "pass"))
-        record["kernel_acceptance_status"] = str(
-            value.get("kernel_acceptance_status", "fail" if acceptance == "fail" else "pass")
-        )
+        record["kernel_acceptance_status"] = str(value.get("kernel_acceptance_status", "fail" if acceptance == "fail" else "pass"))
         record["selector_changed"] = bool(value.get("selector_changed", True))
-        record["rollback_recommended"] = bool(
-            value.get("rollback_recommended", acceptance == "fail" and record["selector_changed"])
-        )
+        record["rollback_recommended"] = bool(value.get("rollback_recommended", acceptance == "fail" and record["selector_changed"]))
     return result
 
 
