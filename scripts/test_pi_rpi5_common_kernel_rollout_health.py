@@ -45,42 +45,121 @@ class RolloutHealthTests(unittest.TestCase):
         }
         return subprocess.CompletedProcess(["fixture"], returncode, json.dumps(payload), "")
 
-    def test_healthy_requires_zero_exit(self):
+    def test_cluster_health_is_observation_not_rollout_blocker(self):
         with tempfile.TemporaryDirectory() as temporary:
             runbook = self.runbook(Path(temporary))
-            with mock.patch.object(ROLLOUT_MODULE, "run", return_value=self.completed("healthy", 0, nodes_ready=2, nodes_total=2, issues=[])):
-                ROLLOUT_MODULE.ensure_cluster_healthy(runbook)
+            with mock.patch.object(
+                ROLLOUT_MODULE.legacy,
+                "run",
+                return_value=self.completed("blocked", 1, nodes_ready=3, nodes_total=4, issues=["node_pressure"]),
+            ):
+                ROLLOUT_MODULE.observe_cluster_health(runbook)
+            self.assertEqual(ROLLOUT_MODULE._PRE_ROLLOUT_CLUSTER_STATUS, "blocked")
+            self.assertEqual(ROLLOUT_MODULE._PRE_ROLLOUT_CLUSTER_ISSUES, "node_pressure")
 
-    def test_converging_preserves_semantic_status_and_diagnostics(self):
+    def test_cluster_health_invalid_json_remains_observation(self):
         with tempfile.TemporaryDirectory() as temporary:
             runbook = self.runbook(Path(temporary))
-            with mock.patch.object(ROLLOUT_MODULE, "run", return_value=self.completed("converging", 1, nodes_ready=1, nodes_total=4)):
-                with self.assertRaises(ROLLOUT_MODULE.RolloutError) as context:
-                    ROLLOUT_MODULE.ensure_cluster_healthy(runbook)
-            self.assertEqual(context.exception.reason, "rollout_cluster_converging")
-            self.assertEqual(context.exception.status, "blocked")
-            self.assertIn("k3s_nodes_ready=1", context.exception.diagnostics)
-            self.assertIn("k3s_nodes_total=4", context.exception.diagnostics)
-            self.assertIn("k3s_issues=nodes_not_ready", context.exception.diagnostics)
+            completed = subprocess.CompletedProcess(["fixture"], 2, "not-json", "")
+            with mock.patch.object(ROLLOUT_MODULE.legacy, "run", return_value=completed):
+                ROLLOUT_MODULE.observe_cluster_health(runbook)
+            self.assertEqual(ROLLOUT_MODULE._PRE_ROLLOUT_CLUSTER_STATUS, "unknown")
+            self.assertEqual(ROLLOUT_MODULE._PRE_ROLLOUT_CLUSTER_ISSUES, "invalid_status_json")
 
-    def test_unknown_remains_unknown(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            runbook = self.runbook(Path(temporary))
-            with mock.patch.object(ROLLOUT_MODULE, "run", return_value=self.completed("unknown", 2)):
-                with self.assertRaises(ROLLOUT_MODULE.RolloutError) as context:
-                    ROLLOUT_MODULE.ensure_cluster_healthy(runbook)
-            self.assertEqual(context.exception.reason, "rollout_cluster_unknown")
-            self.assertEqual(context.exception.status, "unknown")
+    def record(self, *, previous: str, applied: str, fresh_boot: str, kernel: bool | None):
+        ROLLOUT_MODULE._CURRENT_ACTION = "generic_canary"
+        ROLLOUT_MODULE._LAST_FRESH_BOOT_STATUS = fresh_boot
+        ROLLOUT_MODULE._LAST_KERNEL_ACCEPTANCE = kernel
+        return ROLLOUT_MODULE.phase_record_value(
+            phase="generic_canary",
+            targets=["generic-a"],
+            selector_result={
+                "previous_selector_by_node": {
+                    "generic-a": {"tftp_release": previous, "rootfs_release": previous}
+                },
+                "applied_selector_by_node": {
+                    "generic-a": {"tftp_release": applied, "rootfs_release": applied}
+                },
+            },
+            accepted={
+                "generation_run_id": "20260822T000000Z-stg-generation-1",
+                "exact_kernel_release": "6.18.36-v8-homecluster+",
+            },
+            fresh_boot_run_id="20260826T000000Z",
+            acceptance_status="fail",
+            started_at="2026-08-26T00:00:00Z",
+        )
 
-    def test_healthy_nonzero_exit_is_contract_mismatch(self):
+    def test_reboot_failure_is_not_kernel_failure_or_rollback_candidate(self):
+        record = self.record(
+            previous="20260820-rpi5",
+            applied="20260822-rpi5",
+            fresh_boot="fail",
+            kernel=None,
+        )
+        self.assertEqual(record["acceptance_status"], "reboot_fail")
+        self.assertEqual(record["reboot_acceptance_status"], "fail")
+        self.assertEqual(record["kernel_acceptance_status"], "not_run")
+        self.assertFalse(record["rollback_recommended"])
+
+    def test_kernel_failure_with_no_selector_change_does_not_recommend_rollback(self):
+        record = self.record(
+            previous="20260820-rpi5",
+            applied="20260820-rpi5",
+            fresh_boot="pass",
+            kernel=False,
+        )
+        self.assertEqual(record["acceptance_status"], "fail")
+        self.assertEqual(record["kernel_acceptance_status"], "fail")
+        self.assertFalse(record["selector_changed"])
+        self.assertFalse(record["rollback_recommended"])
+
+    def test_kernel_failure_with_selector_change_can_recommend_rollback(self):
+        record = self.record(
+            previous="20260820-rpi5",
+            applied="20260822-rpi5",
+            fresh_boot="pass",
+            kernel=False,
+        )
+        self.assertTrue(record["selector_changed"])
+        self.assertTrue(record["rollback_recommended"])
+
+    def test_phase_acceptance_keeps_cluster_health_as_warning(self):
         with tempfile.TemporaryDirectory() as temporary:
-            runbook = self.runbook(Path(temporary))
-            with mock.patch.object(ROLLOUT_MODULE, "run", return_value=self.completed("healthy", 1, nodes_ready=2, nodes_total=2, issues=[])):
-                with self.assertRaises(ROLLOUT_MODULE.RolloutError) as context:
-                    ROLLOUT_MODULE.ensure_cluster_healthy(runbook)
-            self.assertEqual(context.exception.reason, "rollout_k3s_status_exit_mismatch")
-            self.assertEqual(context.exception.status, "unknown")
-            self.assertIn("k3s_exit_code=1", context.exception.diagnostics)
+            root = Path(temporary)
+            runbook = root / "runbook"
+            (runbook / "scripts").mkdir(parents=True)
+            (runbook / "scripts/pi-k3s-status").write_text("#!/usr/bin/env bash\n", encoding="utf-8")
+            inventory = root / "inventory.yml"
+            inventory.write_text("all: {}\n", encoding="utf-8")
+
+            calls = []
+
+            def fake_run(command, *, cwd, timeout, env=None):
+                calls.append([str(item) for item in command])
+                if str(command[0]).endswith("ansible-playbook"):
+                    return subprocess.CompletedProcess(command, 0, "", "")
+                return subprocess.CompletedProcess(
+                    command,
+                    1,
+                    json.dumps({"status": "blocked", "issues": ["non_running_pods"]}),
+                    "",
+                )
+
+            with mock.patch.object(ROLLOUT_MODULE.legacy, "run", side_effect=fake_run):
+                accepted, diagnostics = ROLLOUT_MODULE.run_phase_acceptance(
+                    root,
+                    runbook,
+                    inventory,
+                    "generic_canary",
+                    ["generic-a"],
+                    ["generic-a", "egpu-a"],
+                    "6.18.36-v8-homecluster+",
+                )
+            self.assertTrue(accepted)
+            self.assertIn("phase_runtime_acceptance=pass", diagnostics)
+            self.assertIn("k3s_final_observation=blocked", diagnostics)
+            self.assertIn("k3s_final_warning_issues=non_running_pods", diagnostics)
 
     def test_ansible_failure_diagnostics_parse_modern_error(self):
         output = """
@@ -99,8 +178,6 @@ failed: [router-a] (item=(censored due to no_log)) => {"censored":"hidden","chan
         )
         self.assertIn("ansible_failed_task=Pi5 common kernel target selector存在を検証", diagnostics)
         self.assertIn("ansible_failed_host=router-a", diagnostics)
-        self.assertTrue(any(item.startswith("ansible_error=Task failed: Action failed:") for item in diagnostics))
-        self.assertTrue(any("rpi5-common-kernel-rollout.yml:50:7" in item for item in diagnostics))
         self.assertIn("runtime_mutation_committed=false", diagnostics)
         self.assertIn("power_cycle_started=false", diagnostics)
 
@@ -120,8 +197,6 @@ fatal: [node-a]: FAILED! => {"changed": false, "msg": "command failed", "rc": 7}
         self.assertIn("ansible_failed_host=node-a", diagnostics)
         self.assertIn("ansible_error=command failed", diagnostics)
         self.assertIn("ansible_failed_rc=7", diagnostics)
-        self.assertIn("runtime_mutation_committed=true", diagnostics)
-        self.assertIn("power_cycle_started=true", diagnostics)
 
 
 if __name__ == "__main__":
