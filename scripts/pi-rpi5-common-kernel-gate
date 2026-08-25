@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import re
@@ -14,6 +13,7 @@ from typing import Any, Sequence
 COLLECTOR = "homecluster-rpi5-common-kernel-gate"
 SAFE_RUN_ID = re.compile(r"^[0-9]{8}T[0-9]{6}Z-[A-Za-z0-9._-]+$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
+ARTIFACT_ID = re.compile(r"^sha256:[0-9a-f]{64}$")
 COMMIT = re.compile(r"^[0-9a-f]{40}$")
 KERNEL = re.compile(r"^.+-v8-homecluster\+$")
 SELECTOR = re.compile(r"^[0-9]{8}-rpi5$")
@@ -31,6 +31,7 @@ NON_GENERATION_PATHS = frozenset(
         "docs/troubleshooting/k3s-status-ssh-stderr-json-contamination.md",
         "scripts/ci/check-k3s-status-collector-contract.sh",
         "scripts/pi-rpi5-common-kernel-gate",
+        "scripts/pi-rpi5-common-kernel-precheck",
         "scripts/pi-rpi5-common-kernel-rollout",
         "scripts/pi-rpi5-common-kernel-rollout-legacy",
         "scripts/pi_rpi5_common_kernel_test_legacy.py",
@@ -51,14 +52,7 @@ class GateError(RuntimeError):
 
 def run(command: Sequence[str | Path], *, cwd: Path, timeout: int = 900) -> subprocess.CompletedProcess[str]:
     try:
-        return subprocess.run(
-            [str(item) for item in command],
-            cwd=cwd,
-            text=True,
-            capture_output=True,
-            check=False,
-            timeout=timeout,
-        )
+        return subprocess.run([str(item) for item in command], cwd=cwd, text=True, capture_output=True, check=False, timeout=timeout)
     except (OSError, subprocess.TimeoutExpired) as error:
         raise GateError("generation_gate_execution_failed", "unknown") from error
 
@@ -74,14 +68,6 @@ def parse_env(path: Path) -> dict[str, str]:
     return result
 
 
-def file_sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
 def git(root: Path, *args: str) -> str:
     completed = run(["git", "-C", root, *args], cwd=root, timeout=60)
     if completed.returncode != 0:
@@ -94,24 +80,13 @@ def validate_gate_revision(root: Path, generation_commit: str, validation_commit
         raise GateError("generation_gate_revision_invalid", "unknown")
     if generation_commit == validation_commit:
         return []
-    ancestor = run(
-        ["git", "-C", root, "merge-base", "--is-ancestor", generation_commit, validation_commit],
-        cwd=root,
-        timeout=60,
-    )
+    ancestor = run(["git", "-C", root, "merge-base", "--is-ancestor", generation_commit, validation_commit], cwd=root, timeout=60)
     if ancestor.returncode != 0:
         raise GateError("generation_gate_revision_not_descendant")
-    changed = [
-        line.strip()
-        for line in git(root, "diff", "--name-only", f"{generation_commit}..{validation_commit}", "--").splitlines()
-        if line.strip()
-    ]
+    changed = [line.strip() for line in git(root, "diff", "--name-only", f"{generation_commit}..{validation_commit}", "--").splitlines() if line.strip()]
     disallowed = sorted(set(changed) - NON_GENERATION_PATHS)
     if disallowed:
-        raise GateError(
-            "generation_source_changed_since_observer",
-            diagnostics=[f"disallowed_path={path}" for path in disallowed[:10]],
-        )
+        raise GateError("generation_source_changed_since_observer", diagnostics=[f"disallowed_path={path}" for path in disallowed[:10]])
     return changed
 
 
@@ -167,6 +142,12 @@ def validate_result(value: Any, run_id: str, infra_commit: str, inventory_proven
         "infra_commit": COMMIT,
         "inventory_provenance": SHA256,
         "exact_kernel_release": KERNEL,
+        "kernel_artifact_id": ARTIFACT_ID,
+        "kernel_artifact_build_release": SELECTOR,
+        "kernel_artifact_manifest_sha256": SHA256,
+        "kernel_artifact_payload_sha256": SHA256,
+        "pxe_release_id": SELECTOR,
+        "pxe_release_manifest_sha256": SHA256,
         "generation_manifest_sha256": SHA256,
         "artifact_payload_sha256": SHA256,
         "pxe_candidate_selector": SELECTOR,
@@ -181,7 +162,15 @@ def validate_result(value: Any, run_id: str, infra_commit: str, inventory_proven
         raise GateError("generation_gate_infra_commit_mismatch", "unknown")
     if value["inventory_provenance"] != inventory_provenance:
         raise GateError("generation_gate_inventory_provenance_mismatch", "unknown")
-    if value.get("gate_version") != "rpi5-common-kernel-gate-v1":
+    if value["kernel_artifact_id"] != f"sha256:{value['kernel_artifact_manifest_sha256']}":
+        raise GateError("kernel_artifact_identity_mismatch", "unknown")
+    if value["generation_manifest_sha256"] != value["kernel_artifact_manifest_sha256"]:
+        raise GateError("generation_manifest_alias_mismatch", "unknown")
+    if value["artifact_payload_sha256"] != value["kernel_artifact_payload_sha256"]:
+        raise GateError("artifact_payload_alias_mismatch", "unknown")
+    if value["pxe_candidate_selector"] != value["pxe_release_id"]:
+        raise GateError("pxe_selector_alias_mismatch", "unknown")
+    if value.get("gate_version") != "rpi5-common-kernel-gate-v2":
         raise GateError("generation_gate_version_invalid", "unknown")
     return value
 
@@ -192,11 +181,9 @@ def fixture_result(path: Path, run_id: str) -> dict[str, Any]:
         raise GateError("fixture_contract_invalid", "unknown")
     status = str(value.get("status", "pass"))
     if status != "pass":
-        return {
-            "collector": COLLECTOR,
-            "status": status,
-            "reason": str(value.get("reason", "fixture_gate_failed")),
-        }
+        return {"collector": COLLECTOR, "status": status, "reason": str(value.get("reason", "fixture_gate_failed"))}
+    manifest_sha = str(value.get("kernel_artifact_manifest_sha256", "c" * 64))
+    pxe_release = str(value.get("pxe_release_id", "20260801-rpi5"))
     return {
         "collector": COLLECTOR,
         "status": "pass",
@@ -207,10 +194,16 @@ def fixture_result(path: Path, run_id: str) -> dict[str, Any]:
         "revision_compatibility": "exact",
         "inventory_provenance": "b" * 64,
         "exact_kernel_release": str(value.get("exact_kernel_release", "6.18.37-v8-homecluster+")),
-        "generation_manifest_sha256": "c" * 64,
+        "kernel_artifact_id": f"sha256:{manifest_sha}",
+        "kernel_artifact_build_release": str(value.get("kernel_artifact_build_release", "20260731-rpi5")),
+        "kernel_artifact_manifest_sha256": manifest_sha,
+        "kernel_artifact_payload_sha256": "d" * 64,
+        "pxe_release_id": pxe_release,
+        "pxe_release_manifest_sha256": "e" * 64,
+        "generation_manifest_sha256": manifest_sha,
         "artifact_payload_sha256": "d" * 64,
-        "pxe_candidate_selector": str(value.get("pxe_candidate_selector", "20260731-rpi5")),
-        "gate_version": "rpi5-common-kernel-gate-v1",
+        "pxe_candidate_selector": pxe_release,
+        "gate_version": "rpi5-common-kernel-gate-v2",
     }
 
 
@@ -266,10 +259,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 timeout=900,
             )
             if completed.returncode != 0 or not output.is_file():
-                raise GateError(
-                    "generation_gate_playbook_failed",
-                    diagnostics=playbook_failure_diagnostics(completed),
-                )
+                raise GateError("generation_gate_playbook_failed", diagnostics=playbook_failure_diagnostics(completed))
             try:
                 raw = json.loads(output.read_text(encoding="utf-8"))
                 result = validate_result(raw, args.observer_run_id, infra_commit, inventory_provenance)
@@ -280,6 +270,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                     f"generation_infra_commit={infra_commit}",
                     f"validation_infra_commit={validation_commit}",
                     f"revision_compatibility={result['revision_compatibility']}",
+                    f"kernel_artifact_id={result['kernel_artifact_id']}",
+                    f"kernel_artifact_build_release={result['kernel_artifact_build_release']}",
+                    f"pxe_release_id={result['pxe_release_id']}",
                     *[f"non_generation_path={path}" for path in changed_paths[:10]],
                 ]
             finally:
@@ -289,12 +282,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 except OSError:
                     pass
     except GateError as error:
-        result = {
-            "collector": COLLECTOR,
-            "status": error.status,
-            "reason": error.reason,
-            "diagnostics": error.diagnostics,
-        }
+        result = {"collector": COLLECTOR, "status": error.status, "reason": error.reason, "diagnostics": error.diagnostics}
     if args.json:
         print(json.dumps(result, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
     else:
