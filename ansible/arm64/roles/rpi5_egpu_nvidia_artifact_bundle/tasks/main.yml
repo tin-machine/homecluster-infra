@@ -102,9 +102,13 @@
 - name: rpi5 eGPU artifact bundle output を検証
   ansible.builtin.stat:
     path: "{{ item }}"
+    checksum_algorithm: sha256
+    get_attributes: false
+    get_mime: false
   loop:
     - "{{ rpi5_egpu_nvidia_artifact_bundle_archive_path }}"
     - "{{ rpi5_egpu_nvidia_artifact_bundle_manifest_path }}"
+    - "{{ rpi5_common_kernel_build_metadata_path }}"
   register: rpi5_egpu_nvidia_artifact_bundle_outputs
   when:
     - rpi5_egpu_nvidia_artifact_bundle_enabled | bool
@@ -113,9 +117,24 @@
 - name: rpi5 eGPU artifact bundle output の存在を検証
   ansible.builtin.assert:
     that:
-      - rpi5_egpu_nvidia_artifact_bundle_outputs.results | selectattr('stat.exists', 'defined') | selectattr('stat.exists') | list | length == 2
+      - rpi5_egpu_nvidia_artifact_bundle_outputs.results | selectattr('stat.exists', 'defined') | selectattr('stat.exists') | list | length == 3
       - rpi5_egpu_nvidia_artifact_bundle_outputs.results | map(attribute='stat.size') | map('int') | min > 0
-    fail_msg: "rpi5 eGPU artifact bundle archive または checksum manifest が生成されませんでした"
+      - rpi5_egpu_nvidia_artifact_bundle_outputs.results[0].stat.checksum | default('', true) | string is match('^[0-9a-f]{64}$')
+      - rpi5_egpu_nvidia_artifact_bundle_outputs.results[2].stat.checksum | default('', true) | string is match('^[0-9a-f]{64}$')
+    fail_msg: "rpi5 eGPU artifact bundle archive、checksum manifest、またはcommon-kernel metadataが生成されませんでした"
+  when:
+    - rpi5_egpu_nvidia_artifact_bundle_enabled | bool
+    - rpi5_egpu_nvidia_artifact_bundle_apply | bool
+
+- name: rpi5 common kernel content-addressed artifact identityを作成
+  ansible.builtin.set_fact:
+    rpi5_common_kernel_artifact_identity:
+      id: "sha256:{{ rpi5_egpu_nvidia_artifact_bundle_outputs.results[2].stat.checksum }}"
+      build_release: "{{ rpi5_egpu_nvidia_artifact_bundle_release }}"
+      kernel_release: "{{ rpi5_egpu_nvidia_artifact_bundle_kernel_version }}"
+      manifest_sha256: "{{ rpi5_egpu_nvidia_artifact_bundle_outputs.results[2].stat.checksum }}"
+      payload_sha256: "{{ rpi5_egpu_nvidia_artifact_bundle_outputs.results[0].stat.checksum }}"
+  changed_when: false
   when:
     - rpi5_egpu_nvidia_artifact_bundle_enabled | bool
     - rpi5_egpu_nvidia_artifact_bundle_apply | bool
@@ -135,6 +154,7 @@
         (openwrt_rpi5_egpu_generation_manifest_metadata | default({}))
         | combine(rpi5_common_kernel_build_manifest_metadata | default({}), recursive=True)
         | combine({'kernel_release': rpi5_egpu_nvidia_artifact_bundle_kernel_version}, recursive=True)
+        | combine({'common_kernel_artifact': rpi5_common_kernel_artifact_identity}, recursive=True)
       }}
   when:
     - rpi5_egpu_nvidia_artifact_bundle_enabled | bool
