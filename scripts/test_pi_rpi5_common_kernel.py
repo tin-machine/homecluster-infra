@@ -141,7 +141,11 @@ def test_generation_gate_uses_artifact_reference_not_stage_date_equality(self):
     self.assertIn("PXE release identity", precheck_playbook)
     self.assertIn("remote workers are optional for generation precheck", precheck_playbook)
     self.assertIn("cat /etc/resolv.conf >/dev/null", precheck_playbook)
-    self.assertIn("git ls-remote --exit-code", precheck_playbook)
+    self.assertIn("homecluster_common_kernel_build_source_repo_default: https://github.com/raspberrypi/linux.git", precheck_playbook)
+    self.assertIn("rpi5_common_kernel_build_source_repo", precheck_playbook)
+    self.assertIn("| default(homecluster_common_kernel_build_source_repo_default, true)", precheck_playbook)
+    self.assertIn("ansible.builtin.command:", precheck_playbook)
+    self.assertIn("- ls-remote", precheck_playbook)
 
     self.assertIn("common_kernel_artifact", gate_playbook)
     self.assertIn("pxe_release_manifest_sha256", gate_playbook)

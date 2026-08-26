@@ -133,6 +133,23 @@ def main() -> int:
 
     require_not(precheck, "homecluster_common_kernel_stg_stage_date_from_openwrt", "stage-date equality precheck")
     require(precheck, "PXE release identity", "independent PXE release validation")
+    source_repo_default = next(
+        line.split(":", 1)[1].strip()
+        for line in defaults.splitlines()
+        if line.startswith("rpi5_common_kernel_build_source_repo:")
+    )
+    require(
+        precheck,
+        f"homecluster_common_kernel_build_source_repo_default: {source_repo_default}",
+        "precheck source repository default",
+    )
+    require(
+        precheck,
+        "| default(homecluster_common_kernel_build_source_repo_default, true)",
+        "precheck source repository fallback",
+    )
+    require(precheck, "ansible.builtin.command:", "source remote command argv")
+    require(precheck, "- ls-remote", "source remote reachability check")
     require(gate, "common_kernel_artifact", "PXE manifest artifact reference")
     require(gate, "kernel_artifact_id", "gate artifact identity output")
     require(gate, "pxe_release_id", "gate PXE identity output")
