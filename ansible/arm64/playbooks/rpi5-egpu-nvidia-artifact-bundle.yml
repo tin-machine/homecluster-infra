@@ -145,6 +145,7 @@
         rpi5_egpu_nvidia_artifact_bundle_modules_dir: "{{ rpi5_common_kernel_build_bundle_output.modules_dir }}"
         rpi5_egpu_nvidia_artifact_bundle_open_modules_dir: "{{ rpi5_common_kernel_build_bundle_output.open_modules_dir }}"
         rpi5_egpu_nvidia_artifact_bundle_runfile_path: "{{ rpi5_common_kernel_build_bundle_output.runfile_path }}"
+        rpi5_egpu_nvidia_artifact_bundle_metadata_path: "{{ rpi5_common_kernel_build_bundle_output.metadata_path }}"
       when:
         - rpi5_common_kernel_build_enabled | default(false) | bool
         - rpi5_egpu_nvidia_artifact_bundle_enabled | default(false) | bool

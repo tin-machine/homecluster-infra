@@ -33,6 +33,7 @@ def require_not(text: str, needle: str, label: str) -> None:
 def main() -> int:
     defaults = read(BUILD_ROLE / "defaults/main.yml")
     tasks = read(BUILD_ROLE / "tasks/main.yml")
+    bundle_defaults = read(BUNDLE_ROLE / "defaults/main.yml")
     bundle_tasks = read(BUNDLE_ROLE / "tasks/main.yml")
     repair_preflight = read(REPAIR_ROLE / "tasks/preflight.yml")
     bundle_playbook = read(ROOT / "ansible/arm64/playbooks/rpi5-egpu-nvidia-artifact-bundle.yml")
@@ -115,6 +116,21 @@ def main() -> int:
     require_not(bundle_playbook, "rpi5_common_kernel_build_stage_date:", "caller stage-date override")
     require(bundle_playbook, "PXE release date is resolved independently", "identity separation explanation")
     require(tasks, "rpi5_common_kernel_build_bundle_output", "common kernel bundle output fact")
+    require(
+        tasks,
+        'metadata_path: "{{ rpi5_common_kernel_build_metadata_path }}"',
+        "metadata path in common kernel bundle output",
+    )
+    require(
+        bundle_defaults,
+        'rpi5_egpu_nvidia_artifact_bundle_metadata_path: ""',
+        "bundle metadata path input default",
+    )
+    require(
+        bundle_playbook,
+        'rpi5_egpu_nvidia_artifact_bundle_metadata_path: "{{ rpi5_common_kernel_build_bundle_output.metadata_path }}"',
+        "explicit metadata path wiring",
+    )
     require(staging_entrypoint, "rpi5-egpu-nvidia-artifact-bundle.yml", "builder pre-play import")
     require(staging_entrypoint, "pxe-release-bundle-staging.yml", "existing staging import")
 
@@ -129,6 +145,16 @@ def main() -> int:
     require(bundle_tasks, "rpi5_common_kernel_artifact_identity", "content-addressed artifact identity")
     require(bundle_tasks, "common_kernel_artifact", "release manifest artifact reference metadata")
     require(bundle_tasks, 'id: "sha256:', "sha256 artifact id")
+    require(
+        bundle_tasks,
+        '"{{ rpi5_egpu_nvidia_artifact_bundle_metadata_path }}"',
+        "bundle metadata path input use",
+    )
+    require_not(
+        bundle_tasks,
+        '"{{ rpi5_common_kernel_build_metadata_path }}"',
+        "cross-role metadata path reference",
+    )
     require_not(repair_preflight, "rpi5_egpu_nvidia_artifact_bundle_inputs.results", "cross-role register reference")
 
     require_not(precheck, "homecluster_common_kernel_stg_stage_date_from_openwrt", "stage-date equality precheck")
