@@ -24,6 +24,7 @@
   become: false
   vars:
     homecluster_common_kernel_builder_min_free_kib: 8388608
+    homecluster_common_kernel_build_source_repo_default: https://github.com/raspberrypi/linux.git
   environment:
     LC_ALL: C
     LANG: C
@@ -67,14 +68,27 @@
         executable: /bin/bash
       changed_when: false
 
-    - name: Pi5 common kernel resolverとsource remoteを確認
+    - name: Pi5 common kernel resolverを確認
       ansible.builtin.shell: |
         set -euo pipefail
         cat /etc/resolv.conf >/dev/null
         getent ahostsv4 github.com >/dev/null
-        git ls-remote --exit-code "{{ rpi5_common_kernel_build_source_repo }}" HEAD >/dev/null
       args:
         executable: /bin/bash
+      changed_when: false
+
+    - name: Pi5 common kernel source remoteを確認
+      ansible.builtin.command:
+        argv:
+          - git
+          - ls-remote
+          - --exit-code
+          - >-
+            {{
+              rpi5_common_kernel_build_source_repo
+              | default(homecluster_common_kernel_build_source_repo_default, true)
+            }}
+          - HEAD
       changed_when: false
 
     - name: Pi5 common kernel input pathを確認
