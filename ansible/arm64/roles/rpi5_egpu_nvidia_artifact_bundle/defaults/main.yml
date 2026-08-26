@@ -12,6 +12,7 @@ rpi5_egpu_nvidia_artifact_bundle_kernel_build_dir: ""
 rpi5_egpu_nvidia_artifact_bundle_modules_dir: ""
 rpi5_egpu_nvidia_artifact_bundle_open_modules_dir: ""
 rpi5_egpu_nvidia_artifact_bundle_runfile_path: ""
+rpi5_egpu_nvidia_artifact_bundle_metadata_path: ""
 rpi5_egpu_nvidia_artifact_bundle_output_dir: /var/lib/rancher/k3s/nvidia-artifacts
 rpi5_egpu_nvidia_artifact_bundle_archive_name: "rpi5-egpu-{{ rpi5_egpu_nvidia_artifact_bundle_release }}.tar.gz"
 rpi5_egpu_nvidia_artifact_bundle_archive_path: "{{ rpi5_egpu_nvidia_artifact_bundle_output_dir }}/{{ rpi5_egpu_nvidia_artifact_bundle_archive_name }}"

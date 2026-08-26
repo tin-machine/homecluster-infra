@@ -392,6 +392,7 @@
       modules_dir: "{{ rpi5_common_kernel_build_modules_dir }}"
       open_modules_dir: "{{ rpi5_common_kernel_build_open_modules_dir }}"
       runfile_path: "{{ rpi5_common_kernel_build_nvidia_runfile_path }}"
+      metadata_path: "{{ rpi5_common_kernel_build_metadata_path }}"
     rpi5_common_kernel_build_manifest_metadata:
       kernel_release: "{{ rpi5_common_kernel_build_kernelrelease_command.stdout | trim }}"
       linux_commit: "{{ rpi5_common_kernel_build_source_version }}"
