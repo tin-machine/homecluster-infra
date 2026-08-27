@@ -343,7 +343,7 @@
     - pxe_release_bundle
     - pxe_release_bundle_build
 
-- name: rpi5 eGPU target generation の NVIDIA initramfs を再生成
+- name: rpi5 target generation の generic / NVIDIA initramfs を再生成
   ansible.builtin.include_role:
     name: openwrt_gentoo_rootfs
     tasks_from: initramfs
@@ -351,6 +351,12 @@
     openwrt_gentoo_initramfs_enabled: true
     openwrt_gentoo_initramfs_force_build: true
     openwrt_gentoo_initramfs_builds:
+      - name: rpi5-v8
+        rootfs_release: "{{ pxe_release_bundle_rpi5_items[0].release }}"
+        tftp_release: "{{ pxe_release_bundle_rpi5_items[0].release }}"
+        output_path: /boot/initramfs-pxe-v8.img
+        tftp_path: initramfs-pxe-v8.img
+        kernel_version: "{{ openwrt_rpi5_egpu_runtime_repair_kernel_version }}"
       - name: rpi5-v8-nvidia
         rootfs_release: "{{ pxe_release_bundle_rpi5_items[0].release }}"
         tftp_release: "{{ pxe_release_bundle_rpi5_items[0].release }}"
