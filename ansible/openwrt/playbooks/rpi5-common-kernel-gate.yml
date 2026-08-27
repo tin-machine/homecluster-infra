@@ -229,6 +229,16 @@
         test -n "$(find "$rootfs/var/db/pkg/sys-devel" -maxdepth 1 -type d -name 'bc-*' -print | sed -n '1p')"
         test -n "$(find "$tftp" -maxdepth 2 -type f -name 'bcm2712-rpi-5-b.dtb' -print | sed -n '1p')"
         test "$(find "$tftp" -maxdepth 2 -type f | wc -l)" -ge 3
+        for image in initramfs-pxe-v8.img initramfs-pxe-v8-nvidia.img; do
+          test -f "$rootfs/boot/$image"
+          test -f "$tftp/$image"
+          cmp -s "$rootfs/boot/$image" "$tftp/$image"
+          listing="$(chroot "$rootfs" /bin/bash -lc "lsinitrd /boot/$image")"
+          printf '%s\n' "$listing" | grep -F "lib/modules/$kernel_release/" | grep -Eq '/overlay\.ko(\.(gz|xz|zst))?([[:space:]]|$)'
+          printf '%s\n' "$listing" | grep -F 'mount-overlayfs.sh' >/dev/null
+          printf '%s\n' "$listing" | grep -F 'overlayfs' >/dev/null
+          printf '%s\n' "$listing" | grep -F 'nfs' >/dev/null
+        done
       args:
         executable: /bin/sh
       changed_when: false
