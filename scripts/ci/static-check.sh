@@ -143,6 +143,11 @@ if ! python3 scripts/ci/check-rpi5-egpu-lower-rootfs-repair.py; then
   fail=1
 fi
 
+print_section "Pi5 PXE initramfs contract"
+if ! python3 scripts/ci/check-pxe-initramfs-contract.py; then
+  fail=1
+fi
+
 print_section "OpenWrt Gentoo binary preseed contract"
 if ! python3 scripts/ci/check-openwrt-gentoo-binary-preseed.py --self-test; then
   fail=1

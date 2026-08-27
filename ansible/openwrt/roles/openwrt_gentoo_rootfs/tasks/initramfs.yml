@@ -324,6 +324,48 @@
       when:
         - openwrt_gentoo_initramfs_force_build | bool or not (item.stat.exists | default(false))
 
+    - name: initramfs boot artifact contract を検証
+      ansible.builtin.shell: |
+        set -euo pipefail
+        chroot {{ item.rootfs_dir }} {{ openwrt_gentoo_chroot_shell }} -lc '
+          set -euo pipefail
+          KVER={{ item.kernel_version | default('') | quote }}
+          KVER_GLOB={{ item.kernel_version_glob | default('*-v8+') | quote }}
+          KVER_EXCLUDE_GLOB={{ item.kernel_version_exclude_glob | default('') | quote }}
+          if [ -z "$KVER" ]; then
+            KVER=$(
+              for d in /lib/modules/*; do
+                b=${d##*/}
+                case "$b" in
+                  $KVER_GLOB)
+                    if [ -n "$KVER_EXCLUDE_GLOB" ]; then
+                      case "$b" in
+                        $KVER_EXCLUDE_GLOB) continue ;;
+                      esac
+                    fi
+                    printf "%s\n" "$b"
+                    ;;
+                esac
+              done | sort -V | tail -n1
+            )
+          fi
+          image={{ item.output_path | default(openwrt_gentoo_initramfs_output_path) | quote }}
+          test -n "$KVER"
+          test -d "/lib/modules/$KVER"
+          test -f "$image"
+          listing="$(lsinitrd "$image")"
+          printf "%s\n" "$listing" | grep -F "lib/modules/$KVER/" | grep -Eq "/overlay\\.ko(\\.(gz|xz|zst))?([[:space:]]|$)"
+          printf "%s\n" "$listing" | grep -F "mount-overlayfs.sh" >/dev/null
+          printf "%s\n" "$listing" | grep -F "overlayfs" >/dev/null
+          printf "%s\n" "$listing" | grep -F "nfs" >/dev/null
+        '
+      args:
+        executable: /bin/ash
+      changed_when: false
+      loop: "{{ openwrt_gentoo_initramfs_builds_effective | default([]) }}"
+      loop_control:
+        label: "{{ item.name | default(item.output_path | default(openwrt_gentoo_initramfs_output_path)) }}"
+
     - name: TFTP へ initramfs を配置
       ansible.builtin.copy:
         src: "{{ item.rootfs_dir }}{{ item.output_path | default(openwrt_gentoo_initramfs_output_path) }}"
