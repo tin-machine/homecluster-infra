@@ -354,10 +354,11 @@
           test -d "/lib/modules/$KVER"
           test -f "$image"
           listing="$(lsinitrd "$image")"
-          printf "%s\n" "$listing" | grep -F "lib/modules/$KVER/" | grep -Eq "/overlay\\.ko(\\.(gz|xz|zst))?([[:space:]]|$)"
-          printf "%s\n" "$listing" | grep -F "mount-overlayfs.sh" >/dev/null
-          printf "%s\n" "$listing" | grep -F "overlayfs" >/dev/null
-          printf "%s\n" "$listing" | grep -F "nfs" >/dev/null
+          kernel_module_listing="$(grep -F "lib/modules/$KVER/" <<<"$listing")"
+          grep -Eq "/overlay\\.ko(\\.(gz|xz|zst))?([[:space:]]|$)" <<<"$kernel_module_listing"
+          grep -Fq "mount-overlayfs.sh" <<<"$listing"
+          grep -Fq "overlayfs" <<<"$listing"
+          grep -Fq "nfs" <<<"$listing"
         '
       args:
         executable: /bin/ash
