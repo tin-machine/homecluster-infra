@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import subprocess
 import sys
 
 
@@ -11,6 +12,24 @@ ROOT = Path(__file__).resolve().parents[2]
 INITRAMFS_TASKS = ROOT / "ansible/openwrt/roles/openwrt_gentoo_rootfs/tasks/initramfs.yml"
 BUNDLE_TASKS = ROOT / "ansible/openwrt/playbooks/tasks/pxe_release_bundle_build_and_manifest.yml"
 COMMON_KERNEL_GATE = ROOT / "ansible/openwrt/playbooks/rpi5-common-kernel-gate.yml"
+
+RUNTIME_VALIDATOR = r'''\
+set -euo pipefail
+KVER=6.18.36-v8-homecluster+
+listing="$(cat)"
+kernel_module_listing="$(grep -F "lib/modules/$KVER/" <<<"$listing")"
+grep -Eq "/overlay\.ko(\.(gz|xz|zst))?([[:space:]]|$)" <<<"$kernel_module_listing"
+grep -Fq "mount-overlayfs.sh" <<<"$listing"
+grep -Fq "overlayfs" <<<"$listing"
+grep -Fq "nfs" <<<"$listing"
+'''
+
+PIPELINE_RUNTIME_VALIDATOR = r'''\
+set -o pipefail
+KVER=6.18.36-v8-homecluster+
+listing="$(cat)"
+printf "%s\n" "$listing" | grep -F "lib/modules/$KVER/" | grep -Eq "/overlay\.ko(\.(gz|xz|zst))?([[:space:]]|$)"
+'''
 
 
 def require(text: str, needle: str, label: str) -> None:
@@ -29,14 +48,16 @@ def validate_contract(initramfs_tasks: str, bundle_tasks: str, common_kernel_gat
         ("- name: initramfs boot artifact contract を検証", "runtime semantic gate"),
         ('test -d "/lib/modules/$KVER"', "exact rootfs module ABI"),
         ('test -f "$image"', "initramfs regular file gate"),
-        ('grep -F "lib/modules/$KVER/"', "exact initramfs module ABI"),
-        ('/overlay\\\\.ko(\\\\.(gz|xz|zst))?', "overlay kernel module gate"),
-        ('grep -F "mount-overlayfs.sh" >/dev/null', "overlay mount hook gate"),
-        ('grep -F "overlayfs" >/dev/null', "overlay dracut module gate"),
-        ('grep -F "nfs" >/dev/null', "NFS dracut module gate"),
+        ('kernel_module_listing="$(grep -F "lib/modules/$KVER/" <<<"$listing")"', "exact initramfs module ABI"),
+        ('grep -Eq "/overlay\\\\.ko(\\\\.(gz|xz|zst))?([[:space:]]|$)" <<<"$kernel_module_listing"', "overlay kernel module gate"),
+        ('grep -Fq "mount-overlayfs.sh" <<<"$listing"', "overlay mount hook gate"),
+        ('grep -Fq "overlayfs" <<<"$listing"', "overlay dracut module gate"),
+        ('grep -Fq "nfs" <<<"$listing"', "NFS dracut module gate"),
         ('loop: "{{ openwrt_gentoo_initramfs_builds_effective | default([]) }}"', "all-build validation loop"),
     ):
         require(initramfs_tasks, needle, label)
+    if 'printf "%s\\n" "$listing" | grep' in initramfs_tasks:
+        raise AssertionError("initramfs listing validation must not use a producer-to-grep pipeline")
     require_ordered(
         initramfs_tasks,
         (
@@ -77,6 +98,32 @@ def expect_failure(initramfs_tasks: str, bundle_tasks: str, common_kernel_gate: 
     raise AssertionError(f"negative fixture unexpectedly passed: {label}")
 
 
+def validate_runtime_fixture(listing: str, *, should_pass: bool, label: str) -> None:
+    completed = subprocess.run(
+        ["bash", "-c", RUNTIME_VALIDATOR],
+        input=listing,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if (completed.returncode == 0) != should_pass:
+        raise AssertionError(f"unexpected runtime fixture result: {label}: rc={completed.returncode}")
+
+
+def validate_pipeline_sigpipe_fixture(listing: str) -> None:
+    completed = subprocess.run(
+        ["bash", "-c", PIPELINE_RUNTIME_VALIDATOR],
+        input=listing,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if completed.returncode != 141:
+        raise AssertionError(f"pipeline regression fixture did not reproduce SIGPIPE: rc={completed.returncode}")
+
+
 def main() -> int:
     initramfs_tasks = INITRAMFS_TASKS.read_text(encoding="utf-8")
     bundle_tasks = BUNDLE_TASKS.read_text(encoding="utf-8")
@@ -84,10 +131,31 @@ def main() -> int:
     validate_contract(initramfs_tasks, bundle_tasks, common_kernel_gate)
 
     expect_failure(
-        initramfs_tasks.replace('grep -F "lib/modules/$KVER/"', "grep -F missing-kernel-abi", 1),
+        initramfs_tasks.replace(
+            'kernel_module_listing="$(grep -F "lib/modules/$KVER/" <<<"$listing")"',
+            'kernel_module_listing="$listing"',
+            1,
+        ),
         bundle_tasks,
         common_kernel_gate,
         "missing exact ABI check",
+    )
+    expect_failure(
+        initramfs_tasks.replace(
+            '''          kernel_module_listing="$(grep -F "lib/modules/$KVER/" <<<"$listing")"
+          grep -Eq "/overlay\\\\.ko(\\\\.(gz|xz|zst))?([[:space:]]|$)" <<<"$kernel_module_listing"
+          grep -Fq "mount-overlayfs.sh" <<<"$listing"
+          grep -Fq "overlayfs" <<<"$listing"
+          grep -Fq "nfs" <<<"$listing"''',
+            '''          printf "%s\\n" "$listing" | grep -F "lib/modules/$KVER/" | grep -Eq "/overlay\\\\.ko(\\\\.(gz|xz|zst))?([[:space:]]|$)"
+          printf "%s\\n" "$listing" | grep -F "mount-overlayfs.sh" >/dev/null
+          printf "%s\\n" "$listing" | grep -F "overlayfs" >/dev/null
+          printf "%s\\n" "$listing" | grep -F "nfs" >/dev/null''',
+            1,
+        ),
+        bundle_tasks,
+        common_kernel_gate,
+        "producer-to-grep pipeline regression",
     )
     expect_failure(
         initramfs_tasks,
@@ -110,6 +178,32 @@ def main() -> int:
         bundle_tasks,
         common_kernel_gate.replace('cmp -s "$rootfs/boot/$image" "$tftp/$image"', "true", 1),
         "missing rootfs/TFTP identity gate",
+    )
+
+    required_entries = [
+        "usr/lib/modules/6.18.36-v8-homecluster+/kernel/fs/overlayfs/overlay.ko.xz",
+        "var/lib/dracut/hooks/mount/01-mount-overlayfs.sh",
+        "usr/lib/dracut/modules.d/90overlayfs/module-setup.sh",
+        "usr/lib/dracut/modules.d/95nfs/module-setup.sh",
+    ]
+    long_listing = "\n".join(
+        required_entries
+        + [
+            f"usr/lib/modules/6.18.36-v8-homecluster+/kernel/drivers/fixture-{index}.ko.xz"
+            for index in range(20000)
+        ]
+    )
+    validate_runtime_fixture(long_listing, should_pass=True, label="long valid lsinitrd listing")
+    validate_pipeline_sigpipe_fixture(long_listing)
+    validate_runtime_fixture(
+        long_listing.replace(required_entries[0], "", 1),
+        should_pass=False,
+        label="missing overlay module",
+    )
+    validate_runtime_fixture(
+        long_listing.replace(required_entries[1], "", 1),
+        should_pass=False,
+        label="missing overlay mount hook",
     )
 
     print("Pi5 PXE initramfs contract ok")
