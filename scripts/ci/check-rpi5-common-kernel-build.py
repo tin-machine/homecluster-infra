@@ -37,7 +37,7 @@ def main() -> int:
     bundle_tasks = read(BUNDLE_ROLE / "tasks/main.yml")
     repair_preflight = read(REPAIR_ROLE / "tasks/preflight.yml")
     bundle_playbook = read(ROOT / "ansible/arm64/playbooks/rpi5-egpu-nvidia-artifact-bundle.yml")
-    staging_entrypoint = read(ROOT / "ansible/openwrt/playbooks/pxe-release-bundle-staging-with-common-kernel.yml")
+    generation_entrypoint = read(ROOT / "ansible/openwrt/playbooks/pxe-release-bundle-staging-with-common-kernel.yml")
     precheck = read(ROOT / "ansible/openwrt/playbooks/rpi5-common-kernel-precheck.yml")
     gate = read(ROOT / "ansible/openwrt/playbooks/rpi5-common-kernel-gate.yml")
     rootfs_tasks = read(ROOT / "ansible/openwrt/roles/openwrt_gentoo_rootfs/tasks/portage_chroot.yml")
@@ -131,8 +131,9 @@ def main() -> int:
         'rpi5_egpu_nvidia_artifact_bundle_metadata_path: "{{ rpi5_common_kernel_build_bundle_output.metadata_path }}"',
         "explicit metadata path wiring",
     )
-    require(staging_entrypoint, "rpi5-egpu-nvidia-artifact-bundle.yml", "builder pre-play import")
-    require(staging_entrypoint, "pxe-release-bundle-staging.yml", "existing staging import")
+    require(generation_entrypoint, "rpi5-egpu-nvidia-artifact-bundle.yml", "builder pre-play import")
+    require(generation_entrypoint, "pxe-release-bundle-build.yml", "build-only PXE bundle import")
+    require_not(generation_entrypoint, "pxe-release-bundle-staging.yml", "staging promote import")
 
     for text, label in ((bundle_tasks, "artifact bundle"), (repair_preflight, "lower-rootfs repair")):
         require(text, ".+-v8-homecluster\\\\+", f"{label} common suffix")
