@@ -1,3 +1,12 @@
 ---
 - ansible.builtin.import_playbook: ../../arm64/playbooks/rpi5-egpu-nvidia-artifact-bundle.yml
 - ansible.builtin.import_playbook: pxe-release-bundle-build.yml
+  vars:
+    pxe_release_bundle_stage: stg
+    pxe_release_bundle_date: >-
+      {{
+        (openwrt_gentoo_release_bundle_stage_dates | default({}))
+        .get(pxe_release_bundle_stage, '')
+        | string
+        | trim
+      }}

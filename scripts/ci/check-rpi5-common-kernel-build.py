@@ -30,6 +30,13 @@ def require_not(text: str, needle: str, label: str) -> None:
         raise AssertionError(f"forbidden {label}: {needle}")
 
 
+def validate_generation_entrypoint_release_date(text: str) -> None:
+    require(text, "pxe_release_bundle_stage: stg", "staging PXE release scope")
+    require(text, "openwrt_gentoo_release_bundle_stage_dates", "external inventory PXE release date source")
+    require(text, "pxe_release_bundle_date:", "explicit PXE release date wiring")
+    require_not(text, "rpi5_common_kernel_build_stage_date", "kernel artifact date coupled to PXE release date")
+
+
 def main() -> int:
     defaults = read(BUILD_ROLE / "defaults/main.yml")
     tasks = read(BUILD_ROLE / "tasks/main.yml")
@@ -133,6 +140,7 @@ def main() -> int:
     )
     require(generation_entrypoint, "rpi5-egpu-nvidia-artifact-bundle.yml", "builder pre-play import")
     require(generation_entrypoint, "pxe-release-bundle-build.yml", "build-only PXE bundle import")
+    validate_generation_entrypoint_release_date(generation_entrypoint)
     require_not(generation_entrypoint, "pxe-release-bundle-staging.yml", "staging promote import")
 
     for text, label in ((bundle_tasks, "artifact bundle"), (repair_preflight, "lower-rootfs repair")):
