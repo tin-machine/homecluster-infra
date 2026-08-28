@@ -164,6 +164,11 @@ def test_generation_gate_uses_artifact_reference_not_stage_date_equality(self):
     self.assertIn("openwrt_gentoo_release_bundle_stage_dates", generation_entrypoint)
     self.assertIn("pxe_release_bundle_date:", generation_entrypoint)
     self.assertNotIn("rpi5_common_kernel_build_stage_date", generation_entrypoint)
+    self.assertIn("hosts: openwrt", generation_entrypoint)
+    self.assertIn("homecluster_common_kernel_builder_host", generation_entrypoint)
+    self.assertIn("openwrt_rpi5_egpu_generation_manifest_metadata", generation_entrypoint)
+    self.assertIn("common_kernel_artifact", generation_entrypoint)
+    self.assertNotIn("pxe-release-bundle-staging.yml", generation_entrypoint)
     self.assertIn("common_kernel_artifact", artifact_role)
     self.assertIn("sha256:", artifact_role)
 
