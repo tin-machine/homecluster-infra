@@ -1,5 +1,68 @@
 ---
 - ansible.builtin.import_playbook: ../../arm64/playbooks/rpi5-egpu-nvidia-artifact-bundle.yml
+
+- name: Pi5 common-kernel artifact contractをOpenWrt buildへ転送
+  hosts: openwrt
+  gather_facts: false
+  become: false
+  tasks:
+    - name: Pi5 common-kernel builder scopeを検証
+      ansible.builtin.assert:
+        that:
+          - groups['rpi5_egpu_artifact_bundle'] | default([]) | length == 1
+        fail_msg: common-kernel builderを一意に解決できません
+      changed_when: false
+
+    - name: Pi5 common-kernel builder hostを解決
+      ansible.builtin.set_fact:
+        homecluster_common_kernel_builder_host: "{{ groups['rpi5_egpu_artifact_bundle'][0] }}"
+      changed_when: false
+
+    - name: Pi5 common-kernel builder contractを検証
+      ansible.builtin.assert:
+        that:
+          - hostvars[homecluster_common_kernel_builder_host].openwrt_rpi5_egpu_generation_enabled | default(false) | bool
+          - hostvars[homecluster_common_kernel_builder_host].openwrt_rpi5_egpu_generation_apply | default(false) | bool
+          - hostvars[homecluster_common_kernel_builder_host].openwrt_rpi5_egpu_generation_artifact_bundle_enabled | default(false) | bool
+          - hostvars[homecluster_common_kernel_builder_host].openwrt_rpi5_egpu_generation_manifest_metadata | default({}) is mapping
+          - hostvars[homecluster_common_kernel_builder_host].openwrt_rpi5_egpu_generation_manifest_metadata.common_kernel_artifact | default({}) is mapping
+          - hostvars[homecluster_common_kernel_builder_host].openwrt_rpi5_egpu_generation_manifest_metadata.common_kernel_artifact.id | default('', true) | string is match('^sha256:[0-9a-f]{64}$')
+          - hostvars[homecluster_common_kernel_builder_host].openwrt_rpi5_egpu_generation_manifest_metadata.common_kernel_artifact.build_release | default('', true) | string is match('^[0-9]{8}-rpi5$')
+          - hostvars[homecluster_common_kernel_builder_host].openwrt_rpi5_egpu_generation_manifest_metadata.common_kernel_artifact.kernel_release | default('', true) | string is match('^.+-v8-homecluster\\+$')
+          - hostvars[homecluster_common_kernel_builder_host].openwrt_rpi5_egpu_generation_manifest_metadata.common_kernel_artifact.manifest_sha256 | default('', true) | string is match('^[0-9a-f]{64}$')
+          - hostvars[homecluster_common_kernel_builder_host].openwrt_rpi5_egpu_generation_manifest_metadata.common_kernel_artifact.payload_sha256 | default('', true) | string is match('^[0-9a-f]{64}$')
+        fail_msg: common-kernel builder artifact contractが不足しています
+      changed_when: false
+      no_log: true
+
+    - name: Pi5 common-kernel artifact contractをOpenWrt factへ転送
+      ansible.builtin.set_fact:
+        openwrt_rpi5_egpu_generation_enabled: >-
+          {{ hostvars[homecluster_common_kernel_builder_host].openwrt_rpi5_egpu_generation_enabled | bool }}
+        openwrt_rpi5_egpu_generation_apply: >-
+          {{ hostvars[homecluster_common_kernel_builder_host].openwrt_rpi5_egpu_generation_apply | bool }}
+        openwrt_rpi5_egpu_generation_artifact_bundle_enabled: >-
+          {{ hostvars[homecluster_common_kernel_builder_host].openwrt_rpi5_egpu_generation_artifact_bundle_enabled | bool }}
+        openwrt_rpi5_egpu_generation_manifest_metadata: >-
+          {{ hostvars[homecluster_common_kernel_builder_host].openwrt_rpi5_egpu_generation_manifest_metadata }}
+        openwrt_rpi5_egpu_generation_artifact_archive_path: >-
+          {{ hostvars[homecluster_common_kernel_builder_host].openwrt_rpi5_egpu_generation_artifact_archive_path }}
+        openwrt_rpi5_egpu_generation_artifact_archive_sha256_path: >-
+          {{ hostvars[homecluster_common_kernel_builder_host].openwrt_rpi5_egpu_generation_artifact_archive_sha256_path }}
+        openwrt_rpi5_egpu_generation_artifact_source_host: "{{ homecluster_common_kernel_builder_host }}"
+        openwrt_rpi5_egpu_runtime_repair_kernel_version: >-
+          {{ hostvars[homecluster_common_kernel_builder_host].openwrt_rpi5_egpu_runtime_repair_kernel_version }}
+        openwrt_rpi5_egpu_runtime_repair_nvidia_driver_version: >-
+          {{ hostvars[homecluster_common_kernel_builder_host].openwrt_rpi5_egpu_runtime_repair_nvidia_driver_version }}
+        openwrt_rpi5_egpu_runtime_repair_open_kernel_modules_commit: >-
+          {{ hostvars[homecluster_common_kernel_builder_host].openwrt_rpi5_egpu_runtime_repair_open_kernel_modules_commit }}
+        openwrt_rpi5_egpu_runtime_repair_confirm: >-
+          {{ hostvars[homecluster_common_kernel_builder_host].openwrt_rpi5_egpu_runtime_repair_confirm }}
+        openwrt_rpi5_egpu_runtime_repair_confirm_expected: >-
+          {{ hostvars[homecluster_common_kernel_builder_host].openwrt_rpi5_egpu_runtime_repair_confirm_expected }}
+      changed_when: false
+      no_log: true
+
 - ansible.builtin.import_playbook: pxe-release-bundle-build.yml
   vars:
     pxe_release_bundle_stage: stg
