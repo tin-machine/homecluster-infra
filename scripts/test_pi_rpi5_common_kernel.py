@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import importlib.util
+import re
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -20,6 +22,57 @@ source_check_spec = importlib.util.spec_from_file_location("check_rpi5_common_ke
 assert source_check_spec and source_check_spec.loader
 source_check = importlib.util.module_from_spec(source_check_spec)
 source_check_spec.loader.exec_module(source_check)
+
+
+class GateFailureDiagnosticsTests(unittest.TestCase):
+    def diagnostics(self, output: str) -> list[str]:
+        completed = subprocess.CompletedProcess(["ansible-playbook"], 2, output, "")
+        return legacy.GATE_MODULE.playbook_failure_diagnostics(completed)
+
+    def test_uses_last_allow_listed_check_id_from_fatal_line(self):
+        diagnostics = self.diagnostics(
+            "TASK [Pi5 common kernel OpenWrt PXE artifactsを検証]\n"
+            'fatal: [openwrt-fixture]: FAILED! => {"rc": 1, "stdout": '
+            '"HOMECLUSTER_CHECK_ID=module_tree_present\\n'
+            'HOMECLUSTER_CHECK_ID=generic_initramfs_identical"}\n'
+        )
+        self.assertIn("failed_check_id=generic_initramfs_identical", diagnostics)
+        self.assertNotIn("failed_check_id=module_tree_present", diagnostics)
+
+    def test_ignores_unknown_check_id(self):
+        diagnostics = self.diagnostics(
+            'fatal: [openwrt-fixture]: FAILED! => {"rc": 1, '
+            '"stdout": "HOMECLUSTER_CHECK_ID=arbitrary_value"}\n'
+        )
+        self.assertFalse(any(item.startswith("failed_check_id=") for item in diagnostics))
+
+    def test_ignores_check_id_outside_fatal_line(self):
+        diagnostics = self.diagnostics(
+            "HOMECLUSTER_CHECK_ID=nvidia_nfs_present\n"
+            'fatal: [openwrt-fixture]: FAILED! => {"rc": 1}\n'
+        )
+        self.assertFalse(any(item.startswith("failed_check_id=") for item in diagnostics))
+
+    def test_playbook_check_ids_match_parser_allow_list(self):
+        playbook = (
+            HERE.parent / "ansible/openwrt/playbooks/rpi5-common-kernel-gate.yml"
+        ).read_text(encoding="utf-8")
+        direct_ids = set(
+            re.findall(r"^\s*homecluster_check ([a-z0-9_]+)$", playbook, re.MULTILINE)
+        )
+        image_suffixes = set(
+            re.findall(
+                r'^\s*homecluster_check "\$\{image_check_prefix\}_([a-z0-9_]+)"$',
+                playbook,
+                re.MULTILINE,
+            )
+        )
+        playbook_ids = direct_ids | {
+            f"{prefix}_{suffix}"
+            for prefix in ("generic", "nvidia")
+            for suffix in image_suffixes
+        }
+        self.assertEqual(playbook_ids, legacy.GATE_MODULE.ARTIFACT_CHECK_IDS)
 
 
 def test_rollback_uses_only_recorded_previous_selectors(self):
