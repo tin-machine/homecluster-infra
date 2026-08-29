@@ -17,6 +17,8 @@ class RolloutSelectorResolutionContractTests(unittest.TestCase):
         source_artifact_validation = text.index("selector source artifactを検証")
         pre_mutation_plan = text.index("pre-mutation plan")
         mutation = text.index("fixed PXE selectorを適用")
+        live_selector = text.index("OpenWrt live selectorを検証")
+        applied_result = text.index("selector apply resultをcontrollerへ保存")
 
         self.assertLess(stage_resolution, current_selector)
         self.assertLess(current_selector, selector_validation)
@@ -24,6 +26,8 @@ class RolloutSelectorResolutionContractTests(unittest.TestCase):
         self.assertLess(source_path_resolution, source_artifact_validation)
         self.assertLess(source_artifact_validation, pre_mutation_plan)
         self.assertLess(pre_mutation_plan, mutation)
+        self.assertLess(mutation, live_selector)
+        self.assertLess(live_selector, applied_result)
         self.assertIn("tasks_from: pxe_host_releases", text)
 
     def test_selector_source_paths_use_explicit_concatenation_not_regex_backrefs(self) -> None:
@@ -64,6 +68,17 @@ class RolloutSelectorResolutionContractTests(unittest.TestCase):
             text.index("selector apply resultをcontrollerへ保存"),
             text.index("fixed PXE selectorを適用"),
         )
+
+    def test_applied_result_requires_remote_selector_evidence(self) -> None:
+        text = PLAYBOOK.read_text(encoding="utf-8")
+        live_check = text.index("OpenWrt live selectorを検証")
+        applied_result = text.index("selector apply resultをcontrollerへ保存")
+
+        self.assertLess(live_check, applied_result)
+        self.assertIn('readlink "$host_dir/kernel8.img"', text)
+        self.assertIn('readlink "$host_dir/initramfs-pxe-v8.img"', text)
+        self.assertIn('grep -F "root=nfs4:', text)
+        self.assertIn('"$host_dir/cmdline.txt" >/dev/null', text)
 
 
 if __name__ == "__main__":

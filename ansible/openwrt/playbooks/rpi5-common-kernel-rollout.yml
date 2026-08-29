@@ -79,7 +79,7 @@
       changed_when: false
       no_log: true
 
-    - name: Pi5 common kernel applied selectorを検証
+    - name: Pi5 common kernel planned selector mappingを検証
       ansible.builtin.assert:
         that:
           - homecluster_common_kernel_applied_selectors[item].tftp_release | string is match('^[0-9]{8}-rpi5$')
@@ -206,6 +206,46 @@
             ) == homecluster_common_kernel_applied_selectors[item].rootfs_release
         fail_msg: applied selectorのpost-checkが不一致です
       loop: "{{ homecluster_common_kernel_rollout_targets }}"
+      changed_when: false
+      no_log: true
+
+    - name: Pi5 common kernel target live selector entryを解決
+      ansible.builtin.set_fact:
+        homecluster_common_kernel_live_selector_entries: >-
+          {{
+            openwrt_gentoo_tftp_host_entries
+            | default([])
+            | selectattr('name', 'in', homecluster_common_kernel_rollout_targets)
+            | list
+          }}
+      changed_when: false
+      no_log: true
+
+    - name: Pi5 common kernel target live selector entryを検証
+      ansible.builtin.assert:
+        that:
+          - homecluster_common_kernel_live_selector_entries | length == homecluster_common_kernel_rollout_targets | length
+          - item.name in homecluster_common_kernel_rollout_targets
+          - item.release == homecluster_common_kernel_applied_selectors[item.name].tftp_release
+          - item.rootfs_release == homecluster_common_kernel_applied_selectors[item.name].rootfs_release
+        fail_msg: live selector post-check entryを一意に解決できません
+      loop: "{{ homecluster_common_kernel_live_selector_entries }}"
+      changed_when: false
+      no_log: true
+
+    - name: Pi5 common kernel OpenWrt live selectorを検証
+      ansible.builtin.raw: |
+        set -eu
+        host_dir="/srv/gentoo/tftp-root/{{ item.board_hash }}"
+        release="{{ item.release }}"
+        rootfs_release="{{ item.rootfs_release }}"
+        test "$(readlink "$host_dir/kernel8.img")" = "../dates/$release/kernel8.img"
+        test "$(readlink "$host_dir/initramfs-pxe-v8.img")" = "../dates/$release/initramfs-pxe-v8.img"
+        grep -F "root=nfs4:{{ openwrt_gentoo_server_host }}:/gentoo/$rootfs_release/nfs," \
+          "$host_dir/cmdline.txt" >/dev/null
+      loop: "{{ homecluster_common_kernel_live_selector_entries }}"
+      loop_control:
+        label: "{{ item.name }}"
       changed_when: false
       no_log: true
 
