@@ -37,6 +37,7 @@ EXPECTED_NON_GENERATION_PATHS = {
     "scripts/pi-rpi5-common-kernel-gate",
     "scripts/pi-rpi5-common-kernel-rollout",
     "scripts/test_pi_rpi5_common_kernel.py",
+    "scripts/test_pi_rpi5_common_kernel_non_generation_paths.py",
     "scripts/test_pi_rpi5_common_kernel_rollout_health.py",
     "scripts/test_pi_rpi5_common_kernel_rollout_selector_resolution.py",
 }
