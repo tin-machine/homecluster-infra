@@ -85,6 +85,11 @@ def validate_contract(initramfs_tasks: str, bundle_tasks: str, common_kernel_gat
         ("for image in initramfs-pxe-v8.img initramfs-pxe-v8-nvidia.img", "both Pi5 gate artifacts"),
         ('cmp -s "$rootfs/boot/$image" "$tftp/$image"', "rootfs/TFTP byte identity"),
         ("homecluster_check()", "bounded check marker function"),
+        ("homecluster_check chroot_dev_null_ready", "chroot /dev/null check ID"),
+        ('dev_null_target="$dev_dir/null"', "bounded chroot /dev/null target"),
+        ('test ! -L "$dev_dir"', "chroot /dev symlink guard"),
+        ('mount --bind /dev/null "$dev_null_target"', "temporary chroot /dev/null bind"),
+        ('umount "$dev_null_target"', "temporary chroot /dev/null cleanup"),
         ("homecluster_check module_tree_present", "module tree check ID"),
         ('image_check_prefix="generic"', "generic image check ID prefix"),
         ('image_check_prefix="nvidia"', "NVIDIA image check ID prefix"),
@@ -192,6 +197,12 @@ def main() -> int:
         bundle_tasks,
         common_kernel_gate.replace("homecluster_check module_tree_present", "true", 1),
         "missing bounded module tree check ID",
+    )
+    expect_failure(
+        initramfs_tasks,
+        bundle_tasks,
+        common_kernel_gate.replace('mount --bind /dev/null "$dev_null_target"', "true", 1),
+        "missing temporary chroot /dev/null bind",
     )
 
     required_entries = [

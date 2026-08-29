@@ -23,6 +23,7 @@ RC_FIELD = re.compile(r'"rc":\s*(-?[0-9]+)')
 CHECK_ID_FIELD = re.compile(r"HOMECLUSTER_CHECK_ID=([a-z0-9_]+)")
 ARTIFACT_CHECK_IDS = frozenset(
     {
+        "chroot_dev_null_ready",
         "module_tree_present",
         "tftp_directory_present",
         "bc_executable_present",

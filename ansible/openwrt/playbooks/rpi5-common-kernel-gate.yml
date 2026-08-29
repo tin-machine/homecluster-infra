@@ -228,7 +228,41 @@
         tftp="/srv/gentoo/tftp-root/dates/${release}"
         listing_file="$(mktemp)"
         kernel_module_listing_file="$(mktemp)"
-        trap 'rm -f "$listing_file" "$kernel_module_listing_file"' EXIT
+        dev_dir="$rootfs/dev"
+        dev_null_target="$dev_dir/null"
+        dev_dir_created=false
+        dev_null_created=false
+        dev_null_mounted=false
+        cleanup() {
+          set +e
+          rm -f "$listing_file" "$kernel_module_listing_file"
+          if [ "$dev_null_mounted" = true ]; then
+            umount "$dev_null_target" 2>/dev/null || umount -l "$dev_null_target"
+          fi
+          if [ "$dev_null_created" = true ]; then
+            rm -f "$dev_null_target"
+          fi
+          if [ "$dev_dir_created" = true ]; then
+            rmdir "$dev_dir"
+          fi
+        }
+        trap cleanup EXIT
+        homecluster_check chroot_dev_null_ready
+        test ! -L "$dev_dir"
+        test ! -L "$dev_null_target"
+        if [ ! -d "$dev_dir" ]; then
+          mkdir -p "$dev_dir"
+          dev_dir_created=true
+        fi
+        if [ ! -e "$dev_null_target" ]; then
+          : > "$dev_null_target"
+          dev_null_created=true
+        fi
+        if [ ! -c "$dev_null_target" ]; then
+          dev_null_mounted=true
+          mount --bind /dev/null "$dev_null_target"
+        fi
+        test -c "$dev_null_target"
         homecluster_check module_tree_present
         test -d "$rootfs/lib/modules/$kernel_release"
         homecluster_check tftp_directory_present
