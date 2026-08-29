@@ -198,6 +198,45 @@ fatal: [node-a]: FAILED! => {"changed": false, "msg": "command failed", "rc": 7}
         self.assertIn("ansible_error=command failed", diagnostics)
         self.assertIn("ansible_failed_rc=7", diagnostics)
 
+    def test_applied_result_with_nonzero_exit_confirms_mutation_boundary(self):
+        reason, stage, committed, next_check = ROLLOUT_MODULE.selector_failure_contract(
+            2,
+            {"status": "applied"},
+        )
+        self.assertEqual(reason, "selector_apply_process_failed_after_applied_result")
+        self.assertEqual(stage, "selector_postcheck_process_failure")
+        self.assertTrue(committed)
+        self.assertEqual(next_check, "common_kernel_current_selector_and_kernel")
+
+        diagnostics = ROLLOUT_MODULE.ansible_failure_diagnostics(
+            "",
+            stage=stage,
+            mutation_committed=committed,
+            power_cycle_started=False,
+            next_check_id=next_check,
+        )
+        self.assertIn("runtime_mutation_committed=true", diagnostics)
+        self.assertIn("power_cycle_started=false", diagnostics)
+
+    def test_planned_result_with_nonzero_exit_does_not_claim_committed_mutation(self):
+        reason, stage, committed, next_check = ROLLOUT_MODULE.selector_failure_contract(
+            2,
+            {"status": "planned"},
+        )
+        self.assertEqual(reason, "selector_apply_failed")
+        self.assertEqual(stage, "selector_mutation_or_postcheck")
+        self.assertIsNone(committed)
+        self.assertEqual(next_check, "common_kernel_current_selector")
+
+        diagnostics = ROLLOUT_MODULE.ansible_failure_diagnostics(
+            "",
+            stage=stage,
+            mutation_committed=committed,
+            power_cycle_started=False,
+            next_check_id=next_check,
+        )
+        self.assertIn("runtime_mutation_committed=unknown", diagnostics)
+
 
 if __name__ == "__main__":
     unittest.main()
