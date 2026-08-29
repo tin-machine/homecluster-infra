@@ -20,6 +20,33 @@ SELECTOR = re.compile(r"^[0-9]{8}-rpi5$")
 TASK_LINE = re.compile(r"^TASK \[(.+)\]")
 FATAL_LINE = re.compile(r"^fatal: \[([^\]]+)\]: FAILED!")
 RC_FIELD = re.compile(r'"rc":\s*(-?[0-9]+)')
+CHECK_ID_FIELD = re.compile(r"HOMECLUSTER_CHECK_ID=([a-z0-9_]+)")
+ARTIFACT_CHECK_IDS = frozenset(
+    {
+        "module_tree_present",
+        "tftp_directory_present",
+        "bc_executable_present",
+        "bc_vdb_present",
+        "dtb_present",
+        "tftp_file_count_sufficient",
+        "generic_rootfs_initramfs_present",
+        "generic_tftp_initramfs_present",
+        "generic_initramfs_identical",
+        "generic_lsinitrd_readable",
+        "generic_overlay_module_present",
+        "generic_overlay_hook_present",
+        "generic_overlayfs_present",
+        "generic_nfs_present",
+        "nvidia_rootfs_initramfs_present",
+        "nvidia_tftp_initramfs_present",
+        "nvidia_initramfs_identical",
+        "nvidia_lsinitrd_readable",
+        "nvidia_overlay_module_present",
+        "nvidia_overlay_hook_present",
+        "nvidia_overlayfs_present",
+        "nvidia_nfs_present",
+    }
+)
 NON_GENERATION_PATHS = frozenset(
     {
         ".agents/skills/homecluster-convergence-monitor/scripts/collect-k3s-convergence.sh",
@@ -30,6 +57,7 @@ NON_GENERATION_PATHS = frozenset(
         "ansible/openwrt/playbooks/rpi5-common-kernel-rollout.yml",
         "docs/troubleshooting/k3s-status-ssh-stderr-json-contamination.md",
         "scripts/ci/check-k3s-status-collector-contract.sh",
+        "scripts/ci/check-pxe-initramfs-contract.py",
         "scripts/pi-rpi5-common-kernel-gate",
         "scripts/pi-rpi5-common-kernel-precheck",
         "scripts/pi-rpi5-common-kernel-rollout",
@@ -94,6 +122,7 @@ def playbook_failure_diagnostics(completed: subprocess.CompletedProcess[str]) ->
     task = ""
     host = ""
     rc = ""
+    check_id = ""
     for line in (completed.stdout + "\n" + completed.stderr).splitlines():
         task_match = TASK_LINE.match(line.strip())
         if task_match:
@@ -104,6 +133,9 @@ def playbook_failure_diagnostics(completed: subprocess.CompletedProcess[str]) ->
             rc_match = RC_FIELD.search(line)
             if rc_match:
                 rc = rc_match.group(1)
+            for candidate in CHECK_ID_FIELD.findall(line):
+                if candidate in ARTIFACT_CHECK_IDS:
+                    check_id = candidate
     diagnostics = [f"ansible_rc={completed.returncode}"]
     if task:
         diagnostics.append(f"failed_task={task[:220]}")
@@ -111,6 +143,8 @@ def playbook_failure_diagnostics(completed: subprocess.CompletedProcess[str]) ->
         diagnostics.append(f"failed_host={host[:120]}")
     if rc:
         diagnostics.append(f"failed_task_rc={rc}")
+    if check_id:
+        diagnostics.append(f"failed_check_id={check_id}")
     return diagnostics
 
 

@@ -33,6 +33,7 @@ EXPECTED_NON_GENERATION_PATHS = {
     "ansible/openwrt/playbooks/rpi5-common-kernel-rollout.yml",
     "docs/troubleshooting/k3s-status-ssh-stderr-json-contamination.md",
     "scripts/ci/check-k3s-status-collector-contract.sh",
+    "scripts/ci/check-pxe-initramfs-contract.py",
     "scripts/pi-rpi5-common-kernel-gate",
     "scripts/pi-rpi5-common-kernel-rollout",
     "scripts/test_pi_rpi5_common_kernel.py",

@@ -84,10 +84,18 @@ def validate_contract(initramfs_tasks: str, bundle_tasks: str, common_kernel_gat
     for needle, label in (
         ("for image in initramfs-pxe-v8.img initramfs-pxe-v8-nvidia.img", "both Pi5 gate artifacts"),
         ('cmp -s "$rootfs/boot/$image" "$tftp/$image"', "rootfs/TFTP byte identity"),
-        ('grep -F "lib/modules/$kernel_release/"', "accepted exact ABI gate"),
-        ("grep -F 'mount-overlayfs.sh' >/dev/null", "accepted overlay hook gate"),
+        ("homecluster_check()", "bounded check marker function"),
+        ("homecluster_check module_tree_present", "module tree check ID"),
+        ('image_check_prefix="generic"', "generic image check ID prefix"),
+        ('image_check_prefix="nvidia"', "NVIDIA image check ID prefix"),
+        ('homecluster_check "${image_check_prefix}_initramfs_identical"', "initramfs identity check ID"),
+        ('homecluster_check "${image_check_prefix}_nfs_present"', "NFS check ID"),
+        ('grep -F "lib/modules/$kernel_release/" "$listing_file"', "accepted exact ABI gate"),
+        ("grep -Fq 'mount-overlayfs.sh' \"$listing_file\"", "accepted overlay hook gate"),
     ):
         require(common_kernel_gate, needle, label)
+    if "printf '%s\\n' \"$listing\" | grep" in common_kernel_gate:
+        raise AssertionError("common-kernel gate listing validation must not use a producer-to-grep pipeline")
 
 
 def expect_failure(initramfs_tasks: str, bundle_tasks: str, common_kernel_gate: str, label: str) -> None:
@@ -178,6 +186,12 @@ def main() -> int:
         bundle_tasks,
         common_kernel_gate.replace('cmp -s "$rootfs/boot/$image" "$tftp/$image"', "true", 1),
         "missing rootfs/TFTP identity gate",
+    )
+    expect_failure(
+        initramfs_tasks,
+        bundle_tasks,
+        common_kernel_gate.replace("homecluster_check module_tree_present", "true", 1),
+        "missing bounded module tree check ID",
     )
 
     required_entries = [

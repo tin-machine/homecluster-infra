@@ -219,25 +219,51 @@
     - name: Pi5 common kernel OpenWrt PXE artifactsを検証
       ansible.builtin.shell: |
         set -euo pipefail
+        homecluster_check() {
+          printf 'HOMECLUSTER_CHECK_ID=%s\n' "$1"
+        }
         release="{{ homecluster_common_kernel_gate_pxe_release_id }}"
         kernel_release="{{ hostvars[homecluster_common_kernel_builder_host].homecluster_common_kernel_gate_exact_release }}"
         rootfs="/srv/gentoo/${release}/nfs"
         tftp="/srv/gentoo/tftp-root/dates/${release}"
+        listing_file="$(mktemp)"
+        kernel_module_listing_file="$(mktemp)"
+        trap 'rm -f "$listing_file" "$kernel_module_listing_file"' EXIT
+        homecluster_check module_tree_present
         test -d "$rootfs/lib/modules/$kernel_release"
+        homecluster_check tftp_directory_present
         test -d "$tftp"
+        homecluster_check bc_executable_present
         test -x "$rootfs/usr/bin/bc" -o -x "$rootfs/bin/bc"
+        homecluster_check bc_vdb_present
         test -n "$(find "$rootfs/var/db/pkg/sys-devel" -maxdepth 1 -type d -name 'bc-*' -print | sed -n '1p')"
+        homecluster_check dtb_present
         test -n "$(find "$tftp" -maxdepth 2 -type f -name 'bcm2712-rpi-5-b.dtb' -print | sed -n '1p')"
+        homecluster_check tftp_file_count_sufficient
         test "$(find "$tftp" -maxdepth 2 -type f | wc -l)" -ge 3
         for image in initramfs-pxe-v8.img initramfs-pxe-v8-nvidia.img; do
+          case "$image" in
+            initramfs-pxe-v8.img) image_check_prefix="generic" ;;
+            initramfs-pxe-v8-nvidia.img) image_check_prefix="nvidia" ;;
+            *) exit 2 ;;
+          esac
+          homecluster_check "${image_check_prefix}_rootfs_initramfs_present"
           test -f "$rootfs/boot/$image"
+          homecluster_check "${image_check_prefix}_tftp_initramfs_present"
           test -f "$tftp/$image"
+          homecluster_check "${image_check_prefix}_initramfs_identical"
           cmp -s "$rootfs/boot/$image" "$tftp/$image"
-          listing="$(chroot "$rootfs" /bin/bash -lc "lsinitrd /boot/$image")"
-          printf '%s\n' "$listing" | grep -F "lib/modules/$kernel_release/" | grep -Eq '/overlay\.ko(\.(gz|xz|zst))?([[:space:]]|$)'
-          printf '%s\n' "$listing" | grep -F 'mount-overlayfs.sh' >/dev/null
-          printf '%s\n' "$listing" | grep -F 'overlayfs' >/dev/null
-          printf '%s\n' "$listing" | grep -F 'nfs' >/dev/null
+          homecluster_check "${image_check_prefix}_lsinitrd_readable"
+          chroot "$rootfs" /bin/bash -lc "lsinitrd /boot/$image" > "$listing_file"
+          homecluster_check "${image_check_prefix}_overlay_module_present"
+          grep -F "lib/modules/$kernel_release/" "$listing_file" > "$kernel_module_listing_file"
+          grep -Eq '/overlay\.ko(\.(gz|xz|zst))?([[:space:]]|$)' "$kernel_module_listing_file"
+          homecluster_check "${image_check_prefix}_overlay_hook_present"
+          grep -Fq 'mount-overlayfs.sh' "$listing_file"
+          homecluster_check "${image_check_prefix}_overlayfs_present"
+          grep -Fq 'overlayfs' "$listing_file"
+          homecluster_check "${image_check_prefix}_nfs_present"
+          grep -Fq 'nfs' "$listing_file"
         done
       args:
         executable: /bin/sh
