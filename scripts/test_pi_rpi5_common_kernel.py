@@ -179,6 +179,29 @@ def test_generation_entrypoint_release_date_wiring_rejects_kernel_artifact_date(
         source_check.validate_generation_entrypoint_release_date(negative)
 
 
+def test_common_kernel_publish_contract_rejects_missing_hash_gate(self):
+    positive = """
+- ansible.builtin.copy:
+    unsafe_writes: false
+  loop:
+    - src: kernel8-homecluster.img
+      dest: kernel8.img
+- ansible.builtin.stat:
+  register: pxe_rpi5_common_kernel_publish_stats
+- ansible.builtin.assert:
+    that:
+      - pxe_rpi5_common_kernel_publish_stats.results[0].stat.checksum == pxe_rpi5_common_kernel_publish_stats.results[1].stat.checksum
+"""
+    source_check.validate_common_kernel_publish_contract(positive)
+
+    negative = positive.replace(
+        "pxe_rpi5_common_kernel_publish_stats.results[0].stat.checksum == pxe_rpi5_common_kernel_publish_stats.results[1].stat.checksum",
+        "true",
+    )
+    with self.assertRaises(AssertionError):
+        source_check.validate_common_kernel_publish_contract(negative)
+
+
 def test_helpers_accept_no_arbitrary_host_release_or_path(self):
     precheck = legacy.PRECHECK.read_text(encoding="utf-8")
     gate = legacy.GATE.read_text(encoding="utf-8")
@@ -247,6 +270,9 @@ legacy.PrecheckPolicyTests.test_stage_date_alignment_accepts_match = test_build_
 legacy.PrecheckPolicyTests.test_stage_date_alignment_rejects_mismatch = test_invalid_pxe_release_identity_is_rejected
 legacy.PrecheckPolicyTests.test_generation_entrypoint_release_date_wiring_rejects_kernel_artifact_date = (
     test_generation_entrypoint_release_date_wiring_rejects_kernel_artifact_date
+)
+legacy.SourceContractTests.test_common_kernel_publish_contract_rejects_missing_hash_gate = (
+    test_common_kernel_publish_contract_rejects_missing_hash_gate
 )
 legacy.SourceContractTests.test_helpers_accept_no_arbitrary_host_release_or_path = test_helpers_accept_no_arbitrary_host_release_or_path
 legacy.SourceContractTests.test_generation_gate_is_builder_scoped_and_rollout_gate_is_cluster_scoped = (

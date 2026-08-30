@@ -224,8 +224,10 @@
         }
         release="{{ homecluster_common_kernel_gate_pxe_release_id }}"
         kernel_release="{{ hostvars[homecluster_common_kernel_builder_host].homecluster_common_kernel_gate_exact_release }}"
+        expected_kernel_sha="{{ hostvars[homecluster_common_kernel_builder_host].homecluster_common_kernel_metadata.kernel_image_sha256 }}"
         rootfs="/srv/gentoo/${release}/nfs"
         tftp="/srv/gentoo/tftp-root/dates/${release}"
+        artifact_payload="/srv/gentoo/rpi5-egpu-artifacts/${release}/payload"
         listing_file="$(mktemp)"
         kernel_module_listing_file="$(mktemp)"
         dev_dir="$rootfs/dev"
@@ -275,6 +277,12 @@
         test -n "$(find "$tftp" -maxdepth 2 -type f -name 'bcm2712-rpi-5-b.dtb' -print | sed -n '1p')"
         homecluster_check tftp_file_count_sufficient
         test "$(find "$tftp" -maxdepth 2 -type f | wc -l)" -ge 3
+        homecluster_check generic_kernel_payload_present
+        test -f "$artifact_payload/kernel8-homecluster.img"
+        homecluster_check generic_kernel_payload_identical
+        cmp -s "$artifact_payload/kernel8-homecluster.img" "$tftp/kernel8.img"
+        homecluster_check generic_kernel_sha256_matches_manifest
+        test "$(sha256sum "$tftp/kernel8.img" | awk '{print $1}')" = "$expected_kernel_sha"
         for image in initramfs-pxe-v8.img initramfs-pxe-v8-nvidia.img; do
           case "$image" in
             initramfs-pxe-v8.img) image_check_prefix="generic" ;;

@@ -49,7 +49,7 @@ def ansible_failure_diagnostics(
     stderr: str = "",
     *,
     stage: str,
-    mutation_committed: bool,
+    mutation_committed: bool | None,
     power_cycle_started: bool,
     next_check_id: str = "",
 ) -> list[str]:
@@ -106,11 +106,40 @@ def ansible_failure_diagnostics(
         f"ansible_failed_origin={origin}" if origin else "",
         f"ansible_error={message}" if message else "",
         f"ansible_failed_rc={rc}" if rc else "",
-        f"runtime_mutation_committed={'true' if mutation_committed else 'false'}",
+        "runtime_mutation_committed="
+        + ("unknown" if mutation_committed is None else "true" if mutation_committed else "false"),
         f"power_cycle_started={'true' if power_cycle_started else 'false'}",
         f"ansible_next_check_id={bounded_text(next_check_id, 120)}" if next_check_id else "",
     ]
     return [item for item in diagnostics if item][:20]
+
+
+def selector_failure_contract(
+    returncode: int,
+    selector_result: Mapping[str, Any],
+) -> tuple[str, str, bool | None, str]:
+    """Classify the selector mutation boundary without guessing from process rc alone."""
+    selector_status = str(selector_result.get("status", ""))
+    if returncode != 0 and selector_status == "applied":
+        return (
+            "selector_apply_process_failed_after_applied_result",
+            "selector_postcheck_process_failure",
+            True,
+            "common_kernel_current_selector_and_kernel",
+        )
+    if selector_status == "planned":
+        return (
+            "selector_apply_failed",
+            "selector_mutation_or_postcheck",
+            None,
+            "common_kernel_current_selector",
+        )
+    return (
+        "selector_apply_failed",
+        "pre_mutation_selector_validation",
+        False,
+        "common_kernel_selector_apply",
+    )
 
 
 def run(
@@ -564,6 +593,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                     except (ValueError, json.JSONDecodeError):
                         selector_result = {}
                 if selector_apply.returncode != 0 or selector_result.get("status") != "applied":
+                    failure_reason, failure_stage, mutation_committed, next_check_id = selector_failure_contract(
+                        selector_apply.returncode,
+                        selector_result,
+                    )
                     record = phase_record_value(
                         phase=record_phase,
                         targets=targets,
@@ -573,22 +606,23 @@ def main(argv: Sequence[str] | None = None) -> int:
                         acceptance_status="fail",
                         started_at=started_at,
                     )
-                    plan_recorded = selector_result.get("status") == "planned"
                     result = {
                         "collector": COLLECTOR,
                         "status": "fail",
-                        "reason": "selector_apply_failed",
+                        "reason": failure_reason,
                         "phase_record": record,
                         "diagnostics": [
                             "selector_apply=fail",
+                            f"selector_result_status={selector_result.get('status', 'missing')}",
+                            f"ansible_process_rc={selector_apply.returncode}",
                             f"rollout_targets={','.join(targets)}",
                             *ansible_failure_diagnostics(
                                 selector_apply.stdout,
                                 selector_apply.stderr,
-                                stage="selector_mutation_or_postcheck" if plan_recorded else "pre_mutation_selector_validation",
-                                mutation_committed=False,
+                                stage=failure_stage,
+                                mutation_committed=mutation_committed,
                                 power_cycle_started=False,
-                                next_check_id="common_kernel_selector_apply",
+                                next_check_id=next_check_id,
                             ),
                             "automatic_rollback=false",
                         ],

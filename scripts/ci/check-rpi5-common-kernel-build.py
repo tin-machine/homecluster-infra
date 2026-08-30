@@ -37,6 +37,18 @@ def validate_generation_entrypoint_release_date(text: str) -> None:
     require_not(text, "rpi5_common_kernel_build_stage_date", "kernel artifact date coupled to PXE release date")
 
 
+def validate_common_kernel_publish_contract(text: str) -> None:
+    require(text, "- src: kernel8-homecluster.img", "generic kernel publish source")
+    require(text, "dest: kernel8.img", "generic kernel publish destination")
+    require(text, "unsafe_writes: false", "atomic remote copy")
+    require(text, "pxe_rpi5_common_kernel_publish_stats", "published kernel SHA-256 stats")
+    require(
+        text,
+        "pxe_rpi5_common_kernel_publish_stats.results[0].stat.checksum == pxe_rpi5_common_kernel_publish_stats.results[1].stat.checksum",
+        "published kernel SHA-256 equality gate",
+    )
+
+
 def main() -> int:
     defaults = read(BUILD_ROLE / "defaults/main.yml")
     tasks = read(BUILD_ROLE / "tasks/main.yml")
@@ -47,6 +59,7 @@ def main() -> int:
     generation_entrypoint = read(ROOT / "ansible/openwrt/playbooks/pxe-release-bundle-staging-with-common-kernel.yml")
     precheck = read(ROOT / "ansible/openwrt/playbooks/rpi5-common-kernel-precheck.yml")
     gate = read(ROOT / "ansible/openwrt/playbooks/rpi5-common-kernel-gate.yml")
+    publish_tasks = read(ROOT / "ansible/openwrt/playbooks/tasks/pxe_release_bundle_build_and_manifest.yml")
     rootfs_tasks = read(ROOT / "ansible/openwrt/roles/openwrt_gentoo_rootfs/tasks/portage_chroot.yml")
 
     require(defaults, "rpi5_common_kernel_build_enabled: false", "disabled default")
@@ -190,6 +203,11 @@ def main() -> int:
     require(gate, "pxe_release_id", "gate PXE identity output")
     require(gate, "pxe_release_manifest_sha256", "PXE manifest hash")
     require(gate, "rpi5-common-kernel-gate-v2", "gate schema v2")
+    validate_common_kernel_publish_contract(publish_tasks)
+    require(gate, "generic_kernel_payload_present", "published generic kernel presence gate")
+    require(gate, "generic_kernel_payload_identical", "published generic kernel payload identity gate")
+    require(gate, "generic_kernel_sha256_matches_manifest", "published generic kernel manifest hash gate")
+    require(gate, "homecluster_common_kernel_metadata.kernel_image_sha256", "accepted kernel hash source")
 
     print("rpi5 common kernel build contract ok")
     return 0
