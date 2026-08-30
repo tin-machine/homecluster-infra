@@ -26,6 +26,45 @@
     - pxe_release_bundle
     - pxe_release_bundle_build
 
+- name: PXE shared lower rootfsからhost固有hostnameを削除
+  ansible.builtin.file:
+    path: "/srv/gentoo/{{ item.release }}/nfs/etc/hostname"
+    state: absent
+  loop: "{{ pxe_release_bundle_build_items }}"
+  loop_control:
+    label: "{{ item.release }}"
+  when: not (pxe_release_bundle_skip_build | default(false) | bool)
+  tags:
+    - pxe_release_bundle
+    - pxe_release_bundle_build
+
+- name: PXE shared lower rootfs hostnameの不在を確認
+  ansible.builtin.stat:
+    path: "/srv/gentoo/{{ item.release }}/nfs/etc/hostname"
+    get_attributes: false
+    get_mime: false
+  loop: "{{ pxe_release_bundle_build_items }}"
+  loop_control:
+    label: "{{ item.release }}"
+  register: pxe_release_bundle_shared_lower_hostname_stats
+  changed_when: false
+  tags:
+    - pxe_release_bundle
+    - pxe_release_bundle_build
+
+- name: PXE shared lower rootfs hostname contractを検証
+  ansible.builtin.assert:
+    that:
+      - not (item.stat.exists | default(false))
+    fail_msg: "{{ item.item.release }} shared lower rootfsにhost固有 /etc/hostname が残っています"
+  loop: "{{ pxe_release_bundle_shared_lower_hostname_stats.results }}"
+  loop_control:
+    label: "{{ item.item.release }}"
+  changed_when: false
+  tags:
+    - pxe_release_bundle
+    - pxe_release_bundle_build
+
 - name: PXE release bundle manifest metadata の基底値を準備
   ansible.builtin.set_fact:
     pxe_release_bundle_manifest_metadata_base: "{{ openwrt_gentoo_release_bundle_manifest_metadata | default({}) }}"

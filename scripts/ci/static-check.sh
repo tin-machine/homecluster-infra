@@ -148,6 +148,11 @@ if ! python3 scripts/ci/check-pxe-initramfs-contract.py; then
   fail=1
 fi
 
+print_section "PXE shared lower hostname contract"
+if ! python3 scripts/ci/check-pxe-shared-lower-hostname.py --self-test; then
+  fail=1
+fi
+
 print_section "OpenWrt Gentoo binary preseed contract"
 if ! python3 scripts/ci/check-openwrt-gentoo-binary-preseed.py --self-test; then
   fail=1
