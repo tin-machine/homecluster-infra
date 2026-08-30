@@ -289,11 +289,48 @@
     group: root
     mode: '0644'
     remote_src: true
+    unsafe_writes: false
   loop:
+    - src: kernel8-homecluster.img
+      dest: kernel8.img
     - src: kernel8-nvidia.img
       dest: kernel8-nvidia.img
     - src: bcm2712-rpi-5-b-nvidia.dtb
       dest: bcm2712-rpi-5-b-nvidia.dtb
+  when:
+    - openwrt_rpi5_egpu_generation_enabled | default(false) | bool
+    - openwrt_rpi5_egpu_generation_artifact_bundle_enabled | default(false) | bool
+  tags:
+    - pxe_release_bundle
+    - pxe_release_bundle_build
+
+- name: rpi5 common kernel publish元と配信先のhashを取得
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    checksum_algorithm: sha256
+    get_attributes: false
+    get_mime: false
+  loop:
+    - "{{ openwrt_rpi5_egpu_generation_artifact_openwrt_dir }}/{{ pxe_release_bundle_rpi5_items[0].release }}/payload/kernel8-homecluster.img"
+    - "/srv/gentoo/tftp-root/dates/{{ pxe_release_bundle_rpi5_items[0].release }}/kernel8.img"
+  register: pxe_rpi5_common_kernel_publish_stats
+  changed_when: false
+  when:
+    - openwrt_rpi5_egpu_generation_enabled | default(false) | bool
+    - openwrt_rpi5_egpu_generation_artifact_bundle_enabled | default(false) | bool
+  tags:
+    - pxe_release_bundle
+    - pxe_release_bundle_build
+
+- name: rpi5 common kernel atomic publish identityを検証
+  ansible.builtin.assert:
+    that:
+      - pxe_rpi5_common_kernel_publish_stats.results[0].stat.isreg | default(false)
+      - pxe_rpi5_common_kernel_publish_stats.results[1].stat.isreg | default(false)
+      - pxe_rpi5_common_kernel_publish_stats.results[0].stat.checksum | default('') | string is match('^[0-9a-f]{64}$')
+      - pxe_rpi5_common_kernel_publish_stats.results[0].stat.checksum == pxe_rpi5_common_kernel_publish_stats.results[1].stat.checksum
+    fail_msg: kernel8-homecluster.imgからkernel8.imgへのatomic publish identityが一致しません
+  changed_when: false
   when:
     - openwrt_rpi5_egpu_generation_enabled | default(false) | bool
     - openwrt_rpi5_egpu_generation_artifact_bundle_enabled | default(false) | bool
