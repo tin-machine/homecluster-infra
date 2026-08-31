@@ -25,6 +25,11 @@ HOMECLUSTER_STAGE_WRAPPER = (
     / "ansible/openwrt/roles/openwrt_gentoo_rootfs/templates/"
     "homecluster-ansible-stage-wrapper.sh.j2"
 )
+PXE_ANSIBLE_PULL_WRAPPER = (
+    REPO_ROOT
+    / "ansible/openwrt/roles/openwrt_gentoo_rootfs/templates/"
+    "pxe-ansible-pull-wrapper.sh.j2"
+)
 HOMECLUSTER_STAGE_UNIT_TEMPLATE = (
     REPO_ROOT
     / "ansible/openwrt/roles/openwrt_gentoo_rootfs/templates/systemd/"
@@ -68,6 +73,48 @@ def assert_dependency_roles_are_enabled(
         raise AssertionError(
             "openwrt_gentoo_ansible_pull_role_dependencies references roles "
             f"not listed in openwrt_gentoo_ansible_pull_roles: {sorted(missing)}"
+        )
+
+
+def assert_galaxy_role_download_has_isolated_home(text: str) -> None:
+    require_contains(
+        text,
+        'GALAXY_ROLE_HOME="/run/homecluster-ansible-galaxy-role"',
+        "Galaxy role download must use a fixed runtime HOME separate from /root",
+    )
+    require_contains(
+        text,
+        'install -d -m 0700 "${GALAXY_ROLE_HOME}"',
+        "Galaxy role download must create its isolated HOME with mode 0700",
+    )
+    require_contains(
+        text,
+        'HOME="${GALAXY_ROLE_HOME}" /usr/bin/ansible-galaxy install -r ',
+        "Galaxy role install must not inherit root HOME or /root/.netrc",
+    )
+    require_contains(
+        text,
+        'CURRENT_STEP="ansible_galaxy_collections"\n'
+        '/usr/bin/ansible-galaxy collection install -r ',
+        "Galaxy collection install must retain its existing root HOME destination",
+    )
+
+
+def test_galaxy_role_download_home_isolation() -> None:
+    text = read_text(PXE_ANSIBLE_PULL_WRAPPER)
+    assert_galaxy_role_download_has_isolated_home(text)
+
+    unsafe = text.replace(
+        'HOME="${GALAXY_ROLE_HOME}" /usr/bin/ansible-galaxy install -r ',
+        "/usr/bin/ansible-galaxy install -r ",
+    )
+    try:
+        assert_galaxy_role_download_has_isolated_home(unsafe)
+    except AssertionError as exc:
+        assert "must not inherit root HOME" in str(exc)
+    else:
+        raise AssertionError(
+            "Galaxy role install without isolated HOME must fail validation"
         )
 
 
@@ -347,6 +394,7 @@ def test_homecluster_unit_chain_adr_contract() -> None:
 
 def main() -> None:
     test_dependency_roles_are_enabled()
+    test_galaxy_role_download_home_isolation()
     test_pxe_runtime_chain_tasks()
     test_dependency_override_template()
     test_on_success_template()
