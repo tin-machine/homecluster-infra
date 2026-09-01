@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import re
 import subprocess
@@ -127,6 +128,63 @@ class PhaseAcceptanceKernelConfigTests(unittest.TestCase):
     def test_missing_required_config_fails(self):
         completed = self.run_config_checks(REQUIRED_CONFIG_LINES[:-1])
         self.assertNotEqual(completed.returncode, 0)
+
+
+class FullFleetAcceptanceTests(unittest.TestCase):
+    def test_full_fleet_accepts_all_agents_and_runs_egpu_llm_gate(self):
+        module = legacy.ROLLOUT_MODULE
+        calls: list[tuple[list[str], dict[str, str] | None]] = []
+        original_run = module.legacy.run
+
+        def fake_run(command, *, cwd, timeout, env=None):
+            values = [str(item) for item in command]
+            calls.append((values, dict(env) if env else None))
+            if values[0] == "ansible-playbook":
+                return subprocess.CompletedProcess(values, 0, "", "")
+            if values[0] == "bash" and any(value.endswith("pi-k3s-status") for value in values):
+                return subprocess.CompletedProcess(values, 0, json.dumps({"status": "healthy"}), "")
+            return subprocess.CompletedProcess(
+                values,
+                0,
+                "llm_status=healthy\nllm_failed_check_ids=none\nllm_unknown_check_ids=none\n",
+                "",
+            )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "infra"
+            runbook = Path(temporary) / "runbook"
+            (runbook / "scripts").mkdir(parents=True)
+            (runbook / "scripts/pi-rpi5-egpu-llm-status").write_text("fixture\n", encoding="utf-8")
+            module.legacy.run = fake_run
+            try:
+                accepted, diagnostics = module.run_phase_acceptance(
+                    root,
+                    runbook,
+                    Path(temporary) / "inventory.yml",
+                    "full_fleet",
+                    ["generic-a", "generic-b", "egpu-a"],
+                    ["generic-a", "generic-b", "egpu-a"],
+                    "6.18.36-v8-homecluster+",
+                )
+            finally:
+                module.legacy.run = original_run
+
+        self.assertTrue(accepted)
+        self.assertIn("llm_acceptance=pass", diagnostics)
+        ansible = calls[0][0]
+        self.assertEqual(ansible[ansible.index("--limit") + 1], "generic-a,generic-b,egpu-a")
+        llm_environment = calls[-1][1]
+        self.assertIsNotNone(llm_environment)
+        self.assertEqual(
+            llm_environment["HOMECLUSTER_RPI5_03_EXPECTED_KERNEL_RELEASE"],
+            "6.18.36-v8-homecluster+",
+        )
+
+    def test_full_fleet_main_path_has_one_fresh_boot_call(self):
+        source = legacy.ROLLOUT.read_text(encoding="utf-8")
+        legacy_source = (HERE / "pi-rpi5-common-kernel-rollout-legacy").read_text(encoding="utf-8")
+        self.assertEqual(legacy_source.count("fresh_boot_run_id, fresh_boot_status = run_fresh_boot(runbook)"), 1)
+        self.assertIn('phase in {"egpu_canary", "full_fleet"}', source)
 
 
 class GateFailureDiagnosticsTests(unittest.TestCase):

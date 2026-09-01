@@ -13,8 +13,8 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 COLLECTOR = "homecluster-rpi5-common-kernel-rollout"
-PHASES = ("generic_canary", "egpu_canary", "fleet_rollout", "rollback_last_phase")
-RUNTIME_PHASES = ("generic_canary", "egpu_canary", "fleet_rollout")
+PHASES = ("generic_canary", "egpu_canary", "fleet_rollout", "full_fleet", "rollback_last_phase")
+RUNTIME_PHASES = ("generic_canary", "egpu_canary", "fleet_rollout", "full_fleet")
 AGENT_GROUP = "k3s_stg_agents"
 EGPU_GROUP = "rpi5_egpu_artifact_bundle"
 SAFE_RUN_ID = re.compile(r"^[0-9]{8}T[0-9]{6}Z-[A-Za-z0-9._-]+$")
@@ -254,6 +254,13 @@ def target_policy(
     generic = phase_record(root, "generic_canary")
     egpu = phase_record(root, "egpu_canary")
     fleet = phase_record(root, "fleet_rollout")
+    full_fleet = phase_record(root, "full_fleet")
+    if phase == "full_fleet":
+        if full_fleet.get("acceptance_status") == "pass":
+            raise RolloutError("full_fleet_already_accepted")
+        if not agents or egpu_target not in agents:
+            raise RolloutError("full_fleet_target_contract_invalid")
+        return list(agents), {}, phase
     if phase == "generic_canary":
         if generic.get("acceptance_status") == "pass":
             raise RolloutError("generic_canary_already_accepted")
