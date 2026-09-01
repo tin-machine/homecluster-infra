@@ -34,7 +34,7 @@
         test "$(getconf PAGESIZE)" = 4096
         test -d "/lib/modules/$(uname -r)"
         test -d /sys/bus/pci
-        ip route show | grep -q .
+        test -n "$(ip route show)"
         zcat /proc/config.gz | grep -qx 'CONFIG_ARM64_4K_PAGES=y'
         zcat /proc/config.gz | grep -qx 'CONFIG_ARM64_VA_BITS_48=y'
         zcat /proc/config.gz | grep -qx 'CONFIG_ARM64_VA_BITS=48'
