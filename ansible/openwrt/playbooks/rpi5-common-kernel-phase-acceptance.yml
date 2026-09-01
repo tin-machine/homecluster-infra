@@ -34,13 +34,14 @@
         test "$(getconf PAGESIZE)" = 4096
         test -d "/lib/modules/$(uname -r)"
         test -d /sys/bus/pci
-        ip route show | grep -q .
-        zcat /proc/config.gz | grep -qx 'CONFIG_ARM64_4K_PAGES=y'
-        zcat /proc/config.gz | grep -qx 'CONFIG_ARM64_VA_BITS_48=y'
-        zcat /proc/config.gz | grep -qx 'CONFIG_ARM64_VA_BITS=48'
-        zcat /proc/config.gz | grep -qx 'CONFIG_MODULES=y'
-        zcat /proc/config.gz | grep -qx 'CONFIG_IKCONFIG=y'
-        zcat /proc/config.gz | grep -qx 'CONFIG_IKCONFIG_PROC=y'
+        test -n "$(ip route show)"
+        kernel_config="$(zcat /proc/config.gz)"
+        grep -qx 'CONFIG_ARM64_4K_PAGES=y' <<<"$kernel_config"
+        grep -qx 'CONFIG_ARM64_VA_BITS_48=y' <<<"$kernel_config"
+        grep -qx 'CONFIG_ARM64_VA_BITS=48' <<<"$kernel_config"
+        grep -qx 'CONFIG_MODULES=y' <<<"$kernel_config"
+        grep -qx 'CONFIG_IKCONFIG=y' <<<"$kernel_config"
+        grep -qx 'CONFIG_IKCONFIG_PROC=y' <<<"$kernel_config"
       args:
         executable: /bin/bash
       changed_when: false
