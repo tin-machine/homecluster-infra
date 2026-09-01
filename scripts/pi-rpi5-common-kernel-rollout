@@ -113,7 +113,7 @@ def run_phase_acceptance(
     diagnostics: list[str] = []
     playbook = root / "ansible/openwrt/playbooks/rpi5-common-kernel-phase-acceptance.yml"
     expect_exact = phase != "rollback_last_phase"
-    acceptance_targets = list(all_agents) if phase == "fleet_rollout" else list(targets)
+    acceptance_targets = list(all_agents) if phase in {"fleet_rollout", "full_fleet"} else list(targets)
     completed = legacy.run(
         [
             "ansible-playbook",
@@ -168,7 +168,7 @@ def run_phase_acceptance(
     else:
         diagnostics.append("k3s_final_observation=unavailable")
 
-    if phase == "egpu_canary":
+    if phase in {"egpu_canary", "full_fleet"}:
         llm_helper = runbook / "scripts/pi-rpi5-egpu-llm-status"
         if not llm_helper.is_file():
             _LAST_KERNEL_ACCEPTANCE = False

@@ -112,29 +112,31 @@ class CliFixtureTests(unittest.TestCase):
         self.assertEqual(value["reason"], "generation_run_id_invalid")
 
     def test_rollout_requires_apply_gate(self):
-        completed, value = self.run_json(ROLLOUT, "--json", "--phase", "generic_canary")
+        completed, value = self.run_json(ROLLOUT, "--json", "--phase", "full_fleet")
         self.assertEqual(completed.returncode, 2)
         self.assertEqual(value["reason"], "missing_HOMECLUSTER_RPI5_COMMON_KERNEL_ROLLOUT_APPLY")
 
     def test_rollout_fixture_returns_phase_record(self):
-        temporary, fixture = self.fixture({"status": "pass", "targets": ["generic-a"]})
+        targets = ["generic-a", "generic-b", "egpu-a"]
+        temporary, fixture = self.fixture({"status": "pass", "targets": targets})
         try:
             completed, value = self.run_json(
                 ROLLOUT,
                 "--json",
                 "--phase",
-                "generic_canary",
+                "full_fleet",
                 "--fixture",
                 str(fixture),
             )
         finally:
             temporary.cleanup()
         self.assertEqual(completed.returncode, 0)
-        self.assertEqual(value["phase_record"]["phase"], "generic_canary")
+        self.assertEqual(value["phase_record"]["phase"], "full_fleet")
+        self.assertEqual(value["phase_record"]["targets"], targets)
         self.assertEqual(value["phase_record"]["acceptance_status"], "pass")
 
     def test_rollback_fixture_is_separate_record(self):
-        temporary, fixture = self.fixture({"status": "pass", "record_phase": "generic_canary"})
+        temporary, fixture = self.fixture({"status": "pass", "record_phase": "full_fleet"})
         try:
             completed, value = self.run_json(
                 ROLLOUT,
@@ -147,7 +149,7 @@ class CliFixtureTests(unittest.TestCase):
         finally:
             temporary.cleanup()
         self.assertEqual(completed.returncode, 0)
-        self.assertEqual(value["phase_record"]["phase"], "generic_canary")
+        self.assertEqual(value["phase_record"]["phase"], "full_fleet")
         self.assertEqual(value["phase_record"]["acceptance_status"], "rolled_back")
 
     def test_unknown_phase_is_rejected_by_parser(self):
@@ -223,30 +225,28 @@ class PolicyTests(unittest.TestCase):
         directory.mkdir(parents=True, exist_ok=True)
         (directory / f"{phase}.json").write_text(json.dumps(value), encoding="utf-8")
 
-    def test_rollout_order_and_group_driven_targets(self):
+    def test_full_fleet_targets_every_agent_without_canary_prerequisites(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             agents = ["generic-a", "generic-b", "egpu-a"]
-            targets, _, phase = ROLLOUT_MODULE.target_policy(root, "generic_canary", agents, "egpu-a")
-            self.assertEqual((targets, phase), (["generic-a"], "generic_canary"))
-            self.write_record(root, "generic_canary", {"acceptance_status": "pass", "targets": ["generic-a"]})
-            targets, _, phase = ROLLOUT_MODULE.target_policy(root, "egpu_canary", agents, "egpu-a")
-            self.assertEqual((targets, phase), (["egpu-a"], "egpu_canary"))
-            self.write_record(root, "egpu_canary", {"acceptance_status": "pass", "targets": ["egpu-a"]})
-            targets, _, phase = ROLLOUT_MODULE.target_policy(root, "fleet_rollout", agents, "egpu-a")
-            self.assertEqual((targets, phase), (["generic-b"], "fleet_rollout"))
+            targets, selectors, phase = ROLLOUT_MODULE.target_policy(root, "full_fleet", agents, "egpu-a")
+            self.assertEqual((targets, selectors, phase), (agents, {}, "full_fleet"))
 
     def test_rollback_uses_only_recorded_previous_selectors(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            previous = {"generic-a": {"tftp_release": "20260730-rpi5", "rootfs_release": "20260730-rpi5"}}
+            previous = {
+                name: {"tftp_release": "20260730-rpi5", "rootfs_release": "20260730-rpi5"}
+                for name in ["generic-a", "generic-b", "egpu-a"]
+            }
             self.write_record(
                 root,
-                "generic_canary",
+                "full_fleet",
                 {
-                    "phase": "generic_canary",
-                    "targets": ["generic-a"],
+                    "phase": "full_fleet",
+                    "targets": ["generic-a", "generic-b", "egpu-a"],
                     "acceptance_status": "fail",
+                    "rollback_recommended": True,
                     "previous_selector_by_node": previous,
                 },
             )
@@ -256,9 +256,19 @@ class PolicyTests(unittest.TestCase):
                 ["generic-a", "generic-b", "egpu-a"],
                 "egpu-a",
             )
-            self.assertEqual(targets, ["generic-a"])
+            self.assertEqual(targets, ["generic-a", "generic-b", "egpu-a"])
             self.assertEqual(selectors, previous)
-            self.assertEqual(failed_phase, "generic_canary")
+            self.assertEqual(failed_phase, "full_fleet")
+
+    def test_full_fleet_acceptance_keeps_egpu_checks(self):
+        wrapper = ROLLOUT.read_text(encoding="utf-8")
+        playbook = (HERE.parent / "ansible/openwrt/playbooks/rpi5-common-kernel-phase-acceptance.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('phase in {"fleet_rollout", "full_fleet"}', wrapper)
+        self.assertIn('phase in {"egpu_canary", "full_fleet"}', wrapper)
+        self.assertIn("homecluster_common_kernel_acceptance_phase == 'full_fleet'", playbook)
+        self.assertIn("groups['rpi5_egpu_artifact_bundle']", playbook)
 
 
 class SourceContractTests(unittest.TestCase):

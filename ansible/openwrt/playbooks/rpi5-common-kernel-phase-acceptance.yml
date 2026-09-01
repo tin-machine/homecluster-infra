@@ -7,7 +7,7 @@
     - name: Pi5 common kernel acceptance inputを検証
       ansible.builtin.assert:
         that:
-          - homecluster_common_kernel_acceptance_phase in ['generic_canary', 'egpu_canary', 'fleet_rollout', 'rollback_last_phase']
+          - homecluster_common_kernel_acceptance_phase in ['generic_canary', 'egpu_canary', 'fleet_rollout', 'full_fleet', 'rollback_last_phase']
           - homecluster_common_kernel_expect_exact_release is boolean
           - >-
             not (homecluster_common_kernel_expect_exact_release | bool)
@@ -54,7 +54,12 @@
         fi
       args:
         executable: /bin/bash
-      when: homecluster_common_kernel_acceptance_phase == 'generic_canary'
+      when: >-
+        homecluster_common_kernel_acceptance_phase == 'generic_canary'
+        or (
+          homecluster_common_kernel_acceptance_phase == 'full_fleet'
+          and inventory_hostname not in (groups['rpi5_egpu_artifact_bundle'] | default([]))
+        )
       changed_when: false
 
     - name: eGPU canaryでNVIDIAとLLM serviceを検証
@@ -64,5 +69,10 @@
         test "$(systemctl is-active llama-vulkan.service)" = active
       args:
         executable: /bin/bash
-      when: homecluster_common_kernel_acceptance_phase == 'egpu_canary'
+      when: >-
+        homecluster_common_kernel_acceptance_phase == 'egpu_canary'
+        or (
+          homecluster_common_kernel_acceptance_phase == 'full_fleet'
+          and inventory_hostname in (groups['rpi5_egpu_artifact_bundle'] | default([]))
+        )
       changed_when: false
