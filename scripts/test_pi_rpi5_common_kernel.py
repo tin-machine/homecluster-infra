@@ -29,6 +29,16 @@ PHASE_ACCEPTANCE_PLAYBOOK = (
 )
 SAFE_ROUTE_CHECK = 'test -n "$(ip route show)"'
 UNSAFE_ROUTE_CHECK = "ip route show | grep -q ."
+SAFE_CONFIG_ASSIGNMENT = 'kernel_config="$(zcat /proc/config.gz)"'
+UNSAFE_CONFIG_CHECK = "zcat /proc/config.gz | grep -qx"
+REQUIRED_CONFIG_LINES = (
+    "CONFIG_ARM64_4K_PAGES=y",
+    "CONFIG_ARM64_VA_BITS_48=y",
+    "CONFIG_ARM64_VA_BITS=48",
+    "CONFIG_MODULES=y",
+    "CONFIG_IKCONFIG=y",
+    "CONFIG_IKCONFIG_PROC=y",
+)
 
 
 class PhaseAcceptanceRouteTests(unittest.TestCase):
@@ -70,6 +80,52 @@ class PhaseAcceptanceRouteTests(unittest.TestCase):
 
     def test_missing_route_fails(self):
         completed = self.run_route_check(0)
+        self.assertNotEqual(completed.returncode, 0)
+
+
+class PhaseAcceptanceKernelConfigTests(unittest.TestCase):
+    def config_checks(self) -> list[str]:
+        source = PHASE_ACCEPTANCE_PLAYBOOK.read_text(encoding="utf-8")
+        checks = [
+            line.strip()
+            for line in source.splitlines()
+            if "kernel_config=" in line or '<<<"$kernel_config"' in line
+        ]
+        expected = [SAFE_CONFIG_ASSIGNMENT, *[
+            f"grep -qx '{line}' <<<\"$kernel_config\"" for line in REQUIRED_CONFIG_LINES
+        ]]
+        self.assertEqual(checks, expected)
+        self.assertNotIn(UNSAFE_CONFIG_CHECK, source)
+        return checks
+
+    def run_config_checks(self, config_lines: tuple[str, ...]) -> subprocess.CompletedProcess[str]:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            zcat = directory / "zcat"
+            output = "".join(f"printf '%s\\n' '{line}'\n" for line in config_lines)
+            zcat.write_text(
+                "#!/bin/sh\n"
+                "test \"$*\" = \"/proc/config.gz\" || exit 2\n"
+                + output,
+                encoding="utf-8",
+            )
+            zcat.chmod(0o755)
+            environment = {**os.environ, "PATH": f"{directory}:{os.environ['PATH']}"}
+            return subprocess.run(
+                ["bash", "-o", "pipefail", "-c", "\n".join(self.config_checks())],
+                check=False,
+                capture_output=True,
+                text=True,
+                env=environment,
+            )
+
+    def test_large_complete_config_passes_without_sigpipe(self):
+        config = tuple(f"CONFIG_FIXTURE_{index}=y" for index in range(4096)) + REQUIRED_CONFIG_LINES
+        completed = self.run_config_checks(config)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
+    def test_missing_required_config_fails(self):
+        completed = self.run_config_checks(REQUIRED_CONFIG_LINES[:-1])
         self.assertNotEqual(completed.returncode, 0)
 
 
