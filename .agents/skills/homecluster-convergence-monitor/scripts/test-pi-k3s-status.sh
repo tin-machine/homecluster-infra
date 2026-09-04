@@ -5,12 +5,14 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$script_dir/../../../.." && pwd)"
 status_script="$repo_root/scripts/pi-k3s-status"
 status_impl="$script_dir/pi-k3s-status"
+collector="$script_dir/collect-k3s-convergence.sh"
 resolver="$script_dir/pi_k3s_inventory_targets.py"
 remediation="$script_dir/pi_k3s_remediation.py"
 remediation_catalog="$script_dir/../references/k3s-status-remediation-catalog.json"
 
 bash -n "$status_script"
 bash -n "$status_impl"
+bash -n "$collector"
 grep -Fq '.agents/skills/homecluster-convergence-monitor/scripts/pi-k3s-status' "$status_script"
 grep -Fq 'repo_root="$(cd "$skill_dir/../../.." && pwd)"' "$status_impl"
 python3 -m py_compile \
@@ -159,6 +161,81 @@ printf '%s\n' "$failure_output" | jq -e '
   .target_resolution == "unresolved" and
   .target_resolution_reason == "ansible_inventory_failed" and
   .remediation.status == "none"
+' >/dev/null
+
+mkdir -p "$tmp/collector-bin"
+cat >"$tmp/collector-bin/timeout" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+shift
+exec "$@"
+SH
+chmod +x "$tmp/collector-bin/timeout"
+
+cat >"$tmp/collector-bin/ssh" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+command_text="${!#}"
+case "$command_text" in
+  *"get nodes -o json"*)
+    cat <<'JSON'
+{"items":[{"metadata":{"name":"control-a"},"status":{"conditions":[{"type":"Ready","status":"True"},{"type":"MemoryPressure","status":"False"},{"type":"DiskPressure","status":"False"},{"type":"PIDPressure","status":"False"}]}},{"metadata":{"name":"agent-a"},"status":{"conditions":[{"type":"Ready","status":"True"},{"type":"MemoryPressure","status":"False"},{"type":"DiskPressure","status":"False"},{"type":"PIDPressure","status":"False"}]}}]}
+JSON
+    ;;
+  *"get pods -A --no-headers"*)
+    ;;
+  *"get ds,pod -l"*)
+    if [ "${FIXTURE_EXPORTER_MODE:-under}" = "surge" ]; then
+      cat <<'JSON'
+{"items":[{"kind":"DaemonSet","status":{"desiredNumberScheduled":2}},{"kind":"Pod","metadata":{"namespace":"observability-stg","name":"node-exporter-a"},"spec":{"nodeName":"control-a"},"status":{"phase":"Running","containerStatuses":[{"ready":true}]}},{"kind":"Pod","metadata":{"namespace":"observability-stg","name":"node-exporter-b"},"spec":{"nodeName":"agent-a"},"status":{"phase":"Running","containerStatuses":[{"ready":true}]}},{"kind":"Pod","metadata":{"namespace":"observability-stg","name":"node-exporter-surge"},"spec":{"nodeName":"agent-a"},"status":{"phase":"Running","containerStatuses":[{"ready":true}]}}]}
+JSON
+    else
+      cat <<'JSON'
+{"items":[{"kind":"DaemonSet","status":{"desiredNumberScheduled":2}},{"kind":"Pod","metadata":{"namespace":"observability-stg","name":"node-exporter-a"},"spec":{"nodeName":"control-a"},"status":{"phase":"Running","containerStatuses":[{"ready":true}]}}]}
+JSON
+    fi
+    ;;
+  *"get events -A"*)
+    ;;
+  *)
+    printf 'unexpected ssh fixture command: %s\n' "$command_text" >&2
+    exit 3
+    ;;
+esac
+SH
+chmod +x "$tmp/collector-bin/ssh"
+
+collector_under_output="$(
+  PATH="$tmp/collector-bin:$PATH" \
+  MONITOR_CONTROL_SSH="fixture-control" \
+  MONITOR_NODE_SSH_LIST="" \
+  MONITOR_EXPECTED_NODES=2 \
+  MONITOR_EXPECTED_NODE_EXPORTER=0 \
+  bash "$collector"
+)"
+printf '%s\n' "$collector_under_output" | jq -e '
+  .collector.version == "0.1.1" and
+  .inputs.expected_node_exporter == 0 and
+  .node_exporter.desired == 2 and
+  .node_exporter.ready == 1 and
+  .assessment.status == "converging" and
+  (.assessment.issues | index("node_exporter_not_ready")) != null
+' >/dev/null
+
+collector_surge_output="$(
+  PATH="$tmp/collector-bin:$PATH" \
+  FIXTURE_EXPORTER_MODE=surge \
+  MONITOR_CONTROL_SSH="fixture-control" \
+  MONITOR_NODE_SSH_LIST="" \
+  MONITOR_EXPECTED_NODES=2 \
+  MONITOR_EXPECTED_NODE_EXPORTER=0 \
+  bash "$collector"
+)"
+printf '%s\n' "$collector_surge_output" | jq -e '
+  .node_exporter.desired == 2 and
+  .node_exporter.ready == 3 and
+  .assessment.status == "healthy" and
+  (.assessment.issues | index("node_exporter_not_ready")) == null
 ' >/dev/null
 
 printf 'status=pass\n'
