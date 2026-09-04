@@ -93,8 +93,11 @@ variables:
 - `MONITOR_NODE_SSH_LIST`: optional space-separated SSH targets for node-level checks.
 - `MONITOR_EXPECTED_NODES`: expected Kubernetes node count. Default: `4` for direct collector use.
   `pi-k3s-status` derives this value from inventory.
-- `MONITOR_EXPECTED_NODE_EXPORTER`: expected node-exporter ready count. Default:
-  `MONITOR_EXPECTED_NODES`.
+- `MONITOR_EXPECTED_NODE_EXPORTER`: optional minimum floor for node-exporter desired readiness.
+  Default: `MONITOR_EXPECTED_NODES` for direct collector use. The effective desired count is
+  `max(DaemonSet.status.desiredNumberScheduled, MONITOR_EXPECTED_NODE_EXPORTER)`. The repository
+  status entrypoint currently sets this floor to `0`, so the live DaemonSet desired count remains
+  authoritative.
 - `MONITOR_OBS_NAMESPACE`: observability namespace. Default: `observability-stg`.
 - `MONITOR_NODE_EXPORTER_SELECTOR`: node-exporter selector. Default:
   `app.kubernetes.io/name=prometheus-node-exporter`.
@@ -110,9 +113,11 @@ If `MONITOR_CONTROL_SSH` is not set, the collector uses local `kubectl`.
   - any node has `DiskPressure=True`, `MemoryPressure=True`, or `PIDPressure=True`,
   - non-Running/non-Succeeded pods persist,
   - Running pods have unready containers after normal startup,
-  - node-exporter desired/ready is below expected,
+  - node-exporter Ready Pod count is below the effective desired count,
   - k3s local storage is not mounted on nodes that should have it,
   - logs contain repeated node password / authorization / identity mismatch indicators.
+- `node_exporter.ready` can transiently exceed `node_exporter.desired` during a DaemonSet rollout;
+  this is observed Pod count and is not itself a failure.
 - Treat `ssh_host_key_problem` as a monitoring input problem. It does not prove the cluster is
   broken; recommend Codex/operator known_hosts review before interpreting node-level checks.
 - Do not expose secret values. If a command can show credentials or token material, do not run it.

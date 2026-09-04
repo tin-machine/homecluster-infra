@@ -16,10 +16,28 @@ one-shot status contract and adds an optional public remediation document.
 - `signals`: known log or state indicators.
 - `assessment`: script-level heuristic result.
 
+## `node_exporter` readiness semantics
+
+`node_exporter.desired` is the **effective desired count**:
+
+```text
+max(DaemonSet.status.desiredNumberScheduled, MONITOR_EXPECTED_NODE_EXPORTER)
+```
+
+`MONITOR_EXPECTED_NODE_EXPORTER` is therefore an optional floor, not an on/off switch. The
+repository status entrypoint currently sets the floor to `0`, which means the live DaemonSet desired
+count remains authoritative.
+
+`node_exporter_not_ready` is emitted when `node_exporter.ready < node_exporter.desired`.
+
+During a DaemonSet rolling update, more Ready Pods than the current desired count can exist
+transiently. For example, `ready=3` and `desired=2` is valid and does not itself create an issue.
+Do not clamp the Ready count to desired; it is an observed Pod count.
+
 ## `assessment.status`
 
 - `healthy`: expected node count is Ready, no node pressure is true, no non-running pods, no
-  running-but-unready pods, and node-exporter is at expected readiness.
+  running-but-unready pods, and node-exporter is at effective desired readiness.
 - `converging`: cluster is reachable but one or more startup conditions are not yet fully ready.
 - `blocked`: a known blocker is detected, such as no API, pressure, persistent non-running pods, or
   node identity mismatch.
@@ -29,6 +47,7 @@ one-shot status contract and adds an optional public remediation document.
 
 - `nodes_not_ready`: at least one discovered node is not Ready.
 - `missing_expected_nodes`: discovered node count is below the inventory-derived expectation.
+- `node_exporter_not_ready`: Ready node-exporter Pods are below the effective desired count.
 - `node_identity_signal`: a node password, hash, or authorization signature is still actionable.
 - `ssh_host_key_problem`: SSH collection failed before node checks because known_hosts rejected one
   or more targets. Treat this as a monitor setup issue, not as cluster evidence by itself.
