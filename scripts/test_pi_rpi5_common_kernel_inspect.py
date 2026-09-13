@@ -125,12 +125,28 @@ class FixtureContractTests(unittest.TestCase):
             },
         }
 
-    def test_json_schema_and_required_action_vocabulary(self) -> None:
+    def test_json_schema_required_action_and_reason_vocabularies(self) -> None:
         result = module.fixture_result(self.write_fixture(self.base_fixture()))
         self.assertEqual(result["schema"], "rpi5-common-kernel-runtime-inspection-v1")
         self.assertEqual(result["status"], "pass")
         self.assertEqual(result["reason"], "runtime_inspection_complete")
         self.assertEqual(set(module.REQUIRED_ACTIONS), {"none", "fresh_boot", "selector_switch_and_fresh_boot", "blocked"})
+        self.assertEqual(
+            set(module.RUNTIME_REASONS),
+            {
+                "runtime_acceptance_pass",
+                "kernel_release_mismatch",
+                "kernel_hard_gate_failed",
+                "generic_nvidia_autoloaded",
+                "egpu_nvidia_or_llm_service_failed",
+                "egpu_llm_acceptance_failed",
+                "egpu_llm_acceptance_helper_missing",
+                "runtime_acceptance_failed",
+                "node_unreachable",
+                "runtime_observation_failed",
+                "selector_state_invalid",
+            },
+        )
         node = result["nodes"]["node-a"]
         self.assertEqual(
             set(node),
@@ -146,6 +162,7 @@ class FixtureContractTests(unittest.TestCase):
             },
         )
         self.assertIn(node["required_action"], module.REQUIRED_ACTIONS)
+        self.assertIn(node["runtime_reason"], module.RUNTIME_REASONS)
 
     def test_unknown_node_makes_inspection_incomplete(self) -> None:
         fixture = self.base_fixture()
