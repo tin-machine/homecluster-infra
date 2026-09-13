@@ -11,6 +11,7 @@ on:
       - 'ansible/openwrt/roles/openwrt_rpi5_egpu_runtime_repair/**'
       - 'scripts/pi-rpi5-common-kernel-*'
       - 'scripts/test_pi_rpi5_common_kernel.py'
+      - 'scripts/test_pi_rpi5_common_kernel_known_good_fallback.py'
       - 'scripts/ci/check-rpi5-common-kernel-build.py'
       - '.github/workflows/rpi5-common-kernel-check.yml'
   push:
@@ -26,6 +27,7 @@ on:
       - 'ansible/openwrt/roles/openwrt_rpi5_egpu_runtime_repair/**'
       - 'scripts/pi-rpi5-common-kernel-*'
       - 'scripts/test_pi_rpi5_common_kernel.py'
+      - 'scripts/test_pi_rpi5_common_kernel_known_good_fallback.py'
       - 'scripts/ci/check-rpi5-common-kernel-build.py'
       - '.github/workflows/rpi5-common-kernel-check.yml'
 
@@ -52,13 +54,16 @@ jobs:
             scripts/pi-rpi5-common-kernel-precheck \
             scripts/pi-rpi5-common-kernel-gate \
             scripts/pi-rpi5-common-kernel-rollout \
-            scripts/test_pi_rpi5_common_kernel.py
+            scripts/test_pi_rpi5_common_kernel.py \
+            scripts/test_pi_rpi5_common_kernel_known_good_fallback.py
+
+      - name: Check Pi5 common kernel Pi Ops fixtures
+        run: |
+          python3 -m unittest discover -s scripts -p 'test_pi_rpi5_common_kernel.py' -v
+          python3 -m unittest discover -s scripts -p 'test_pi_rpi5_common_kernel_known_good_fallback.py' -v
 
       - name: Check Pi5 common kernel source contract
         run: python3 scripts/ci/check-rpi5-common-kernel-build.py
-
-      - name: Check Pi5 common kernel Pi Ops fixtures
-        run: python3 -m unittest discover -s scripts -p 'test_pi_rpi5_common_kernel.py' -v
 
       - name: Check fixed Pi5 common kernel playbook syntax
         working-directory: ansible/openwrt
