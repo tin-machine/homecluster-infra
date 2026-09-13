@@ -1,0 +1,73 @@
+---
+- name: Pi5 common kernel current selector inspection
+  hosts: openwrt
+  gather_facts: false
+  become: false
+  vars_files:
+    - ../group_vars/openwrt.yml
+  tasks:
+    - name: Pi5 common kernel selector inspection inputを検証
+      ansible.builtin.assert:
+        that:
+          - homecluster_common_kernel_inspect_targets is iterable
+          - homecluster_common_kernel_inspect_targets | length > 0
+          - homecluster_common_kernel_inspect_output | string is match('^/tmp/homecluster-common-kernel-inspect-[A-Za-z0-9._/-]+/selectors.json$')
+        fail_msg: common-kernel selector inspection input contractが不正です
+      changed_when: false
+      no_log: true
+
+    - name: Pi5 common kernel current PXE releaseをstage dateから解決
+      ansible.builtin.include_role:
+        name: openwrt_gentoo_rootfs
+        tasks_from: pxe_host_releases
+      tags:
+        - always
+
+    - name: Pi5 common kernel inspection target current selectorを解決
+      ansible.builtin.set_fact:
+        homecluster_common_kernel_inspect_current_selectors: >-
+          {%- set result = {} -%}
+          {%- for item in openwrt_pxe_hosts_effective | default([]) -%}
+          {%- set name = item.name | default('', true) | string | trim -%}
+          {%- if name in homecluster_common_kernel_inspect_targets -%}
+          {%- set _ = result.update({name: {
+            'tftp_release': item.tftp_release | default('', true) | string | trim,
+            'rootfs_release': item.rootfs_release | default(item.tftp_release | default('', true), true) | string | trim
+          }}) -%}
+          {%- endif -%}
+          {%- endfor -%}
+          {{ result }}
+      changed_when: false
+      no_log: true
+
+    - name: Pi5 common kernel inspection target selector存在を検証
+      ansible.builtin.assert:
+        that:
+          - homecluster_common_kernel_inspect_current_selectors | length == homecluster_common_kernel_inspect_targets | length
+          - item in homecluster_common_kernel_inspect_current_selectors
+          - homecluster_common_kernel_inspect_current_selectors[item].tftp_release | string is match('^[0-9]{8}-rpi5$')
+          - homecluster_common_kernel_inspect_current_selectors[item].rootfs_release | string is match('^[0-9]{8}-rpi5$')
+        fail_msg: inspection targetの現在selectorを一意に解決できません
+      loop: "{{ homecluster_common_kernel_inspect_targets }}"
+      changed_when: false
+      no_log: true
+
+    - name: Pi5 common kernel selector inspection resultをcontrollerへ保存
+      ansible.builtin.copy:
+        dest: "{{ homecluster_common_kernel_inspect_output }}"
+        mode: '0600'
+        content: >-
+          {{
+            {
+              'status': 'pass',
+              'reason': 'selector_inspection_complete',
+              'targets': homecluster_common_kernel_inspect_targets,
+              'current_selector_by_node': homecluster_common_kernel_inspect_current_selectors
+            } | to_json
+          }}
+      delegate_to: localhost
+      vars:
+        ansible_connection: local
+        ansible_remote_tmp: /tmp/homecluster-ansible-tmp
+      changed_when: false
+      no_log: true
