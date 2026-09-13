@@ -12,6 +12,7 @@ on:
       - 'scripts/pi-rpi5-common-kernel-*'
       - 'scripts/test_pi_rpi5_common_kernel.py'
       - 'scripts/test_pi_rpi5_common_kernel_known_good_fallback.py'
+      - 'scripts/test_pi_rpi5_common_kernel_inspect.py'
       - 'scripts/ci/check-rpi5-common-kernel-build.py'
       - '.github/workflows/rpi5-common-kernel-check.yml'
   push:
@@ -28,6 +29,7 @@ on:
       - 'scripts/pi-rpi5-common-kernel-*'
       - 'scripts/test_pi_rpi5_common_kernel.py'
       - 'scripts/test_pi_rpi5_common_kernel_known_good_fallback.py'
+      - 'scripts/test_pi_rpi5_common_kernel_inspect.py'
       - 'scripts/ci/check-rpi5-common-kernel-build.py'
       - '.github/workflows/rpi5-common-kernel-check.yml'
 
@@ -54,13 +56,16 @@ jobs:
             scripts/pi-rpi5-common-kernel-precheck \
             scripts/pi-rpi5-common-kernel-gate \
             scripts/pi-rpi5-common-kernel-rollout \
+            scripts/pi-rpi5-common-kernel-inspect \
             scripts/test_pi_rpi5_common_kernel.py \
-            scripts/test_pi_rpi5_common_kernel_known_good_fallback.py
+            scripts/test_pi_rpi5_common_kernel_known_good_fallback.py \
+            scripts/test_pi_rpi5_common_kernel_inspect.py
 
       - name: Check Pi5 common kernel Pi Ops fixtures
         run: |
           python3 -m unittest discover -s scripts -p 'test_pi_rpi5_common_kernel.py' -v
           python3 -m unittest discover -s scripts -p 'test_pi_rpi5_common_kernel_known_good_fallback.py' -v
+          python3 -m unittest discover -s scripts -p 'test_pi_rpi5_common_kernel_inspect.py' -v
 
       - name: Check Pi5 common kernel source contract
         run: python3 scripts/ci/check-rpi5-common-kernel-build.py
@@ -72,3 +77,4 @@ jobs:
           ansible-playbook playbooks/rpi5-common-kernel-gate.yml --syntax-check
           ansible-playbook playbooks/rpi5-common-kernel-rollout.yml --syntax-check
           ansible-playbook playbooks/rpi5-common-kernel-phase-acceptance.yml --syntax-check
+          ansible-playbook playbooks/rpi5-common-kernel-selector-inspect.yml --syntax-check
