@@ -9,7 +9,7 @@
     - name: Pi5 common kernel rollout inputを検証
       ansible.builtin.assert:
         that:
-          - homecluster_common_kernel_rollout_phase in ['generic_canary', 'egpu_canary', 'fleet_rollout', 'rollback_last_phase']
+          - homecluster_common_kernel_rollout_phase in ['generic_canary', 'egpu_canary', 'fleet_rollout', 'full_fleet', 'rollback_last_phase']
           - homecluster_common_kernel_rollout_output | string is match('^/tmp/homecluster-common-kernel-rollout-[A-Za-z0-9._/-]+/result.json$')
           - homecluster_common_kernel_rollout_targets is iterable
           - homecluster_common_kernel_rollout_targets | length > 0
@@ -86,6 +86,13 @@
           - homecluster_common_kernel_applied_selectors[item].rootfs_release | string is match('^[0-9]{8}-rpi5$')
         fail_msg: applied selectorが固定release contractを満たしません
       loop: "{{ homecluster_common_kernel_rollout_targets }}"
+      changed_when: false
+      no_log: true
+
+    - name: Pi5 common kernel selector変更要否を解決
+      ansible.builtin.set_fact:
+        homecluster_common_kernel_selector_change_required: >-
+          {{ homecluster_common_kernel_current_selectors != homecluster_common_kernel_applied_selectors }}
       changed_when: false
       no_log: true
 
@@ -182,6 +189,7 @@
       ansible.builtin.include_role:
         name: openwrt_gentoo_rootfs
         tasks_from: tftp_switch
+      when: homecluster_common_kernel_selector_change_required | bool
       tags:
         - pxe_tftp_switch
 
@@ -218,6 +226,7 @@
             | selectattr('name', 'in', homecluster_common_kernel_rollout_targets)
             | list
           }}
+      when: homecluster_common_kernel_selector_change_required | bool
       changed_when: false
       no_log: true
 
@@ -230,6 +239,7 @@
           - item.rootfs_release == homecluster_common_kernel_applied_selectors[item.name].rootfs_release
         fail_msg: live selector post-check entryを一意に解決できません
       loop: "{{ homecluster_common_kernel_live_selector_entries }}"
+      when: homecluster_common_kernel_selector_change_required | bool
       changed_when: false
       no_log: true
 
@@ -246,6 +256,7 @@
       loop: "{{ homecluster_common_kernel_live_selector_entries }}"
       loop_control:
         label: "{{ item.name }}"
+      when: homecluster_common_kernel_selector_change_required | bool
       changed_when: false
       no_log: true
 
@@ -257,7 +268,7 @@
           {{
             {
               'status': 'applied',
-              'reason': 'selector_applied',
+              'reason': ('selector_applied' if homecluster_common_kernel_selector_change_required | bool else 'selector_already_aligned'),
               'phase': homecluster_common_kernel_rollout_phase,
               'targets': homecluster_common_kernel_rollout_targets,
               'previous_selector_by_node': homecluster_common_kernel_current_selectors,
