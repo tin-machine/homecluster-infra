@@ -225,6 +225,7 @@
         release="{{ homecluster_common_kernel_gate_pxe_release_id }}"
         kernel_release="{{ hostvars[homecluster_common_kernel_builder_host].homecluster_common_kernel_gate_exact_release }}"
         expected_kernel_sha="{{ hostvars[homecluster_common_kernel_builder_host].homecluster_common_kernel_metadata.kernel_image_sha256 }}"
+        expected_dtb_sha="{{ hostvars[homecluster_common_kernel_builder_host].homecluster_common_kernel_metadata.device_tree_sha256 }}"
         rootfs="/srv/gentoo/${release}/nfs"
         tftp="/srv/gentoo/tftp-root/dates/${release}"
         artifact_payload="/srv/gentoo/rpi5-egpu-artifacts/${release}/payload"
@@ -291,6 +292,26 @@
         cmp -s "$artifact_payload/kernel8-nvidia.img" "$tftp/kernel8-nvidia.img"
         homecluster_check nvidia_kernel_sha256_matches_manifest
         test "$(sha256sum "$tftp/kernel8-nvidia.img" | awk '{print $1}')" = "$expected_kernel_sha"
+        homecluster_check pi5_default_kernel_present
+        test -f "$tftp/kernel_2712.img"
+        homecluster_check pi5_default_kernel_sha256_matches_manifest
+        test "$(sha256sum "$tftp/kernel_2712.img" | awk '{print $1}')" = "$expected_kernel_sha"
+        homecluster_check generic_dtb_payload_present
+        test -f "$artifact_payload/bcm2712-rpi-5-b-homecluster.dtb"
+        homecluster_check generic_dtb_tftp_present
+        test -f "$tftp/bcm2712-rpi-5-b.dtb"
+        homecluster_check generic_dtb_payload_identical
+        cmp -s "$artifact_payload/bcm2712-rpi-5-b-homecluster.dtb" "$tftp/bcm2712-rpi-5-b.dtb"
+        homecluster_check generic_dtb_sha256_matches_manifest
+        test "$(sha256sum "$tftp/bcm2712-rpi-5-b.dtb" | awk '{print $1}')" = "$expected_dtb_sha"
+        homecluster_check nvidia_dtb_payload_present
+        test -f "$artifact_payload/bcm2712-rpi-5-b-nvidia.dtb"
+        homecluster_check nvidia_dtb_tftp_present
+        test -f "$tftp/bcm2712-rpi-5-b-nvidia.dtb"
+        homecluster_check nvidia_dtb_payload_identical
+        cmp -s "$artifact_payload/bcm2712-rpi-5-b-nvidia.dtb" "$tftp/bcm2712-rpi-5-b-nvidia.dtb"
+        homecluster_check nvidia_dtb_sha256_matches_manifest
+        test "$(sha256sum "$tftp/bcm2712-rpi-5-b-nvidia.dtb" | awk '{print $1}')" = "$expected_dtb_sha"
         for image in initramfs-pxe-v8.img initramfs-pxe-v8-nvidia.img; do
           case "$image" in
             initramfs-pxe-v8.img) image_check_prefix="generic" ;;
