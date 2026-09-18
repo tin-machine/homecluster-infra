@@ -221,10 +221,11 @@ def main() -> int:
     require(release_build, "pxe_release_bundle_immutable_preflight.yml", "build-only immutable preflight")
     require(generation_entrypoint, "Pi5 common-kernel target release immutability preflight", "common-kernel pre-builder immutable preflight")
 
+    release_resolution_index = standard_staging.index("PXE host releaseをpre-build guard前にstage dateから解決")
     prebuild_guard_index = standard_staging.index("PXE release bundle staging pre-build host release guardを実行")
     build_index = standard_staging.index("PXE release bundle build と manifest 検証を実行")
-    if not prebuild_guard_index < build_index:
-        raise AssertionError("strict host release guard must run before staging build mutation")
+    if not release_resolution_index < prebuild_guard_index < build_index:
+        raise AssertionError("host release resolution and strict guard must run before staging build mutation")
     require(standard_staging, "openwrt_gentoo_release_bundle_require_artifacts: false", "pre-build non-publishing host guard")
     require(standard_staging, "openwrt_gentoo_release_bundle_manifest_enabled: false", "pre-build manifest write disabled")
 
