@@ -16,11 +16,144 @@
           - homecluster_common_kernel_accepted_generation_run_id | string is match('^[0-9]{8}T[0-9]{6}Z-[A-Za-z0-9._-]+$')
           - homecluster_common_kernel_exact_release | string is match('^.+-v8-homecluster\\+$')
           - homecluster_common_kernel_accepted_selector | string is match('^[0-9]{8}-rpi5$')
+          - >-
+            homecluster_common_kernel_rollout_phase == 'rollback_last_phase'
+            or (homecluster_common_kernel_accepted_kernel_artifact_id | default('', true) | string is match('^sha256:[0-9a-f]{64}$'))
+          - >-
+            homecluster_common_kernel_rollout_phase == 'rollback_last_phase'
+            or (homecluster_common_kernel_accepted_kernel_artifact_manifest_sha256 | default('', true) | string is match('^[0-9a-f]{64}$'))
+          - >-
+            homecluster_common_kernel_rollout_phase == 'rollback_last_phase'
+            or (homecluster_common_kernel_accepted_kernel_artifact_payload_sha256 | default('', true) | string is match('^[0-9a-f]{64}$'))
+          - >-
+            homecluster_common_kernel_rollout_phase == 'rollback_last_phase'
+            or (homecluster_common_kernel_accepted_pxe_release_manifest_sha256 | default('', true) | string is match('^[0-9a-f]{64}$'))
           - homecluster_common_kernel_rollback_selectors is mapping
         fail_msg: common-kernel rollout input contractが不正です
       changed_when: false
       no_log: true
 
+    - name: Pi5 common kernel accepted release identity pathを解決
+      ansible.builtin.set_fact:
+        homecluster_common_kernel_accepted_manifest_path: >-
+          {{ openwrt_gentoo_release_bundle_manifest_dir | default('/srv/gentoo/releases', true) }}/{{ homecluster_common_kernel_accepted_selector | regex_replace('-rpi5$', '') }}.json
+        homecluster_common_kernel_accepted_generic_kernel_path: >-
+          /srv/gentoo/tftp-root/dates/{{ homecluster_common_kernel_accepted_selector }}/kernel8.img
+        homecluster_common_kernel_accepted_published_payload_path: >-
+          /srv/gentoo/rpi5-egpu-artifacts/{{ homecluster_common_kernel_accepted_selector }}/payload/kernel8-homecluster.img
+        homecluster_common_kernel_accepted_pi5_default_kernel_path: >-
+          /srv/gentoo/tftp-root/dates/{{ homecluster_common_kernel_accepted_selector }}/kernel_2712.img
+        homecluster_common_kernel_accepted_nvidia_kernel_path: >-
+          /srv/gentoo/tftp-root/dates/{{ homecluster_common_kernel_accepted_selector }}/kernel8-nvidia.img
+        homecluster_common_kernel_accepted_nvidia_payload_path: >-
+          /srv/gentoo/rpi5-egpu-artifacts/{{ homecluster_common_kernel_accepted_selector }}/payload/kernel8-nvidia.img
+        homecluster_common_kernel_accepted_generic_dtb_path: >-
+          /srv/gentoo/tftp-root/dates/{{ homecluster_common_kernel_accepted_selector }}/bcm2712-rpi-5-b.dtb
+        homecluster_common_kernel_accepted_generic_dtb_payload_path: >-
+          /srv/gentoo/rpi5-egpu-artifacts/{{ homecluster_common_kernel_accepted_selector }}/payload/bcm2712-rpi-5-b-homecluster.dtb
+        homecluster_common_kernel_accepted_nvidia_dtb_path: >-
+          /srv/gentoo/tftp-root/dates/{{ homecluster_common_kernel_accepted_selector }}/bcm2712-rpi-5-b-nvidia.dtb
+        homecluster_common_kernel_accepted_nvidia_dtb_payload_path: >-
+          /srv/gentoo/rpi5-egpu-artifacts/{{ homecluster_common_kernel_accepted_selector }}/payload/bcm2712-rpi-5-b-nvidia.dtb
+        homecluster_common_kernel_accepted_module_tree_path: >-
+          /srv/gentoo/{{ homecluster_common_kernel_accepted_selector }}/nfs/lib/modules/{{ homecluster_common_kernel_exact_release }}
+      when: homecluster_common_kernel_rollout_phase != 'rollback_last_phase'
+      changed_when: false
+      no_log: true
+
+    - name: Pi5 common kernel accepted PXE manifest identityを取得
+      ansible.builtin.stat:
+        path: "{{ homecluster_common_kernel_accepted_manifest_path }}"
+        checksum_algorithm: sha256
+        get_attributes: false
+        get_mime: false
+      register: homecluster_common_kernel_accepted_manifest_stat
+      when: homecluster_common_kernel_rollout_phase != 'rollback_last_phase'
+      changed_when: false
+      no_log: true
+
+    - name: Pi5 common kernel accepted PXE manifest driftを拒否
+      ansible.builtin.assert:
+        that:
+          - homecluster_common_kernel_accepted_manifest_stat.stat.isreg | default(false)
+          - homecluster_common_kernel_accepted_manifest_stat.stat.checksum | default('') == homecluster_common_kernel_accepted_pxe_release_manifest_sha256
+        fail_msg: accepted PXE manifestのcontent identityが変化しています。selector mutation前にartifact driftを調査してください。
+      when: homecluster_common_kernel_rollout_phase != 'rollback_last_phase'
+      changed_when: false
+      no_log: true
+
+    - name: Pi5 common kernel accepted PXE manifestを読み込む
+      ansible.builtin.slurp:
+        src: "{{ homecluster_common_kernel_accepted_manifest_path }}"
+      register: homecluster_common_kernel_accepted_manifest_content
+      when: homecluster_common_kernel_rollout_phase != 'rollback_last_phase'
+      changed_when: false
+      no_log: true
+
+    - name: Pi5 common kernel accepted PXE manifest metadataを解決
+      ansible.builtin.set_fact:
+        homecluster_common_kernel_accepted_live_manifest: >-
+          {{ homecluster_common_kernel_accepted_manifest_content.content | b64decode | from_json }}
+      when: homecluster_common_kernel_rollout_phase != 'rollback_last_phase'
+      changed_when: false
+      no_log: true
+
+    - name: Pi5 common kernel accepted boot-critical artifact identityを取得
+      ansible.builtin.stat:
+        path: "{{ item }}"
+        checksum_algorithm: sha256
+        get_attributes: false
+        get_mime: false
+      loop:
+        - "{{ homecluster_common_kernel_accepted_generic_kernel_path }}"
+        - "{{ homecluster_common_kernel_accepted_published_payload_path }}"
+        - "{{ homecluster_common_kernel_accepted_pi5_default_kernel_path }}"
+        - "{{ homecluster_common_kernel_accepted_nvidia_kernel_path }}"
+        - "{{ homecluster_common_kernel_accepted_nvidia_payload_path }}"
+        - "{{ homecluster_common_kernel_accepted_generic_dtb_path }}"
+        - "{{ homecluster_common_kernel_accepted_generic_dtb_payload_path }}"
+        - "{{ homecluster_common_kernel_accepted_nvidia_dtb_path }}"
+        - "{{ homecluster_common_kernel_accepted_nvidia_dtb_payload_path }}"
+        - "{{ homecluster_common_kernel_accepted_module_tree_path }}"
+      register: homecluster_common_kernel_accepted_boot_artifact_stats
+      when: homecluster_common_kernel_rollout_phase != 'rollback_last_phase'
+      changed_when: false
+      no_log: true
+
+    - name: Pi5 common kernel accepted content identityを検証
+      ansible.builtin.assert:
+        that:
+          - homecluster_common_kernel_accepted_live_manifest.schema | int == 1
+          - homecluster_common_kernel_accepted_live_manifest.releases.rpi5 | default('') == homecluster_common_kernel_accepted_selector
+          - homecluster_common_kernel_accepted_live_manifest.metadata.rpi5_nvidia.kernel_release | default('') == homecluster_common_kernel_exact_release
+          - homecluster_common_kernel_accepted_live_manifest.metadata.rpi5_nvidia.common_kernel_artifact.id | default('') == homecluster_common_kernel_accepted_kernel_artifact_id
+          - homecluster_common_kernel_accepted_live_manifest.metadata.rpi5_nvidia.common_kernel_artifact.manifest_sha256 | default('') == homecluster_common_kernel_accepted_kernel_artifact_manifest_sha256
+          - homecluster_common_kernel_accepted_live_manifest.metadata.rpi5_nvidia.common_kernel_artifact.payload_sha256 | default('') == homecluster_common_kernel_accepted_kernel_artifact_payload_sha256
+          - homecluster_common_kernel_accepted_live_manifest.metadata.rpi5_nvidia.kernel_image_sha256 | default('', true) | string is match('^[0-9a-f]{64}$')
+          - homecluster_common_kernel_accepted_live_manifest.metadata.rpi5_nvidia.device_tree_sha256 | default('', true) | string is match('^[0-9a-f]{64}$')
+          - homecluster_common_kernel_accepted_boot_artifact_stats.results[0].stat.isreg | default(false)
+          - homecluster_common_kernel_accepted_boot_artifact_stats.results[0].stat.checksum | default('') == homecluster_common_kernel_accepted_live_manifest.metadata.rpi5_nvidia.kernel_image_sha256
+          - homecluster_common_kernel_accepted_boot_artifact_stats.results[1].stat.isreg | default(false)
+          - homecluster_common_kernel_accepted_boot_artifact_stats.results[1].stat.checksum | default('') == homecluster_common_kernel_accepted_live_manifest.metadata.rpi5_nvidia.kernel_image_sha256
+          - homecluster_common_kernel_accepted_boot_artifact_stats.results[2].stat.isreg | default(false)
+          - homecluster_common_kernel_accepted_boot_artifact_stats.results[2].stat.checksum | default('') == homecluster_common_kernel_accepted_live_manifest.metadata.rpi5_nvidia.kernel_image_sha256
+          - homecluster_common_kernel_accepted_boot_artifact_stats.results[3].stat.isreg | default(false)
+          - homecluster_common_kernel_accepted_boot_artifact_stats.results[3].stat.checksum | default('') == homecluster_common_kernel_accepted_live_manifest.metadata.rpi5_nvidia.kernel_image_sha256
+          - homecluster_common_kernel_accepted_boot_artifact_stats.results[4].stat.isreg | default(false)
+          - homecluster_common_kernel_accepted_boot_artifact_stats.results[4].stat.checksum | default('') == homecluster_common_kernel_accepted_live_manifest.metadata.rpi5_nvidia.kernel_image_sha256
+          - homecluster_common_kernel_accepted_boot_artifact_stats.results[5].stat.isreg | default(false)
+          - homecluster_common_kernel_accepted_boot_artifact_stats.results[5].stat.checksum | default('') == homecluster_common_kernel_accepted_live_manifest.metadata.rpi5_nvidia.device_tree_sha256
+          - homecluster_common_kernel_accepted_boot_artifact_stats.results[6].stat.isreg | default(false)
+          - homecluster_common_kernel_accepted_boot_artifact_stats.results[6].stat.checksum | default('') == homecluster_common_kernel_accepted_live_manifest.metadata.rpi5_nvidia.device_tree_sha256
+          - homecluster_common_kernel_accepted_boot_artifact_stats.results[7].stat.isreg | default(false)
+          - homecluster_common_kernel_accepted_boot_artifact_stats.results[7].stat.checksum | default('') == homecluster_common_kernel_accepted_live_manifest.metadata.rpi5_nvidia.device_tree_sha256
+          - homecluster_common_kernel_accepted_boot_artifact_stats.results[8].stat.isreg | default(false)
+          - homecluster_common_kernel_accepted_boot_artifact_stats.results[8].stat.checksum | default('') == homecluster_common_kernel_accepted_live_manifest.metadata.rpi5_nvidia.device_tree_sha256
+          - homecluster_common_kernel_accepted_boot_artifact_stats.results[9].stat.isdir | default(false)
+        fail_msg: accepted common-kernel boot artifact identityが変化しています。selector mutation前にartifact driftを調査してください。
+      when: homecluster_common_kernel_rollout_phase != 'rollback_last_phase'
+      changed_when: false
+      no_log: true
     - name: Pi5 common kernel current PXE releaseをstage dateから解決
       ansible.builtin.include_role:
         name: openwrt_gentoo_rootfs

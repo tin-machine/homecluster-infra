@@ -1,4 +1,32 @@
 ---
+- name: Pi5 common-kernel target release immutability preflight
+  hosts: openwrt
+  gather_facts: false
+  become: false
+  vars_files:
+    - ../group_vars/openwrt.yml
+  vars:
+    pxe_release_bundle_stage: stg
+  tasks:
+    - name: Pi5 common-kernel target stage dateを検証
+      ansible.builtin.assert:
+        that:
+          - (openwrt_gentoo_release_bundle_stage_dates | default({})) is mapping
+          - pxe_release_bundle_stage in (openwrt_gentoo_release_bundle_stage_dates | default({}))
+          - ((openwrt_gentoo_release_bundle_stage_dates | default({}))[pxe_release_bundle_stage] | default('', true) | string | trim) is match('^[0-9]{8}$')
+        fail_msg: common-kernel target release dateが不正です
+      changed_when: false
+
+    - name: Pi5 common-kernel target既存releaseの再buildをpreflight
+      ansible.builtin.import_tasks: tasks/pxe_release_bundle_immutable_preflight.yml
+      vars:
+        pxe_release_bundle_immutable_date: >-
+          {{
+            openwrt_gentoo_release_bundle_stage_dates[pxe_release_bundle_stage]
+            | string
+            | trim
+          }}
+
 - ansible.builtin.import_playbook: ../../arm64/playbooks/rpi5-egpu-nvidia-artifact-bundle.yml
 
 - name: Pi5 common-kernel artifact contractをOpenWrt buildへ転送

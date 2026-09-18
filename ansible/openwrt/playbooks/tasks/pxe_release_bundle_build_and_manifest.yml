@@ -332,8 +332,12 @@
   loop:
     - src: kernel8-homecluster.img
       dest: kernel8.img
+    - src: kernel8-homecluster.img
+      dest: kernel_2712.img
     - src: kernel8-nvidia.img
       dest: kernel8-nvidia.img
+    - src: bcm2712-rpi-5-b-homecluster.dtb
+      dest: bcm2712-rpi-5-b.dtb
     - src: bcm2712-rpi-5-b-nvidia.dtb
       dest: bcm2712-rpi-5-b-nvidia.dtb
   when:
@@ -352,6 +356,13 @@
   loop:
     - "{{ openwrt_rpi5_egpu_generation_artifact_openwrt_dir }}/{{ pxe_release_bundle_rpi5_items[0].release }}/payload/kernel8-homecluster.img"
     - "/srv/gentoo/tftp-root/dates/{{ pxe_release_bundle_rpi5_items[0].release }}/kernel8.img"
+    - "/srv/gentoo/tftp-root/dates/{{ pxe_release_bundle_rpi5_items[0].release }}/kernel_2712.img"
+    - "{{ openwrt_rpi5_egpu_generation_artifact_openwrt_dir }}/{{ pxe_release_bundle_rpi5_items[0].release }}/payload/kernel8-nvidia.img"
+    - "/srv/gentoo/tftp-root/dates/{{ pxe_release_bundle_rpi5_items[0].release }}/kernel8-nvidia.img"
+    - "{{ openwrt_rpi5_egpu_generation_artifact_openwrt_dir }}/{{ pxe_release_bundle_rpi5_items[0].release }}/payload/bcm2712-rpi-5-b-homecluster.dtb"
+    - "/srv/gentoo/tftp-root/dates/{{ pxe_release_bundle_rpi5_items[0].release }}/bcm2712-rpi-5-b.dtb"
+    - "{{ openwrt_rpi5_egpu_generation_artifact_openwrt_dir }}/{{ pxe_release_bundle_rpi5_items[0].release }}/payload/bcm2712-rpi-5-b-nvidia.dtb"
+    - "/srv/gentoo/tftp-root/dates/{{ pxe_release_bundle_rpi5_items[0].release }}/bcm2712-rpi-5-b-nvidia.dtb"
   register: pxe_rpi5_common_kernel_publish_stats
   changed_when: false
   when:
@@ -364,11 +375,15 @@
 - name: rpi5 common kernel atomic publish identityを検証
   ansible.builtin.assert:
     that:
+      - pxe_rpi5_common_kernel_publish_stats.results | length == 9
       - pxe_rpi5_common_kernel_publish_stats.results[0].stat.isreg | default(false)
-      - pxe_rpi5_common_kernel_publish_stats.results[1].stat.isreg | default(false)
       - pxe_rpi5_common_kernel_publish_stats.results[0].stat.checksum | default('') | string is match('^[0-9a-f]{64}$')
       - pxe_rpi5_common_kernel_publish_stats.results[0].stat.checksum == pxe_rpi5_common_kernel_publish_stats.results[1].stat.checksum
-    fail_msg: kernel8-homecluster.imgからkernel8.imgへのatomic publish identityが一致しません
+      - pxe_rpi5_common_kernel_publish_stats.results[0].stat.checksum == pxe_rpi5_common_kernel_publish_stats.results[2].stat.checksum
+      - pxe_rpi5_common_kernel_publish_stats.results[3].stat.checksum == pxe_rpi5_common_kernel_publish_stats.results[4].stat.checksum
+      - pxe_rpi5_common_kernel_publish_stats.results[5].stat.checksum == pxe_rpi5_common_kernel_publish_stats.results[6].stat.checksum
+      - pxe_rpi5_common_kernel_publish_stats.results[7].stat.checksum == pxe_rpi5_common_kernel_publish_stats.results[8].stat.checksum
+    fail_msg: common-kernel kernel / DTBのpublish identityが一致しません
   changed_when: false
   when:
     - openwrt_rpi5_egpu_generation_enabled | default(false) | bool

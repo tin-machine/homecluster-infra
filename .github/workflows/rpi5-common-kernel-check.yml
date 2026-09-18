@@ -7,6 +7,9 @@ on:
       - 'ansible/arm64/roles/rpi5_common_kernel_build/**'
       - 'ansible/arm64/roles/rpi5_egpu_nvidia_artifact_bundle/**'
       - 'ansible/openwrt/playbooks/pxe-release-bundle-staging-with-common-kernel.yml'
+      - 'ansible/openwrt/playbooks/pxe-release-bundle-staging.yml'
+      - 'ansible/openwrt/playbooks/pxe-release-bundle-build.yml'
+      - 'ansible/openwrt/playbooks/tasks/pxe_release_bundle_immutable_preflight.yml'
       - 'ansible/openwrt/playbooks/rpi5-common-kernel-*.yml'
       - 'ansible/openwrt/roles/openwrt_rpi5_egpu_runtime_repair/**'
       - 'scripts/pi-rpi5-common-kernel-*'
@@ -24,6 +27,9 @@ on:
       - 'ansible/arm64/roles/rpi5_common_kernel_build/**'
       - 'ansible/arm64/roles/rpi5_egpu_nvidia_artifact_bundle/**'
       - 'ansible/openwrt/playbooks/pxe-release-bundle-staging-with-common-kernel.yml'
+      - 'ansible/openwrt/playbooks/pxe-release-bundle-staging.yml'
+      - 'ansible/openwrt/playbooks/pxe-release-bundle-build.yml'
+      - 'ansible/openwrt/playbooks/tasks/pxe_release_bundle_immutable_preflight.yml'
       - 'ansible/openwrt/playbooks/rpi5-common-kernel-*.yml'
       - 'ansible/openwrt/roles/openwrt_rpi5_egpu_runtime_repair/**'
       - 'scripts/pi-rpi5-common-kernel-*'
@@ -73,6 +79,9 @@ jobs:
       - name: Check fixed Pi5 common kernel playbook syntax
         working-directory: ansible/openwrt
         run: |
+          ansible-playbook playbooks/pxe-release-bundle-staging-with-common-kernel.yml --syntax-check
+          ansible-playbook playbooks/pxe-release-bundle-staging.yml --syntax-check
+          ansible-playbook playbooks/pxe-release-bundle-build.yml --syntax-check
           ansible-playbook playbooks/rpi5-common-kernel-precheck.yml --syntax-check
           ansible-playbook playbooks/rpi5-common-kernel-gate.yml --syntax-check
           ansible-playbook playbooks/rpi5-common-kernel-rollout.yml --syntax-check
