@@ -283,6 +283,14 @@
         cmp -s "$artifact_payload/kernel8-homecluster.img" "$tftp/kernel8.img"
         homecluster_check generic_kernel_sha256_matches_manifest
         test "$(sha256sum "$tftp/kernel8.img" | awk '{print $1}')" = "$expected_kernel_sha"
+        homecluster_check nvidia_kernel_payload_present
+        test -f "$artifact_payload/kernel8-nvidia.img"
+        homecluster_check nvidia_kernel_tftp_present
+        test -f "$tftp/kernel8-nvidia.img"
+        homecluster_check nvidia_kernel_payload_identical
+        cmp -s "$artifact_payload/kernel8-nvidia.img" "$tftp/kernel8-nvidia.img"
+        homecluster_check nvidia_kernel_sha256_matches_manifest
+        test "$(sha256sum "$tftp/kernel8-nvidia.img" | awk '{print $1}')" = "$expected_kernel_sha"
         for image in initramfs-pxe-v8.img initramfs-pxe-v8-nvidia.img; do
           case "$image" in
             initramfs-pxe-v8.img) image_check_prefix="generic" ;;
