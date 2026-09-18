@@ -579,6 +579,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                     "homecluster_common_kernel_accepted_generation_run_id": accepted["generation_run_id"],
                     "homecluster_common_kernel_exact_release": accepted["exact_kernel_release"],
                     "homecluster_common_kernel_accepted_selector": accepted["pxe_candidate_selector"],
+                    "homecluster_common_kernel_accepted_kernel_artifact_id": accepted.get("kernel_artifact_id", ""),
+                    "homecluster_common_kernel_accepted_kernel_artifact_manifest_sha256": accepted.get("kernel_artifact_manifest_sha256", ""),
+                    "homecluster_common_kernel_accepted_kernel_artifact_payload_sha256": accepted.get("kernel_artifact_payload_sha256", ""),
+                    "homecluster_common_kernel_accepted_pxe_release_manifest_sha256": accepted.get("pxe_release_manifest_sha256", ""),
                     "homecluster_common_kernel_rollback_selectors": rollback_selectors,
                 }
                 selector_apply = run(
