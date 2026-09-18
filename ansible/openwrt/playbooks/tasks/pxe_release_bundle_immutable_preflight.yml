@@ -3,14 +3,14 @@
   ansible.builtin.assert:
     that:
       - pxe_release_bundle_immutable_date | string is match('^[0-9]{8}$')
-      - openwrt_gentoo_release_bundle_manifest_dir | default('', true) | string | trim | length > 0
+      - (openwrt_gentoo_release_bundle_manifest_dir | default('/srv/gentoo/releases', true) | string | trim | length) > 0
     fail_msg: immutable release preflightの入力が不正です
   changed_when: false
 
 - name: PXE release bundle既存manifestを確認
   ansible.builtin.raw: |
     set -eu
-    manifest="{{ openwrt_gentoo_release_bundle_manifest_dir }}/{{ pxe_release_bundle_immutable_date }}.json"
+    manifest="{{ openwrt_gentoo_release_bundle_manifest_dir | default('/srv/gentoo/releases', true) }}/{{ pxe_release_bundle_immutable_date }}.json"
     if [ -e "$manifest" ]; then
       printf '%s\n' "release_already_materialized"
       exit 42
