@@ -10,6 +10,8 @@ on:
       - 'ansible/openwrt/playbooks/pxe-release-bundle-staging.yml'
       - 'ansible/openwrt/playbooks/pxe-release-bundle-build.yml'
       - 'ansible/openwrt/playbooks/tasks/pxe_release_bundle_immutable_preflight.yml'
+      - 'ansible/openwrt/playbooks/tasks/rpi5_common_kernel_live_selectors.yml'
+      - 'ansible/openwrt/playbooks/tasks/rpi5_common_kernel_live_selectors.yml'
       - 'ansible/openwrt/playbooks/rpi5-common-kernel-*.yml'
       - 'ansible/openwrt/roles/openwrt_rpi5_egpu_runtime_repair/**'
       - 'scripts/pi-rpi5-common-kernel-*'
