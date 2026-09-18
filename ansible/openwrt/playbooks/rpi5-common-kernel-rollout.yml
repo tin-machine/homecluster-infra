@@ -41,6 +41,10 @@
           /srv/gentoo/tftp-root/dates/{{ homecluster_common_kernel_accepted_selector }}/kernel8.img
         homecluster_common_kernel_accepted_published_payload_path: >-
           /srv/gentoo/rpi5-egpu-artifacts/{{ homecluster_common_kernel_accepted_selector }}/payload/kernel8-homecluster.img
+        homecluster_common_kernel_accepted_nvidia_kernel_path: >-
+          /srv/gentoo/tftp-root/dates/{{ homecluster_common_kernel_accepted_selector }}/kernel8-nvidia.img
+        homecluster_common_kernel_accepted_nvidia_payload_path: >-
+          /srv/gentoo/rpi5-egpu-artifacts/{{ homecluster_common_kernel_accepted_selector }}/payload/kernel8-nvidia.img
         homecluster_common_kernel_accepted_module_tree_path: >-
           /srv/gentoo/{{ homecluster_common_kernel_accepted_selector }}/nfs/lib/modules/{{ homecluster_common_kernel_exact_release }}
       when: homecluster_common_kernel_rollout_phase != 'rollback_last_phase'
@@ -93,6 +97,8 @@
       loop:
         - "{{ homecluster_common_kernel_accepted_generic_kernel_path }}"
         - "{{ homecluster_common_kernel_accepted_published_payload_path }}"
+        - "{{ homecluster_common_kernel_accepted_nvidia_kernel_path }}"
+        - "{{ homecluster_common_kernel_accepted_nvidia_payload_path }}"
         - "{{ homecluster_common_kernel_accepted_module_tree_path }}"
       register: homecluster_common_kernel_accepted_boot_artifact_stats
       when: homecluster_common_kernel_rollout_phase != 'rollback_last_phase'
@@ -113,7 +119,11 @@
           - homecluster_common_kernel_accepted_boot_artifact_stats.results[0].stat.checksum | default('') == homecluster_common_kernel_accepted_live_manifest.metadata.rpi5_nvidia.kernel_image_sha256
           - homecluster_common_kernel_accepted_boot_artifact_stats.results[1].stat.isreg | default(false)
           - homecluster_common_kernel_accepted_boot_artifact_stats.results[1].stat.checksum | default('') == homecluster_common_kernel_accepted_live_manifest.metadata.rpi5_nvidia.kernel_image_sha256
-          - homecluster_common_kernel_accepted_boot_artifact_stats.results[2].stat.isdir | default(false)
+          - homecluster_common_kernel_accepted_boot_artifact_stats.results[2].stat.isreg | default(false)
+          - homecluster_common_kernel_accepted_boot_artifact_stats.results[2].stat.checksum | default('') == homecluster_common_kernel_accepted_live_manifest.metadata.rpi5_nvidia.kernel_image_sha256
+          - homecluster_common_kernel_accepted_boot_artifact_stats.results[3].stat.isreg | default(false)
+          - homecluster_common_kernel_accepted_boot_artifact_stats.results[3].stat.checksum | default('') == homecluster_common_kernel_accepted_live_manifest.metadata.rpi5_nvidia.kernel_image_sha256
+          - homecluster_common_kernel_accepted_boot_artifact_stats.results[4].stat.isdir | default(false)
         fail_msg: accepted common-kernel boot artifact identityが変化しています。selector mutation前にartifact driftを調査してください。
       when: homecluster_common_kernel_rollout_phase != 'rollback_last_phase'
       changed_when: false
