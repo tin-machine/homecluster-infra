@@ -36,6 +36,11 @@
           pxe_release_bundle_date is not defined
           or (pxe_release_bundle_date | string | trim | length) == 0
 
+    - name: PXE release bundle staging既存releaseの再buildをpreflight
+      ansible.builtin.import_tasks: tasks/pxe_release_bundle_immutable_preflight.yml
+      vars:
+        pxe_release_bundle_immutable_date: "{{ pxe_release_bundle_date | string | trim }}"
+
     - name: PXE release bundle staging 入力を準備
       ansible.builtin.import_tasks: tasks/pxe_release_bundle_prepare.yml
 
@@ -168,6 +173,25 @@
       tags:
         - pxe_release_bundle
         - pxe_release_bundle_build
+
+    - name: PXE release bundle staging pre-build host release guardを実行
+      ansible.builtin.include_role:
+        name: openwrt_gentoo_rootfs
+        tasks_from: release_bundle
+      vars:
+        openwrt_gentoo_release_bundle_enabled: true
+        openwrt_gentoo_release_bundle_date: "{{ pxe_release_bundle_effective_date }}"
+        openwrt_gentoo_release_bundle_generations: "{{ pxe_release_bundle_effective_generations }}"
+        openwrt_gentoo_release_bundle_policy: paired_clean
+        openwrt_gentoo_release_bundle_strict_hosts: true
+        openwrt_gentoo_release_bundle_require_artifacts: false
+        openwrt_gentoo_release_bundle_manifest_enabled: false
+        openwrt_gentoo_release_bundle_target_stages:
+          - "{{ pxe_release_bundle_stage }}"
+      tags:
+        - pxe_release_bundle
+        - pxe_release_bundle_build
+
 
   tasks:
     - name: PXE release bundle build と manifest 検証を実行
