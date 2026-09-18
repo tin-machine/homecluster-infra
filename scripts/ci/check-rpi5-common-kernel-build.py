@@ -57,8 +57,13 @@ def main() -> int:
     repair_preflight = read(REPAIR_ROLE / "tasks/preflight.yml")
     bundle_playbook = read(ROOT / "ansible/arm64/playbooks/rpi5-egpu-nvidia-artifact-bundle.yml")
     generation_entrypoint = read(ROOT / "ansible/openwrt/playbooks/pxe-release-bundle-staging-with-common-kernel.yml")
+    standard_staging = read(ROOT / "ansible/openwrt/playbooks/pxe-release-bundle-staging.yml")
+    release_build = read(ROOT / "ansible/openwrt/playbooks/pxe-release-bundle-build.yml")
+    immutable_preflight = read(ROOT / "ansible/openwrt/playbooks/tasks/pxe_release_bundle_immutable_preflight.yml")
     precheck = read(ROOT / "ansible/openwrt/playbooks/rpi5-common-kernel-precheck.yml")
     gate = read(ROOT / "ansible/openwrt/playbooks/rpi5-common-kernel-gate.yml")
+    rollout_playbook = read(ROOT / "ansible/openwrt/playbooks/rpi5-common-kernel-rollout.yml")
+    rollout_legacy = read(ROOT / "scripts/pi-rpi5-common-kernel-rollout-legacy")
     publish_tasks = read(ROOT / "ansible/openwrt/playbooks/tasks/pxe_release_bundle_build_and_manifest.yml")
     rootfs_tasks = read(ROOT / "ansible/openwrt/roles/openwrt_gentoo_rootfs/tasks/portage_chroot.yml")
 
@@ -208,6 +213,38 @@ def main() -> int:
     require(gate, "generic_kernel_payload_identical", "published generic kernel payload identity gate")
     require(gate, "generic_kernel_sha256_matches_manifest", "published generic kernel manifest hash gate")
     require(gate, "homecluster_common_kernel_metadata.kernel_image_sha256", "accepted kernel hash source")
+
+    require(immutable_preflight, "release_already_materialized", "immutable release existing-manifest signal")
+    require(immutable_preflight, "exit 42", "immutable release fail-closed probe")
+    require(immutable_preflight, "既にmanifestを持つため再buildできません", "immutable release operator error")
+    require(standard_staging, "pxe_release_bundle_immutable_preflight.yml", "standard staging immutable preflight")
+    require(release_build, "pxe_release_bundle_immutable_preflight.yml", "build-only immutable preflight")
+    require(generation_entrypoint, "Pi5 common-kernel target release immutability preflight", "common-kernel pre-builder immutable preflight")
+
+    prebuild_guard_index = standard_staging.index("PXE release bundle staging pre-build host release guardを実行")
+    build_index = standard_staging.index("PXE release bundle build と manifest 検証を実行")
+    if not prebuild_guard_index < build_index:
+        raise AssertionError("strict host release guard must run before staging build mutation")
+    require(standard_staging, "openwrt_gentoo_release_bundle_require_artifacts: false", "pre-build non-publishing host guard")
+    require(standard_staging, "openwrt_gentoo_release_bundle_manifest_enabled: false", "pre-build manifest write disabled")
+
+    for field in (
+        "homecluster_common_kernel_accepted_kernel_artifact_id",
+        "homecluster_common_kernel_accepted_kernel_artifact_manifest_sha256",
+        "homecluster_common_kernel_accepted_kernel_artifact_payload_sha256",
+        "homecluster_common_kernel_accepted_pxe_release_manifest_sha256",
+    ):
+        require(rollout_legacy, field, f"accepted identity forwarding {field}")
+        require(rollout_playbook, field, f"accepted identity rollout input {field}")
+    require(rollout_playbook, "accepted PXE manifest driftを拒否", "accepted manifest drift gate")
+    require(rollout_playbook, "homecluster_common_kernel_accepted_manifest_stat.stat.checksum", "live accepted manifest checksum")
+    require(rollout_playbook, "homecluster_common_kernel_accepted_live_manifest.metadata.rpi5_nvidia.kernel_image_sha256", "manifest-pinned generic kernel hash")
+    require(rollout_playbook, "homecluster_common_kernel_accepted_boot_artifact_stats.results[2].stat.isdir", "accepted exact module tree gate")
+    manifest_gate_index = rollout_playbook.index("accepted PXE manifest driftを拒否")
+    selector_plan_index = rollout_playbook.index("rollback可能なpre-mutation planをcontrollerへ保存")
+    selector_apply_index = rollout_playbook.index("fixed PXE selectorを適用")
+    if not manifest_gate_index < selector_plan_index < selector_apply_index:
+        raise AssertionError("accepted content identity must be verified before selector mutation planning/apply")
 
     print("rpi5 common kernel build contract ok")
     return 0
