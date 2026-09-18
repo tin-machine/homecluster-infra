@@ -14,6 +14,12 @@
     - name: PXE release bundle build 入力を準備
       ansible.builtin.import_tasks: tasks/pxe_release_bundle_prepare.yml
 
+    - name: PXE release bundle build既存releaseの再buildをpreflight
+      ansible.builtin.import_tasks: tasks/pxe_release_bundle_immutable_preflight.yml
+      vars:
+        pxe_release_bundle_immutable_date: "{{ pxe_release_bundle_effective_date }}"
+
+
   tasks:
     - name: PXE release bundle build と manifest 検証を実行
       ansible.builtin.import_tasks: tasks/pxe_release_bundle_build_and_manifest.yml
