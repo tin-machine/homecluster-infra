@@ -154,27 +154,14 @@
       when: homecluster_common_kernel_rollout_phase != 'rollback_last_phase'
       changed_when: false
       no_log: true
-    - name: Pi5 common kernel current PXE releaseをstage dateから解決
-      ansible.builtin.include_role:
-        name: openwrt_gentoo_rootfs
-        tasks_from: pxe_host_releases
-      tags:
-        - always
+    - name: Pi5 common kernel live selector snapshotを取得
+      ansible.builtin.import_tasks: tasks/rpi5_common_kernel_live_selectors.yml
+      vars:
+        homecluster_common_kernel_live_selector_targets: "{{ homecluster_common_kernel_rollout_targets }}"
 
-    - name: Pi5 common kernel target current selectorを解決
+    - name: Pi5 common kernel target current selectorをlive snapshotから設定
       ansible.builtin.set_fact:
-        homecluster_common_kernel_current_selectors: >-
-          {%- set result = {} -%}
-          {%- for item in openwrt_pxe_hosts_effective | default([]) -%}
-          {%- set name = item.name | default('', true) | string | trim -%}
-          {%- if name in homecluster_common_kernel_rollout_targets -%}
-          {%- set _ = result.update({name: {
-            'tftp_release': item.tftp_release | default('', true) | string | trim,
-            'rootfs_release': item.rootfs_release | default(item.tftp_release | default('', true), true) | string | trim
-          }}) -%}
-          {%- endif -%}
-          {%- endfor -%}
-          {{ result }}
+        homecluster_common_kernel_current_selectors: "{{ homecluster_common_kernel_live_selectors }}"
       changed_when: false
       no_log: true
 
