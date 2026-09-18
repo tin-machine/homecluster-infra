@@ -36,7 +36,7 @@
     - name: Pi5 common kernel accepted release identity pathを解決
       ansible.builtin.set_fact:
         homecluster_common_kernel_accepted_manifest_path: >-
-          {{ openwrt_gentoo_release_bundle_manifest_dir }}/{{ homecluster_common_kernel_accepted_selector | regex_replace('-rpi5$', '') }}.json
+          {{ openwrt_gentoo_release_bundle_manifest_dir | default('/srv/gentoo/releases', true) }}/{{ homecluster_common_kernel_accepted_selector | regex_replace('-rpi5$', '') }}.json
         homecluster_common_kernel_accepted_generic_kernel_path: >-
           /srv/gentoo/tftp-root/dates/{{ homecluster_common_kernel_accepted_selector }}/kernel8.img
         homecluster_common_kernel_accepted_published_payload_path: >-
