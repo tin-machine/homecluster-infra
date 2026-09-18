@@ -61,6 +61,13 @@
       tags:
         - pxe_release_bundle
         - pxe_release_bundle_build
+    - name: PXE host releaseをpre-build guard前にstage dateから解決
+      ansible.builtin.include_role:
+        name: openwrt_gentoo_rootfs
+        tasks_from: pxe_host_releases
+      tags:
+        - pxe_release_bundle
+        - pxe_release_bundle_build
 
     - name: rpi5 eGPU NVIDIA TFTP artifact requirement を判定
       ansible.builtin.set_fact:
