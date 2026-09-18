@@ -11,7 +11,6 @@
 - name: Pi5 common kernel live selector用PXE client catalogを合成
   ansible.builtin.include_role:
     name: openwrt_pxe_client_catalog
-  changed_when: false
 
 - name: Pi5 common kernel live selector target entryを解決
   ansible.builtin.set_fact:
