@@ -10,6 +10,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 INSPECT = HERE / "pi-rpi5-common-kernel-inspect"
 SELECTOR_PLAYBOOK = HERE.parent / "ansible/openwrt/playbooks/rpi5-common-kernel-selector-inspect.yml"
+LIVE_SELECTOR_TASK = HERE.parent / "ansible/openwrt/playbooks/tasks/rpi5_common_kernel_live_selectors.yml"
 
 loader = importlib.machinery.SourceFileLoader("pi_rpi5_common_kernel_inspect_test", str(INSPECT))
 spec = importlib.util.spec_from_loader(loader.name, loader)
@@ -204,11 +205,21 @@ class ReadOnlyBoundaryTests(unittest.TestCase):
 
     def test_selector_playbook_is_read_only(self) -> None:
         source = SELECTOR_PLAYBOOK.read_text(encoding="utf-8")
-        self.assertIn("tasks_from: pxe_host_releases", source)
+        live_source = LIVE_SELECTOR_TASK.read_text(encoding="utf-8")
+        self.assertIn("rpi5_common_kernel_live_selectors.yml", source)
         self.assertIn("selector_inspection_complete", source)
-        self.assertNotIn("tasks_from: tftp_switch", source)
-        self.assertNotIn("openwrt_pxe_hosts_effective_override", source)
-        self.assertNotIn("homecluster_common_kernel_selector_change_required", source)
+        self.assertIn("readlink", live_source)
+        self.assertIn("cmdline.txt", live_source)
+        self.assertIn("openwrt_pxe_client_catalog", live_source)
+        self.assertIn("homecluster_common_kernel_live_selectors", live_source)
+        self.assertNotIn("tasks_from: pxe_host_releases", source)
+        self.assertNotIn("tasks_from: tftp_switch", source + live_source)
+        self.assertNotIn("openwrt_pxe_hosts_effective_override", source + live_source)
+        self.assertNotIn("homecluster_common_kernel_selector_change_required", source + live_source)
+        self.assertNotIn("ln -s", live_source)
+        self.assertNotIn("state: link", live_source)
+        self.assertNotIn("ansible.builtin.copy", live_source)
+        self.assertNotIn("ansible.builtin.template", live_source)
 
 
 if __name__ == "__main__":
