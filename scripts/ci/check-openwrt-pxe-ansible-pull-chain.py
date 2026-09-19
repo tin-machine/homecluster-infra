@@ -39,6 +39,31 @@ UNIT_CHAIN_ADR = (
     REPO_ROOT
     / "docs/architecture-decision-record/0015-homecluster-converge-unit-chain.md"
 )
+PXE_ROLE_UNIT_TEMPLATE = (
+    REPO_ROOT
+    / "ansible/openwrt/roles/openwrt_gentoo_rootfs/templates/networkd/"
+    "pxe-write-role.service.j2"
+)
+PXE_ROLE_SCRIPT = (
+    REPO_ROOT
+    / "ansible/openwrt/roles/openwrt_gentoo_rootfs/templates/networkd/"
+    "pxe-write-role.sh.j2"
+)
+PXE_SSH_HOST_KEYS_UNIT_TEMPLATE = (
+    REPO_ROOT
+    / "ansible/openwrt/roles/openwrt_gentoo_rootfs/templates/systemd/"
+    "pxe-ssh-host-keys.service.j2"
+)
+PXE_SSH_HOST_KEYS_SCRIPT = (
+    REPO_ROOT
+    / "ansible/openwrt/roles/openwrt_gentoo_rootfs/templates/"
+    "pxe-ssh-host-keys.sh.j2"
+)
+SSHD_PXE_HOST_KEYS_DROPIN = (
+    REPO_ROOT
+    / "ansible/openwrt/roles/openwrt_gentoo_rootfs/templates/systemd/"
+    "sshd-pxe-host-keys.conf.j2"
+)
 
 
 def read_text(path: Path) -> str:
@@ -392,6 +417,99 @@ def test_homecluster_unit_chain_adr_contract() -> None:
         )
 
 
+def assert_pxe_ssh_host_key_boot_gate(
+    role_unit: str,
+    role_script: str,
+    host_key_unit: str,
+    host_key_script: str,
+    sshd_dropin: str,
+) -> None:
+    require_contains(
+        role_unit,
+        "ExecStartPre=/usr/lib/systemd/systemd-networkd-wait-online "
+        "--ipv4 --any --timeout=120",
+        "PXE role discovery must wait for an IPv4 lease before reading Option 224",
+    )
+    require_not_contains(
+        role_unit,
+        "ConditionPathExistsGlob=",
+        "PXE role discovery must not skip successfully before the DHCP lease exists",
+    )
+    for term in (
+        "read_networkctl_private_option_224()",
+        "networkctl status --all --json=short",
+        'client.get("PrivateOptions", [])',
+        'option.get("Option") != 224',
+        'echo "lease_source=networkctl_json"',
+        'echo "lease_file_missing=1"',
+        "exit 1",
+    ):
+        require_contains(
+            role_script,
+            term,
+            f"PXE role discovery must keep the systemd 261 fallback contract `{term}`",
+        )
+    require_not_contains(
+        host_key_unit,
+        "ConditionPathExists=",
+        "PXE host-key preparation must fail closed instead of skipping when role.env is absent",
+    )
+    require_contains(
+        host_key_script,
+        '[ -r "$ROLE_ENV_FILE" ] || die "role env not found: $ROLE_ENV_FILE"',
+        "PXE host-key preparation must fail when role.env is absent",
+    )
+    require_contains(
+        host_key_script,
+        '[ -d "$STORE_ROOT" ] || die "host key store root is not mounted: $STORE_ROOT"',
+        "PXE host-key preparation must fail when the persistent store is unavailable",
+    )
+    for directive in (
+        "Requires={{ openwrt_gentoo_ssh_host_keys_service }}",
+        "After={{ openwrt_gentoo_ssh_host_keys_service }}",
+    ):
+        require_contains(
+            sshd_dropin,
+            directive,
+            f"sshd must keep `{directive}` so ephemeral host keys cannot start",
+        )
+
+
+def test_pxe_ssh_host_key_boot_gate() -> None:
+    role_unit = read_text(PXE_ROLE_UNIT_TEMPLATE)
+    role_script = read_text(PXE_ROLE_SCRIPT)
+    host_key_unit = read_text(PXE_SSH_HOST_KEYS_UNIT_TEMPLATE)
+    host_key_script = read_text(PXE_SSH_HOST_KEYS_SCRIPT)
+    sshd_dropin = read_text(SSHD_PXE_HOST_KEYS_DROPIN)
+
+    assert_pxe_ssh_host_key_boot_gate(
+        role_unit,
+        role_script,
+        host_key_unit,
+        host_key_script,
+        sshd_dropin,
+    )
+
+    unsafe_host_key_unit = (
+        host_key_unit
+        + "\nConditionPathExists={{ openwrt_gentoo_role_env_output_path }}\n"
+    )
+    try:
+        assert_pxe_ssh_host_key_boot_gate(
+            role_unit,
+            role_script,
+            unsafe_host_key_unit,
+            host_key_script,
+            sshd_dropin,
+        )
+    except AssertionError as exc:
+        assert "fail closed" in str(exc)
+    else:
+        raise AssertionError(
+            "a condition-skipped PXE host-key service must fail validation"
+        )
+
+
 def main() -> None:
     test_dependency_roles_are_enabled()
     test_galaxy_role_download_home_isolation()
@@ -402,6 +520,7 @@ def main() -> None:
     test_homecluster_stage_unit_template()
     test_homecluster_unit_chain_is_not_direct_enabled()
     test_homecluster_unit_chain_adr_contract()
+    test_pxe_ssh_host_key_boot_gate()
     print("openwrt_pxe_ansible_pull_chain checks ok")
 
 
