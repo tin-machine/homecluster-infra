@@ -84,6 +84,8 @@ class CliFixtureTests(unittest.TestCase):
                 "--json",
                 "--observer-run-id",
                 "20260731T000000Z-stg-generation-1",
+                "--generation-infra-commit",
+                "a" * 40,
                 "--fixture",
                 str(fixture),
             )
@@ -91,6 +93,7 @@ class CliFixtureTests(unittest.TestCase):
             temporary.cleanup()
         self.assertEqual(completed.returncode, 0)
         self.assertEqual(value["status"], "pass")
+        self.assertEqual(value["infra_commit"], "a" * 40)
         self.assertRegex(value["exact_kernel_release"], r"-v8-homecluster\+$")
         self.assertEqual(value["validation_infra_commit"], "a" * 40)
         self.assertEqual(value["revision_compatibility"], "exact")
@@ -103,6 +106,8 @@ class CliFixtureTests(unittest.TestCase):
                 "--json",
                 "--observer-run-id",
                 "../../unsafe",
+                "--generation-infra-commit",
+                "a" * 40,
                 "--fixture",
                 str(fixture),
             )
@@ -110,6 +115,24 @@ class CliFixtureTests(unittest.TestCase):
             temporary.cleanup()
         self.assertEqual(completed.returncode, 2)
         self.assertEqual(value["reason"], "generation_run_id_invalid")
+
+    def test_generation_gate_rejects_invalid_generation_infra_commit(self):
+        temporary, fixture = self.fixture({"status": "pass"})
+        try:
+            completed, value = self.run_json(
+                GATE,
+                "--json",
+                "--observer-run-id",
+                "20260731T000000Z-stg-generation-1",
+                "--generation-infra-commit",
+                "invalid",
+                "--fixture",
+                str(fixture),
+            )
+        finally:
+            temporary.cleanup()
+        self.assertEqual(completed.returncode, 2)
+        self.assertEqual(value["reason"], "generation_infra_commit_invalid")
 
     def test_rollout_requires_apply_gate(self):
         completed, value = self.run_json(ROLLOUT, "--json", "--phase", "full_fleet")
@@ -276,6 +299,10 @@ class SourceContractTests(unittest.TestCase):
         precheck = PRECHECK.read_text(encoding="utf-8")
         gate = GATE.read_text(encoding="utf-8")
         rollout = ROLLOUT.read_text(encoding="utf-8")
+        self.assertNotIn("run.env", gate)
+        self.assertNotIn("result.env", gate)
+        self.assertNotIn("ansible-observer", gate)
+        self.assertIn('"--generation-infra-commit"', gate)
         self.assertNotIn('add_argument("--host"', precheck + gate + rollout)
         self.assertNotIn('add_argument("--release"', precheck + gate + rollout)
         self.assertNotIn('add_argument("--path"', precheck + gate + rollout)
