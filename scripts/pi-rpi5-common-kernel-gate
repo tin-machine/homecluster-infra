@@ -104,17 +104,6 @@ def run(command: Sequence[str | Path], *, cwd: Path, timeout: int = 900) -> subp
         raise GateError("generation_gate_execution_failed", "unknown") from error
 
 
-def parse_env(path: Path) -> dict[str, str]:
-    result: dict[str, str] = {}
-    for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
-        if "=" not in raw or raw.startswith("#"):
-            continue
-        key, value = raw.split("=", 1)
-        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
-            result[key] = value
-    return result
-
-
 def git(root: Path, *args: str) -> str:
     completed = run(["git", "-C", root, *args], cwd=root, timeout=60)
     if completed.returncode != 0:
@@ -167,25 +156,6 @@ def playbook_failure_diagnostics(completed: subprocess.CompletedProcess[str]) ->
     return diagnostics
 
 
-def validate_observer_run(run_id: str, infra: Path) -> str:
-    state_home = Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state"))).expanduser()
-    directory = state_home / "homecluster/ansible-observer" / run_id
-    run_path = directory / "run.env"
-    result_path = directory / "result.env"
-    if not run_path.is_file() or not result_path.is_file():
-        raise GateError("observer_terminal_contract_missing")
-    run_values = parse_env(run_path)
-    result_values = parse_env(result_path)
-    if run_values.get("workflow") != "stg-generation" or run_values.get("generation_variant") != "rpi5-common-kernel":
-        raise GateError("observer_run_not_common_kernel")
-    if result_values.get("status") != "pass" or result_values.get("job_terminal") != "true":
-        raise GateError("observer_generation_not_passed")
-    infra_commit = run_values.get("infra_commit", "")
-    if not COMMIT.fullmatch(infra_commit):
-        raise GateError("observer_infra_commit_invalid", "unknown")
-    return infra_commit
-
-
 def validate_result(value: Any, run_id: str, infra_commit: str, inventory_provenance: str) -> dict[str, Any]:
     if not isinstance(value, dict) or value.get("status") != "pass":
         reason = value.get("reason", "generation_gate_failed") if isinstance(value, dict) else "generation_gate_contract_invalid"
@@ -228,7 +198,7 @@ def validate_result(value: Any, run_id: str, infra_commit: str, inventory_proven
     return value
 
 
-def fixture_result(path: Path, run_id: str) -> dict[str, Any]:
+def fixture_result(path: Path, run_id: str, generation_infra_commit: str) -> dict[str, Any]:
     value = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(value, dict):
         raise GateError("fixture_contract_invalid", "unknown")
@@ -242,8 +212,8 @@ def fixture_result(path: Path, run_id: str) -> dict[str, Any]:
         "status": "pass",
         "reason": "generation_gate_passed",
         "generation_run_id": run_id,
-        "infra_commit": "a" * 40,
-        "validation_infra_commit": "a" * 40,
+        "infra_commit": generation_infra_commit,
+        "validation_infra_commit": generation_infra_commit,
         "revision_compatibility": "exact",
         "inventory_provenance": "b" * 64,
         "exact_kernel_release": str(value.get("exact_kernel_release", "6.18.37-v8-homecluster+")),
@@ -264,6 +234,7 @@ def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(description="Fixed Pi5 common-kernel generation acceptance gate")
     result.add_argument("--json", action="store_true")
     result.add_argument("--observer-run-id", required=True)
+    result.add_argument("--generation-infra-commit", required=True)
     result.add_argument("--fixture", default="", help=argparse.SUPPRESS)
     return result
 
@@ -273,8 +244,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if not SAFE_RUN_ID.fullmatch(args.observer_run_id):
             raise GateError("generation_run_id_invalid", "unknown")
+        if not COMMIT.fullmatch(args.generation_infra_commit):
+            raise GateError("generation_infra_commit_invalid", "unknown")
         if args.fixture:
-            result = fixture_result(Path(args.fixture), args.observer_run_id)
+            result = fixture_result(
+                Path(args.fixture),
+                args.observer_run_id,
+                args.generation_infra_commit,
+            )
         else:
             infra = Path(__file__).resolve().parents[1]
             inventory = Path(os.environ.get("HOMECLUSTER_ANSIBLE_INVENTORY", str(infra.parent / "inventory.yml"))).resolve()
@@ -285,7 +262,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             inventory_provenance = provenance_value.get("inventory_sha256") if isinstance(provenance_value, dict) else None
             if not isinstance(inventory_provenance, str) or not SHA256.fullmatch(inventory_provenance):
                 raise GateError("inventory_provenance_invalid", "unknown")
-            infra_commit = validate_observer_run(args.observer_run_id, infra)
+            infra_commit = args.generation_infra_commit
             validation_commit = git(infra, "rev-parse", "HEAD")
             changed_paths = validate_gate_revision(infra, infra_commit, validation_commit)
             output_dir = Path(tempfile.mkdtemp(prefix="homecluster-common-kernel-gate-", dir="/tmp"))
