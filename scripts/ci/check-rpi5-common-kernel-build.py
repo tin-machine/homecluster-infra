@@ -65,7 +65,7 @@ def main() -> int:
     rollout_playbook = read(ROOT / "ansible/openwrt/playbooks/rpi5-common-kernel-rollout.yml")
     selector_inspect = read(ROOT / "ansible/openwrt/playbooks/rpi5-common-kernel-selector-inspect.yml")
     live_selector_task = read(ROOT / "ansible/openwrt/playbooks/tasks/rpi5_common_kernel_live_selectors.yml")
-    rollout_legacy = read(ROOT / "scripts/pi-rpi5-common-kernel-rollout-legacy")
+    rollout = read(ROOT / "scripts/pi-rpi5-common-kernel-rollout")
     publish_tasks = read(ROOT / "ansible/openwrt/playbooks/tasks/pxe_release_bundle_build_and_manifest.yml")
     rootfs_tasks = read(ROOT / "ansible/openwrt/roles/openwrt_gentoo_rootfs/tasks/portage_chroot.yml")
 
@@ -237,7 +237,7 @@ def main() -> int:
         "homecluster_common_kernel_accepted_kernel_artifact_payload_sha256",
         "homecluster_common_kernel_accepted_pxe_release_manifest_sha256",
     ):
-        require(rollout_legacy, field, f"accepted identity forwarding {field}")
+        require(rollout, field, f"accepted identity forwarding {field}")
         require(rollout_playbook, field, f"accepted identity rollout input {field}")
     require(rollout_playbook, "accepted PXE manifest driftを拒否", "accepted manifest drift gate")
     require(rollout_playbook, "homecluster_common_kernel_accepted_manifest_stat.stat.checksum", "live accepted manifest checksum")

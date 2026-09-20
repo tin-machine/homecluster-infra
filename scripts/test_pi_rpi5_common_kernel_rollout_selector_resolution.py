@@ -10,8 +10,8 @@ PLAYBOOK = HERE.parent / "ansible/openwrt/playbooks/rpi5-common-kernel-rollout.y
 class RolloutSelectorResolutionContractTests(unittest.TestCase):
     def test_stage_release_is_resolved_before_current_selector_validation(self) -> None:
         text = PLAYBOOK.read_text(encoding="utf-8")
-        stage_resolution = text.index("current PXE releaseをstage dateから解決")
-        current_selector = text.index("target current selectorを解決")
+        live_snapshot = text.index("live selector snapshotを取得")
+        current_selector = text.index("target current selectorをlive snapshotから設定")
         selector_validation = text.index("target selector存在を検証")
         source_path_resolution = text.index("selector source pathを解決")
         source_artifact_validation = text.index("selector source artifactを検証")
@@ -20,7 +20,7 @@ class RolloutSelectorResolutionContractTests(unittest.TestCase):
         live_selector = text.index("OpenWrt live selectorを検証")
         applied_result = text.index("selector apply resultをcontrollerへ保存")
 
-        self.assertLess(stage_resolution, current_selector)
+        self.assertLess(live_snapshot, current_selector)
         self.assertLess(current_selector, selector_validation)
         self.assertLess(selector_validation, source_path_resolution)
         self.assertLess(source_path_resolution, source_artifact_validation)
@@ -28,7 +28,8 @@ class RolloutSelectorResolutionContractTests(unittest.TestCase):
         self.assertLess(pre_mutation_plan, mutation)
         self.assertLess(mutation, live_selector)
         self.assertLess(live_selector, applied_result)
-        self.assertIn("tasks_from: pxe_host_releases", text)
+        self.assertIn("tasks/rpi5_common_kernel_live_selectors.yml", text)
+        self.assertNotIn("tasks_from: pxe_host_releases", text)
 
     def test_selector_source_paths_use_explicit_concatenation_not_regex_backrefs(self) -> None:
         text = PLAYBOOK.read_text(encoding="utf-8")
