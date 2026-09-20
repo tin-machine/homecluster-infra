@@ -79,7 +79,6 @@ NON_GENERATION_PATHS = frozenset(
         "scripts/pi-rpi5-common-kernel-gate",
         "scripts/pi-rpi5-common-kernel-precheck",
         "scripts/pi-rpi5-common-kernel-rollout",
-        "scripts/pi-rpi5-common-kernel-rollout-legacy",
         "scripts/pi_rpi5_common_kernel_test_legacy.py",
         "scripts/test_pi_rpi5_common_kernel.py",
         "scripts/test_pi_rpi5_common_kernel_non_generation_paths.py",

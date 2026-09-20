@@ -134,7 +134,7 @@ class FullFleetAcceptanceTests(unittest.TestCase):
     def test_full_fleet_accepts_all_agents_and_runs_egpu_llm_gate(self):
         module = legacy.ROLLOUT_MODULE
         calls: list[tuple[list[str], dict[str, str] | None]] = []
-        original_run = module.legacy.run
+        original_run = module.run
 
         def fake_run(command, *, cwd, timeout, env=None):
             values = [str(item) for item in command]
@@ -155,7 +155,7 @@ class FullFleetAcceptanceTests(unittest.TestCase):
             runbook = Path(temporary) / "runbook"
             (runbook / "scripts").mkdir(parents=True)
             (runbook / "scripts/pi-rpi5-egpu-llm-status").write_text("fixture\n", encoding="utf-8")
-            module.legacy.run = fake_run
+            module.run = fake_run
             try:
                 accepted, diagnostics = module.run_phase_acceptance(
                     root,
@@ -167,7 +167,7 @@ class FullFleetAcceptanceTests(unittest.TestCase):
                     "6.18.36-v8-homecluster+",
                 )
             finally:
-                module.legacy.run = original_run
+                module.run = original_run
 
         self.assertTrue(accepted)
         self.assertIn("llm_acceptance=pass", diagnostics)
@@ -182,8 +182,7 @@ class FullFleetAcceptanceTests(unittest.TestCase):
 
     def test_full_fleet_main_path_has_one_fresh_boot_call(self):
         source = legacy.ROLLOUT.read_text(encoding="utf-8")
-        legacy_source = (HERE / "pi-rpi5-common-kernel-rollout-legacy").read_text(encoding="utf-8")
-        self.assertEqual(legacy_source.count("fresh_boot_run_id, fresh_boot_status = run_fresh_boot(runbook)"), 1)
+        self.assertEqual(source.count("fresh_boot_run_id, fresh_boot_status = run_fresh_boot(runbook)"), 1)
         self.assertIn('phase in {"egpu_canary", "full_fleet"}', source)
 
 
@@ -373,9 +372,10 @@ def test_helpers_accept_no_arbitrary_host_release_or_path(self):
     self.assertNotIn('add_argument("--release"', precheck + gate + rollout)
     self.assertNotIn('add_argument("--path"', precheck + gate + rollout)
     self.assertNotIn('add_argument("--playbook"', precheck + gate + rollout)
-    self.assertIn("pi-rpi5-common-kernel-rollout-legacy", rollout)
+    self.assertNotIn("pi-rpi5-common-kernel-rollout-legacy", rollout)
+    self.assertNotIn("load_legacy", rollout)
     self.assertIn("rollback_recommended", rollout)
-    self.assertIn("legacy.main()", rollout)
+    self.assertIn("raise SystemExit(main())", rollout)
 
 
 def test_generation_gate_uses_artifact_reference_not_stage_date_equality(self):

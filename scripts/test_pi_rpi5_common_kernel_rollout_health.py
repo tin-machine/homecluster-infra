@@ -49,7 +49,7 @@ class RolloutHealthTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             runbook = self.runbook(Path(temporary))
             with mock.patch.object(
-                ROLLOUT_MODULE.legacy,
+                ROLLOUT_MODULE,
                 "run",
                 return_value=self.completed("blocked", 1, nodes_ready=3, nodes_total=4, issues=["node_pressure"]),
             ):
@@ -61,7 +61,7 @@ class RolloutHealthTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             runbook = self.runbook(Path(temporary))
             completed = subprocess.CompletedProcess(["fixture"], 2, "not-json", "")
-            with mock.patch.object(ROLLOUT_MODULE.legacy, "run", return_value=completed):
+            with mock.patch.object(ROLLOUT_MODULE, "run", return_value=completed):
                 ROLLOUT_MODULE.observe_cluster_health(runbook)
             self.assertEqual(ROLLOUT_MODULE._PRE_ROLLOUT_CLUSTER_STATUS, "unknown")
             self.assertEqual(ROLLOUT_MODULE._PRE_ROLLOUT_CLUSTER_ISSUES, "invalid_status_json")
@@ -146,7 +146,7 @@ class RolloutHealthTests(unittest.TestCase):
                     "",
                 )
 
-            with mock.patch.object(ROLLOUT_MODULE.legacy, "run", side_effect=fake_run):
+            with mock.patch.object(ROLLOUT_MODULE, "run", side_effect=fake_run):
                 accepted, diagnostics = ROLLOUT_MODULE.run_phase_acceptance(
                     root,
                     runbook,
