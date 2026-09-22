@@ -444,6 +444,7 @@ for path in "${changed_files[@]}"; do
 done
 if ((${#role_task_files[@]} > 0)); then
   if ! python3 - "${role_task_files[@]}" <<'PY'
+import re
 import sys
 from pathlib import Path
 
@@ -501,7 +502,10 @@ for file_name in sys.argv[1:]:
             key for key in task
             if isinstance(key, str)
             and key not in valid_task_keys
-            and (key.startswith("ansible.") or "." not in key)
+            and (
+                "." not in key
+                or re.fullmatch(r"[a-z0-9_]+\.[a-z0-9_]+\.[a-z0-9_]+", key)
+            )
         ]
         if "block" in task:
             module_like_keys.append("block")

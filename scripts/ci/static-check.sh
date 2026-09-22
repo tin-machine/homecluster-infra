@@ -158,6 +158,11 @@ if ! python3 scripts/ci/check-openwrt-gentoo-binary-preseed.py --self-test; then
   fail=1
 fi
 
+print_section "ARM64 distcc client/server contract"
+if ! python3 scripts/ci/check-arm64-distcc-contract.py; then
+  fail=1
+fi
+
 
 print_section "terraform and helm values redaction scan"
 terraform_values_redaction_pattern='192\.168\.|10\.10\.|10\.11\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|fd[0-9a-fA-F]{2}:|fdd[0-9a-fA-F]:|BEGIN .*PRIVATE KEY|AKIA[0-9A-Z]{16}|xox[baprs]-|gh[pousr]_[A-Za-z0-9_]+|@[^[:space:]]+\.[A-Za-z]{2,}'
@@ -262,6 +267,7 @@ if command -v python3 >/dev/null 2>&1; then
   python3 -m py_compile ansible/openwrt/roles/openwrt_pxe_client_catalog/filter_plugins/openwrt_pxe_client_catalog.py
   python3 -m py_compile scripts/ansible/convert_openwrt_package_task.py
   python3 -m py_compile scripts/ci/check-changed-markdown-style.py
+  python3 -m py_compile scripts/ci/check-arm64-distcc-contract.py
   python3 -m py_compile scripts/ci/check-k3s-converge-contract.py
   python3 -m py_compile scripts/ci/check-openwrt-gentoo-binary-preseed.py
   python3 -m py_compile scripts/ci/check-openwrt-pxe-ansible-pull-chain.py

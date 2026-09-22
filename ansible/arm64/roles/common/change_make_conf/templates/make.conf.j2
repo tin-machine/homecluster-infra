@@ -33,7 +33,9 @@ USE="bindist -checkboot systemd -elogind"
 # FEATURES="buildpkg -binpkg-request-signature -strict -usersync -sign getbinpkg binpkg-multi-instance clean-logs compress-build-logs parallel-fetch parallel-install -distcc -userpriv -usersandbox -network-sandbox -pid-sandbox "
 # FEATURES="buildpkg getbinpkg binpkg-multi-instance clean-logs compress-build-logs parallel-fetch parallel-install -distcc -userpriv -usersandbox -network-sandbox -pid-sandbox "
 # FEATURES="buildpkg distcc -getbinpkg binpkg-multi-instance clean-logs compress-build-logs parallel-fetch parallel-install -userpriv -usersandbox -network-sandbox -pid-sandbox "
-FEATURES="buildpkg distcc -getbinpkg binpkg-multi-instance clean-logs compress-build-logs parallel-fetch userpriv usersandbox -network-sandbox -pid-sandbox "
+{% set distcc_config = distcc | default({}) %}
+{% set distcc_client_enabled = distcc_config.client_enabled | default(distcc_config.enabled | default(false)) | bool %}
+FEATURES="buildpkg {{ 'distcc' if distcc_client_enabled else '-distcc' }} -getbinpkg binpkg-multi-instance clean-logs compress-build-logs parallel-fetch userpriv usersandbox -network-sandbox -pid-sandbox "
 
 VIDEO_CARDS="vc4 v3d fbdev"
 INPUT_DEVICES="libinput"
