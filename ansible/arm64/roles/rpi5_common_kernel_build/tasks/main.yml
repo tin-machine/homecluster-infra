@@ -225,6 +225,40 @@
     fail_msg: "kernelreleaseが-v8-homecluster+で終わっていません"
   when: rpi5_common_kernel_build_enabled | bool
 
+- name: Rpi5 common kernel build の generated config を local で準備
+  ansible.builtin.command:
+    argv:
+      - make
+      - prepare
+    chdir: "{{ rpi5_common_kernel_build_dir }}"
+  changed_when: true
+  when: rpi5_common_kernel_build_enabled | bool
+
+- name: Rpi5 common kernel build の generated config compiler wrapper を配置
+  ansible.builtin.copy:
+    dest: "{{ rpi5_common_kernel_build_dir }}/.homecluster-cc-wrapper"
+    content: |
+      #!/bin/sh
+      case " $* " in
+        *" -o kernel/configs.o "*) exec gcc "$@" ;;
+        *) exec distcc gcc "$@" ;;
+      esac
+    mode: '0755'
+  when: rpi5_common_kernel_build_enabled | bool
+
+- name: Rpi5 common kernel build の kernel/configs.o を wrapper経由で先行生成
+  ansible.builtin.command:
+    argv:
+      - make
+      - -j{{ rpi5_common_kernel_build_make_jobs | int }}
+      - kernel/configs.o
+    chdir: "{{ rpi5_common_kernel_build_dir }}"
+  environment:
+    CC: ./.homecluster-cc-wrapper
+    HOSTCC: gcc
+  changed_when: true
+  when: rpi5_common_kernel_build_enabled | bool
+
 - name: rpi5 common kernel をplain distccでbuild
   ansible.builtin.shell: |
     set -euo pipefail
@@ -233,7 +267,7 @@
     export DISTCC_FALLBACK='{{ rpi5_common_kernel_build_distcc_fallback }}'
     export DISTCC_IO_TIMEOUT='{{ rpi5_common_kernel_build_distcc_io_timeout | int }}'
     make -j{{ rpi5_common_kernel_build_make_jobs | int }} \
-      CC='{{ 'distcc gcc' if (rpi5_common_kernel_build_distcc_enabled | bool) else 'gcc' }}' \
+      CC='{{ './.homecluster-cc-wrapper' if (rpi5_common_kernel_build_distcc_enabled | bool) else 'gcc' }}' \
       HOSTCC=gcc \
       Image modules dtbs
   args:
@@ -272,6 +306,16 @@
     that:
       - rpi5_common_kernel_build_open_modules_head.stdout | trim == rpi5_common_kernel_build_open_modules_commit
     fail_msg: "open-gpu-kernel-modules commitがinventory pinと一致しません"
+  when: rpi5_common_kernel_build_enabled | bool
+
+- name: Rpi5 common kernel NVIDIA external modules worktree の所有者を builder に戻す
+  become: true
+  ansible.builtin.file:
+    path: "{{ rpi5_common_kernel_build_open_modules_dir }}"
+    state: directory
+    owner: "{{ ansible_user | default('ansible') }}"
+    group: "{{ ansible_user | default('ansible') }}"
+    recurse: true
   when: rpi5_common_kernel_build_enabled | bool
 
 - name: Rpi5 common kernel NVIDIA external modules worktree を clean にする
@@ -341,6 +385,14 @@
 - name: rpi5 common kernel output fact を設定
   ansible.builtin.set_fact:
     rpi5_common_kernel_build_kernel_release: "{{ rpi5_common_kernel_build_kernelrelease_command.stdout | trim }}"
+    rpi5_common_kernel_build_bundle_output:
+      release: "{{ rpi5_common_kernel_build_release }}"
+      kernel_release: "{{ rpi5_common_kernel_build_kernelrelease_command.stdout | trim }}"
+      kernel_build_dir: "{{ rpi5_common_kernel_build_dir }}"
+      modules_dir: "{{ rpi5_common_kernel_build_modules_dir }}"
+      open_modules_dir: "{{ rpi5_common_kernel_build_open_modules_dir }}"
+      runfile_path: "{{ rpi5_common_kernel_build_nvidia_runfile_path }}"
+      metadata_path: "{{ rpi5_common_kernel_build_metadata_path }}"
     rpi5_common_kernel_build_manifest_metadata:
       kernel_release: "{{ rpi5_common_kernel_build_kernelrelease_command.stdout | trim }}"
       linux_commit: "{{ rpi5_common_kernel_build_source_version }}"

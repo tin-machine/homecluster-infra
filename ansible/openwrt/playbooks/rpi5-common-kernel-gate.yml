@@ -1,0 +1,390 @@
+---
+- name: Pi5 common kernel gate builder targetを解決
+  hosts: localhost
+  gather_facts: false
+  become: false
+  tasks:
+    - name: Pi5 common kernel builder / OpenWrt groupを検証
+      ansible.builtin.assert:
+        that:
+          - groups['rpi5_egpu_artifact_bundle'] | default([]) | length == 1
+          - groups['openwrt'] | default([]) | length == 1
+        fail_msg: common-kernel builderまたはOpenWrtを一意に解決できません
+      changed_when: false
+
+    - name: Pi5 common kernel builder dynamic groupを作成
+      ansible.builtin.add_host:
+        name: "{{ groups['rpi5_egpu_artifact_bundle'][0] }}"
+        groups: homecluster_common_kernel_builder
+      changed_when: false
+
+- name: Pi5 common kernel builder artifact gate
+  hosts: homecluster_common_kernel_builder
+  gather_facts: false
+  become: false
+  tasks:
+    - name: Pi5 common kernel gate inputを検証
+      ansible.builtin.assert:
+        that:
+          - homecluster_common_kernel_gate_output | string is match('^/tmp/homecluster-common-kernel-gate-[A-Za-z0-9._/-]+/result.json$')
+          - homecluster_common_kernel_inventory_provenance | string is match('^[0-9a-f]{64}$')
+          - homecluster_common_kernel_observer_run_id | string is match('^[0-9]{8}T[0-9]{6}Z-[A-Za-z0-9._-]+$')
+          - homecluster_common_kernel_infra_commit | string is match('^[0-9a-f]{40}$')
+          - rpi5_common_kernel_build_stage | default('') == 'stg'
+          - rpi5_common_kernel_build_stage_date | default('', true) | string is match('^[0-9]{8}$')
+        fail_msg: common-kernel gate input contractが不正です
+      changed_when: false
+      no_log: true
+
+    - name: Pi5 common kernel artifact pathを解決
+      ansible.builtin.set_fact:
+        homecluster_common_kernel_build_release: "{{ rpi5_common_kernel_build_stage_date }}-rpi5"
+        homecluster_common_kernel_label: "{{ rpi5_common_kernel_build_stage_date }}-rpi5-homecluster"
+        homecluster_common_kernel_build_dir: "/var/lib/rancher/k3s/kernel-build/{{ rpi5_common_kernel_build_stage_date }}-rpi5-homecluster/linux"
+        homecluster_common_kernel_modules_dir: "/var/lib/rancher/k3s/kernel-build/{{ rpi5_common_kernel_build_stage_date }}-rpi5-homecluster/staging"
+        homecluster_common_kernel_metadata_path: "/var/lib/rancher/k3s/kernel-build/{{ rpi5_common_kernel_build_stage_date }}-rpi5-homecluster/build-metadata.json"
+        homecluster_common_kernel_archive_path: "/var/lib/rancher/k3s/nvidia-artifacts/rpi5-egpu-{{ rpi5_common_kernel_build_stage_date }}-rpi5.tar.gz"
+      changed_when: false
+
+    - name: Pi5 common kernel build metadataを取得
+      ansible.builtin.slurp:
+        src: "{{ homecluster_common_kernel_metadata_path }}"
+      register: homecluster_common_kernel_metadata_raw
+      changed_when: false
+      no_log: true
+
+    - name: Pi5 common kernel build metadataを解決
+      ansible.builtin.set_fact:
+        homecluster_common_kernel_metadata: "{{ homecluster_common_kernel_metadata_raw.content | b64decode | from_json }}"
+      changed_when: false
+      no_log: true
+
+    - name: Pi5 common kernel exact releaseとmetadataを検証
+      ansible.builtin.assert:
+        that:
+          - homecluster_common_kernel_metadata.kernel_release | default('', true) | string is match('^.+-v8-homecluster\\+$')
+          - homecluster_common_kernel_metadata.page_size | int == 4096
+          - homecluster_common_kernel_metadata.va_bits | int == 48
+          - homecluster_common_kernel_metadata.localversion | default('') == '-v8-homecluster'
+          - homecluster_common_kernel_metadata.linux_commit | default('') == rpi5_common_kernel_build_source_version
+          - homecluster_common_kernel_metadata.open_kernel_modules_commit | default('') == rpi5_common_kernel_build_open_modules_commit
+          - homecluster_common_kernel_metadata.kernel_image_sha256 | default('', true) | string is match('^[0-9a-f]{64}$')
+          - homecluster_common_kernel_metadata.device_tree_sha256 | default('', true) | string is match('^[0-9a-f]{64}$')
+        fail_msg: common-kernel build metadataまたはexact releaseが不正です
+      changed_when: false
+      no_log: true
+
+    - name: Pi5 common kernel artifact pathを確認
+      ansible.builtin.stat:
+        path: "{{ item }}"
+        checksum_algorithm: sha256
+        get_attributes: false
+        get_mime: false
+      loop:
+        - "{{ homecluster_common_kernel_build_dir }}/arch/arm64/boot/Image"
+        - "{{ homecluster_common_kernel_build_dir }}/arch/arm64/boot/dts/broadcom/bcm2712-rpi-5-b.dtb"
+        - "{{ homecluster_common_kernel_build_dir }}/Module.symvers"
+        - "{{ homecluster_common_kernel_modules_dir }}/lib/modules/{{ homecluster_common_kernel_metadata.kernel_release }}"
+        - "{{ homecluster_common_kernel_archive_path }}"
+        - "{{ homecluster_common_kernel_archive_path }}.sha256"
+      register: homecluster_common_kernel_artifact_stats
+      changed_when: false
+      no_log: true
+
+    - name: Pi5 common kernel artifact pathを検証
+      ansible.builtin.assert:
+        that:
+          - homecluster_common_kernel_artifact_stats.results[0].stat.isreg | default(false)
+          - homecluster_common_kernel_artifact_stats.results[1].stat.isreg | default(false)
+          - homecluster_common_kernel_artifact_stats.results[2].stat.isreg | default(false)
+          - homecluster_common_kernel_artifact_stats.results[3].stat.isdir | default(false)
+          - homecluster_common_kernel_artifact_stats.results[4].stat.isreg | default(false)
+          - homecluster_common_kernel_artifact_stats.results[5].stat.isreg | default(false)
+          - homecluster_common_kernel_artifact_stats.results[0].stat.checksum == homecluster_common_kernel_metadata.kernel_image_sha256
+          - homecluster_common_kernel_artifact_stats.results[1].stat.checksum == homecluster_common_kernel_metadata.device_tree_sha256
+        fail_msg: common-kernel Image、DTB、Module.symvers、module tree、NVIDIA archiveが不足または不一致です
+      changed_when: false
+      no_log: true
+
+    - name: Pi5 common kernel NVIDIA archiveを検証
+      ansible.builtin.shell: |
+        set -euo pipefail
+        archive="{{ homecluster_common_kernel_archive_path }}"
+        cd "$(dirname "$archive")"
+        sha256sum -c "$(basename "$archive").sha256" >/dev/null
+        gzip -t "$archive"
+        tar -tzf "$archive" >/dev/null
+        sha256sum "$archive" | awk '{print $1}'
+      args:
+        executable: /bin/bash
+      register: homecluster_common_kernel_archive_sha
+      changed_when: false
+
+    - name: Pi5 common kernel build metadata hashを取得
+      ansible.builtin.stat:
+        path: "{{ homecluster_common_kernel_metadata_path }}"
+        checksum_algorithm: sha256
+        get_attributes: false
+        get_mime: false
+      register: homecluster_common_kernel_metadata_stat
+      changed_when: false
+      no_log: true
+
+    - name: Pi5 common kernel content-addressed artifact identityを保存
+      ansible.builtin.set_fact:
+        homecluster_common_kernel_gate_artifact_id: "sha256:{{ homecluster_common_kernel_metadata_stat.stat.checksum }}"
+        homecluster_common_kernel_gate_build_release: "{{ homecluster_common_kernel_build_release }}"
+        homecluster_common_kernel_gate_exact_release: "{{ homecluster_common_kernel_metadata.kernel_release }}"
+        homecluster_common_kernel_gate_generation_manifest_sha256: "{{ homecluster_common_kernel_metadata_stat.stat.checksum }}"
+        homecluster_common_kernel_gate_artifact_payload_sha256: "{{ homecluster_common_kernel_archive_sha.stdout | trim }}"
+      changed_when: false
+      no_log: true
+
+- name: Pi5 common kernel OpenWrt PXE release reference gate
+  hosts: openwrt
+  gather_facts: false
+  become: false
+  vars:
+    homecluster_common_kernel_builder_host: "{{ groups['homecluster_common_kernel_builder'][0] }}"
+  tasks:
+    - name: Pi5 common kernel builder artifact identityを検証
+      ansible.builtin.assert:
+        that:
+          - hostvars[homecluster_common_kernel_builder_host].homecluster_common_kernel_gate_artifact_id | default('', true) | string is match('^sha256:[0-9a-f]{64}$')
+          - hostvars[homecluster_common_kernel_builder_host].homecluster_common_kernel_gate_build_release | default('', true) | string is match('^[0-9]{8}-rpi5$')
+          - hostvars[homecluster_common_kernel_builder_host].homecluster_common_kernel_gate_exact_release | default('', true) | string is match('^.+-v8-homecluster\\+$')
+          - openwrt_gentoo_release_bundle_stage_dates.stg | default('', true) | string is match('^[0-9]{8}$')
+        fail_msg: builder artifact identityまたはOpenWrt stg PXE release identityがありません
+      changed_when: false
+      no_log: true
+
+    - name: Pi5 common kernel PXE release pathを解決
+      ansible.builtin.set_fact:
+        homecluster_common_kernel_gate_pxe_release_date: "{{ openwrt_gentoo_release_bundle_stage_dates.stg | string | trim }}"
+        homecluster_common_kernel_gate_pxe_release_id: "{{ openwrt_gentoo_release_bundle_stage_dates.stg | string | trim }}-rpi5"
+        homecluster_common_kernel_gate_pxe_manifest_path: "/srv/gentoo/releases/{{ openwrt_gentoo_release_bundle_stage_dates.stg | string | trim }}.json"
+      changed_when: false
+      no_log: true
+
+    - name: Pi5 common kernel PXE release manifestを取得
+      ansible.builtin.slurp:
+        src: "{{ homecluster_common_kernel_gate_pxe_manifest_path }}"
+      register: homecluster_common_kernel_gate_pxe_manifest_raw
+      changed_when: false
+      no_log: true
+
+    - name: Pi5 common kernel PXE release manifest hashを取得
+      ansible.builtin.stat:
+        path: "{{ homecluster_common_kernel_gate_pxe_manifest_path }}"
+        checksum_algorithm: sha256
+        get_attributes: false
+        get_mime: false
+      register: homecluster_common_kernel_gate_pxe_manifest_stat
+      changed_when: false
+      no_log: true
+
+    - name: Pi5 common kernel PXE release manifestを解決
+      ansible.builtin.set_fact:
+        homecluster_common_kernel_gate_pxe_manifest: "{{ homecluster_common_kernel_gate_pxe_manifest_raw.content | b64decode | from_json }}"
+      changed_when: false
+      no_log: true
+
+    - name: Pi5 common kernel PXE release artifact referenceを解決
+      ansible.builtin.set_fact:
+        homecluster_common_kernel_gate_pxe_artifact_ref: >-
+          {{
+            homecluster_common_kernel_gate_pxe_manifest
+            .get('metadata', {})
+            .get('rpi5_nvidia', {})
+            .get('common_kernel_artifact', {})
+          }}
+      changed_when: false
+      no_log: true
+
+    - name: Pi5 common kernel PXE release artifact referenceを検証
+      ansible.builtin.assert:
+        that:
+          - homecluster_common_kernel_gate_pxe_manifest.schema | int == 1
+          - homecluster_common_kernel_gate_pxe_manifest.releases.rpi5 | default('') == homecluster_common_kernel_gate_pxe_release_id
+          - homecluster_common_kernel_gate_pxe_artifact_ref.id | default('') == hostvars[homecluster_common_kernel_builder_host].homecluster_common_kernel_gate_artifact_id
+          - homecluster_common_kernel_gate_pxe_artifact_ref.build_release | default('') == hostvars[homecluster_common_kernel_builder_host].homecluster_common_kernel_gate_build_release
+          - homecluster_common_kernel_gate_pxe_artifact_ref.kernel_release | default('') == hostvars[homecluster_common_kernel_builder_host].homecluster_common_kernel_gate_exact_release
+          - homecluster_common_kernel_gate_pxe_artifact_ref.manifest_sha256 | default('') == hostvars[homecluster_common_kernel_builder_host].homecluster_common_kernel_gate_generation_manifest_sha256
+          - homecluster_common_kernel_gate_pxe_artifact_ref.payload_sha256 | default('') == hostvars[homecluster_common_kernel_builder_host].homecluster_common_kernel_gate_artifact_payload_sha256
+          - homecluster_common_kernel_gate_pxe_manifest_stat.stat.checksum | default('', true) | string is match('^[0-9a-f]{64}$')
+        fail_msg: PXE release manifestがaccepted common-kernel artifact identityを参照していません
+      changed_when: false
+      no_log: true
+
+    - name: Pi5 common kernel OpenWrt PXE artifactsを検証
+      ansible.builtin.shell: |
+        set -euo pipefail
+        homecluster_check() {
+          printf 'HOMECLUSTER_CHECK_ID=%s\n' "$1"
+        }
+        release="{{ homecluster_common_kernel_gate_pxe_release_id }}"
+        kernel_release="{{ hostvars[homecluster_common_kernel_builder_host].homecluster_common_kernel_gate_exact_release }}"
+        expected_kernel_sha="{{ hostvars[homecluster_common_kernel_builder_host].homecluster_common_kernel_metadata.kernel_image_sha256 }}"
+        expected_dtb_sha="{{ hostvars[homecluster_common_kernel_builder_host].homecluster_common_kernel_metadata.device_tree_sha256 }}"
+        rootfs="/srv/gentoo/${release}/nfs"
+        tftp="/srv/gentoo/tftp-root/dates/${release}"
+        artifact_payload="/srv/gentoo/rpi5-egpu-artifacts/${release}/payload"
+        listing_file="$(mktemp)"
+        kernel_module_listing_file="$(mktemp)"
+        dev_dir="$rootfs/dev"
+        dev_null_target="$dev_dir/null"
+        dev_dir_created=false
+        dev_null_created=false
+        dev_null_mounted=false
+        cleanup() {
+          set +e
+          rm -f "$listing_file" "$kernel_module_listing_file"
+          if [ "$dev_null_mounted" = true ]; then
+            umount "$dev_null_target" 2>/dev/null || umount -l "$dev_null_target"
+          fi
+          if [ "$dev_null_created" = true ]; then
+            rm -f "$dev_null_target"
+          fi
+          if [ "$dev_dir_created" = true ]; then
+            rmdir "$dev_dir"
+          fi
+        }
+        trap cleanup EXIT
+        homecluster_check chroot_dev_null_ready
+        test ! -L "$dev_dir"
+        test ! -L "$dev_null_target"
+        if [ ! -d "$dev_dir" ]; then
+          mkdir -p "$dev_dir"
+          dev_dir_created=true
+        fi
+        if [ ! -e "$dev_null_target" ]; then
+          : > "$dev_null_target"
+          dev_null_created=true
+        fi
+        if [ ! -c "$dev_null_target" ]; then
+          dev_null_mounted=true
+          mount --bind /dev/null "$dev_null_target"
+        fi
+        test -c "$dev_null_target"
+        homecluster_check module_tree_present
+        test -d "$rootfs/lib/modules/$kernel_release"
+        homecluster_check tftp_directory_present
+        test -d "$tftp"
+        homecluster_check bc_executable_present
+        test -x "$rootfs/usr/bin/bc" -o -x "$rootfs/bin/bc"
+        homecluster_check bc_vdb_present
+        test -n "$(find "$rootfs/var/db/pkg/sys-devel" -maxdepth 1 -type d -name 'bc-*' -print | sed -n '1p')"
+        homecluster_check dtb_present
+        test -n "$(find "$tftp" -maxdepth 2 -type f -name 'bcm2712-rpi-5-b.dtb' -print | sed -n '1p')"
+        homecluster_check tftp_file_count_sufficient
+        test "$(find "$tftp" -maxdepth 2 -type f | wc -l)" -ge 3
+        homecluster_check generic_kernel_payload_present
+        test -f "$artifact_payload/kernel8-homecluster.img"
+        homecluster_check generic_kernel_payload_identical
+        cmp -s "$artifact_payload/kernel8-homecluster.img" "$tftp/kernel8.img"
+        homecluster_check generic_kernel_sha256_matches_manifest
+        test "$(sha256sum "$tftp/kernel8.img" | awk '{print $1}')" = "$expected_kernel_sha"
+        homecluster_check nvidia_kernel_payload_present
+        test -f "$artifact_payload/kernel8-nvidia.img"
+        homecluster_check nvidia_kernel_tftp_present
+        test -f "$tftp/kernel8-nvidia.img"
+        homecluster_check nvidia_kernel_payload_identical
+        cmp -s "$artifact_payload/kernel8-nvidia.img" "$tftp/kernel8-nvidia.img"
+        homecluster_check nvidia_kernel_sha256_matches_manifest
+        test "$(sha256sum "$tftp/kernel8-nvidia.img" | awk '{print $1}')" = "$expected_kernel_sha"
+        homecluster_check pi5_default_kernel_present
+        test -f "$tftp/kernel_2712.img"
+        homecluster_check pi5_default_kernel_sha256_matches_manifest
+        test "$(sha256sum "$tftp/kernel_2712.img" | awk '{print $1}')" = "$expected_kernel_sha"
+        homecluster_check generic_dtb_payload_present
+        test -f "$artifact_payload/bcm2712-rpi-5-b-homecluster.dtb"
+        homecluster_check generic_dtb_tftp_present
+        test -f "$tftp/bcm2712-rpi-5-b.dtb"
+        homecluster_check generic_dtb_payload_identical
+        cmp -s "$artifact_payload/bcm2712-rpi-5-b-homecluster.dtb" "$tftp/bcm2712-rpi-5-b.dtb"
+        homecluster_check generic_dtb_sha256_matches_manifest
+        test "$(sha256sum "$tftp/bcm2712-rpi-5-b.dtb" | awk '{print $1}')" = "$expected_dtb_sha"
+        homecluster_check nvidia_dtb_payload_present
+        test -f "$artifact_payload/bcm2712-rpi-5-b-nvidia.dtb"
+        homecluster_check nvidia_dtb_tftp_present
+        test -f "$tftp/bcm2712-rpi-5-b-nvidia.dtb"
+        homecluster_check nvidia_dtb_payload_identical
+        cmp -s "$artifact_payload/bcm2712-rpi-5-b-nvidia.dtb" "$tftp/bcm2712-rpi-5-b-nvidia.dtb"
+        homecluster_check nvidia_dtb_sha256_matches_manifest
+        test "$(sha256sum "$tftp/bcm2712-rpi-5-b-nvidia.dtb" | awk '{print $1}')" = "$expected_dtb_sha"
+        for image in initramfs-pxe-v8.img initramfs-pxe-v8-nvidia.img; do
+          case "$image" in
+            initramfs-pxe-v8.img) image_check_prefix="generic" ;;
+            initramfs-pxe-v8-nvidia.img) image_check_prefix="nvidia" ;;
+            *) exit 2 ;;
+          esac
+          homecluster_check "${image_check_prefix}_rootfs_initramfs_present"
+          test -f "$rootfs/boot/$image"
+          homecluster_check "${image_check_prefix}_tftp_initramfs_present"
+          test -f "$tftp/$image"
+          homecluster_check "${image_check_prefix}_initramfs_identical"
+          cmp -s "$rootfs/boot/$image" "$tftp/$image"
+          homecluster_check "${image_check_prefix}_lsinitrd_readable"
+          chroot "$rootfs" /bin/bash -lc "lsinitrd /boot/$image" > "$listing_file"
+          homecluster_check "${image_check_prefix}_overlay_module_present"
+          grep -F "lib/modules/$kernel_release/" "$listing_file" > "$kernel_module_listing_file"
+          grep -Eq '/overlay\.ko(\.(gz|xz|zst))?([[:space:]]|$)' "$kernel_module_listing_file"
+          homecluster_check "${image_check_prefix}_overlay_hook_present"
+          grep -Fq 'mount-overlayfs.sh' "$listing_file"
+          homecluster_check "${image_check_prefix}_overlayfs_present"
+          grep -Fq 'overlayfs' "$listing_file"
+          homecluster_check "${image_check_prefix}_nfs_present"
+          grep -Fq 'nfs' "$listing_file"
+        done
+      args:
+        executable: /bin/sh
+      changed_when: false
+
+    - name: Pi5 common kernel OpenWrt PXE gate factを保存
+      ansible.builtin.set_fact:
+        homecluster_common_kernel_gate_pxe_release_manifest_sha256: "{{ homecluster_common_kernel_gate_pxe_manifest_stat.stat.checksum }}"
+      changed_when: false
+      no_log: true
+
+- name: Pi5 common kernel safe gate resultをcontrollerへ保存
+  hosts: localhost
+  gather_facts: false
+  become: false
+  vars:
+    homecluster_common_kernel_builder_host: "{{ groups['homecluster_common_kernel_builder'][0] }}"
+    homecluster_common_kernel_openwrt_host: "{{ groups['openwrt'][0] }}"
+  tasks:
+    - name: Pi5 common kernel gate output pathを検証
+      ansible.builtin.assert:
+        that:
+          - homecluster_common_kernel_gate_output | string is match('^/tmp/homecluster-common-kernel-gate-[A-Za-z0-9._/-]+/result.json$')
+        fail_msg: gate output pathが固定tmp scope外です
+      changed_when: false
+
+    - name: Pi5 common kernel safe gate resultを保存
+      ansible.builtin.copy:
+        dest: "{{ homecluster_common_kernel_gate_output }}"
+        mode: '0600'
+        content: >-
+          {{
+            {
+              'status': 'pass',
+              'reason': 'generation_gate_passed',
+              'generation_run_id': homecluster_common_kernel_observer_run_id,
+              'infra_commit': homecluster_common_kernel_infra_commit,
+              'inventory_provenance': homecluster_common_kernel_inventory_provenance,
+              'exact_kernel_release': hostvars[homecluster_common_kernel_builder_host].homecluster_common_kernel_gate_exact_release,
+              'kernel_artifact_id': hostvars[homecluster_common_kernel_builder_host].homecluster_common_kernel_gate_artifact_id,
+              'kernel_artifact_build_release': hostvars[homecluster_common_kernel_builder_host].homecluster_common_kernel_gate_build_release,
+              'kernel_artifact_manifest_sha256': hostvars[homecluster_common_kernel_builder_host].homecluster_common_kernel_gate_generation_manifest_sha256,
+              'kernel_artifact_payload_sha256': hostvars[homecluster_common_kernel_builder_host].homecluster_common_kernel_gate_artifact_payload_sha256,
+              'pxe_release_id': hostvars[homecluster_common_kernel_openwrt_host].homecluster_common_kernel_gate_pxe_release_id,
+              'pxe_release_manifest_sha256': hostvars[homecluster_common_kernel_openwrt_host].homecluster_common_kernel_gate_pxe_release_manifest_sha256,
+              'generation_manifest_sha256': hostvars[homecluster_common_kernel_builder_host].homecluster_common_kernel_gate_generation_manifest_sha256,
+              'artifact_payload_sha256': hostvars[homecluster_common_kernel_builder_host].homecluster_common_kernel_gate_artifact_payload_sha256,
+              'pxe_candidate_selector': hostvars[homecluster_common_kernel_openwrt_host].homecluster_common_kernel_gate_pxe_release_id,
+              'gate_version': 'rpi5-common-kernel-gate-v2'
+            } | to_json
+          }}
+      changed_when: false
+      no_log: true
