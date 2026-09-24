@@ -17,7 +17,7 @@
 - PXE Gentoo rootfs を作れる仕組み と Raspberry Pi network boot support。
 - ARM64 Gentoo baseline と staging k3s server / agent configuration。
 - CRD、common add-on、certificate、staging observability 用の Terraform post-bootstrap state。
-- 独立 state で管理する Cloudflare DNS record 用 Terraform root。
+- 用途別の独立 state で管理する Cloudflare shared infrastructure 用 Terraform category。
 - cluster infrastructure として使う local registry module。
 - `docs/architecture-decision-record/` 配下の公開可能な ADR。
 
@@ -106,13 +106,13 @@ site 固有 Terraform variable は documentation-value default を持ちませ�
 - `terraform/env/common-crds`
 - `terraform/env/common-addons`
 - `terraform/env/common-certificates`
-- `terraform/env/cloudflare-dns`
+- `terraform/cloudflare/dns`
 - `terraform/env/staging`
 - `terraform/env/production/README.md`
 
 production は意図的に placeholder です。staging が最初の公開 example です。
 
-`cloudflare-dns` は k3s 系 root と state を共有しない external DNS root です。実 zone / record は private site input、API token は runtime の `CLOUDFLARE_API_TOKEN` から注入します。public CI から Cloudflare へ plan / apply は行いません。
+`terraform/cloudflare/` は Cloudflare shared infrastructure の category であり、それ自体は Terraform root ではありません。現在の `dns/` は k3s 系 root や将来の別 Cloudflare root と state を共有しません。実 zone / record は private site input、API token は runtime の `CLOUDFLARE_API_TOKEN` から注入します。public CI から Cloudflare へ plan / apply は行いません。application 専用 resource は application 側の ownership と lifecycle を優先します。
 
 よく使う local check:
 
