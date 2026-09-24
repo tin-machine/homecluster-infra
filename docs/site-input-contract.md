@@ -45,7 +45,7 @@ helm/staging/
 
 ### Cloudflare DNS
 
-`terraform/env/cloudflare-dns` は cluster root とは独立した optional external DNS root である。実 `zone_id` と DNS record 集合は private `cloudflare-dns.tfvars.json` から注入する。API token は tfvars に入れず、runtime environment の `CLOUDFLARE_API_TOKEN` だけから provider へ渡す。
+`terraform/cloudflare/dns` は cluster root とは独立した optional external DNS root である。実 `zone_id` と DNS record 集合は private `cloudflare-dns.tfvars.json` から注入する。API token は tfvars に入れず、runtime environment の `CLOUDFLARE_API_TOKEN` だけから provider へ渡す。
 
 Cloudflare DNS state は k3s / Kubernetes state と共有しない。既存 record を管理対象へ移す場合は最初の apply より前に import し、未 import の既存 record と同じ record を新規作成しない。
 
@@ -61,7 +61,7 @@ terraform -chdir=terraform/env/staging plan \
   -var-file="$inputs/terraform/staging.tfvars.json"
 
 # CLOUDFLARE_API_TOKEN は operator/controller runtime から別途注入する。
-terraform -chdir=terraform/env/cloudflare-dns plan \
+terraform -chdir=terraform/cloudflare/dns plan \
   -var-file="$inputs/terraform/cloudflare-dns.tfvars.json"
 ```
 
