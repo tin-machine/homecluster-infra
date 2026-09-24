@@ -159,10 +159,10 @@ jq -n \
 
   def pod_ready($pod):
     if ($pod.ready_text? != null) then
-      (($pod.ready_text | split(",") | map(select(length > 0 and . != "<none>"))) as $states |
-        ($states | map(select(. == "true")) | length) as $ready |
-        ($states | length) as $total |
-        {ready:$ready,total:$total,text:(($ready|tostring)+"/"+($total|tostring))})
+      ($pod.ready_text | split(",") | map(select(length > 0 and . != "<none>"))) as $states |
+      ($states | map(select(. == "true")) | length) as $ready |
+      ($states | length) as $total |
+      {ready:$ready,total:$total,text:(($ready|tostring)+"/"+($total|tostring))}
     else
       (($pod.status.containerStatuses // []) | map(select(.ready == true)) | length) as $ready |
       (($pod.status.containerStatuses // []) | length) as $total |
@@ -227,7 +227,7 @@ jq -n \
     (if ($nodes | map(select(.disk_pressure == "True" or .memory_pressure == "True" or .pid_pressure == "True")) | length) > 0 then "node_pressure" else empty end),
     (if ($non_running | length) > 0 then "non_running_pods" else empty end),
     (if ($running_not_ready | length) > 0 then "running_pods_not_ready" else empty end),
-    (if $node_exporter_ready_pod_count < $expected_node_exporter_n then "node_exporter_not_ready" else empty end),
+    (if $node_exporter_ready_pod_count < $node_exporter_desired then "node_exporter_not_ready" else empty end),
     (if ($node_identity_signal_seen and $node_identity_still_actionable) then "node_identity_signal" else empty end),
     (if ($diagnostic_outputs | map(select((. // "") | test("ssh_host_key_(changed|verification_failed)"))) | length) > 0 then "ssh_host_key_problem" else empty end)
   ]) as $issues |
