@@ -70,6 +70,101 @@ _TERRAFORM_STG_GROUP_VAR_KEYS = (
     "k3s_observability_apply_after_units",
 )
 
+_K3S_LOCAL_STORAGE_BOOL_KEYS = (
+    "k3s_local_storage_enabled",
+    "k3s_local_storage_allow_format",
+    "k3s_local_storage_force_format",
+    "k3s_local_storage_ephemeral_agent_data",
+    "k3s_local_storage_wipe_signatures",
+    "k3s_local_storage_require_partition",
+    "k3s_local_storage_killall_on_mount_change",
+    "k3s_local_storage_scrub_containerd_on_boot",
+    "k3s_local_storage_node_password_sync_enabled",
+    "k3s_local_storage_reset_identity_when_local_password_missing",
+)
+
+_K3S_LOCAL_STORAGE_VALUE_KEYS = (
+    "k3s_local_storage_device",
+    "k3s_local_storage_mountpoint",
+    "k3s_local_storage_filesystem_type",
+    "k3s_local_storage_label",
+    "k3s_local_storage_mount_options",
+    "k3s_local_storage_killall_script_path",
+    "k3s_local_storage_scrub_containerd_confirm",
+    "k3s_local_storage_scrub_containerd_required_confirm",
+    "k3s_local_storage_containerd_dir",
+    "k3s_local_storage_node_password_sync_service_name",
+    "k3s_local_storage_node_password_sync_script_path",
+    "k3s_local_storage_node_password_sync_dropin_name",
+    "k3s_local_storage_state_dir",
+    "k3s_local_storage_node_password_state_path",
+    "k3s_local_storage_server_ca_hash_state_path",
+    "k3s_local_storage_cluster_token_path",
+)
+
+_K3S_ISCSI_SESSION_BOOL_KEYS = (
+    "k3s_iscsi_session_enabled",
+    "k3s_iscsi_session_login_enabled",
+)
+
+_K3S_ISCSI_SESSION_VALUE_KEYS = (
+    "k3s_iscsi_session_portal",
+    "k3s_iscsi_session_target_iqn",
+    "k3s_iscsi_session_initiator_iqn",
+    "k3s_iscsi_session_device_path",
+    "k3s_iscsi_session_node_startup",
+    "k3s_iscsi_session_open_iscsi_package",
+    "k3s_iscsi_session_discovery_timeout",
+    "k3s_iscsi_session_udev_settle_timeout",
+)
+
+_RPI5_EGPU_LOCAL_LLM_BOOL_KEYS = (
+    "rpi5_egpu_local_llm_enabled",
+    "rpi5_egpu_local_swap_enabled",
+    "rpi5_egpu_llama_enabled",
+    "rpi5_egpu_llama_disable_webui",
+    "rpi5_egpu_llama_models_storage_enabled",
+    "rpi5_egpu_llama_models_storage_allow_empty_dir_replace",
+    "rpi5_egpu_llama_build_enabled",
+    "rpi5_egpu_llama_validate_runtime",
+)
+
+_RPI5_EGPU_LOCAL_LLM_VALUE_KEYS = (
+    "rpi5_egpu_local_swap_path",
+    "rpi5_egpu_local_swap_size",
+    "rpi5_egpu_local_swap_size_bytes",
+    "rpi5_egpu_local_swap_priority",
+    "rpi5_egpu_local_swap_swappiness",
+    "rpi5_egpu_local_swap_mountpoint",
+    "rpi5_egpu_local_swap_mount_fstype",
+    "rpi5_egpu_local_swap_mount_source",
+    "rpi5_egpu_local_swap_service_name",
+    "rpi5_egpu_llama_user",
+    "rpi5_egpu_llama_group",
+    "rpi5_egpu_llama_home",
+    "rpi5_egpu_llama_models_dir",
+    "rpi5_egpu_llama_model_path",
+    "rpi5_egpu_llama_source_dir",
+    "rpi5_egpu_llama_build_dir",
+    "rpi5_egpu_llama_build_jobs",
+    "rpi5_egpu_llama_service_name",
+    "rpi5_egpu_llama_bind_host",
+    "rpi5_egpu_llama_port",
+    "rpi5_egpu_llama_context_size",
+    "rpi5_egpu_llama_gpu_layers",
+    "rpi5_egpu_llama_condition_host",
+    "rpi5_egpu_llama_models_storage_dir",
+    "rpi5_egpu_llama_models_storage_mountpoint",
+    "rpi5_egpu_llama_models_storage_fstype",
+    "rpi5_egpu_llama_models_storage_mount_source",
+    "rpi5_egpu_llama_health_retries",
+    "rpi5_egpu_llama_health_delay",
+)
+
+_RPI5_EGPU_LOCAL_LLM_SEQUENCE_KEYS = (
+    "rpi5_egpu_llama_extra_args",
+)
+
 
 def _build_base_vars(hv: Mapping[str, Any], cfg: Mapping[str, Any]) -> dict[str, Any]:
     ansible_pull_cfg = cfg.get("ansible_pull")
@@ -228,6 +323,72 @@ def _option_value_for_client(
     return ",".join(parts)
 
 
+def _build_k3s_local_storage_vars(
+    hv: Mapping[str, Any],
+    default_ephemeral_agent_data: bool,
+    default_node_password_sync_enabled: bool | None = None,
+) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "k3s_local_storage_enabled": _as_bool(
+            _first_present(hv.get("k3s_local_storage_enabled"), False)
+        ),
+        "k3s_local_storage_mountpoint": "/var/lib/rancher/k3s",
+        "k3s_local_storage_filesystem_type": "ext4",
+        "k3s_local_storage_mount_options": "defaults,noatime,lazytime,nodiscard,errors=remount-ro",
+        "k3s_local_storage_allow_format": True,
+        "k3s_local_storage_force_format": False,
+        "k3s_local_storage_ephemeral_agent_data": _as_bool(
+            _first_present(
+                hv.get("k3s_local_storage_ephemeral_agent_data"),
+                default_ephemeral_agent_data,
+            )
+        ),
+    }
+
+    if default_node_password_sync_enabled is not None or (
+        "k3s_local_storage_node_password_sync_enabled" in hv
+    ):
+        result["k3s_local_storage_node_password_sync_enabled"] = _as_bool(
+            _first_present(
+                hv.get("k3s_local_storage_node_password_sync_enabled"),
+                default_node_password_sync_enabled,
+            )
+        )
+
+    for key in _K3S_LOCAL_STORAGE_BOOL_KEYS:
+        if key in hv:
+            result[key] = _as_bool(hv.get(key))
+    for key in _K3S_LOCAL_STORAGE_VALUE_KEYS:
+        if key in hv:
+            result[key] = hv[key]
+    return result
+
+
+def _build_k3s_iscsi_session_vars(hv: Mapping[str, Any]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key in _K3S_ISCSI_SESSION_BOOL_KEYS:
+        if key in hv:
+            result[key] = _as_bool(hv.get(key))
+    for key in _K3S_ISCSI_SESSION_VALUE_KEYS:
+        if key in hv:
+            result[key] = hv[key]
+    return result
+
+
+def _build_rpi5_egpu_local_llm_vars(hv: Mapping[str, Any]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key in _RPI5_EGPU_LOCAL_LLM_BOOL_KEYS:
+        if key in hv:
+            result[key] = _as_bool(hv.get(key))
+    for key in _RPI5_EGPU_LOCAL_LLM_VALUE_KEYS:
+        if key in hv:
+            result[key] = hv[key]
+    for key in _RPI5_EGPU_LOCAL_LLM_SEQUENCE_KEYS:
+        if key in hv:
+            result[key] = _as_list(hv.get(key))
+    return result
+
+
 def _build_k3s_stg_agent_vars(
     hostname: str,
     hv: Mapping[str, Any],
@@ -254,17 +415,6 @@ def _build_k3s_stg_agent_vars(
         labels = ["example.com/k3s-workload=true"]
 
     result: dict[str, Any] = {
-        "k3s_local_storage_enabled": _as_bool(
-            _first_present(hv.get("k3s_local_storage_enabled"), False)
-        ),
-        "k3s_local_storage_mountpoint": "/var/lib/rancher/k3s",
-        "k3s_local_storage_filesystem_type": "ext4",
-        "k3s_local_storage_mount_options": "defaults,noatime,lazytime,nodiscard,errors=remount-ro",
-        "k3s_local_storage_allow_format": True,
-        "k3s_local_storage_force_format": False,
-        "k3s_local_storage_ephemeral_agent_data": _as_bool(
-            _first_present(hv.get("k3s_local_storage_ephemeral_agent_data"), True)
-        ),
         "k3s_agent": {
             "node-ip": node_ip,
             "node-name": overlay_id or hostname,
@@ -278,10 +428,16 @@ def _build_k3s_stg_agent_vars(
         "k3s_control_delegate": "k3s_stg_server",
         "k3s_controller_list": ["k3s_stg_server"],
     }
-
-    device = _clean_string(hv.get("k3s_local_storage_device"))
-    if device:
-        result["k3s_local_storage_device"] = device
+    if "k3s_start_on_boot" in hv:
+        result["k3s_start_on_boot"] = _as_bool(hv.get("k3s_start_on_boot"))
+    result.update(
+        _build_k3s_local_storage_vars(
+            hv,
+            default_ephemeral_agent_data=True,
+        )
+    )
+    result.update(_build_k3s_iscsi_session_vars(hv))
+    result.update(_build_rpi5_egpu_local_llm_vars(hv))
     return result
 
 
@@ -312,6 +468,21 @@ def _build_k3s_stg_server_vars(
             "write-kubeconfig-mode": "0644",
         },
     }
+    node_taints = hv.get("k3s_server_node_taints")
+    if node_taints:
+        result["k3s_server"]["node-taint"] = (
+            [node_taints] if isinstance(node_taints, str) else list(node_taints)
+        )
+    if "k3s_start_on_boot" in hv:
+        result["k3s_start_on_boot"] = _as_bool(hv.get("k3s_start_on_boot"))
+    result.update(
+        _build_k3s_local_storage_vars(
+            hv,
+            default_ephemeral_agent_data=False,
+            default_node_password_sync_enabled=False,
+        )
+    )
+    result.update(_build_k3s_iscsi_session_vars(hv))
     return result
 
 
@@ -395,6 +566,17 @@ def _build_generated_client(
         "cmdline_root_arg": _mapping_value(cfg, pxe_host_cfg, "cmdline_root_arg"),
         "cmdline_ip": _mapping_value(cfg, pxe_host_cfg, "cmdline_ip"),
         "cmdline_extra_args": _mapping_value(cfg, pxe_host_cfg, "cmdline_extra_args"),
+        "rpi_kernel_image": _mapping_value(cfg, pxe_host_cfg, "rpi_kernel_image"),
+        "rpi_initramfs": _mapping_value(cfg, pxe_host_cfg, "rpi_initramfs"),
+        "rpi_device_tree": _mapping_value(cfg, pxe_host_cfg, "rpi_device_tree"),
+        "rpi4_kernel_image": _mapping_value(cfg, pxe_host_cfg, "rpi4_kernel_image"),
+        "rpi4_initramfs": _mapping_value(cfg, pxe_host_cfg, "rpi4_initramfs"),
+        "rpi4_device_tree": _mapping_value(cfg, pxe_host_cfg, "rpi4_device_tree"),
+        "rpi5_kernel_image": _mapping_value(cfg, pxe_host_cfg, "rpi5_kernel_image"),
+        "rpi5_initramfs": _mapping_value(cfg, pxe_host_cfg, "rpi5_initramfs"),
+        "rpi5_device_tree": _mapping_value(cfg, pxe_host_cfg, "rpi5_device_tree"),
+        "rpi5_extra_config": _mapping_value(cfg, pxe_host_cfg, "rpi5_extra_config"),
+        "rpi5_pciex1_enabled": _mapping_value(cfg, pxe_host_cfg, "rpi5_pciex1_enabled"),
     }
     for key, value in host_field_candidates.items():
         if value is not None and _clean_string(value):
@@ -498,6 +680,12 @@ def _build_generated_client(
         if base_vars:
             role_extra_vars["base"] = base_vars
 
+    picoclaw_cfg = hv.get("picoclaw")
+    if "base" in role_names and isinstance(picoclaw_cfg, Mapping) and picoclaw_cfg:
+        current = role_extra_vars.get("base", {})
+        merged, _ = _merge_nested_mapping(current, {"picoclaw": dict(picoclaw_cfg)})
+        role_extra_vars["base"] = merged
+
     if "k3s_stg_server" in role_names and _as_bool(
         ansible_pull_cfg.get("k3s_stg_server_vars_enabled", True)
     ):
@@ -517,6 +705,18 @@ def _build_generated_client(
             cfg,
             overlay_id,
         )
+    if "k3s_stg_storage" in role_names and _as_bool(
+        ansible_pull_cfg.get("k3s_stg_storage_vars_enabled", True)
+    ):
+        role_extra_vars["k3s_stg_storage"] = _build_k3s_local_storage_vars(
+            hv,
+            default_ephemeral_agent_data=False,
+            default_node_password_sync_enabled=(
+                False if "k3s_stg_server" in role_names else None
+            ),
+        )
+        role_extra_vars["k3s_stg_storage"].update(_build_k3s_iscsi_session_vars(hv))
+
 
     for role_name, role_vars in extra_vars_cfg.items():
         role_name_text = _clean_string(role_name)
@@ -598,6 +798,17 @@ def build_openwrt_pxe_client_catalog(
             "tftp_release",
             "rootfs_release",
             "cmdline_extra_args",
+            "rpi_kernel_image",
+            "rpi_initramfs",
+            "rpi_device_tree",
+            "rpi4_kernel_image",
+            "rpi4_initramfs",
+            "rpi4_device_tree",
+            "rpi5_kernel_image",
+            "rpi5_initramfs",
+            "rpi5_device_tree",
+            "rpi5_extra_config",
+            "rpi5_pciex1_enabled",
         ]
     pxe_boot_compare_fields = [str(field) for field in _as_list(compare_pxe_boot_fields)]
     if not pxe_boot_compare_fields:

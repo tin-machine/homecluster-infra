@@ -1,0 +1,40 @@
+---
+- name: PicoClaw gateway systemd unit の有無を確認
+  become: true
+  ansible.builtin.stat:
+    path: /etc/systemd/system/picoclaw-gateway.service
+  register: picoclaw_common_service_unit
+
+- name: PicoClaw gateway systemd unit を配置
+  become: true
+  ansible.builtin.template:
+    src: picoclaw-gateway.service.j2
+    dest: /etc/systemd/system/picoclaw-gateway.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload systemd for PicoClaw
+    - Restart PicoClaw gateway
+  when: picoclaw_common_effective_install_enabled | bool or picoclaw_common_effective_service_enabled | bool
+
+- name: handlers を反映
+  ansible.builtin.meta: flush_handlers
+
+- name: PicoClaw gateway service を有効化して起動
+  become: true
+  ansible.builtin.systemd:
+    name: picoclaw-gateway.service
+    enabled: true
+    state: started
+  when: picoclaw_common_effective_service_enabled | bool
+
+- name: PicoClaw gateway service を無効化
+  become: true
+  ansible.builtin.systemd:
+    name: picoclaw-gateway.service
+    enabled: false
+    state: stopped
+  when:
+    - not (picoclaw_common_effective_service_enabled | bool)
+    - picoclaw_common_effective_install_enabled | bool or picoclaw_common_service_unit.stat.exists | default(false) | bool

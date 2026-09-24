@@ -1,0 +1,524 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "agent": {
+    "homecluster-ansible-patch": {
+      "description": "Implements one narrow homecluster-infra Ansible source patch with public/private boundary guards.",
+      "mode": "primary",
+      "prompt": "You are the homecluster-infra Ansible patch implementer. Use $homecluster-ansible-implementer first. For OpenWrt major-upgrade package-manager work also use $homecluster-openwrt-major-upgrade. For OpenWrt package boundary audits also use $homecluster-openwrt-package-boundary-auditor. For OpenWrt post-upgrade collector work also use $homecluster-openwrt-postupgrade-check. Implement exactly one narrow source-only task. If the task needs broad role work, edit only the requested file and stop. When changing Ansible code, preserve fail-closed guards and existing behavior. Never add top-level keys such as tags to roles/*/tasks/*.yml; each tasks file must remain a YAML list of task mappings. Use rg/read tools instead of requesting bash grep. Keep the final response to at most 6 short lines: changed files, validation commands not run, blockers, uncertainty.",
+      "permission": {
+        "*": "deny",
+        "skill": {
+          "*": "ask",
+          "homecluster-ansible-implementer": "allow",
+          "homecluster-openwrt-major-upgrade": "allow",
+          "homecluster-openwrt-package-boundary-auditor": "allow",
+          "homecluster-openwrt-postupgrade-check": "allow"
+        },
+        "read": {
+          "*": "allow",
+          "*.env": "deny",
+          "*.env.*": "deny"
+        },
+        "glob": {
+          "*": "allow"
+        },
+        "grep": {
+          "*": "allow"
+        },
+        "list": {
+          "*": "allow"
+        },
+        "bash": {
+          "*": "ask",
+          "git status*": "allow",
+          "git branch --show-current": "allow",
+          "git rev-parse*": "allow",
+          "git diff*": "allow",
+          "git show*": "allow",
+          "git ls-files*": "allow",
+          "pwd": "allow",
+          "ls *": "allow",
+          "rg *": "allow",
+          "sed -n *": "allow",
+          "mkfs*": "deny",
+          "sudo mkfs*": "deny",
+          "wipefs *": "deny",
+          "sudo wipefs *": "deny",
+          "mount *": "deny",
+          "sudo mount *": "deny",
+          "umount *": "deny",
+          "sudo umount *": "deny",
+          "iscsiadm *": "deny",
+          "sudo iscsiadm *": "deny",
+          "tgtadm *": "deny",
+          "sudo tgtadm *": "deny",
+          "service tgtd *": "deny",
+          "/etc/init.d/tgtd *": "deny",
+          "terraform apply*": "deny",
+          "sysupgrade *": "deny",
+          "switchbot*": "deny",
+          "scripts/ansible/convert_openwrt_package_task.py *": "allow",
+          "python3 scripts/ansible/convert_openwrt_package_task.py *": "allow",
+          "bash scripts/ci/static-check.sh": "allow",
+          "RUN_ANSIBLE_SYNTAX=1 RUN_ANSIBLE_LIST_TASKS=1 bash scripts/ci/static-check.sh": "allow",
+          "./.agents/skills/homecluster-ansible-implementer/scripts/opencode_preflight_gate.sh *": "allow",
+          "./.agents/skills/homecluster-ansible-implementer/scripts/opencode_validation_gate.sh": "allow",
+          "./.agents/skills/homecluster-ansible-implementer/scripts/opencode_validation_gate.sh *": "allow",
+          "./.agents/skills/homecluster-ansible-implementer/scripts/review_changed_ansible.sh": "allow",
+          "./.agents/skills/homecluster-openwrt-package-boundary-auditor/scripts/check_openwrt_package_boundaries.py": "allow",
+          "./.agents/skills/homecluster-openwrt-package-boundary-auditor/scripts/check_openwrt_package_boundaries.py *": "allow",
+          "python3 ./.agents/skills/homecluster-openwrt-package-boundary-auditor/scripts/check_openwrt_package_boundaries.py": "allow",
+          "python3 ./.agents/skills/homecluster-openwrt-package-boundary-auditor/scripts/check_openwrt_package_boundaries.py *": "allow",
+          "./.agents/skills/homecluster-openwrt-postupgrade-check/scripts/check_openwrt_postupgrade_source_contract.py": "allow",
+          "./.agents/skills/homecluster-openwrt-postupgrade-check/scripts/check_openwrt_postupgrade_source_contract.py *": "allow",
+          "python3 ./.agents/skills/homecluster-openwrt-postupgrade-check/scripts/check_openwrt_postupgrade_source_contract.py": "allow",
+          "python3 ./.agents/skills/homecluster-openwrt-postupgrade-check/scripts/check_openwrt_postupgrade_source_contract.py *": "allow",
+          "ansible-playbook *examples/inventory.yml*": "allow",
+          "ansible-playbook *../inventory.yml*": "deny",
+          "ansible-playbook */home/*/ghq/*/inventory.yml*": "deny",
+          "ansible-playbook *homecluster-inventory*": "deny"
+        },
+        "edit": {
+          "*": "allow",
+          "~/ghq/**/homecluster-runbook/docs/operation/**": "deny",
+          "/home/*/ghq/**/homecluster-runbook/docs/operation/**": "deny"
+        },
+        "external_directory": {
+          "*": "deny"
+        },
+        "task": {
+          "*": "deny"
+        },
+        "webfetch": "deny",
+        "websearch": "deny",
+        "lsp": "deny",
+        "todowrite": "deny",
+        "question": "deny"
+      }
+    },
+    "homecluster-edit-only": {
+      "description": "Applies one explicit source edit without reading repository context or running commands.",
+      "mode": "primary",
+      "prompt": "You are an exact-replacement patcher. Apply the requested source edit and report the result. If an edit oldString does not match twice, stop immediately and report no change instead of retrying variants.",
+      "permission": {
+        "*": "deny",
+        "skill": {
+          "*": "deny"
+        },
+        "read": {
+          "*": "deny"
+        },
+        "glob": {
+          "*": "deny"
+        },
+        "grep": {
+          "*": "deny"
+        },
+        "list": {
+          "*": "deny"
+        },
+        "bash": {
+          "*": "deny"
+        },
+        "edit": {
+          "*": "allow",
+          "~/ghq/**/homecluster-runbook/docs/operation/**": "deny",
+          "/home/*/ghq/**/homecluster-runbook/docs/operation/**": "deny"
+        },
+        "external_directory": {
+          "*": "deny"
+        },
+        "task": {
+          "*": "deny"
+        },
+        "webfetch": "deny",
+        "websearch": "deny",
+        "lsp": "deny",
+        "todowrite": "deny",
+        "question": "deny"
+      }
+    },
+    "homecluster-source-edit": {
+      "description": "Reads explicitly scoped source context and applies one narrow source edit without running commands.",
+      "mode": "primary",
+      "prompt": "You are a bounded source editor. Read only the files needed for the requested edit, apply the smallest source change, and stop. If the user gives an explicit safe source edit, you must call the edit tool; do not stop after reading. Do not run commands, validate, repair unrelated failures, inspect secrets, or paste file contents. After editing, final answer must be one short line only.",
+      "permission": {
+        "*": "deny",
+        "skill": {
+          "*": "deny"
+        },
+        "read": {
+          "*": "allow",
+          "*.env": "deny",
+          "*.env.*": "deny"
+        },
+        "glob": {
+          "*": "allow"
+        },
+        "grep": {
+          "*": "allow"
+        },
+        "list": {
+          "*": "allow"
+        },
+        "bash": {
+          "*": "deny"
+        },
+        "edit": {
+          "*": "allow",
+          "~/ghq/**/homecluster-runbook/docs/operation/**": "deny",
+          "/home/*/ghq/**/homecluster-runbook/docs/operation/**": "deny"
+        },
+        "external_directory": {
+          "*": "deny"
+        },
+        "task": {
+          "*": "deny"
+        },
+        "webfetch": "deny",
+        "websearch": "deny",
+        "lsp": "deny",
+        "todowrite": "deny",
+        "question": "deny"
+      }
+    },
+    "homecluster-read-only": {
+      "description": "Finds relevant homecluster-infra files and anchors without editing or running validation.",
+      "mode": "primary",
+      "prompt": "You are a repository scout. Return candidate files, relevant anchors, uncertainty, and one recommended smallest source-only task.",
+      "permission": {
+        "*": "deny",
+        "skill": {
+          "*": "ask",
+          "homecluster-ansible-implementer": "allow",
+          "homecluster-openwrt-major-upgrade": "allow",
+          "homecluster-openwrt-package-boundary-auditor": "allow",
+          "homecluster-openwrt-postupgrade-check": "allow"
+        },
+        "read": {
+          "*": "allow",
+          "*.env": "deny",
+          "*.env.*": "deny"
+        },
+        "glob": {
+          "*": "allow"
+        },
+        "grep": {
+          "*": "allow"
+        },
+        "list": {
+          "*": "allow"
+        },
+        "bash": {
+          "*": "deny"
+        },
+        "edit": {
+          "*": "deny"
+        },
+        "external_directory": {
+          "*": "deny"
+        },
+        "task": {
+          "*": "deny"
+        },
+        "webfetch": "deny",
+        "websearch": "deny",
+        "lsp": "deny",
+        "todowrite": "deny",
+        "question": "deny"
+      }
+    },
+    "homecluster-package-boundary-auditor": {
+      "description": "Runs the read-only OpenWrt package-manager boundary checker without editing or touching live state.",
+      "mode": "primary",
+      "prompt": "You are a source-only OpenWrt package boundary auditor. Use $homecluster-openwrt-package-boundary-auditor. Run the checker exactly once, report compact JSON status, and stop. Do not edit files, run Ansible, inspect real inventory, SSH, sysupgrade, install packages, restart services, reboot devices, use SwitchBot, run Terraform apply, or inspect secrets.",
+      "permission": {
+        "*": "deny",
+        "skill": {
+          "*": "deny",
+          "homecluster-openwrt-package-boundary-auditor": "allow"
+        },
+        "read": {
+          "*": "allow",
+          "*.env": "deny",
+          "*.env.*": "deny"
+        },
+        "glob": {
+          "*": "allow"
+        },
+        "grep": {
+          "*": "allow"
+        },
+        "list": {
+          "*": "allow"
+        },
+        "bash": {
+          "*": "deny",
+          "git status*": "allow",
+          "git diff*": "allow",
+          "./.agents/skills/homecluster-openwrt-package-boundary-auditor/scripts/check_openwrt_package_boundaries.py": "allow",
+          "./.agents/skills/homecluster-openwrt-package-boundary-auditor/scripts/check_openwrt_package_boundaries.py *": "allow",
+          "python3 ./.agents/skills/homecluster-openwrt-package-boundary-auditor/scripts/check_openwrt_package_boundaries.py": "allow",
+          "python3 ./.agents/skills/homecluster-openwrt-package-boundary-auditor/scripts/check_openwrt_package_boundaries.py *": "allow"
+        },
+        "edit": {
+          "*": "deny"
+        },
+        "external_directory": {
+          "*": "deny"
+        },
+        "task": {
+          "*": "deny"
+        },
+        "webfetch": "deny",
+        "websearch": "deny",
+        "lsp": "deny",
+        "todowrite": "deny",
+        "question": "deny"
+      }
+    },
+    "homecluster-openwrt-postupgrade-source-auditor": {
+      "description": "Runs the read-only OpenWrt post-upgrade source contract checker without editing or touching live state.",
+      "mode": "primary",
+      "prompt": "You are a source-only OpenWrt post-upgrade source contract auditor. Use $homecluster-openwrt-postupgrade-check. Run the source contract checker exactly once, report compact JSON status, and stop. Do not edit files, run Ansible, inspect real inventory, SSH, sysupgrade, install packages, restart services, reboot devices, use SwitchBot, run Terraform apply, or inspect secrets.",
+      "permission": {
+        "*": "deny",
+        "skill": {
+          "*": "deny",
+          "homecluster-openwrt-postupgrade-check": "allow"
+        },
+        "read": {
+          "*": "allow",
+          "*.env": "deny",
+          "*.env.*": "deny"
+        },
+        "glob": {
+          "*": "allow"
+        },
+        "grep": {
+          "*": "allow"
+        },
+        "list": {
+          "*": "allow"
+        },
+        "bash": {
+          "*": "deny",
+          "git status*": "allow",
+          "git diff*": "allow",
+          "./.agents/skills/homecluster-openwrt-postupgrade-check/scripts/check_openwrt_postupgrade_source_contract.py": "allow",
+          "./.agents/skills/homecluster-openwrt-postupgrade-check/scripts/check_openwrt_postupgrade_source_contract.py *": "allow",
+          "python3 ./.agents/skills/homecluster-openwrt-postupgrade-check/scripts/check_openwrt_postupgrade_source_contract.py": "allow",
+          "python3 ./.agents/skills/homecluster-openwrt-postupgrade-check/scripts/check_openwrt_postupgrade_source_contract.py *": "allow"
+        },
+        "edit": {
+          "*": "deny"
+        },
+        "external_directory": {
+          "*": "deny"
+        },
+        "task": {
+          "*": "deny"
+        },
+        "webfetch": "deny",
+        "websearch": "deny",
+        "lsp": "deny",
+        "todowrite": "deny",
+        "question": "deny"
+      }
+    },
+    "homecluster-validation-runner": {
+      "description": "Runs approved validation commands and reports compact results without editing or repairing.",
+      "mode": "primary",
+      "prompt": "You are a validation runner. Run the requested validation command and report command, exit code, and compact failure summary.",
+      "permission": {
+        "*": "deny",
+        "skill": {
+          "*": "deny"
+        },
+        "read": {
+          "*": "deny"
+        },
+        "glob": {
+          "*": "deny"
+        },
+        "grep": {
+          "*": "deny"
+        },
+        "list": {
+          "*": "deny"
+        },
+        "bash": {
+          "*": "deny",
+          "git status*": "allow",
+          "git diff*": "allow",
+          "./.agents/skills/homecluster-ansible-implementer/scripts/opencode_validation_gate.sh": "allow",
+          "./.agents/skills/homecluster-ansible-implementer/scripts/opencode_validation_gate.sh *": "allow",
+          "./.agents/skills/homecluster-ansible-implementer/scripts/review_changed_ansible.sh": "allow",
+          "./.agents/skills/homecluster-openwrt-package-boundary-auditor/scripts/check_openwrt_package_boundaries.py": "allow",
+          "./.agents/skills/homecluster-openwrt-package-boundary-auditor/scripts/check_openwrt_package_boundaries.py *": "allow",
+          "python3 ./.agents/skills/homecluster-openwrt-package-boundary-auditor/scripts/check_openwrt_package_boundaries.py": "allow",
+          "python3 ./.agents/skills/homecluster-openwrt-package-boundary-auditor/scripts/check_openwrt_package_boundaries.py *": "allow",
+          "./.agents/skills/homecluster-openwrt-postupgrade-check/scripts/check_openwrt_postupgrade_source_contract.py": "allow",
+          "./.agents/skills/homecluster-openwrt-postupgrade-check/scripts/check_openwrt_postupgrade_source_contract.py *": "allow",
+          "python3 ./.agents/skills/homecluster-openwrt-postupgrade-check/scripts/check_openwrt_postupgrade_source_contract.py": "allow",
+          "python3 ./.agents/skills/homecluster-openwrt-postupgrade-check/scripts/check_openwrt_postupgrade_source_contract.py *": "allow",
+          "bash scripts/ci/static-check.sh": "allow",
+          "RUN_ANSIBLE_SYNTAX=1 RUN_ANSIBLE_LIST_TASKS=1 bash scripts/ci/static-check.sh": "allow",
+          "ansible-playbook *examples/inventory.yml*": "allow"
+        },
+        "edit": {
+          "*": "deny"
+        },
+        "external_directory": {
+          "*": "deny"
+        },
+        "task": {
+          "*": "deny"
+        },
+        "webfetch": "deny",
+        "websearch": "deny",
+        "lsp": "deny",
+        "todowrite": "deny",
+        "question": "deny"
+      }
+    },
+    "homecluster-repair-only": {
+      "description": "Repairs one compact validation failure with the smallest target-file edit.",
+      "mode": "primary",
+      "prompt": "You are a repair agent. Use the compact validation failure JSON and the current target file to make the smallest source edit that fixes the reported failure.",
+      "permission": {
+        "*": "deny",
+        "skill": {
+          "*": "deny"
+        },
+        "read": {
+          "*": "allow",
+          "*.env": "deny",
+          "*.env.*": "deny"
+        },
+        "glob": {
+          "*": "deny"
+        },
+        "grep": {
+          "*": "deny"
+        },
+        "list": {
+          "*": "deny"
+        },
+        "bash": {
+          "*": "deny"
+        },
+        "edit": {
+          "*": "allow",
+          "~/ghq/**/homecluster-runbook/docs/operation/**": "deny",
+          "/home/*/ghq/**/homecluster-runbook/docs/operation/**": "deny"
+        },
+        "external_directory": {
+          "*": "deny"
+        },
+        "task": {
+          "*": "deny"
+        },
+        "webfetch": "deny",
+        "websearch": "deny",
+        "lsp": "deny",
+        "todowrite": "deny",
+        "question": "deny"
+      }
+    }
+  },
+  "permission": {
+    "*": "ask",
+    "skill": {
+      "*": "ask",
+      "homecluster-ansible-implementer": "allow",
+      "homecluster-convergence-monitor": "allow",
+      "homecluster-openwrt-major-upgrade": "allow",
+      "homecluster-openwrt-package-boundary-auditor": "allow",
+      "homecluster-openwrt-postupgrade-check": "allow"
+    },
+    "external_directory": {
+      "~/ghq/**/homecluster-runbook/docs/operation/**": "allow",
+      "/home/*/ghq/**/homecluster-runbook/docs/operation/**": "allow"
+    },
+    "edit": {
+      "*": "allow",
+      "~/ghq/**/homecluster-runbook/docs/operation/**": "deny",
+      "/home/*/ghq/**/homecluster-runbook/docs/operation/**": "deny"
+    },
+    "task": {
+      "*": "deny"
+    },
+    "webfetch": "deny",
+    "websearch": "deny",
+    "lsp": "deny",
+    "todowrite": "deny",
+    "question": "deny",
+    "bash": {
+      "*": "ask",
+      "git status*": "allow",
+      "git branch --show-current": "allow",
+      "git rev-parse*": "allow",
+      "git diff*": "allow",
+      "git show*": "allow",
+      "git ls-files*": "allow",
+      "pwd": "allow",
+      "ls *": "allow",
+      "rg *": "allow",
+      "sed -n *": "allow",
+      "mkfs*": "deny",
+      "sudo mkfs*": "deny",
+      "wipefs *": "deny",
+      "sudo wipefs *": "deny",
+      "mount *": "deny",
+      "sudo mount *": "deny",
+      "umount *": "deny",
+      "sudo umount *": "deny",
+      "iscsiadm *": "deny",
+      "sudo iscsiadm *": "deny",
+      "tgtadm *": "deny",
+      "sudo tgtadm *": "deny",
+      "service tgtd *": "deny",
+      "/etc/init.d/tgtd *": "deny",
+      "terraform apply*": "deny",
+      "sysupgrade *": "deny",
+      "switchbot*": "deny",
+      "scripts/ansible/convert_openwrt_package_task.py *": "allow",
+      "python3 scripts/ansible/convert_openwrt_package_task.py *": "allow",
+      "mkdir -p ansible/openwrt/roles/openwrt_detect*": "allow",
+      "mkdir -p */ansible/openwrt/roles/openwrt_detect*": "allow",
+      "mkdir -p ansible/openwrt/roles/openwrt_package*": "allow",
+      "mkdir -p */ansible/openwrt/roles/openwrt_package*": "allow",
+      "env | grep OPENWRT_CHECK*": "allow",
+      "bash scripts/ci/static-check.sh": "allow",
+      "RUN_ANSIBLE_SYNTAX=1 bash scripts/ci/static-check.sh": "allow",
+      "RUN_ANSIBLE_SYNTAX=1 RUN_ANSIBLE_LIST_TASKS=1 bash scripts/ci/static-check.sh": "allow",
+      "RUN_ANSIBLE_SYNTAX=1 RUN_ANSIBLE_LIST_TASKS=1 RUN_TERRAFORM_VALIDATE=1 bash scripts/ci/static-check.sh": "allow",
+      "./.agents/skills/homecluster-ansible-implementer/scripts/opencode_preflight_gate.sh *": "allow",
+      "./.agents/skills/homecluster-ansible-implementer/scripts/opencode_implementation_run.sh *": "allow",
+      "./.agents/skills/homecluster-ansible-implementer/scripts/opencode_validation_gate.sh": "allow",
+      "./.agents/skills/homecluster-ansible-implementer/scripts/opencode_validation_gate.sh *": "allow",
+      "./.agents/skills/homecluster-ansible-implementer/scripts/review_changed_ansible.sh": "allow",
+      "./.agents/skills/homecluster-openwrt-package-boundary-auditor/scripts/check_openwrt_package_boundaries.py": "allow",
+      "./.agents/skills/homecluster-openwrt-package-boundary-auditor/scripts/check_openwrt_package_boundaries.py *": "allow",
+      "python3 ./.agents/skills/homecluster-openwrt-package-boundary-auditor/scripts/check_openwrt_package_boundaries.py": "allow",
+      "python3 ./.agents/skills/homecluster-openwrt-package-boundary-auditor/scripts/check_openwrt_package_boundaries.py *": "allow",
+      "./.agents/skills/homecluster-openwrt-postupgrade-check/scripts/check_openwrt_postupgrade_source_contract.py": "allow",
+      "./.agents/skills/homecluster-openwrt-postupgrade-check/scripts/check_openwrt_postupgrade_source_contract.py *": "allow",
+      "python3 ./.agents/skills/homecluster-openwrt-postupgrade-check/scripts/check_openwrt_postupgrade_source_contract.py": "allow",
+      "python3 ./.agents/skills/homecluster-openwrt-postupgrade-check/scripts/check_openwrt_postupgrade_source_contract.py *": "allow",
+      "./.agents/skills/homecluster-convergence-monitor/scripts/collect-k3s-convergence.sh": "allow",
+      "./.agents/skills/homecluster-convergence-monitor/scripts/collect-k3s-convergence.sh *": "allow",
+      "bash .agents/skills/homecluster-convergence-monitor/scripts/collect-k3s-convergence.sh": "allow",
+      "bash .agents/skills/homecluster-convergence-monitor/scripts/collect-k3s-convergence.sh *": "allow",
+      "MONITOR_* ./.agents/skills/homecluster-convergence-monitor/scripts/collect-k3s-convergence.sh*": "allow",
+      "./.agents/skills/homecluster-openwrt-postupgrade-check/scripts/collect-openwrt-postupgrade.sh": "allow",
+      "./.agents/skills/homecluster-openwrt-postupgrade-check/scripts/collect-openwrt-postupgrade.sh *": "allow",
+      "OPENWRT_CHECK_* ./.agents/skills/homecluster-openwrt-postupgrade-check/scripts/collect-openwrt-postupgrade.sh*": "allow",
+      "ansible-playbook *examples/inventory.yml*": "allow",
+      "ansible-playbook *../inventory.yml*": "deny",
+      "ansible-playbook */home/*/ghq/*/inventory.yml*": "deny",
+      "ansible-playbook *homecluster-inventory*": "deny"
+    }
+  }
+}

@@ -1,0 +1,73 @@
+---
+- name: rpi5 eGPU local LLM をスキップ
+  ansible.builtin.debug:
+    msg: "rpi5_egpu_local_llm_enabled=false のため local LLM 設定は実行しません"
+  when: not (rpi5_egpu_local_llm_enabled | bool)
+
+- name: rpi5 eGPU local LLM の必須変数を検証
+  ansible.builtin.assert:
+    that:
+      - rpi5_egpu_local_swap_path is match('^/')
+      - rpi5_egpu_local_swap_size_bytes | int > 0
+      - rpi5_egpu_local_swap_priority | int < 100
+      - rpi5_egpu_local_swap_swappiness | int >= 0
+      - rpi5_egpu_local_swap_swappiness | int <= 100
+      - rpi5_egpu_llama_source_dir is match('^/')
+      - rpi5_egpu_llama_build_dir is match('^/')
+      - rpi5_egpu_llama_model_path is match('^/')
+      - rpi5_egpu_llama_models_storage_dir is match('^/')
+      - rpi5_egpu_llama_models_storage_mountpoint is match('^/')
+      - rpi5_egpu_llama_bind_host | length > 0
+      - rpi5_egpu_llama_port | int > 0
+      - rpi5_egpu_llama_port | int < 65536
+      - rpi5_egpu_llama_build_jobs | int > 0
+      - rpi5_egpu_llama_extra_args is sequence
+      - rpi5_egpu_llama_extra_args is not string
+      - (rpi5_egpu_llama_extra_args | select('string') | list | length) == (rpi5_egpu_llama_extra_args | length)
+      - rpi5_egpu_llama_health_retries | int > 0
+      - rpi5_egpu_llama_health_delay | int > 0
+    fail_msg: "rpi5_egpu_local_llm の必須変数を確認してください"
+  when: rpi5_egpu_local_llm_enabled | bool
+
+- name: local SSD swap を設定
+  ansible.builtin.include_tasks:
+    file: swap.yml
+    apply:
+      tags:
+        - rpi5_egpu_local_llm
+        - rpi5_egpu_local_swap
+  when:
+    - rpi5_egpu_local_llm_enabled | bool
+    - rpi5_egpu_local_swap_enabled | bool
+  tags:
+    - rpi5_egpu_local_llm
+    - rpi5_egpu_local_swap
+
+- name: models を設定
+  ansible.builtin.include_tasks:
+    file: models.yml
+    apply:
+      tags:
+        - rpi5_egpu_local_llm
+        - llama_models
+  when:
+    - rpi5_egpu_local_llm_enabled | bool
+    - rpi5_egpu_llama_enabled | bool
+    - rpi5_egpu_llama_models_storage_enabled | bool
+  tags:
+    - rpi5_egpu_local_llm
+    - llama_models
+
+- name: Vulkan llama server を設定
+  ansible.builtin.include_tasks:
+    file: llama.yml
+    apply:
+      tags:
+        - rpi5_egpu_local_llm
+        - llama_vulkan
+  when:
+    - rpi5_egpu_local_llm_enabled | bool
+    - rpi5_egpu_llama_enabled | bool
+  tags:
+    - rpi5_egpu_local_llm
+    - llama_vulkan

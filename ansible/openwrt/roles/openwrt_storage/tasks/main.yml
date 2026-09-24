@@ -1,12 +1,6 @@
 ---
-- name: ストレージ関連パッケージを導入
-  ansible.builtin.opkg:
-    name: "{{ item }}"
-    state: present
-    update_cache: "{{ openwrt_opkg_update | default(true) }}"
-  loop: "{{ openwrt_storage_packages }}"
-  loop_control:
-    label: "{{ item }}"
+- name: ストレージ関連パッケージ準備 task を読み込む
+  ansible.builtin.import_tasks: package_prep.yml
 
 - name: ストレージ role の実行モードを決定
   ansible.builtin.set_fact:
@@ -106,8 +100,10 @@
     that:
       - item.number is defined
       - item.fstype is defined
-      - item.fstype in ['vfat', 'fat32', 'f2fs', 'swap']
+      - item.fstype in ['vfat', 'fat32', 'f2fs', 'ext4', 'swap']
       - item.label is defined
+      - item.mkfs_options is not defined or (item.mkfs_options is sequence and item.mkfs_options is not string)
+      - item.mkfs_options is not defined or (item.mkfs_options | select('string') | list | length == item.mkfs_options | length)
       - (not openwrt_storage_force_repartition | bool) or item.start is defined
       - (not openwrt_storage_force_repartition | bool) or item.end is defined
     fail_msg: "openwrt_storage_partition_map item に number/fstype/label/start/end が不足、または fstype が未対応です: {{ item }}"
@@ -163,10 +159,13 @@
   ansible.builtin.assert:
     that:
       - openwrt_storage_destructive_confirm == openwrt_storage_destructive_confirm_expected
+      - openwrt_storage_expected_model | string | length > 0
+      - openwrt_storage_expected_serial | string | length > 0
     fail_msg: >-
       openwrt_storage_force_repartition/openwrt_storage_force_format には
-      openwrt_storage_destructive_confirm={{ openwrt_storage_destructive_confirm_expected }}
-      の明示が必要です。target={{ openwrt_storage_device }}
+      openwrt_storage_destructive_confirm={{ openwrt_storage_destructive_confirm_expected }}、
+      openwrt_storage_expected_model、openwrt_storage_expected_serial の明示が必要です。
+      target={{ openwrt_storage_device }}
   when: openwrt_storage_destructive_requested | bool
 
 - name: destructive storage 操作の対象 device を検証
@@ -310,6 +309,9 @@
       f2fs)
         /usr/sbin/mkfs.f2fs -f -l "$label" "$part"
         ;;
+      ext4)
+        /usr/sbin/mkfs.ext4 -F -L "$label"{% for option in item.mkfs_options | default([]) %} {{ option | quote }}{% endfor %} "$part"
+        ;;
       swap)
         mkswap -L "$label" "$part"
         ;;
@@ -393,6 +395,43 @@
     - item.fstype != 'swap'
     - item.target is defined
     - (item.target | string | length) > 0
+
+- name: /srv を early direct-mount する OpenWrt init script を配置
+  ansible.builtin.copy:
+    dest: /etc/init.d/homecluster-srv-mount
+    owner: root
+    group: root
+    mode: '0755'
+    content: |
+      #!/bin/sh /etc/rc.common
+      # Managed by Ansible. Keep /srv available before storage-backed services start.
+      START=05
+      STOP=99
+
+      start() {
+        target={{ item.target | quote }}
+        device={{ item.partition | quote }}
+        fstype={{ item.fstype | quote }}
+        options={{ item.mount_options | default('rw,noatime') | quote }}
+
+        mount | grep -F " on $target " >/dev/null 2>&1 && return 0
+        mkdir -p "$target"
+        mount -t "$fstype" -o "$options" "$device" "$target"
+      }
+  when:
+    - openwrt_storage_manage_fstab | bool
+    - item.target | default('') == '/srv'
+    - item.fstype != 'swap'
+  loop: "{{ openwrt_storage_effective_partitions }}"
+  loop_control:
+    label: "{{ item.partition }} -> {{ item.target | default('') }}"
+
+- name: /srv early direct-mount init script を有効化
+  ansible.builtin.command: /etc/init.d/homecluster-srv-mount enable
+  changed_when: false
+  when:
+    - openwrt_storage_manage_fstab | bool
+    - openwrt_storage_effective_partitions | selectattr('target', 'defined') | selectattr('target', 'equalto', '/srv') | list | length > 0
 
 - name: swap デバイス候補を autodetect
   ansible.builtin.set_fact:

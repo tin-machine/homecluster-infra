@@ -398,8 +398,10 @@ ARM64_PLAYBOOK_REL="ansible/arm64"
 export ANSIBLE_CONFIG="${ARM64_PLAYBOOK_DIR}/ansible.cfg"
 export ANSIBLE_ROLES_PATH="${ARM64_PLAYBOOK_DIR}/roles:${DEST}/ansible/roles:/root/.ansible/roles:/usr/share/ansible/roles:/etc/ansible/roles"
 
+GALAXY_ROLE_HOME="/run/homecluster-ansible-galaxy-role"
+install -d -m 0700 "${GALAXY_ROLE_HOME}"
 CURRENT_STEP="ansible_galaxy_roles"
-/usr/bin/ansible-galaxy install -r "${ARM64_PLAYBOOK_DIR}/requirements.yml" -p "${ARM64_PLAYBOOK_DIR}/roles"
+HOME="${GALAXY_ROLE_HOME}" /usr/bin/ansible-galaxy install -r "${ARM64_PLAYBOOK_DIR}/requirements.yml" -p "${ARM64_PLAYBOOK_DIR}/roles"
 CURRENT_STEP="ansible_galaxy_collections"
 /usr/bin/ansible-galaxy collection install -r "${ARM64_PLAYBOOK_DIR}/requirements.yml"
 

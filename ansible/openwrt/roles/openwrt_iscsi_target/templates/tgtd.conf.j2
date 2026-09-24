@@ -1,0 +1,21 @@
+# Managed by Ansible.
+#
+# OpenWrt tgt init script reads /etc/config/tgt and creates targets/luns with tgtadm.
+
+config options 'tgt'
+	option iothreads '{{ openwrt_iscsi_target_iothreads }}'
+
+{% for item in openwrt_iscsi_targets %}
+config target '{{ loop.index }}'
+	option name '{{ item.target_iqn }}'
+	list allow_address '{{ item.client_ip }}'
+	list allow_name '{{ item.initiator_iqn }}'
+
+config lun '{{ loop.index }}_1'
+	option device '{{ item.backing_file }}'
+	option type 'disk'
+	option bstype 'rdwr'
+	option direct '0'
+	option sync '0'
+
+{% endfor %}

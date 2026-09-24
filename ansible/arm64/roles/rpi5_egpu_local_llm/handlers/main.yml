@@ -1,0 +1,23 @@
+---
+- name: reload systemd
+  become: true
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: restart local ssd swap
+  become: true
+  ansible.builtin.systemd:
+    name: "{{ rpi5_egpu_local_swap_service_name }}"
+    state: restarted
+  when:
+    - rpi5_egpu_local_llm_enabled | bool
+    - rpi5_egpu_local_swap_enabled | bool
+
+- name: restart llama vulkan
+  become: true
+  ansible.builtin.systemd:
+    name: "{{ rpi5_egpu_llama_service_name }}"
+    state: restarted
+  when:
+    - rpi5_egpu_local_llm_enabled | bool
+    - rpi5_egpu_llama_enabled | bool

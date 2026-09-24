@@ -67,6 +67,45 @@
     - pxe
     - pxe_ansible_pull
 
+- name: homecluster stage wrapper を配置
+  ansible.builtin.template:
+    src: homecluster-ansible-stage-wrapper.sh.j2
+    dest: "{{ item }}/usr/local/sbin/homecluster-ansible-stage-wrapper.sh"
+    owner: root
+    group: root
+    mode: '0755'
+  loop: "{{ openwrt_gentoo_ansible_pull_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+  loop_control:
+    label: "{{ item }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_ansible_pull_enabled | bool
+    - openwrt_gentoo_homecluster_unit_chain_enabled | bool
+  tags:
+    - pxe
+    - pxe_ansible_pull
+
+- name: homecluster domain unit を配置
+  ansible.builtin.template:
+    src: systemd/homecluster-stage.service.j2
+    dest: "{{ item.0 }}/etc/systemd/system/{{ item.1.name }}"
+    owner: root
+    group: root
+    mode: '0644'
+  vars:
+    homecluster_stage_unit: "{{ item.1 }}"
+  loop: "{{ (openwrt_gentoo_ansible_pull_rootfs_dirs | default([openwrt_gentoo_rootfs_dir])) | product(openwrt_gentoo_homecluster_unit_chain | default([])) | list }}"
+  loop_control:
+    label: "{{ item.0 }} {{ item.1.name }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_ansible_pull_enabled | bool
+    - openwrt_gentoo_homecluster_unit_chain_enabled | bool
+    - (openwrt_gentoo_homecluster_unit_chain | default([]) | length) > 0
+  tags:
+    - pxe
+    - pxe_ansible_pull
+
 - name: Slack 通知スクリプトを配置
   ansible.builtin.template:
     src: pxe-slack-notify.sh.j2
@@ -450,6 +489,27 @@
     - pxe
     - pxe_ansible_pull
 
+- name: homecluster unit chain start opt-in を検証
+  ansible.builtin.assert:
+    that:
+      - openwrt_gentoo_homecluster_unit_chain_enabled | bool
+      - "'base' in openwrt_gentoo_ansible_pull_roles"
+      - >-
+        (openwrt_gentoo_homecluster_unit_chain | default([])
+        | selectattr('name', 'equalto', 'homecluster-base.service')
+        | list | length) == 1
+    fail_msg: >-
+      openwrt_gentoo_homecluster_unit_chain_start_enabled=true では、
+      homecluster unit chain を有効にし、base role と homecluster-base.service を
+      boot 起点として定義してください。
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_ansible_pull_enabled | bool
+    - openwrt_gentoo_homecluster_unit_chain_start_enabled | default(false) | bool
+  tags:
+    - pxe
+    - pxe_ansible_pull
+
 - name: ansible-pull root role を multi-user.target で有効化
   ansible.builtin.file:
     state: link
@@ -463,8 +523,61 @@
   when:
     - openwrt_gentoo_enabled | bool
     - openwrt_gentoo_ansible_pull_enabled | bool
+    - not (openwrt_gentoo_homecluster_unit_chain_start_enabled | default(false) | bool)
     - (openwrt_gentoo_ansible_pull_roles | length) > 0
     - (((openwrt_gentoo_ansible_pull_role_dependencies_effective | default({})).get(item.1, {}).get('after', [])) | length) == 0
+  tags:
+    - pxe
+    - pxe_ansible_pull
+
+- name: ansible-pull root role の direct enable を削除
+  ansible.builtin.file:
+    path: "{{ item.0 }}/etc/systemd/system/multi-user.target.wants/ansible-pull@{{ item.1 }}.service"
+    state: absent
+  loop: "{{ (openwrt_gentoo_ansible_pull_rootfs_dirs | default([openwrt_gentoo_rootfs_dir])) | product(openwrt_gentoo_ansible_pull_roles) | list }}"
+  loop_control:
+    label: "{{ item.0 }} {{ item.1 }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_ansible_pull_enabled | bool
+    - openwrt_gentoo_homecluster_unit_chain_enabled | bool
+    - openwrt_gentoo_homecluster_unit_chain_start_enabled | default(false) | bool
+    - (openwrt_gentoo_ansible_pull_roles | length) > 0
+    - (((openwrt_gentoo_ansible_pull_role_dependencies_effective | default({})).get(item.1, {}).get('after', [])) | length) == 0
+  tags:
+    - pxe
+    - pxe_ansible_pull
+
+- name: homecluster-base.service を multi-user.target で有効化
+  ansible.builtin.file:
+    state: link
+    src: "../homecluster-base.service"
+    dest: "{{ item }}/etc/systemd/system/multi-user.target.wants/homecluster-base.service"
+    owner: root
+    group: root
+  loop: "{{ openwrt_gentoo_ansible_pull_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+  loop_control:
+    label: "{{ item }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_ansible_pull_enabled | bool
+    - openwrt_gentoo_homecluster_unit_chain_enabled | bool
+    - openwrt_gentoo_homecluster_unit_chain_start_enabled | default(false) | bool
+  tags:
+    - pxe
+    - pxe_ansible_pull
+
+- name: homecluster-base.service の direct enable を削除
+  ansible.builtin.file:
+    path: "{{ item }}/etc/systemd/system/multi-user.target.wants/homecluster-base.service"
+    state: absent
+  loop: "{{ openwrt_gentoo_ansible_pull_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+  loop_control:
+    label: "{{ item }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_ansible_pull_enabled | bool
+    - not (openwrt_gentoo_homecluster_unit_chain_start_enabled | default(false) | bool)
   tags:
     - pxe
     - pxe_ansible_pull
@@ -481,6 +594,21 @@
     - openwrt_gentoo_ansible_pull_enabled | bool
     - item.1.key in openwrt_gentoo_ansible_pull_roles
     - (item.1.value.after | default([]) | length) > 0
+  tags:
+    - pxe
+    - pxe_ansible_pull
+
+- name: PXE rootfs の k3s direct enable を削除
+  ansible.builtin.file:
+    path: "{{ item.0 }}/etc/systemd/system/multi-user.target.wants/{{ item.1 }}"
+    state: absent
+  loop: "{{ (openwrt_gentoo_ansible_pull_rootfs_dirs | default([openwrt_gentoo_rootfs_dir])) | product(['k3s.service', 'k3s-agent.service']) | list }}"
+  loop_control:
+    label: "{{ item.0 }} {{ item.1 }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_ansible_pull_enabled | bool
+    - "'k3s_stg_server' in openwrt_gentoo_ansible_pull_roles or 'k3s_stg_agent' in openwrt_gentoo_ansible_pull_roles"
   tags:
     - pxe
     - pxe_ansible_pull
@@ -521,6 +649,22 @@
     - openwrt_gentoo_ansible_pull_enabled | bool
     - item.1.key in openwrt_gentoo_ansible_pull_roles
     - (item.1.value.after | default([]) | length) > 0
+  tags:
+    - pxe
+    - pxe_ansible_pull
+
+- name: ansible-pull OnSuccess chain の stale drop-in を削除
+  ansible.builtin.file:
+    path: "{{ item.0 }}/etc/systemd/system/ansible-pull@{{ item.1 }}.service.d/10-on-success-{{ item.2 }}.conf"
+    state: absent
+  loop: "{{ (openwrt_gentoo_ansible_pull_rootfs_dirs | default([openwrt_gentoo_rootfs_dir])) | product(openwrt_gentoo_ansible_pull_roles, openwrt_gentoo_ansible_pull_roles) | list }}"
+  loop_control:
+    label: "{{ item.0 }} {{ item.1 }} -> {{ item.2 }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_ansible_pull_enabled | bool
+    - (openwrt_gentoo_ansible_pull_roles | length) > 0
+    - item.1 not in ((openwrt_gentoo_ansible_pull_role_dependencies_effective | default({})).get(item.2, {}).get('after', []))
   tags:
     - pxe
     - pxe_ansible_pull

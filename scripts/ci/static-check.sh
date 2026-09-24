@@ -52,11 +52,30 @@ list_scan_files() {
   fi
 }
 
+list_changed_files() {
+  local base_ref="${STATIC_CHECK_BASE_REF:-origin/main}"
+  local base_commit=""
+  if git rev-parse --verify --quiet "${base_ref}" >/dev/null; then
+    base_commit="$(git merge-base "${base_ref}" HEAD)"
+  fi
+
+  {
+    if [ -n "${base_commit}" ]; then
+      git diff --name-only --diff-filter=ACMRT "${base_commit}..HEAD" --
+    elif git rev-parse --verify --quiet HEAD^ >/dev/null; then
+      git diff --name-only --diff-filter=ACMRT HEAD^..HEAD --
+    fi
+    git diff --name-only --diff-filter=ACMRT HEAD --
+    git ls-files --others --exclude-standard
+  } | sort -u
+}
+
 file_size_bytes() {
   wc -c <"$1" | tr -d '[:space:]'
 }
 
 mapfile -t scan_files < <(list_scan_files)
+mapfile -t changed_files < <(list_changed_files)
 
 print_section "scan scope"
 if [ "${strict_local_scan}" = "1" ]; then
@@ -86,7 +105,9 @@ large_matches="$(
 report_matches "files larger than 5M found" "${large_matches}"
 
 print_section "redaction pattern scan"
-redaction_pattern='10\.10\.|10\.11\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|f[c-d][0-9a-fA-F]{2}(:[0-9a-fA-F]{1,4}){2,7}::?/[0-9]{1,3}|home-router|rpi[0-9]-[0-9]{2}|k3s-prd|backup-disk|tin-machine\.io|github\.com/tin-machine|desktop-lab|PRIVATE KEY|BEGIN [A-Z ]*PRIVATE KEY|picoclaw|k3s_iscsi_storage|terraform_auto_apply|common/codex_cli|common/nfs_mount|softether'
+# Product names are not secrets. Keep this scan focused on site identifiers and token-like values
+# so public-safe PicoClaw and Codex CLI implementation can remain covered by the same CI boundary.
+redaction_pattern='10\.10\.|10\.11\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|f[c-d][0-9a-fA-F]{2}(:[0-9a-fA-F]{1,4}){2,7}::?/[0-9]{1,3}|home-router|rpi[0-9]-[0-9]{2}|k3s-prd|backup-disk|tin-machine\.io|github\.com/tin-machine|desktop-lab|PRIVATE KEY|BEGIN [A-Z ]*PRIVATE KEY|xox[baprs]-[A-Za-z0-9_-]{12,}|xapp-[A-Za-z0-9_-]{12,}|gh[pousr]_[A-Za-z0-9_]{20,}|k3s_iscsi_storage|terraform_auto_apply|common/nfs_mount|softether'
 redaction_matches="$(
   redaction_files=()
   for path in "${scan_files[@]}"; do
@@ -100,6 +121,43 @@ redaction_matches="$(
   fi
 )"
 report_matches "redaction pattern matches found" "${redaction_matches}"
+
+print_section "k3s_converge source validator"
+k3s_converge_validator_pattern='(^|[;&|[:space:]])(systemctl[[:space:]]+(restart|enable|disable)|service[[:space:]]+[^[:space:]]+[[:space:]]+(start|restart|enable|disable)|mount[[:space:]]+|umount[[:space:]]+|iscsiadm([[:space:]]|$)|terraform[[:space:]]+(apply|destroy)|kubectl[[:space:]].*(delete|apply|patch|create)|rm[[:space:]]+|wipefs([[:space:]]|$)|mkfs([.[:alnum:]_-]*[[:space:]]|$))'
+k3s_converge_validator_matches="$(
+  k3s_converge_files=()
+  for path in "${scan_files[@]}"; do
+    [ -f "${path}" ] || continue
+    if [[ "${path}" == *"ansible/arm64/roles/k3s_converge_check"* ]]; then
+      k3s_converge_files+=("${path}")
+    fi
+  done
+  if [ "${#k3s_converge_files[@]}" -gt 0 ]; then
+    grep -nIE --binary-files=without-match "${k3s_converge_validator_pattern}" "${k3s_converge_files[@]}" || true
+  fi
+)"
+report_matches "k3s_converge disallowed lifecycle/storage violations found" "${k3s_converge_validator_matches}"
+
+print_section "rpi5 eGPU lower-rootfs repair contract"
+if ! python3 scripts/ci/check-rpi5-egpu-lower-rootfs-repair.py; then
+  fail=1
+fi
+
+print_section "Pi5 PXE initramfs contract"
+if ! python3 scripts/ci/check-pxe-initramfs-contract.py; then
+  fail=1
+fi
+
+print_section "PXE shared lower hostname contract"
+if ! python3 scripts/ci/check-pxe-shared-lower-hostname.py --self-test; then
+  fail=1
+fi
+
+print_section "OpenWrt Gentoo binary preseed contract"
+if ! python3 scripts/ci/check-openwrt-gentoo-binary-preseed.py --self-test; then
+  fail=1
+fi
+
 
 print_section "terraform and helm values redaction scan"
 terraform_values_redaction_pattern='192\.168\.|10\.10\.|10\.11\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|fd[0-9a-fA-F]{2}:|fdd[0-9a-fA-F]:|BEGIN .*PRIVATE KEY|AKIA[0-9A-Z]{16}|xox[baprs]-|gh[pousr]_[A-Za-z0-9_]+|@[^[:space:]]+\.[A-Za-z]{2,}'
@@ -137,6 +195,37 @@ trailing_matches="$(
 )"
 report_matches "trailing whitespace found" "${trailing_matches}"
 
+print_section "ansible jinja compatibility scan"
+ansible_jinja_compat_matches="$(
+  grep -nR --include='*.yml' --include='*.yaml' -E '\bis[[:space:]]+list\b' ansible .agents 2>/dev/null || true
+)"
+report_matches "unsupported Ansible/Jinja list test found" "${ansible_jinja_compat_matches}"
+
+print_section "markdownlint"
+markdownlint_files=()
+for path in "${changed_files[@]}"; do
+  [ -f "${path}" ] || continue
+  case "${path}" in
+    *.md|README|README.*)
+      markdownlint_files+=("${path}")
+      ;;
+  esac
+done
+if [ "${#markdownlint_files[@]}" -gt 0 ] && command -v markdownlint >/dev/null 2>&1; then
+  if ! markdownlint --disable MD013 -- "${markdownlint_files[@]}"; then
+    fail=1
+  fi
+else
+  echo "markdownlint not found or no changed markdown files; skipping"
+fi
+if command -v python3 >/dev/null 2>&1; then
+  if ! python3 scripts/ci/check-changed-markdown-style.py "${markdownlint_files[@]}"; then
+    fail=1
+  fi
+else
+  echo "python3 not found; skipping changed markdown style check"
+fi
+
 print_section "terraform fmt"
 if command -v terraform >/dev/null 2>&1; then
   terraform fmt -check -recursive
@@ -171,6 +260,23 @@ fi
 print_section "python syntax"
 if command -v python3 >/dev/null 2>&1; then
   python3 -m py_compile ansible/openwrt/roles/openwrt_pxe_client_catalog/filter_plugins/openwrt_pxe_client_catalog.py
+  python3 -m py_compile scripts/ansible/convert_openwrt_package_task.py
+  python3 -m py_compile scripts/ci/check-changed-markdown-style.py
+  python3 -m py_compile scripts/ci/check-k3s-converge-contract.py
+  python3 -m py_compile scripts/ci/check-openwrt-gentoo-binary-preseed.py
+  python3 -m py_compile scripts/ci/check-openwrt-pxe-ansible-pull-chain.py
+  python3 -m py_compile scripts/ci/check-openwrt-srv-ext4-preflight.py
+  python3 -m py_compile .agents/skills/homecluster-ansible-implementer/scripts/check_opencode_session_export.py
+  python3 -m py_compile .agents/skills/homecluster-openwrt-package-boundary-auditor/scripts/check_openwrt_package_boundaries.py
+  python3 -m py_compile .agents/skills/homecluster-openwrt-postupgrade-check/scripts/check_openwrt_postupgrade_source_contract.py
+  python3 scripts/ci/check-openwrt-pxe-client-catalog.py
+  python3 scripts/ci/check-k3s-converge-contract.py
+  python3 scripts/ci/check-openwrt-pxe-ansible-pull-chain.py
+  python3 scripts/ci/check-openwrt-srv-ext4-preflight.py
+  python3 scripts/ansible/convert_openwrt_package_task.py --self-test
+  .agents/skills/homecluster-ansible-implementer/scripts/check_opencode_session_export.py --self-test
+  .agents/skills/homecluster-openwrt-package-boundary-auditor/scripts/check_openwrt_package_boundaries.py --self-test
+  .agents/skills/homecluster-openwrt-postupgrade-check/scripts/check_openwrt_postupgrade_source_contract.py --self-test
   scripts/docs/context_hygiene_check.py
 else
   echo "python3 not found; skipping py_compile"

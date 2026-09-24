@@ -78,6 +78,7 @@ OpenWrt の live apply は外部 inventory を必須入力とする。`ansible_h
 | `openwrt_dhcp_ntp_servers` | DHCP Option 42 で配る NTP server。router 自身を配る場合も外部 inventory に明示する |
 | `openwrt_gentoo_server_host` | PXE / NFS / TFTP / bootstrap log / token exchange が参照する server IP。LAN IP への暗黙 fallback は使わない |
 | `openwrt_enable_storage`、`openwrt_enable_wireless`、`openwrt_enable_frr`、`openwrt_enable_prometheus_exporter`、`openwrt_syslog_remote_enabled`、`openwrt_dnsmasq_log_queries`、`openwrt_banip_install`、`openwrt_banip_enabled` | public default は安全側で disabled。実機で有効にする role だけ外部 inventory で `true` にする。dnsmasq query log は量と privacy impact が大きいため、短時間の logging-only gate で使う。banIP は package install と service enable を分ける |
+| `openwrt_firewall_allow_wan_ipv4_ping` | WAN 側 IPv4 echo-request を受ける必要がある site だけ外部 inventory で明示する。public default は disabled |
 | `openwrt_firewall_allow_smb` | SMB backup share を使う site だけ外部 inventory で明示する |
 | `openwrt_storage_device`、`openwrt_storage_expected_model`、`openwrt_storage_expected_serial`、`openwrt_storage_destructive_confirm` | destructive storage operation の対象 device と確認 material。public default の device 名だけを根拠に repartition / format してはならない |
 | `openwrt_storage_protected_mounts` | destructive storage guard で保護する追加 mountpoint。storage role とは別に管理される external share の source / bind target がある場合は、外部 inventory でここへ追加する |
@@ -108,16 +109,20 @@ OpenWrt role の default policy:
 - `default()` は task / template の各所に散らさず、role 入口で effective value を作って assert する。
 - `openwrt_gentoo_server_host | default(openwrt_lan_ipaddr)` のような live endpoint の fallback chain は避ける。
 
-PXE Gentoo official binhost opt-in:
+PXE Gentoo binary preseed:
 
 | 変数 | 外部入力 |
 | --- | --- |
-| `openwrt_gentoo_official_binhost_enabled` | 公式 Gentoo binhost から特定 package を取得する場合だけ外部 inventory で `true` にする。public default は disabled |
-| `openwrt_gentoo_official_binhost_packages` | `--getbinpkgonly` で取得する package atom の明示 list。空 list が public default |
+| `openwrt_gentoo_official_binhost_enabled` | 公式 Gentoo binhost を configured binpkg repository として使う場合に外部 inventory で `true` にする。public default は disabled |
+| `openwrt_gentoo_heavy_prebuilt_packages` | source build を許可しない expensive package の unversioned atom list。role default を正とし、通常は external inventory で上書きしない |
+| `openwrt_gentoo_heavy_prebuilt_emerge_args` | heavy package 用の binary-only option string。role default は `--getbinpkgonly --update` を含み、official/local の compatible binary が無ければ fail-closed する |
+| `openwrt_gentoo_official_binhost_packages` | legacy の明示 preseed list。backward compatibility のため残すが、heavy package はこの external list へ追加しない。空 list が public default |
 | `openwrt_gentoo_official_binhost_uri` | 通常は role default の Gentoo arm64 公式 binhost を使う。mirror / profile を変える場合だけ外部 inventory で上書きする |
-| `openwrt_gentoo_official_binhost_emerge_args` | `emerge` に渡す option list。public default は `--getbinpkgonly` と `--binpkg-respect-use=y` を含み、source build fallback を許さない |
+| `openwrt_gentoo_official_binhost_emerge_args` | legacy 明示 preseed に渡す option list。public default は `--getbinpkgonly` と `--binpkg-respect-use=y` を含み、source build fallback を許さない |
 
-この opt-in は `PORTAGE_BINHOST` を該当 emerge の環境変数として一時上書きする。通常の Portage run を global に `getbinpkg` 化せず、公式 binhost に無い場合は source build へ落ちずに fail-closed する。shell に渡す `name` / `uri` / `location` / `emerge_args` / `packages` は role 側で文字種を検証する。
+official binhost を有効にすると、package list が空でも `binrepos.conf` を rootfs へ配置する。heavy preseed は Python target migration と通常 runtime emerge より先に、configured official binhost と local binpkg cache から compatible binary だけを選ぶ。version pin、`--usepkgonly`、source fallback は role 側の assert で拒否する。legacy 明示 preseed だけは `PORTAGE_BINHOST` を該当 emerge の環境変数として一時上書きする。
+
+gpkg signature verificationのtrust anchorは`/usr/bin/getuto`を正とする。roleは空の`/etc/portage/gnupg`を先に作らず、手動の`gpg --recv-keys`も使わない。`getuto`の初回初期化がlocal trust key、release keyのlocal signature、trust databaseを作成したことを`mykeyid`と`trustdb.gpg`でfail-closedに確認する。verification user/groupはGentooのprivilege-drop defaultを維持する。
 
 ## ARM64 host role live input
 
@@ -127,8 +132,14 @@ ARM64 host role でも、network exposure を変える値は外部 inventory を
 | --- | --- |
 | `distcc.enabled` | distcc を有効化する host だけ外部 inventory で `true` にする。public default は disabled |
 | `distcc.allow`、`distcc_default_allow` | distcc daemon の allowlist。public default は empty list とし、実 subnet / host range は外部 inventory に置く |
+| `gentoo_world_update_exclude_packages` | ARM64 host の `gentoo-world-update.service` で runtime `emerge @world` から除外する package atom の list。public default は undefined / empty で no-op |
 
 `distcc_default_allow` は compatibility 用の default hook として残せるが、public repository で meaningful CIDR を持たせない。site-wide default を使う場合も private inventory 側で定義する。
+
+`gentoo_world_update_exclude_packages` は、PXE tmpfs overlay 上で巨大 package を source build させないための
+site-local escape hatch である。role は値を shell-safe な Portage atom list として検証し、
+`emerge -uDN @world`、`emerge @preserved-rebuild`、`emerge --depclean` へ `--exclude=<atom>` を渡す。
+実際に何を除外するかは external inventory 側で決め、この repository の public default では package を固定しない。
 
 ## 境界
 

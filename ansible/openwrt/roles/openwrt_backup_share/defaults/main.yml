@@ -1,6 +1,13 @@
 ---
 openwrt_backup_share_enabled: true
 
+openwrt_backup_share_packages:
+  - block-mount
+  - kmod-usb-storage
+  - kmod-usb-storage-uas
+  - kmod-fs-ext4
+  - e2fsprogs
+
 openwrt_backup_share_source: /mnt/external-disk
 openwrt_backup_share_bind_target: /srv/external-disk
 openwrt_backup_share_fstype: ext4

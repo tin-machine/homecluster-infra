@@ -2,10 +2,8 @@
 - name: デーモン起動が必要なパッケージ
   vars:
     package_list:
-      - sys-process/cronie
       - app-admin/rsyslog
     daemon_list:
-      - cronie
       - rsyslog
   block:
   - name: インストール

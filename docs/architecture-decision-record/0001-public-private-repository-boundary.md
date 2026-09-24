@@ -24,6 +24,7 @@ last_reviewed: 2026-05-31
 公開側に入れるもの:
 
 - [OpenWrt](../../ansible/openwrt/site.yml) / [PXE](../../ansible/openwrt/roles/openwrt_gentoo_rootfs/tasks/main.yml) / [k3s](../../ansible/arm64/site.yml) / [Terraform](../../terraform/env/staging/main.tf) の公開可能な実装。
+- 実値を受け取らず外部 inventory から注入する、PicoClaw などの opt-in service role。token、host 固有値、生成済み runtime config は含めない。
 - 実値を含まない [example inventory](../../examples/inventory.yml)。
 - 公開可能な Architecture Decision Record。
 - lint / static check 用の [CI workflow](../../.github/workflows/static-check.yml) と [static check script](../../scripts/ci/static-check.sh)。

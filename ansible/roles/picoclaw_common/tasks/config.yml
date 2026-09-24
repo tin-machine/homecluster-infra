@@ -1,0 +1,368 @@
+---
+- name: PicoClaw directory を作成
+  become: true
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ picoclaw_common_owner }}"
+    group: "{{ picoclaw_common_group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - path: "{{ picoclaw_common_config_dir }}"
+      mode: "0700"
+    - path: "{{ picoclaw_common_workspace }}"
+      mode: "0700"
+
+- name: PicoClaw config の存在を確認
+  become: true
+  ansible.builtin.stat:
+    path: "{{ picoclaw_common_config_path }}"
+  register: picoclaw_common_config_stat
+
+- name: PicoClaw Trello MCP 設定を取得
+  ansible.builtin.set_fact:
+    picoclaw_common_trello_mcp_config: "{{ picoclaw_common_mcp_config.servers.trello | default({}) }}"
+    picoclaw_common_trello_config: "{{ picoclaw_common_host_config.trello | default({}) }}"
+  no_log: true
+  tags:
+    - picoclaw
+    - picoclaw_mcp
+
+- name: PicoClaw Trello MCP env_file の存在を確認
+  become: true
+  ansible.builtin.stat:
+    path: "{{ picoclaw_common_trello_mcp_config.env_file | default(picoclaw_common_config_dir ~ '/mcp-trello.env') }}"
+  register: picoclaw_common_trello_env_file_stat
+  no_log: true
+  when: picoclaw_common_trello_mcp_config.enabled | default(false) | bool
+  tags:
+    - picoclaw
+    - picoclaw_mcp
+
+- name: PicoClaw Trello MCP credential を決定
+  ansible.builtin.set_fact:
+    picoclaw_common_trello_api_key: "{{ picoclaw_common_trello_config.api_key | default(lookup('ansible.builtin.env', 'PICOCLAW_TRELLO_API_KEY'), true) }}"
+    picoclaw_common_trello_token: "{{ picoclaw_common_trello_config.token | default(lookup('ansible.builtin.env', 'PICOCLAW_TRELLO_TOKEN'), true) }}"
+    picoclaw_common_trello_env_file: "{{ picoclaw_common_trello_mcp_config.env_file | default(picoclaw_common_config_dir ~ '/mcp-trello.env') }}"
+  no_log: true
+  when: picoclaw_common_trello_mcp_config.enabled | default(false) | bool
+  tags:
+    - picoclaw
+    - picoclaw_mcp
+
+- name: PicoClaw Trello MCP credential を検証
+  ansible.builtin.assert:
+    that:
+      - >-
+        (picoclaw_common_trello_api_key | length > 0 and picoclaw_common_trello_token | length > 0)
+        or (picoclaw_common_trello_env_file_stat.stat.exists | default(false))
+    fail_msg: "Trello MCP を有効化する場合は PICOCLAW_TRELLO_API_KEY/PICOCLAW_TRELLO_TOKEN を controller 環境変数に設定するか、既存 env_file を配置してください。"
+  no_log: true
+  when: picoclaw_common_trello_mcp_config.enabled | default(false) | bool
+  tags:
+    - picoclaw
+    - picoclaw_mcp
+
+- name: PicoClaw Trello MCP env_file を配置
+  become: true
+  ansible.builtin.copy:
+    dest: "{{ picoclaw_common_trello_env_file }}"
+    content: |
+      TRELLO_API_KEY={{ picoclaw_common_trello_api_key }}
+      TRELLO_TOKEN={{ picoclaw_common_trello_token }}
+    owner: "{{ picoclaw_common_owner }}"
+    group: "{{ picoclaw_common_group }}"
+    mode: "0600"
+  no_log: true
+  notify: Restart PicoClaw gateway
+  when:
+    - picoclaw_common_trello_mcp_config.enabled | default(false) | bool
+    - picoclaw_common_trello_api_key | length > 0
+    - picoclaw_common_trello_token | length > 0
+  tags:
+    - picoclaw
+    - picoclaw_mcp
+
+- name: PicoClaw primary model default を組み立て
+  ansible.builtin.set_fact:
+    picoclaw_common_primary_model_default:
+      model_name: "{{ picoclaw_model_name | default('codex-cli-spark') }}"
+      provider: codex-cli
+      model: "{{ picoclaw_codex_model | default('gpt-5.3-codex-spark') }}"
+      workspace: "{{ picoclaw_common_workspace }}"
+  no_log: true
+
+- name: PicoClaw primary model を決定
+  ansible.builtin.set_fact:
+    picoclaw_common_primary_model_effective: >-
+      {{
+        picoclaw_common_primary_model_default
+        | combine(picoclaw_primary_model | default({}), recursive=True)
+      }}
+  no_log: true
+
+- name: PicoClaw effective model name を決定
+  ansible.builtin.set_fact:
+    picoclaw_common_effective_model_name: >-
+      {{
+        picoclaw_common_primary_model_effective.model_name
+        | default(picoclaw_model_name | default('codex-cli-spark'))
+      }}
+  no_log: true
+
+- name: PicoClaw runtime config を組み立て
+  ansible.builtin.set_fact:
+    picoclaw_common_runtime_config:
+      version: 3
+      session:
+        dimensions:
+          - chat
+      agents:
+        defaults:
+          workspace: "{{ picoclaw_common_workspace }}"
+          restrict_to_workspace: true
+          allow_read_outside_workspace: false
+          provider: ""
+          model_name: "{{ picoclaw_common_effective_model_name }}"
+          max_tokens: "{{ picoclaw_max_tokens | default(32768) }}"
+          max_tool_iterations: "{{ picoclaw_max_tool_iterations | default(50) }}"
+          summarize_message_threshold: "{{ picoclaw_summarize_message_threshold | default(20) }}"
+          summarize_token_percent: "{{ picoclaw_summarize_token_percent | default(75) }}"
+          steering_mode: one-at-a-time
+          tool_feedback:
+            enabled: false
+            max_args_length: 300
+            separate_messages: false
+          split_on_marker: false
+      channel_list:
+        slack:
+          enabled: "{{ picoclaw_common_effective_slack_enabled }}"
+          type: slack
+          reasoning_channel_id: "{{ picoclaw_common_slack_reasoning_channel_id }}"
+          group_trigger: {}
+          typing: {}
+          placeholder:
+            enabled: false
+          allow_from: "{{ picoclaw_common_slack_allow_from }}"
+          settings: {}
+      model_list: "{{ [picoclaw_common_primary_model_effective] + (picoclaw_extra_models | default([])) }}"
+      gateway:
+        host: "{{ picoclaw_gateway_host | default('127.0.0.1') }}"
+        port: "{{ picoclaw_gateway_port | default(18790) }}"
+        hot_reload: false
+        log_level: "{{ picoclaw_log_level | default('info') }}"
+      tools:
+        filter_sensitive_data: true
+        filter_min_length: 8
+        web:
+          enabled: true
+          provider: auto
+          prefer_native: true
+          fetch_limit_bytes: 10485760
+          format: plaintext
+        cron:
+          enabled: true
+          exec_timeout_minutes: 5
+          allow_command: true
+        exec:
+          enabled: true
+          enable_deny_patterns: true
+          allow_remote: true
+          timeout_seconds: 60
+        read_file:
+          enabled: true
+          mode: bytes
+          max_read_file_size: 65536
+        write_file:
+          enabled: true
+        list_dir:
+          enabled: true
+        edit_file:
+          enabled: true
+        append_file:
+          enabled: true
+        web_fetch:
+          enabled: true
+        send_file:
+          enabled: true
+        skills:
+          enabled: true
+        mcp: "{{ picoclaw_common_mcp_config }}"
+      heartbeat:
+        enabled: true
+        interval: 30
+      devices:
+        enabled: false
+        monitor_usb: true
+      voice:
+        echo_transcription: false
+  no_log: true
+
+- name: PicoClaw config を生成配置
+  become: true
+  ansible.builtin.copy:
+    dest: "{{ picoclaw_common_config_path }}"
+    content: "{{ picoclaw_common_runtime_config | to_nice_json }}\n"
+    owner: "{{ picoclaw_common_owner }}"
+    group: "{{ picoclaw_common_group }}"
+    mode: "0600"
+  no_log: true
+  notify: Restart PicoClaw gateway
+  when: picoclaw_common_config_strategy == 'generate' or not picoclaw_common_config_stat.stat.exists
+
+- name: PicoClaw 既存 config に runtime 設定を merge
+  become: true
+  become_user: "{{ picoclaw_common_owner }}"
+  ansible.builtin.command:
+    argv:
+      - python3
+      - -c
+      - |
+        import json
+        import os
+        import sys
+        from pathlib import Path
+
+        config_path = Path(sys.argv[1])
+        allow_from = json.loads(os.environ["PICOCLAW_SLACK_ALLOW_FROM"])
+        enabled = os.environ["PICOCLAW_SLACK_ENABLED"] == "1"
+        reasoning_channel_id = os.environ["PICOCLAW_SLACK_REASONING_CHANNEL_ID"]
+        mcp_config = json.loads(os.environ["PICOCLAW_MCP_CONFIG"])
+        primary_model = json.loads(os.environ["PICOCLAW_PRIMARY_MODEL"])
+        model_name = primary_model.get("model_name") or os.environ["PICOCLAW_MODEL_NAME"]
+        primary_model["model_name"] = model_name
+        workspace = os.environ["PICOCLAW_WORKSPACE"]
+        gateway_host = os.environ["PICOCLAW_GATEWAY_HOST"]
+        gateway_port = int(os.environ["PICOCLAW_GATEWAY_PORT"])
+        log_level = os.environ["PICOCLAW_LOG_LEVEL"]
+        extra_models = json.loads(os.environ["PICOCLAW_EXTRA_MODELS"])
+        prune_model_names = set(json.loads(os.environ["PICOCLAW_PRUNE_MODEL_NAMES"]))
+
+        with config_path.open(encoding="utf-8") as f:
+            config = json.load(f)
+
+        agents = config.setdefault("agents", {})
+        defaults = agents.setdefault("defaults", {})
+        defaults.update({
+            "workspace": workspace,
+            "restrict_to_workspace": True,
+            "allow_read_outside_workspace": False,
+            "model_name": model_name,
+        })
+
+        managed_model = dict(primary_model)
+        if managed_model.get("provider") == "codex-cli":
+            managed_model.setdefault("workspace", workspace)
+        model_list = config.setdefault("model_list", [])
+        if not isinstance(model_list, list):
+            model_list = []
+        model_list = [
+            item for item in model_list
+            if not (isinstance(item, dict) and item.get("model_name") in prune_model_names)
+        ]
+        replaced = False
+        for idx, item in enumerate(model_list):
+            if isinstance(item, dict) and item.get("model_name") == model_name:
+                model_list[idx] = {**item, **managed_model}
+                replaced = True
+                break
+        if not replaced:
+            model_list.append(managed_model)
+
+        for managed_extra in extra_models:
+            if not isinstance(managed_extra, dict):
+                continue
+            extra_name = managed_extra.get("model_name")
+            if not extra_name:
+                continue
+            replaced = False
+            for idx, item in enumerate(model_list):
+                if isinstance(item, dict) and item.get("model_name") == extra_name:
+                    model_list[idx] = {**item, **managed_extra}
+                    replaced = True
+                    break
+            if not replaced:
+                model_list.append(managed_extra)
+        config["model_list"] = model_list
+
+        channel_list = config.setdefault("channel_list", {})
+        slack = channel_list.setdefault("slack", {})
+        slack.update({
+            "enabled": enabled,
+            "type": "slack",
+            "allow_from": allow_from,
+            "reasoning_channel_id": reasoning_channel_id,
+        })
+        slack.setdefault("group_trigger", {})
+        slack.setdefault("typing", {})
+        slack.setdefault("placeholder", {"enabled": False})
+        slack.setdefault("settings", {})
+        slack["settings"].pop("bot_token", None)
+        slack["settings"].pop("app_token", None)
+        slack.pop("bot_token", None)
+        slack.pop("app_token", None)
+
+        tools = config.setdefault("tools", {})
+        tools["mcp"] = mcp_config
+
+        gateway = config.setdefault("gateway", {})
+        gateway.update({
+            "host": gateway_host,
+            "port": gateway_port,
+            "hot_reload": False,
+            "log_level": log_level,
+        })
+
+        tmp_path = config_path.with_suffix(config_path.suffix + ".tmp")
+        with tmp_path.open("w", encoding="utf-8") as f:
+            json.dump(config, f, ensure_ascii=False, indent=2)
+            f.write("\n")
+        os.chmod(tmp_path, 0o600)
+        os.replace(tmp_path, config_path)
+      - "{{ picoclaw_common_config_path }}"
+  environment:
+    PICOCLAW_SLACK_ALLOW_FROM: "{{ picoclaw_common_slack_allow_from | to_json }}"
+    PICOCLAW_SLACK_ENABLED: "{{ '1' if picoclaw_common_effective_slack_enabled | bool else '0' }}"
+    PICOCLAW_SLACK_REASONING_CHANNEL_ID: "{{ picoclaw_common_slack_reasoning_channel_id }}"
+    PICOCLAW_MCP_CONFIG: "{{ picoclaw_common_mcp_config | to_json }}"
+    PICOCLAW_MODEL_NAME: "{{ picoclaw_common_effective_model_name }}"
+    PICOCLAW_PRIMARY_MODEL: "{{ picoclaw_common_primary_model_effective | to_json }}"
+    PICOCLAW_WORKSPACE: "{{ picoclaw_common_workspace }}"
+    PICOCLAW_GATEWAY_HOST: "{{ picoclaw_gateway_host | default('127.0.0.1') }}"
+    PICOCLAW_GATEWAY_PORT: "{{ picoclaw_gateway_port | default(18790) | string }}"
+    PICOCLAW_LOG_LEVEL: "{{ picoclaw_log_level | default('info') }}"
+    PICOCLAW_EXTRA_MODELS: "{{ picoclaw_extra_models | default([]) | to_json }}"
+    PICOCLAW_PRUNE_MODEL_NAMES: "{{ picoclaw_prune_model_names | default([]) | to_json }}"
+  changed_when: true
+  no_log: true
+  notify: Restart PicoClaw gateway
+  when:
+    - picoclaw_common_config_strategy in ['merge', 'merge_or_generate']
+    - picoclaw_common_config_stat.stat.exists
+    - not ansible_check_mode
+
+- name: PicoClaw security config を配置
+  become: true
+  ansible.builtin.copy:
+    dest: "{{ picoclaw_common_security_path }}"
+    content: |
+      channel_list:
+        slack:
+          settings:
+            bot_token: {{ picoclaw_common_slack_bot_token | to_json }}
+            app_token: {{ picoclaw_common_slack_app_token | to_json }}
+      {% if (picoclaw_extra_model_api_keys | default([]) | length) > 0 %}
+      model_list:
+      {% for model_key in picoclaw_extra_model_api_keys | default([]) %}
+        {{ model_key.model_name }}:
+          api_keys:
+      {% for api_key in model_key.api_keys %}
+            - {{ api_key | to_json }}
+      {% endfor %}
+      {% endfor %}
+      {% endif %}
+    owner: "{{ picoclaw_common_owner }}"
+    group: "{{ picoclaw_common_group }}"
+    mode: "0600"
+  no_log: true
+  notify: Restart PicoClaw gateway

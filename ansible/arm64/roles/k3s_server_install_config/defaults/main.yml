@@ -1,0 +1,33 @@
+---
+k3s_server_install_config_enabled: false
+k3s_server_install_config_node_role: server
+k3s_server_install_config_expected_state_source: downloaded
+k3s_server_install_config_install_dir: /usr/local/bin
+k3s_server_install_config_config_dir: /etc/rancher/k3s
+k3s_server_install_config_config_file: /etc/rancher/k3s/config.yaml
+k3s_server_install_config_token_file: /var/lib/rancher/k3s/server/token
+k3s_server_install_config_systemd_unit_path: /etc/systemd/system/k3s.service
+k3s_server_install_config_systemd_unit_template: "k3s-server.service.j2"
+k3s_server_install_config_service_name: k3s
+k3s_server_install_config_binary_names:
+  - k3s
+  - kubectl
+  - crictl
+  - ctr
+k3s_server_install_config_release_version: ""
+k3s_server_install_config_control_token: ""
+k3s_server_install_config_install_hard_links: false
+k3s_server_install_config_control_plane_port: 6443
+k3s_server_install_config_service_requires: []
+k3s_server_install_config_service_wants:
+  - network-online.target
+k3s_server_install_config_service_before: []
+k3s_server_install_config_service_after:
+  - network-online.target
+k3s_server_install_config_service_exec_start_pre:
+  - "/bin/sh -xc '! /usr/bin/systemctl is-enabled --quiet nm-cloud-setup.service'"
+  - "-/sbin/modprobe br_netfilter"
+  - "-/sbin/modprobe overlay"
+k3s_server_install_config_restart_policy: "always"
+k3s_server_install_config_restart_sec: "5s"
+k3s_server_install_config_timeout_start_sec: "0"

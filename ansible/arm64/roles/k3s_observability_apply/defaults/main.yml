@@ -34,6 +34,13 @@ k3s_observability_apply_post_ready_settle_secs: 60
 k3s_observability_apply_metallb_crd_wait_timeout_secs: 300
 k3s_observability_apply_metallb_ready_wait_timeout_secs: 600
 k3s_observability_apply_cert_manager_ready_wait_timeout_secs: 600
+k3s_observability_apply_expected_ready_nodes: 1
+k3s_observability_apply_pod_settle_enabled: false
+k3s_observability_apply_pod_settle_pass_count: 3
+k3s_observability_apply_pod_settle_interval_secs: 10
+k3s_observability_apply_pod_settle_namespace_include_regex: ""
+k3s_observability_apply_pod_settle_namespace_exclude_regex: ""
+k3s_observability_apply_log_path: /var/log/k3s-observability-apply.log
 
 k3s_observability_apply_after_units:
   - ansible-pull@k3s_stg_server.service

@@ -27,6 +27,7 @@ openwrt_gentoo_release_bundle_strict_hosts: true
 openwrt_gentoo_release_bundle_require_artifacts: true
 openwrt_gentoo_release_bundle_manifest_enabled: true
 openwrt_gentoo_release_bundle_manifest_dir: /srv/gentoo/releases
+openwrt_gentoo_release_bundle_manifest_metadata: {}
 openwrt_gentoo_release_bundle_marker_enabled: true
 openwrt_gentoo_release_bundle_rootfs_marker_name: ".release_bundle_rootfs"
 openwrt_gentoo_release_bundle_tftp_marker_name: ".release_bundle_tftp"
@@ -163,17 +164,42 @@ openwrt_gentoo_ansible_pull_roles: []
 openwrt_gentoo_ansible_pull_role_dependencies: {}
 openwrt_gentoo_ansible_pull_env_group: env_prd
 openwrt_gentoo_ansible_pull_netrc_entries: []
+openwrt_gentoo_homecluster_unit_chain_enabled: true
+# false では従来通り ansible-pull@base.service を boot 起点にする。
+# true は明示 opt-in で homecluster-base.service を boot 起点に切り替える。
+openwrt_gentoo_homecluster_unit_chain_start_enabled: false
+openwrt_gentoo_homecluster_unit_chain:
+  - name: homecluster-base.service
+    description: base
+    stage: base
+    next: homecluster-storage.service
+  - name: homecluster-storage.service
+    description: storage
+    stage: storage
+    after: homecluster-base.service
+    next: homecluster-k3s-converge.service
+  - name: homecluster-k3s-converge.service
+    description: k3s
+    stage: k3s-converge
+    after: homecluster-storage.service
+    next: homecluster-terraform.service
+  - name: homecluster-terraform.service
+    description: terraform
+    stage: terraform
+    after: homecluster-k3s-converge.service
 
 # PXE k3s staging の base role で毎 boot 導入していた共通 userland。
 # lower rootfs へ事前導入し、boot 後の tmpfs overlay 消費と ansible-pull@base 時間を抑える。
-# Rust など大きい package は source build へ落ちると rootfs 作成時間が大きく伸びるため、
-# k3s base baseline の前に local binpkg cache からだけ導入する。
+# Rust など大きい package は official Gentoo binhost または local binpkg の
+# compatible binary だけを k3s base baseline より先に導入し、source fallback を禁止する。
 # `dev-lang/rust` ではなく upstream binary artifact を使う `dev-lang/rust-bin` に寄せる。
 openwrt_gentoo_heavy_prebuilt_enabled: true
-openwrt_gentoo_heavy_prebuilt_emerge_args: "--usepkgonly --binpkg-respect-use=y --changed-use --quiet-build=y"
+openwrt_gentoo_heavy_prebuilt_emerge_args: "--getbinpkgonly --update --binpkg-respect-use=y --changed-use --quiet-build=y"
 openwrt_gentoo_heavy_prebuilt_packages:
   - dev-lang/rust-bin
   - dev-lang/go
+  - dev-util/maturin
+  - sys-devel/gcc
   - app-shells/fish
   - app-editors/neovim
   - net-libs/nodejs
@@ -221,6 +247,11 @@ openwrt_gentoo_k3s_stg_server_api_url: "{{ '' if (openwrt_gentoo_k3s_stg_server_
 openwrt_gentoo_nfs_utils_marker: "{{ openwrt_gentoo_rootfs_dir }}/.nfs_utils_installed"
 openwrt_gentoo_chroot_shell: /bin/bash
 openwrt_gentoo_chroot_bind_mounts:
+  # OpenWrt の /dev/shm は /tmp/shm への symlink である。/dev だけを bind
+  # すると chroot 内ではリンク先が存在せず、Python multiprocessing の
+  # POSIX semaphore (SemLock) が ENOENT になる。
+  - source: /tmp/shm
+    target: tmp/shm
   - source: /dev
     target: dev
   - source: /proc
@@ -386,10 +417,6 @@ openwrt_gentoo_portage_profile: /var/db/repos/gentoo/profiles/default/linux/arm6
 openwrt_gentoo_portage_sync_args: "--quiet"
 openwrt_gentoo_portage_sync_marker: "{{ openwrt_gentoo_rootfs_dir }}/var/db/repos/.portage_synced"
 openwrt_gentoo_portage_init_force: false
-openwrt_gentoo_portage_binpkg_keys:
-  - 2C44695DB9F6043D
-openwrt_gentoo_portage_gpg_owner: portage
-openwrt_gentoo_portage_gpg_group: portage
 openwrt_gentoo_locale: ja_JP.UTF-8
 openwrt_gentoo_locale_gen_entries:
   - "ja_JP.UTF-8 UTF-8"
@@ -434,6 +461,8 @@ openwrt_gentoo_rpi4_device_tree: bcm2711-rpi-4-b.dtb
 openwrt_gentoo_rpi5_kernel_image: kernel_2712.img
 openwrt_gentoo_rpi5_initramfs: ""
 openwrt_gentoo_rpi5_device_tree: bcm2712-rpi-5-b.dtb
+openwrt_gentoo_rpi5_pciex1_enabled: false
+openwrt_gentoo_rpi5_extra_config: ""
 openwrt_gentoo_rpi_extra_config: |
   # 追加設定を行う場合は inventory で openwrt_gentoo_rpi_extra_config を上書きしてください。
 openwrt_gentoo_tftp_variants:
@@ -454,6 +483,7 @@ openwrt_gentoo_tftp_variants:
 openwrt_gentoo_initramfs_enabled: false
 openwrt_gentoo_initramfs_emerge_args: "--oneshot --quiet-build=y"
 openwrt_gentoo_initramfs_force_packages: false
+openwrt_gentoo_initramfs_marker_path: "/.initramfs_packages_installed"
 openwrt_gentoo_initramfs_marker: "{{ openwrt_gentoo_rootfs_dir }}/.initramfs_packages_installed"
 openwrt_gentoo_initramfs_overlayfs_module_enabled: true  # dracut 標準 overlayfs モジュールを常時有効化
 openwrt_gentoo_initramfs_output_path: "/boot/initramfs-pxe.img"

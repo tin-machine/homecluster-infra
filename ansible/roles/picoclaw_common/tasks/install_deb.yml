@@ -1,0 +1,32 @@
+---
+- name: PicoClaw deb 対応 architecture を確認
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.architecture == "x86_64"
+    fail_msg: "PicoClaw deb install は x86_64 のみ対応しています。architecture={{ ansible_facts.architecture }}"
+
+- name: PicoClaw 実行ユーザーを確認
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ picoclaw_common_owner }}"
+
+- name: PicoClaw deb cache directory を作成
+  become: true
+  ansible.builtin.file:
+    path: /var/cache/ansible/picoclaw
+    state: directory
+    mode: "0755"
+
+- name: PicoClaw deb を download
+  become: true
+  ansible.builtin.get_url:
+    url: "https://github.com/sipeed/picoclaw/releases/download/{{ picoclaw_version }}/picoclaw_x86_64.deb"
+    dest: "/var/cache/ansible/picoclaw/picoclaw_{{ picoclaw_version | regex_replace('^v', '') }}_x86_64.deb"
+    checksum: "{{ picoclaw_deb_checksum | default(picoclaw_deb_checksums.get(picoclaw_version, {}).get('x86_64', '')) }}"
+    mode: "0644"
+
+- name: PicoClaw を install
+  become: true
+  ansible.builtin.apt:
+    deb: "/var/cache/ansible/picoclaw/picoclaw_{{ picoclaw_version | regex_replace('^v', '') }}_x86_64.deb"
+  when: not ansible_check_mode

@@ -1,0 +1,106 @@
+---
+- name: k3s server 既存 binary link を確認
+  ansible.builtin.stat:
+    path: "{{ k3s_server_install_config_install_dir }}/k3s"
+    follow: false
+  register: k3s_server_install_config_existing_binary
+  when:
+    - k3s_server_install_config_enabled | bool
+
+- name: k3s server release version を解決
+  ansible.builtin.set_fact:
+    k3s_server_install_config_release_version_effective: >-
+      {{
+        k3s_server_install_config_release_version
+        if (k3s_server_install_config_release_version | string | lower not in ['', 'false', 'none'])
+        else (
+          k3s_server_install_config_existing_binary.stat.lnk_source
+          | default('')
+          | basename
+          | regex_replace('^k3s-', '')
+        )
+      }}
+  when:
+    - k3s_server_install_config_enabled | bool
+
+- name: k3s server install/config scaffold の変数を検証
+  ansible.builtin.assert:
+    that:
+      - k3s_server_install_config_enabled | string | lower in ['true', 'false', 'yes', 'no', '1', '0']
+      - k3s_server_install_config_node_role == 'server'
+      - k3s_server_install_config_expected_state_source == 'downloaded'
+      - (k3s_server_install_config_install_dir | string) is match('^/.+')
+      - (k3s_server_install_config_config_dir | string) is match('^/.+')
+      - (k3s_server_install_config_config_file | string) is match('^/.+')
+      - (k3s_server_install_config_systemd_unit_path | string) is match('^/.+')
+      - (k3s_server_install_config_token_file | string) is match('^/.+')
+      - k3s_server_install_config_binary_names is sequence
+      - k3s_server_install_config_binary_names | length > 0
+      - k3s_server_install_config_install_hard_links | string | lower in ['true', 'false', 'yes', 'no', '1', '0']
+      - not (k3s_server_install_config_enabled | bool) or (k3s_server_install_config_release_version_effective | default('') | string | lower not in ['', 'false', 'none'])
+      - k3s_server_install_config_control_plane_port | int > 0
+      - k3s_server_install_config_systemd_unit_template | string | length > 0
+      - k3s_server_install_config_service_requires is sequence
+      - k3s_server_install_config_service_requires is not string
+      - k3s_server_install_config_service_wants is sequence
+      - k3s_server_install_config_service_wants is not string
+      - k3s_server_install_config_service_before is sequence
+      - k3s_server_install_config_service_before is not string
+      - k3s_server_install_config_service_after is sequence
+      - k3s_server_install_config_service_after is not string
+      - k3s_server_install_config_service_exec_start_pre is sequence
+      - k3s_server_install_config_service_exec_start_pre is not string
+      - k3s_server_install_config_restart_policy | string | length > 0
+      - k3s_server_install_config_restart_sec | string | length > 0
+      - k3s_server_install_config_timeout_start_sec | string | length > 0
+    fail_msg: "xanmanning.k3s k3s_state downloaded 前提の scaffold 変数が不正です"
+  no_log: true
+
+- name: k3s server binary link を配置
+  become: true
+  ansible.builtin.file:
+    src: "{{ k3s_server_install_config_install_dir }}/k3s-{{ k3s_server_install_config_release_version_effective }}"
+    dest: "{{ k3s_server_install_config_install_dir }}/{{ item }}"
+    state: "{{ 'hard' if (k3s_server_install_config_install_hard_links | bool) else 'link' }}"
+    force: "{{ k3s_server_install_config_install_hard_links | bool }}"
+    mode: '0755'
+  loop: "{{ k3s_server_install_config_binary_names }}"
+  loop_control:
+    label: "{{ item }}"
+  when:
+    - k3s_server_install_config_enabled | bool
+
+- name: k3s server token directory を作成
+  become: true
+  ansible.builtin.file:
+    path: "{{ k3s_server_install_config_token_file | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  when:
+    - k3s_server_install_config_enabled | bool
+
+- name: k3s server token file を配置
+  become: true
+  ansible.builtin.copy:
+    dest: "{{ k3s_server_install_config_token_file }}"
+    content: "{{ k3s_server_install_config_control_token }}\n"
+    owner: root
+    group: root
+    mode: '0600'
+  no_log: true
+  when:
+    - k3s_server_install_config_enabled | bool
+    - k3s_server_install_config_control_token | string | length > 0
+
+- name: k3s server systemd unit を配置
+  become: true
+  ansible.builtin.template:
+    src: "{{ k3s_server_install_config_systemd_unit_template }}"
+    dest: "{{ k3s_server_install_config_systemd_unit_path }}"
+    owner: root
+    group: root
+    mode: '0644'
+  when:
+    - k3s_server_install_config_enabled | bool

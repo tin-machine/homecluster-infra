@@ -1,0 +1,4 @@
+interface:
+  display_name: "Homecluster OpenWrt Postupgrade Check"
+  short_description: "Check OpenWrt post-upgrade health safely"
+  default_prompt: "Use $homecluster-openwrt-postupgrade-check to collect read-only OpenWrt post-upgrade health evidence."

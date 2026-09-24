@@ -1,0 +1,69 @@
+---
+- name: Codex CLI 無効化時は設定をスキップ
+  ansible.builtin.debug:
+    msg: "codex_cli_enabled=false のため Codex CLI は導入しません"
+  when: not (codex_cli_enabled | bool)
+
+- name: Codex CLI を導入
+  when: codex_cli_enabled | bool
+  block:
+    - name: Codex CLI role 変数を検証
+      ansible.builtin.assert:
+        that:
+          - codex_cli_node_package | string | length > 0
+          - codex_cli_bubblewrap_package | string | length > 0
+          - codex_cli_npm_package | string | length > 0
+          - codex_cli_use_latest | bool or codex_cli_version | string | length > 0
+          - codex_cli_verify_command | string | length > 0
+        fail_msg: "Codex CLI package、version policy、verify command を確認してください"
+
+    - name: Codex CLI 用 package.use directory を作成
+      become: true
+      ansible.builtin.file:
+        path: /etc/portage/package.use
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      when: codex_cli_manage_nodejs_npm_use | bool
+
+    - name: Node.js の npm USE flag を有効化
+      become: true
+      ansible.builtin.lineinfile:
+        path: /etc/portage/package.use/codex-cli
+        regexp: "^{{ codex_cli_node_package | regex_escape }}\\s"
+        line: "{{ codex_cli_node_package }} npm"
+        create: true
+        owner: root
+        group: root
+        mode: "0644"
+      when: codex_cli_manage_nodejs_npm_use | bool
+
+    - name: Codex CLI runtime package を導入
+      become: true
+      community.general.portage:
+        package: "{{ item }}"
+        state: present
+        newuse: true
+        changed_use: true
+        update: true
+        loadavg: 5
+      loop:
+        - "{{ codex_cli_node_package }}"
+        - "{{ codex_cli_bubblewrap_package }}"
+
+    - name: Codex CLI npm package を導入
+      become: true
+      community.general.npm:
+        name: "{{ codex_cli_npm_package }}"
+        global: true
+        state: "{{ 'latest' if codex_cli_use_latest | bool else 'present' }}"
+        version: "{{ omit if codex_cli_use_latest | bool else codex_cli_version }}"
+
+    - name: Codex CLI version を確認
+      ansible.builtin.command:
+        argv:
+          - "{{ codex_cli_verify_command }}"
+          - --version
+      register: codex_cli_verify
+      changed_when: false

@@ -1,0 +1,17 @@
+---
+- name: PicoClaw common role を適用
+  ansible.builtin.include_role:
+    name: picoclaw_common
+    apply:
+      tags:
+        - picoclaw
+  vars:
+    picoclaw_owner_default: ansible
+    picoclaw_group_default: ansible
+    picoclaw_home_default: /home/ansible
+    picoclaw_install_method_default: archive
+    picoclaw_binary_path_default: /usr/local/bin/picoclaw
+    picoclaw_launcher_path_default: /usr/local/bin/picoclaw-launcher
+    picoclaw_config_strategy_default: generate
+  tags:
+    - picoclaw

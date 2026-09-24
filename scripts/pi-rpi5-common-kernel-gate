@@ -1,0 +1,325 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import subprocess
+import tempfile
+from pathlib import Path
+from typing import Any, Sequence
+
+COLLECTOR = "homecluster-rpi5-common-kernel-gate"
+SAFE_RUN_ID = re.compile(r"^[0-9]{8}T[0-9]{6}Z-[A-Za-z0-9._-]+$")
+SHA256 = re.compile(r"^[0-9a-f]{64}$")
+ARTIFACT_ID = re.compile(r"^sha256:[0-9a-f]{64}$")
+COMMIT = re.compile(r"^[0-9a-f]{40}$")
+KERNEL = re.compile(r"^.+-v8-homecluster\+$")
+SELECTOR = re.compile(r"^[0-9]{8}-rpi5$")
+TASK_LINE = re.compile(r"^TASK \[(.+)\]")
+FATAL_LINE = re.compile(r"^fatal: \[([^\]]+)\]: FAILED!")
+RC_FIELD = re.compile(r'"rc":\s*(-?[0-9]+)')
+CHECK_ID_FIELD = re.compile(r"HOMECLUSTER_CHECK_ID=([a-z0-9_]+)")
+ARTIFACT_CHECK_IDS = frozenset(
+    {
+        "chroot_dev_null_ready",
+        "module_tree_present",
+        "tftp_directory_present",
+        "bc_executable_present",
+        "bc_vdb_present",
+        "dtb_present",
+        "tftp_file_count_sufficient",
+        "generic_rootfs_initramfs_present",
+        "generic_tftp_initramfs_present",
+        "generic_initramfs_identical",
+        "generic_kernel_payload_present",
+        "generic_kernel_payload_identical",
+        "generic_kernel_sha256_matches_manifest",
+        "nvidia_kernel_payload_present",
+        "nvidia_kernel_tftp_present",
+        "nvidia_kernel_payload_identical",
+        "nvidia_kernel_sha256_matches_manifest",
+        "pi5_default_kernel_present",
+        "pi5_default_kernel_sha256_matches_manifest",
+        "generic_dtb_payload_present",
+        "generic_dtb_tftp_present",
+        "generic_dtb_payload_identical",
+        "generic_dtb_sha256_matches_manifest",
+        "nvidia_dtb_payload_present",
+        "nvidia_dtb_tftp_present",
+        "nvidia_dtb_payload_identical",
+        "nvidia_dtb_sha256_matches_manifest",
+        "generic_lsinitrd_readable",
+        "generic_overlay_module_present",
+        "generic_overlay_hook_present",
+        "generic_overlayfs_present",
+        "generic_nfs_present",
+        "nvidia_rootfs_initramfs_present",
+        "nvidia_tftp_initramfs_present",
+        "nvidia_initramfs_identical",
+        "nvidia_lsinitrd_readable",
+        "nvidia_overlay_module_present",
+        "nvidia_overlay_hook_present",
+        "nvidia_overlayfs_present",
+        "nvidia_nfs_present",
+    }
+)
+NON_GENERATION_PATHS = frozenset(
+    {
+        ".agents/skills/homecluster-convergence-monitor/scripts/collect-k3s-convergence.sh",
+        ".agents/skills/homecluster-convergence-monitor/scripts/test-collect-k3s-convergence.sh",
+        ".github/workflows/static-check.yml",
+        "ansible/openwrt/playbooks/rpi5-common-kernel-gate.yml",
+        "ansible/openwrt/playbooks/rpi5-common-kernel-precheck.yml",
+        "ansible/openwrt/playbooks/rpi5-common-kernel-rollout.yml",
+        "docs/troubleshooting/k3s-status-ssh-stderr-json-contamination.md",
+        "scripts/ci/check-k3s-status-collector-contract.sh",
+        "scripts/ci/check-pxe-initramfs-contract.py",
+        "scripts/pi-rpi5-common-kernel-gate",
+        "scripts/pi-rpi5-common-kernel-precheck",
+        "scripts/pi-rpi5-common-kernel-rollout",
+        "scripts/pi_rpi5_common_kernel_test_legacy.py",
+        "scripts/test_pi_rpi5_common_kernel.py",
+        "scripts/test_pi_rpi5_common_kernel_non_generation_paths.py",
+        "scripts/test_pi_rpi5_common_kernel_rollout_health.py",
+        "scripts/test_pi_rpi5_common_kernel_rollout_selector_resolution.py",
+    }
+)
+
+
+class GateError(RuntimeError):
+    def __init__(self, reason: str, status: str = "blocked", diagnostics: Sequence[str] = ()) -> None:
+        super().__init__(reason)
+        self.reason = reason
+        self.status = status
+        self.diagnostics = [str(item)[:300] for item in diagnostics][:20]
+
+
+def run(command: Sequence[str | Path], *, cwd: Path, timeout: int = 900) -> subprocess.CompletedProcess[str]:
+    try:
+        return subprocess.run([str(item) for item in command], cwd=cwd, text=True, capture_output=True, check=False, timeout=timeout)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise GateError("generation_gate_execution_failed", "unknown") from error
+
+
+def git(root: Path, *args: str) -> str:
+    completed = run(["git", "-C", root, *args], cwd=root, timeout=60)
+    if completed.returncode != 0:
+        raise GateError("infra_git_state_unavailable", "unknown")
+    return completed.stdout.strip()
+
+
+def validate_gate_revision(root: Path, generation_commit: str, validation_commit: str) -> list[str]:
+    if not COMMIT.fullmatch(generation_commit) or not COMMIT.fullmatch(validation_commit):
+        raise GateError("generation_gate_revision_invalid", "unknown")
+    if generation_commit == validation_commit:
+        return []
+    ancestor = run(["git", "-C", root, "merge-base", "--is-ancestor", generation_commit, validation_commit], cwd=root, timeout=60)
+    if ancestor.returncode != 0:
+        raise GateError("generation_gate_revision_not_descendant")
+    changed = [line.strip() for line in git(root, "diff", "--name-only", f"{generation_commit}..{validation_commit}", "--").splitlines() if line.strip()]
+    disallowed = sorted(set(changed) - NON_GENERATION_PATHS)
+    if disallowed:
+        raise GateError("generation_source_changed_since_observer", diagnostics=[f"disallowed_path={path}" for path in disallowed[:10]])
+    return changed
+
+
+def playbook_failure_diagnostics(completed: subprocess.CompletedProcess[str]) -> list[str]:
+    task = ""
+    host = ""
+    rc = ""
+    check_id = ""
+    for line in (completed.stdout + "\n" + completed.stderr).splitlines():
+        task_match = TASK_LINE.match(line.strip())
+        if task_match:
+            task = task_match.group(1).strip()
+        fatal_match = FATAL_LINE.match(line.strip())
+        if fatal_match:
+            host = fatal_match.group(1).strip()
+            rc_match = RC_FIELD.search(line)
+            if rc_match:
+                rc = rc_match.group(1)
+            for candidate in CHECK_ID_FIELD.findall(line):
+                if candidate in ARTIFACT_CHECK_IDS:
+                    check_id = candidate
+    diagnostics = [f"ansible_rc={completed.returncode}"]
+    if task:
+        diagnostics.append(f"failed_task={task[:220]}")
+    if host:
+        diagnostics.append(f"failed_host={host[:120]}")
+    if rc:
+        diagnostics.append(f"failed_task_rc={rc}")
+    if check_id:
+        diagnostics.append(f"failed_check_id={check_id}")
+    return diagnostics
+
+
+def validate_result(value: Any, run_id: str, infra_commit: str, inventory_provenance: str) -> dict[str, Any]:
+    if not isinstance(value, dict) or value.get("status") != "pass":
+        reason = value.get("reason", "generation_gate_failed") if isinstance(value, dict) else "generation_gate_contract_invalid"
+        raise GateError(str(reason))
+    required = {
+        "generation_run_id": SAFE_RUN_ID,
+        "infra_commit": COMMIT,
+        "inventory_provenance": SHA256,
+        "exact_kernel_release": KERNEL,
+        "kernel_artifact_id": ARTIFACT_ID,
+        "kernel_artifact_build_release": SELECTOR,
+        "kernel_artifact_manifest_sha256": SHA256,
+        "kernel_artifact_payload_sha256": SHA256,
+        "pxe_release_id": SELECTOR,
+        "pxe_release_manifest_sha256": SHA256,
+        "generation_manifest_sha256": SHA256,
+        "artifact_payload_sha256": SHA256,
+        "pxe_candidate_selector": SELECTOR,
+    }
+    for key, pattern in required.items():
+        field = value.get(key)
+        if not isinstance(field, str) or not pattern.fullmatch(field):
+            raise GateError("generation_gate_contract_invalid", "unknown")
+    if value["generation_run_id"] != run_id:
+        raise GateError("generation_gate_run_id_mismatch", "unknown")
+    if value["infra_commit"] != infra_commit:
+        raise GateError("generation_gate_infra_commit_mismatch", "unknown")
+    if value["inventory_provenance"] != inventory_provenance:
+        raise GateError("generation_gate_inventory_provenance_mismatch", "unknown")
+    if value["kernel_artifact_id"] != f"sha256:{value['kernel_artifact_manifest_sha256']}":
+        raise GateError("kernel_artifact_identity_mismatch", "unknown")
+    if value["generation_manifest_sha256"] != value["kernel_artifact_manifest_sha256"]:
+        raise GateError("generation_manifest_alias_mismatch", "unknown")
+    if value["artifact_payload_sha256"] != value["kernel_artifact_payload_sha256"]:
+        raise GateError("artifact_payload_alias_mismatch", "unknown")
+    if value["pxe_candidate_selector"] != value["pxe_release_id"]:
+        raise GateError("pxe_selector_alias_mismatch", "unknown")
+    if value.get("gate_version") != "rpi5-common-kernel-gate-v2":
+        raise GateError("generation_gate_version_invalid", "unknown")
+    return value
+
+
+def fixture_result(path: Path, run_id: str, generation_infra_commit: str) -> dict[str, Any]:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise GateError("fixture_contract_invalid", "unknown")
+    status = str(value.get("status", "pass"))
+    if status != "pass":
+        return {"collector": COLLECTOR, "status": status, "reason": str(value.get("reason", "fixture_gate_failed"))}
+    manifest_sha = str(value.get("kernel_artifact_manifest_sha256", "c" * 64))
+    pxe_release = str(value.get("pxe_release_id", "20260801-rpi5"))
+    return {
+        "collector": COLLECTOR,
+        "status": "pass",
+        "reason": "generation_gate_passed",
+        "generation_run_id": run_id,
+        "infra_commit": generation_infra_commit,
+        "validation_infra_commit": generation_infra_commit,
+        "revision_compatibility": "exact",
+        "inventory_provenance": "b" * 64,
+        "exact_kernel_release": str(value.get("exact_kernel_release", "6.18.37-v8-homecluster+")),
+        "kernel_artifact_id": f"sha256:{manifest_sha}",
+        "kernel_artifact_build_release": str(value.get("kernel_artifact_build_release", "20260731-rpi5")),
+        "kernel_artifact_manifest_sha256": manifest_sha,
+        "kernel_artifact_payload_sha256": "d" * 64,
+        "pxe_release_id": pxe_release,
+        "pxe_release_manifest_sha256": "e" * 64,
+        "generation_manifest_sha256": manifest_sha,
+        "artifact_payload_sha256": "d" * 64,
+        "pxe_candidate_selector": pxe_release,
+        "gate_version": "rpi5-common-kernel-gate-v2",
+    }
+
+
+def parser() -> argparse.ArgumentParser:
+    result = argparse.ArgumentParser(description="Fixed Pi5 common-kernel generation acceptance gate")
+    result.add_argument("--json", action="store_true")
+    result.add_argument("--observer-run-id", required=True)
+    result.add_argument("--generation-infra-commit", required=True)
+    result.add_argument("--fixture", default="", help=argparse.SUPPRESS)
+    return result
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = parser().parse_args(argv)
+    try:
+        if not SAFE_RUN_ID.fullmatch(args.observer_run_id):
+            raise GateError("generation_run_id_invalid", "unknown")
+        if not COMMIT.fullmatch(args.generation_infra_commit):
+            raise GateError("generation_infra_commit_invalid", "unknown")
+        if args.fixture:
+            result = fixture_result(
+                Path(args.fixture),
+                args.observer_run_id,
+                args.generation_infra_commit,
+            )
+        else:
+            infra = Path(__file__).resolve().parents[1]
+            inventory = Path(os.environ.get("HOMECLUSTER_ANSIBLE_INVENTORY", str(infra.parent / "inventory.yml"))).resolve()
+            provenance = Path(str(inventory) + ".provenance.json")
+            if not inventory.is_file() or not provenance.is_file():
+                raise GateError("inventory_provenance_missing")
+            provenance_value = json.loads(provenance.read_text(encoding="utf-8"))
+            inventory_provenance = provenance_value.get("inventory_sha256") if isinstance(provenance_value, dict) else None
+            if not isinstance(inventory_provenance, str) or not SHA256.fullmatch(inventory_provenance):
+                raise GateError("inventory_provenance_invalid", "unknown")
+            infra_commit = args.generation_infra_commit
+            validation_commit = git(infra, "rev-parse", "HEAD")
+            changed_paths = validate_gate_revision(infra, infra_commit, validation_commit)
+            output_dir = Path(tempfile.mkdtemp(prefix="homecluster-common-kernel-gate-", dir="/tmp"))
+            os.chmod(output_dir, 0o700)
+            output = output_dir / "result.json"
+            completed = run(
+                [
+                    "ansible-playbook",
+                    "-i",
+                    inventory,
+                    infra / "ansible/openwrt/playbooks/rpi5-common-kernel-gate.yml",
+                    "--extra-vars",
+                    json.dumps(
+                        {
+                            "homecluster_common_kernel_gate_output": str(output),
+                            "homecluster_common_kernel_inventory_provenance": inventory_provenance,
+                            "homecluster_common_kernel_observer_run_id": args.observer_run_id,
+                            "homecluster_common_kernel_infra_commit": infra_commit,
+                        },
+                        separators=(",", ":"),
+                    ),
+                ],
+                cwd=infra / "ansible/openwrt",
+                timeout=900,
+            )
+            if completed.returncode != 0 or not output.is_file():
+                raise GateError("generation_gate_playbook_failed", diagnostics=playbook_failure_diagnostics(completed))
+            try:
+                raw = json.loads(output.read_text(encoding="utf-8"))
+                result = validate_result(raw, args.observer_run_id, infra_commit, inventory_provenance)
+                result = dict(result)
+                result["validation_infra_commit"] = validation_commit
+                result["revision_compatibility"] = "exact" if not changed_paths else "compatible_non_generation_change"
+                result["diagnostics"] = [
+                    f"generation_infra_commit={infra_commit}",
+                    f"validation_infra_commit={validation_commit}",
+                    f"revision_compatibility={result['revision_compatibility']}",
+                    f"kernel_artifact_id={result['kernel_artifact_id']}",
+                    f"kernel_artifact_build_release={result['kernel_artifact_build_release']}",
+                    f"pxe_release_id={result['pxe_release_id']}",
+                    *[f"non_generation_path={path}" for path in changed_paths[:10]],
+                ]
+            finally:
+                try:
+                    output.unlink()
+                    output_dir.rmdir()
+                except OSError:
+                    pass
+    except GateError as error:
+        result = {"collector": COLLECTOR, "status": error.status, "reason": error.reason, "diagnostics": error.diagnostics}
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
+    else:
+        print(f"collector={result['collector']}")
+        print(f"status={result['status']}")
+        print(f"reason={result['reason']}")
+    return 0 if result["status"] == "pass" else 2 if result["status"] in {"blocked", "unknown"} else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

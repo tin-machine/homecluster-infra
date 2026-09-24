@@ -1,0 +1,9 @@
+---
+codex_cli_enabled: false
+codex_cli_node_package: net-libs/nodejs
+codex_cli_bubblewrap_package: sys-apps/bubblewrap
+codex_cli_npm_package: "@openai/codex"
+codex_cli_use_latest: true
+codex_cli_version: ""
+codex_cli_manage_nodejs_npm_use: true
+codex_cli_verify_command: codex

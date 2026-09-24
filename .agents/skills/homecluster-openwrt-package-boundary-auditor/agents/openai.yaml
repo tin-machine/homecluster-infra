@@ -1,0 +1,4 @@
+interface:
+  display_name: "Homecluster OpenWrt Package Boundary Auditor"
+  short_description: "Audit OpenWrt package-manager source boundaries"
+  default_prompt: "Use $homecluster-openwrt-package-boundary-auditor to run a read-only package boundary audit."

@@ -289,6 +289,7 @@ resource "helm_release" "grafana" {
   version          = "8.6.2"
   namespace        = kubernetes_namespace.observability.metadata[0].name
   create_namespace = false
+  timeout          = 900
 
   values = [
     file("${var.values_base_dir}/values-grafana.yaml"),

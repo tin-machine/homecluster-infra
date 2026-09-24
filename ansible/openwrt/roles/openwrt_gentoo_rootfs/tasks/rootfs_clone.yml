@@ -106,9 +106,17 @@
 
     rsync -aHAX --numeric-ids --one-file-system "${src}/" "${tmp}/"
 
+    # systemd machine-id は node ごとの初回 boot で作り直す。
+    : > "${tmp}/etc/machine-id"
+    rm -f "${tmp}/var/lib/dbus/machine-id"
+
+    # shared lower rootfs に source node の hostname を持ち越さない。
+    rm -f "${tmp}/etc/hostname"
+
     # PXE client ごとの k3s node identity は clone 先 rootfs に持ち越さない。
     rm -f \
       "${tmp}/etc/rancher/node/password" \
+      "${tmp}/etc/rancher/k3s/config.yaml" \
       "${tmp}/var/lib/rancher/k3s/.state/node-password" \
       "${tmp}/var/lib/rancher/k3s/.state/server-ca-hash" \
       "${tmp}/var/lib/rancher/k3s/agent"/client-*.crt \
@@ -118,6 +126,10 @@
       "${tmp}/var/lib/rancher/k3s/agent/server-ca.crt" \
       "${tmp}/var/lib/rancher/k3s/agent"/*.kubeconfig \
       "${tmp}/var/lib/rancher/k3s/agent/etc/k3s-agent-load-balancer.json"
+
+    # kubelet の runtime state は共有 lower rootfs へ持ち越さない。
+    rm -rf "${tmp}/var/lib/kubelet"
+    install -d -m 0750 "${tmp}/var/lib/kubelet"
 
     if [ -f "${src_release_dir}/.stage3_applied" ]; then
       cp -p "${src_release_dir}/.stage3_applied" "${dest_release_dir}/.stage3_applied"

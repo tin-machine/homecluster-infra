@@ -13,9 +13,7 @@
 
 - name: Inspect initramfs contents
   ansible.builtin.command:
-    argv:
-      - lsinitrd
-      - "{{ rpi_initramfs_src }}"
+    argv: "{{ rpi_initramfs_inspector_argv_prefix + [rpi_initramfs_src] }}"
   register: rpi_lsinitrd
   changed_when: false
   when: rpi_validate_initramfs_contents | bool

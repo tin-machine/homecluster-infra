@@ -1,0 +1,12 @@
+---
+- name: Reload systemd for PicoClaw
+  become: true
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Restart PicoClaw gateway
+  become: true
+  ansible.builtin.systemd:
+    name: picoclaw-gateway.service
+    state: restarted
+  when: picoclaw_effective_gateway_service_enabled | default(false) | bool

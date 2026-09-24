@@ -22,10 +22,16 @@ Use this skill for Ansible implementation work in `homecluster-infra`.
    - `docs/full-execution-validation.md` for verification expectations
 4. Read [references/ansible-implementation-rules.md](references/ansible-implementation-rules.md)
    before making changes. It contains the local Ansible conventions and guardrails.
-5. Inspect the nearest existing role/playbook and copy its style before adding new structure.
-6. Keep changes scoped. Update docs or runbooks when the behavior, operator gate, or verification
+5. For local LLM or OpenCode implementation runs, also read
+   [references/local-llm-review-checklist.md](references/local-llm-review-checklist.md). It is a
+   low-freedom checklist for the failure modes seen in this repository.
+6. For long external plans or prompts that may conflict with this skill, run the preflight gate
+   before implementation:
+   `./.agents/skills/homecluster-ansible-implementer/scripts/opencode_preflight_gate.sh`.
+7. Inspect the nearest existing role/playbook and copy its style before adding new structure.
+8. Keep changes scoped. Update docs or runbooks when the behavior, operator gate, or verification
    path changes.
-7. Verify with syntax/static checks appropriate to the changed entrypoints. Treat `--check` as
+9. Verify with syntax/static checks appropriate to the changed entrypoints. Treat `--check` as
    potentially state-touching, not as a read-only proof.
 
 ## Design Priorities
@@ -44,12 +50,60 @@ Use this skill for Ansible implementation work in `homecluster-infra`.
 
 ## Verification Baseline
 
+When Codex delegates implementation to OpenCode/local LLM, run through the wrapper instead of
+calling `opencode run` directly. The wrapper rejects output-limit truncation, zero-diff
+implementation attempts, repeated tool-error loops, denied tool attempts, and failed validation.
+Tool permission enforcement belongs in
+`opencode.json`:
+
+```bash
+./.agents/skills/homecluster-ansible-implementer/scripts/opencode_implementation_run.sh \
+  --profile arm64-egpu \
+  --edit-only \
+  --task "<one narrow implementation task>"
+```
+
+Use `--profile arm64-egpu` when the ARM64 eGPU service should back the run, and
+`--profile desktop-gpu` when the desktop GPU service should back the run. Keep profile-specific
+context limits in the OpenCode config files; do not override them in prompts. Use explicit `--model`
+and `--config` only for one-off compatibility checks.
+
+The wrapper default agent is `homecluster-source-edit`. For tasks that need Ansible/project skill
+context, pass `--agent homecluster-ansible-patch` explicitly.
+
+For local Gemma4, prefer edit-only runs first. Codex then runs
+`opencode_validation_gate.sh` and saves its compact JSON. If validation fails, start a second repair
+run with only that compact validation JSON. Use the same agent boundary as the original run:
+
+For local Gemma4, do not ask one run to create or repair a whole multi-file role. Split broad work
+into single-file edits, such as `defaults/main.yml`, one `tasks/*.yml`, one template, or the
+playbook entrypoint. A `finish-length` wrapper result means the task was too broad or the final
+answer was too verbose; narrow the next prompt instead of retrying the same task.
+
+```bash
+./.agents/skills/homecluster-ansible-implementer/scripts/opencode_implementation_run.sh \
+  --profile arm64-egpu \
+  --agent homecluster-ansible-patch \
+  --edit-only \
+  --repair-json /tmp/opencode-validation.json \
+  --task "<same narrow implementation task>"
+```
+
+Choose the OpenCode agent by privilege boundary:
+
+- `homecluster-read-only`: scout candidate files and anchors before implementation.
+- `homecluster-edit-only`: apply one exact `oldString` / `newString` replacement.
+- `homecluster-source-edit`: read current source and apply one narrow edit without commands,
+  validation, repair, or skill access. Use this for normal source edits that need current-file reads.
+- `homecluster-ansible-patch`: implement one narrow source-only Ansible patch when the task needs
+  Ansible/project skill context.
+- `homecluster-validation-runner`: run approved validation commands and report compact results.
+- `homecluster-repair-only`: repair one compact validation failure against the current target file.
+
 Prefer these checks after implementation, adjusted to the changed entrypoint:
 
 ```bash
-bash scripts/ci/static-check.sh
-RUN_ANSIBLE_SYNTAX=1 RUN_ANSIBLE_LIST_TASKS=1 RUN_TERRAFORM_VALIDATE=1 \
-  bash scripts/ci/static-check.sh
+./.agents/skills/homecluster-ansible-implementer/scripts/opencode_validation_gate.sh
 ansible-playbook -i ../inventory.yml \
   ansible/openwrt/site.yml -l <host> --syntax-check
 ansible-playbook -i ../inventory.yml \
@@ -59,3 +113,10 @@ ansible-playbook -i ../inventory.yml \
 Do not run live apply, destructive gates, sysupgrade, storage formatting, rootfs replacement, TFTP
 switching, k3s node rebuild, Terraform apply, or SwitchBot power actions without explicit operator
 approval.
+
+For iSCSI or storage tasks, OpenCode must stay source-only unless the operator explicitly approves a
+live phase. It must not run `mkfs*`, `mount`, `umount`, `iscsiadm`, `tgtadm`, `service tgtd`,
+`/etc/init.d/tgtd`, `terraform apply`, `sysupgrade`, SwitchBot commands, or `ansible-playbook`
+against real inventory. Allowed validation is limited to repository-local review scripts,
+`git diff --check`, `ansible-playbook` with `examples/inventory.yml` for `--syntax-check` or
+`--list-tasks`, and other explicitly reviewed static checks.

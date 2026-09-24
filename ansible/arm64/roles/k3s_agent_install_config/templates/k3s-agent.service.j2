@@ -1,0 +1,44 @@
+[Unit]
+Description=Lightweight Kubernetes
+Documentation=https://k3s.io
+{% if k3s_agent_install_config_service_requires %}
+{% for req in k3s_agent_install_config_service_requires %}
+Requires={{ req }}
+{% endfor %}
+{% endif %}
+{% if k3s_agent_install_config_service_wants %}
+{% for want in k3s_agent_install_config_service_wants %}
+Wants={{ want }}
+{% endfor %}
+{% endif %}
+{% if k3s_agent_install_config_service_before %}
+{% for before in k3s_agent_install_config_service_before %}
+Before={{ before }}
+{% endfor %}
+{% endif %}
+{% if k3s_agent_install_config_service_after %}
+{% for after in k3s_agent_install_config_service_after %}
+After={{ after }}
+{% endfor %}
+{% endif %}
+
+[Service]
+Type=exec
+{% if k3s_agent_install_config_service_exec_start_pre %}
+{% for pre in k3s_agent_install_config_service_exec_start_pre %}
+ExecStartPre={{ pre }}
+{% endfor %}
+{% endif %}
+ExecStart={{ k3s_agent_install_config_install_dir }}/k3s agent --server https://{{ k3s_agent_install_config_registration_address }}:{{ k3s_agent_install_config_control_plane_port }} --token-file {{ k3s_agent_install_config_token_file }} --config {{ k3s_agent_install_config_config_file }}
+Restart={{ k3s_agent_install_config_restart_policy }}
+RestartSec={{ k3s_agent_install_config_restart_sec }}
+TimeoutStartSec={{ k3s_agent_install_config_timeout_start_sec }}
+KillMode=process
+Delegate=yes
+LimitNOFILE=1048576
+LimitNPROC=infinity
+LimitCORE=infinity
+TasksMax=infinity
+
+[Install]
+WantedBy=multi-user.target
