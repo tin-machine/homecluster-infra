@@ -2,5 +2,11 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "config:recommended"
-  ]
+  ],
+  "baseBranchPatterns": [
+    "stg"
+  ],
+  "minimumReleaseAge": "14 days",
+  "internalChecksFilter": "strict",
+  "minimumReleaseAgeBehaviour": "timestamp-required"
 }
