@@ -276,39 +276,30 @@
         mode: '0755'
       when: openwrt_gentoo_enabled | bool
 
-    - name: Portage binpkg GPG ホームを整備
+    - name: Portage binpkg GPG trust anchor を getuto で初期化
       ansible.builtin.shell: |
         set -euo pipefail
         chroot {{ openwrt_gentoo_rootfs_dir }} {{ openwrt_gentoo_chroot_shell }} -lc '
-          install -d -m 700 -o {{ openwrt_gentoo_portage_gpg_owner }} -g {{ openwrt_gentoo_portage_gpg_group }} /etc/portage/gnupg
-          find /etc/portage/gnupg -mindepth 1 -maxdepth 1 -print0 | xargs -0 -r chown {{ openwrt_gentoo_portage_gpg_owner }}:{{ openwrt_gentoo_portage_gpg_group }} || true
-          chown {{ openwrt_gentoo_portage_gpg_owner }}:{{ openwrt_gentoo_portage_gpg_group }} /etc/portage/gnupg
-          chmod 700 /etc/portage/gnupg
+          /usr/bin/getuto
+        '
+      args:
+        executable: /bin/ash
+        creates: "{{ openwrt_gentoo_rootfs_dir }}/etc/portage/gnupg/mykeyid"
+      when: openwrt_gentoo_official_binhost_enabled | bool
+      tags:
+        - gentoo_portage_gpg
+
+    - name: Portage binpkg GPG trust anchor を検証
+      ansible.builtin.shell: |
+        set -euo pipefail
+        chroot {{ openwrt_gentoo_rootfs_dir }} {{ openwrt_gentoo_chroot_shell }} -lc '
+          test -s /etc/portage/gnupg/mykeyid
+          test -r /etc/portage/gnupg/trustdb.gpg
         '
       args:
         executable: /bin/ash
       changed_when: false
-      when:
-        - openwrt_gentoo_portage_binpkg_keys | length > 0
-      tags:
-        - gentoo_portage_gpg
-
-    - name: Portage binpkg GPG 鍵を取得
-      ansible.builtin.shell: |
-        set -euo pipefail
-        chroot {{ openwrt_gentoo_rootfs_dir }} {{ openwrt_gentoo_chroot_shell }} -lc '
-          gpg --homedir /etc/portage/gnupg --keyserver hkps://keys.gentoo.org --recv-keys {{ item }}
-        '
-      args:
-        executable: /bin/ash
-      loop: "{{ openwrt_gentoo_portage_binpkg_keys }}"
-      loop_control:
-        label: "{{ item }}"
-      register: openwrt_gentoo_portage_gpg
-      changed_when: "'imported' in (openwrt_gentoo_portage_gpg.stdout | default(''))"
-      failed_when: openwrt_gentoo_portage_gpg.rc != 0
-      when:
-        - openwrt_gentoo_portage_binpkg_keys | length > 0
+      when: openwrt_gentoo_official_binhost_enabled | bool
       tags:
         - gentoo_portage_gpg
 
@@ -665,7 +656,6 @@
         fail_msg: "openwrt_gentoo_official_binhost_enabled=true の場合、name / uri / location / emerge_args / packages は shell-safe な値で指定してください"
       when:
         - openwrt_gentoo_official_binhost_enabled | bool
-        - (openwrt_gentoo_official_binhost_packages | default([])) | length > 0
       tags:
         - gentoo_packages
         - official_binhost
@@ -681,7 +671,6 @@
       register: openwrt_gentoo_official_binhost_rootfs_stats
       when:
         - openwrt_gentoo_official_binhost_enabled | bool
-        - (openwrt_gentoo_official_binhost_packages | default([])) | length > 0
       tags:
         - gentoo_packages
         - official_binhost
@@ -704,7 +693,6 @@
         fail_msg: "official binhost package を導入する前に対象 rootfs の /etc/portage が存在している必要があります"
       when:
         - openwrt_gentoo_official_binhost_enabled | bool
-        - (openwrt_gentoo_official_binhost_packages | default([])) | length > 0
       tags:
         - gentoo_packages
         - official_binhost
@@ -723,7 +711,6 @@
         label: "{{ item }}"
       when:
         - openwrt_gentoo_official_binhost_enabled | bool
-        - (openwrt_gentoo_official_binhost_packages | default([])) | length > 0
       tags:
         - gentoo_packages
         - official_binhost
@@ -747,7 +734,6 @@
         label: "{{ item }}"
       when:
         - openwrt_gentoo_official_binhost_enabled | bool
-        - (openwrt_gentoo_official_binhost_packages | default([])) | length > 0
       tags:
         - gentoo_packages
         - official_binhost
@@ -828,6 +814,96 @@
       tags:
         - gentoo_packages
         - official_binhost
+        - heavy_prebuilt
+        - k3s_base_baseline
+
+    - name: heavy prebuilt の unversioned binary-only contract を検証
+      ansible.builtin.assert:
+        that:
+          - openwrt_gentoo_heavy_prebuilt_emerge_args is string
+          - openwrt_gentoo_heavy_prebuilt_emerge_args is match('^[-A-Za-z0-9_=,:./+ ]+$')
+          - "'--getbinpkgonly' in (openwrt_gentoo_heavy_prebuilt_emerge_args | string).split()"
+          - "'--usepkgonly' not in (openwrt_gentoo_heavy_prebuilt_emerge_args | string).split()"
+          - openwrt_gentoo_heavy_prebuilt_packages is iterable
+          - openwrt_gentoo_heavy_prebuilt_packages is not string
+          - >-
+            (
+              openwrt_gentoo_heavy_prebuilt_packages
+              | select('match', '^[A-Za-z0-9+_.-]+/[A-Za-z0-9+_.-]+$')
+              | list
+              | length
+            ) == (openwrt_gentoo_heavy_prebuilt_packages | length)
+          - >-
+            (
+              openwrt_gentoo_heavy_prebuilt_packages
+              | select('match', '.*-[0-9].*')
+              | list
+              | length
+            ) == 0
+        fail_msg: "heavy package は unversioned atom と --getbinpkgonly で指定し、source fallback を許可しないでください"
+      when:
+        - openwrt_gentoo_heavy_prebuilt_enabled | bool
+      tags:
+        - gentoo_packages
+        - heavy_prebuilt
+        - k3s_base_baseline
+
+    - name: source build 版 Rust が prebuilt package list に混入していないことを確認
+      ansible.builtin.assert:
+        that:
+          - >-
+            (
+              (openwrt_gentoo_heavy_prebuilt_packages | default([]))
+              + k3s_base_baseline_packages
+            )
+            | select('match', '^(=|~|<=|>=)?dev-lang/rust($|[:\\[]|-[0-9])')
+            | list
+            | length == 0
+        fail_msg: "dev-lang/rust は source build 版なので rootfs package list に入れず、dev-lang/rust-bin を使ってください"
+      when:
+        - openwrt_gentoo_heavy_prebuilt_enabled | bool or openwrt_gentoo_k3s_base_baseline_enabled | bool
+      tags:
+        - gentoo_packages
+        - heavy_prebuilt
+        - k3s_base_baseline
+
+    - name: source build 版 Rust を world から外す
+      ansible.builtin.lineinfile:
+        path: "{{ openwrt_gentoo_rootfs_dir }}/var/lib/portage/world"
+        regexp: '^(=|~|<=|>=)?dev-lang/rust($|[:\[]|-[0-9]).*$'
+        state: absent
+      when:
+        - openwrt_gentoo_heavy_prebuilt_enabled | bool
+      tags:
+        - gentoo_packages
+        - heavy_prebuilt
+        - k3s_base_baseline
+
+    - name: heavy prebuilt パッケージを configured binpkg repositories から事前導入
+      ansible.builtin.shell: |
+        set -euo pipefail
+        chroot {{ openwrt_gentoo_rootfs_dir }} {{ openwrt_gentoo_chroot_shell }} -lc '
+          set -euo pipefail
+          env-update
+          echo env-update
+          export DEBUGINFOD_URLS=""
+          set +u
+          source /etc/profile
+          set -u
+          echo source
+          export FEATURES="${FEATURES:-} -userpriv -usersandbox"
+          echo export
+          PKGS="{{ openwrt_gentoo_heavy_prebuilt_packages | join(' ') }}"
+          emerge {{ openwrt_gentoo_heavy_prebuilt_emerge_args }} ${PKGS}
+        '
+      args:
+        executable: /bin/ash
+      changed_when: true
+      when:
+        - openwrt_gentoo_heavy_prebuilt_enabled | bool
+        - openwrt_gentoo_heavy_prebuilt_packages | length > 0
+      tags:
+        - gentoo_packages
         - heavy_prebuilt
         - k3s_base_baseline
 
@@ -1109,65 +1185,6 @@
         - openwrt_gentoo_rpi_wireless_bluetooth_service_enabled | bool
       tags:
         - rpi_wireless
-
-    - name: source build 版 Rust が prebuilt package list に混入していないことを確認
-      ansible.builtin.assert:
-        that:
-          - >-
-            (
-              (openwrt_gentoo_heavy_prebuilt_packages | default([]))
-              + k3s_base_baseline_packages
-            )
-            | select('match', '^(=|~|<=|>=)?dev-lang/rust($|[:\\[]|-[0-9])')
-            | list
-            | length == 0
-        fail_msg: "dev-lang/rust は source build 版なので rootfs package list に入れず、dev-lang/rust-bin を使ってください"
-      when:
-        - openwrt_gentoo_heavy_prebuilt_enabled | bool or openwrt_gentoo_k3s_base_baseline_enabled | bool
-      tags:
-        - gentoo_packages
-        - heavy_prebuilt
-        - k3s_base_baseline
-
-    - name: source build 版 Rust を world から外す
-      ansible.builtin.lineinfile:
-        path: "{{ openwrt_gentoo_rootfs_dir }}/var/lib/portage/world"
-        regexp: '^(=|~|<=|>=)?dev-lang/rust($|[:\[]|-[0-9]).*$'
-        state: absent
-      when:
-        - openwrt_gentoo_heavy_prebuilt_enabled | bool
-      tags:
-        - gentoo_packages
-        - heavy_prebuilt
-        - k3s_base_baseline
-
-    - name: heavy prebuilt パッケージを local binpkg cache から事前導入
-      ansible.builtin.shell: |
-        set -euo pipefail
-        chroot {{ openwrt_gentoo_rootfs_dir }} {{ openwrt_gentoo_chroot_shell }} -lc '
-          set -euo pipefail
-          env-update
-          echo env-update
-          export DEBUGINFOD_URLS=""
-          set +u
-          source /etc/profile
-          set -u
-          echo source
-          export FEATURES="${FEATURES:-} -userpriv -usersandbox"
-          echo export
-          PKGS="{{ openwrt_gentoo_heavy_prebuilt_packages | join(' ') }}"
-          emerge {{ openwrt_gentoo_heavy_prebuilt_emerge_args }} ${PKGS}
-        '
-      args:
-        executable: /bin/ash
-      changed_when: true
-      when:
-        - openwrt_gentoo_heavy_prebuilt_enabled | bool
-        - openwrt_gentoo_heavy_prebuilt_packages | length > 0
-      tags:
-        - gentoo_packages
-        - heavy_prebuilt
-        - k3s_base_baseline
 
     - name: k3s staging base baseline パッケージを lower rootfs に事前導入
       ansible.builtin.shell: |
@@ -1916,7 +1933,6 @@
       - sys-devel/distcc
       - sys-devel/bc
       - sys-fs/f2fs-tools
-      - sys-process/cronie
       - "{{ openwrt_gentoo_k3s_base_baseline_terraform_package_atom }}"
     k3s_base_baseline_package_use:
       - "net-libs/nodejs npm"

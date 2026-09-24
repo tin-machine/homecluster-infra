@@ -1,0 +1,400 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import importlib.machinery
+import importlib.util
+import json
+import os
+import sys
+import tempfile
+from pathlib import Path
+from typing import Any, Mapping, Sequence
+
+HERE = Path(__file__).resolve().parent
+ROLLOUT = HERE / "pi-rpi5-common-kernel-rollout"
+
+SCHEMA = "rpi5-common-kernel-runtime-inspection-v1"
+REQUIRED_ACTIONS = (
+    "none",
+    "fresh_boot",
+    "selector_switch_and_fresh_boot",
+    "blocked",
+)
+RUNTIME_ACCEPTANCE_VALUES = ("pass", "fail", "unknown")
+RUNTIME_REASONS = (
+    "runtime_acceptance_pass",
+    "kernel_release_mismatch",
+    "kernel_hard_gate_failed",
+    "generic_nvidia_autoloaded",
+    "egpu_nvidia_or_llm_service_failed",
+    "egpu_llm_acceptance_failed",
+    "egpu_llm_acceptance_helper_missing",
+    "runtime_acceptance_failed",
+    "node_unreachable",
+    "runtime_observation_failed",
+    "selector_state_invalid",
+)
+
+
+def load_rollout():
+    loader = importlib.machinery.SourceFileLoader("pi_rpi5_common_kernel_rollout_inspect", str(ROLLOUT))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("rollout_loader_unavailable")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[loader.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+rollout = load_rollout()
+
+
+def bounded_text(value: object, limit: int = 300) -> str:
+    return " ".join(str(value).replace("\x00", "").split())[:limit]
+
+
+def classify_node(
+    *,
+    current_tftp_selector: str,
+    current_rootfs_selector: str,
+    accepted_selector: str,
+    running_kernel_release: str,
+    exact_kernel_release: str,
+    runtime_acceptance: str,
+    runtime_reason: str,
+) -> dict[str, Any]:
+    selector_valid = bool(
+        rollout.SELECTOR.fullmatch(current_tftp_selector)
+        and rollout.SELECTOR.fullmatch(current_rootfs_selector)
+        and rollout.SELECTOR.fullmatch(accepted_selector)
+    )
+    selector_aligned = (
+        selector_valid
+        and current_tftp_selector == accepted_selector
+        and current_rootfs_selector == accepted_selector
+    )
+    runtime_release_matches = bool(running_kernel_release and running_kernel_release == exact_kernel_release)
+
+    if not selector_valid:
+        runtime_acceptance = "unknown"
+        runtime_reason = "selector_state_invalid"
+        required_action = "blocked"
+    elif runtime_acceptance not in RUNTIME_ACCEPTANCE_VALUES:
+        runtime_acceptance = "unknown"
+        runtime_reason = "runtime_observation_failed"
+        required_action = "blocked"
+    elif runtime_acceptance == "unknown":
+        required_action = "blocked"
+    else:
+        if runtime_acceptance == "pass" and not runtime_release_matches:
+            runtime_acceptance = "fail"
+            runtime_reason = "kernel_release_mismatch"
+        if not selector_aligned:
+            required_action = "selector_switch_and_fresh_boot"
+        elif runtime_acceptance == "pass":
+            required_action = "none"
+        else:
+            required_action = "fresh_boot"
+
+    if runtime_reason not in RUNTIME_REASONS:
+        runtime_reason = "runtime_acceptance_failed" if runtime_acceptance == "fail" else "runtime_observation_failed"
+
+    return {
+        "current_tftp_selector": current_tftp_selector,
+        "current_rootfs_selector": current_rootfs_selector,
+        "selector_aligned": selector_aligned,
+        "running_kernel_release": running_kernel_release,
+        "runtime_release_matches": runtime_release_matches,
+        "runtime_acceptance": runtime_acceptance,
+        "runtime_reason": runtime_reason,
+        "required_action": required_action,
+    }
+
+
+def failure_reason(diagnostics: Sequence[str], running_release: str, exact_release: str) -> str:
+    joined = "\n".join(str(item) for item in diagnostics)
+    if running_release and running_release != exact_release:
+        return "kernel_release_mismatch"
+    mapping = (
+        ("Pi5 common kernel exact releaseを検証", "kernel_release_mismatch"),
+        ("Pi5 common kernel runtime hard gateを検証", "kernel_hard_gate_failed"),
+        ("Generic canaryでNVIDIA module非autoloadを検証", "generic_nvidia_autoloaded"),
+        ("eGPU canaryでNVIDIAとLLM serviceを検証", "egpu_nvidia_or_llm_service_failed"),
+        ("llm_acceptance_helper=missing", "egpu_llm_acceptance_helper_missing"),
+        ("llm_acceptance=fail", "egpu_llm_acceptance_failed"),
+    )
+    for needle, reason in mapping:
+        if needle in joined:
+            return reason
+    return "runtime_acceptance_failed"
+
+
+def selector_snapshot(root: Path, inventory: Path, targets: Sequence[str]) -> dict[str, Any]:
+    playbook = root / "ansible/openwrt/playbooks/rpi5-common-kernel-selector-inspect.yml"
+    with tempfile.TemporaryDirectory(prefix="homecluster-common-kernel-inspect-", dir="/tmp") as temporary:
+        output = Path(temporary) / "selectors.json"
+        completed = rollout.run(
+            [
+                "ansible-playbook",
+                "-i",
+                inventory,
+                playbook,
+                "--extra-vars",
+                json.dumps(
+                    {
+                        "homecluster_common_kernel_inspect_targets": list(targets),
+                        "homecluster_common_kernel_inspect_output": str(output),
+                    },
+                    separators=(",", ":"),
+                ),
+            ],
+            cwd=root / "ansible/openwrt",
+            timeout=900,
+        )
+        if completed.returncode != 0 or not output.is_file():
+            raise rollout.RolloutError(
+                "selector_inspection_failed",
+                "unknown",
+                rollout.ansible_failure_diagnostics(
+                    completed.stdout,
+                    completed.stderr,
+                    stage="selector_inspection",
+                    mutation_committed=False,
+                    power_cycle_started=False,
+                    next_check_id="common_kernel_selector_inspection",
+                ),
+            )
+        try:
+            result = rollout.read_json(output)
+        except (OSError, ValueError, json.JSONDecodeError) as error:
+            raise rollout.RolloutError("selector_inspection_contract_invalid", "unknown") from error
+    current = result.get("current_selector_by_node")
+    if (
+        result.get("status") != "pass"
+        or result.get("reason") != "selector_inspection_complete"
+        or not isinstance(current, dict)
+        or set(current) != set(targets)
+    ):
+        raise rollout.RolloutError("selector_inspection_contract_invalid", "unknown")
+    return result
+
+
+def runtime_release(root: Path, inventory: Path, node: str) -> tuple[str, str]:
+    with tempfile.TemporaryDirectory(prefix="homecluster-common-kernel-runtime-", dir="/tmp") as temporary:
+        tree = Path(temporary) / "tree"
+        completed = rollout.run(
+            [
+                "ansible",
+                "-i",
+                inventory,
+                node,
+                "-m",
+                "ansible.builtin.command",
+                "-a",
+                "uname -r",
+                "--tree",
+                tree,
+            ],
+            cwd=root / "ansible/openwrt",
+            timeout=180,
+        )
+        result_path = tree / node
+        if not result_path.is_file():
+            text = completed.stdout + "\n" + completed.stderr
+            if "UNREACHABLE!" in text or '"unreachable": true' in text:
+                return "", "node_unreachable"
+            return "", "runtime_observation_failed"
+        try:
+            value = json.loads(result_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, json.JSONDecodeError):
+            return "", "runtime_observation_failed"
+    if not isinstance(value, dict):
+        return "", "runtime_observation_failed"
+    if value.get("unreachable") is True:
+        return "", "node_unreachable"
+    if completed.returncode != 0 or value.get("failed") is True or value.get("rc") not in {0, "0", None}:
+        return "", "runtime_observation_failed"
+    release = str(value.get("stdout", "")).strip()
+    if not release:
+        return "", "runtime_observation_failed"
+    return bounded_text(release, 160), "runtime_acceptance_pass"
+
+
+def node_runtime_acceptance(
+    root: Path,
+    runbook: Path,
+    inventory: Path,
+    node: str,
+    egpu_target: str,
+    exact_release: str,
+    running_release: str,
+) -> tuple[str, str, list[str]]:
+    phase = "egpu_canary" if node == egpu_target else "generic_canary"
+    accepted, diagnostics = rollout.run_phase_acceptance(
+        root,
+        runbook,
+        inventory,
+        phase,
+        [node],
+        [node],
+        exact_release,
+        preflight=True,
+    )
+    if accepted:
+        return "pass", "runtime_acceptance_pass", diagnostics
+    return "fail", failure_reason(diagnostics, running_release, exact_release), diagnostics
+
+
+def fixture_result(path: Path) -> dict[str, Any]:
+    value = rollout.read_json(path)
+    accepted_generation_run_id = str(value.get("accepted_generation_run_id", ""))
+    accepted_selector = str(value.get("accepted_selector", ""))
+    exact_kernel_release = str(value.get("exact_kernel_release", ""))
+    nodes = value.get("nodes")
+    if (
+        not rollout.SAFE_RUN_ID.fullmatch(accepted_generation_run_id)
+        or not rollout.SELECTOR.fullmatch(accepted_selector)
+        or not rollout.KERNEL_RELEASE.fullmatch(exact_kernel_release)
+        or not isinstance(nodes, dict)
+        or not nodes
+    ):
+        raise rollout.RolloutError("fixture_contract_invalid", "unknown")
+
+    rendered: dict[str, Any] = {}
+    for node, raw in sorted(nodes.items()):
+        if not isinstance(node, str) or not node or not isinstance(raw, Mapping):
+            raise rollout.RolloutError("fixture_contract_invalid", "unknown")
+        rendered[node] = classify_node(
+            current_tftp_selector=str(raw.get("current_tftp_selector", "")),
+            current_rootfs_selector=str(raw.get("current_rootfs_selector", "")),
+            accepted_selector=accepted_selector,
+            running_kernel_release=str(raw.get("running_kernel_release", "")),
+            exact_kernel_release=exact_kernel_release,
+            runtime_acceptance=str(raw.get("runtime_acceptance", "unknown")),
+            runtime_reason=str(raw.get("runtime_reason", "runtime_observation_failed")),
+        )
+    incomplete = any(item["required_action"] == "blocked" for item in rendered.values())
+    return {
+        "schema": SCHEMA,
+        "status": "unknown" if incomplete else "pass",
+        "reason": "runtime_inspection_incomplete" if incomplete else "runtime_inspection_complete",
+        "accepted_generation_run_id": accepted_generation_run_id,
+        "accepted_selector": accepted_selector,
+        "exact_kernel_release": exact_kernel_release,
+        "nodes": rendered,
+    }
+
+
+def live_result() -> dict[str, Any]:
+    root = Path(__file__).resolve().parents[1]
+    runbook = Path(os.environ.get("HOMECLUSTER_RUNBOOK_ROOT", str(root.parent / "homecluster-runbook"))).resolve()
+    inventory = Path(os.environ.get("HOMECLUSTER_ANSIBLE_INVENTORY", str(root.parent / "inventory.yml"))).resolve()
+    if not inventory.is_file() or inventory.stat().st_mode & 0o077:
+        raise rollout.RolloutError("inventory_entrypoint_invalid")
+
+    branch = rollout.run(["git", "-C", root, "branch", "--show-current"], cwd=root, timeout=60)
+    dirty = rollout.run(["git", "-C", root, "status", "--porcelain"], cwd=root, timeout=60)
+    if branch.returncode != 0 or branch.stdout.strip() != "stg":
+        raise rollout.RolloutError("infra_runtime_branch_not_stg")
+    if dirty.returncode != 0 or dirty.stdout.strip():
+        raise rollout.RolloutError("infra_checkout_dirty")
+
+    accepted = rollout.latest_accepted(rollout.workflow_root())
+    accepted_generation_run_id = str(accepted["generation_run_id"])
+    accepted_selector = str(accepted["pxe_candidate_selector"])
+    exact_kernel_release = str(accepted["exact_kernel_release"])
+    agents, egpu_target = rollout.inventory_targets(root, inventory)
+
+    selectors = selector_snapshot(root, inventory, agents)
+    current = selectors["current_selector_by_node"]
+    rendered: dict[str, Any] = {}
+    for node in agents:
+        selector = current.get(node)
+        if not isinstance(selector, Mapping):
+            rendered[node] = classify_node(
+                current_tftp_selector="",
+                current_rootfs_selector="",
+                accepted_selector=accepted_selector,
+                running_kernel_release="",
+                exact_kernel_release=exact_kernel_release,
+                runtime_acceptance="unknown",
+                runtime_reason="selector_state_invalid",
+            )
+            continue
+
+        running, observation_reason = runtime_release(root, inventory, node)
+        if not running:
+            rendered[node] = classify_node(
+                current_tftp_selector=str(selector.get("tftp_release", "")),
+                current_rootfs_selector=str(selector.get("rootfs_release", "")),
+                accepted_selector=accepted_selector,
+                running_kernel_release="",
+                exact_kernel_release=exact_kernel_release,
+                runtime_acceptance="unknown",
+                runtime_reason=observation_reason,
+            )
+            continue
+
+        runtime_status, runtime_reason, _diagnostics = node_runtime_acceptance(
+            root,
+            runbook,
+            inventory,
+            node,
+            egpu_target,
+            exact_kernel_release,
+            running,
+        )
+        rendered[node] = classify_node(
+            current_tftp_selector=str(selector.get("tftp_release", "")),
+            current_rootfs_selector=str(selector.get("rootfs_release", "")),
+            accepted_selector=accepted_selector,
+            running_kernel_release=running,
+            exact_kernel_release=exact_kernel_release,
+            runtime_acceptance=runtime_status,
+            runtime_reason=runtime_reason,
+        )
+
+    incomplete = any(item["required_action"] == "blocked" for item in rendered.values())
+    return {
+        "schema": SCHEMA,
+        "status": "unknown" if incomplete else "pass",
+        "reason": "runtime_inspection_incomplete" if incomplete else "runtime_inspection_complete",
+        "accepted_generation_run_id": accepted_generation_run_id,
+        "accepted_selector": accepted_selector,
+        "exact_kernel_release": exact_kernel_release,
+        "nodes": rendered,
+    }
+
+
+def parser() -> argparse.ArgumentParser:
+    result = argparse.ArgumentParser(description="Read-only Pi5 common-kernel runtime inspection")
+    result.add_argument("--json", action="store_true")
+    result.add_argument("--fixture", default="", help=argparse.SUPPRESS)
+    return result
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = parser().parse_args(argv)
+    try:
+        result = fixture_result(Path(args.fixture)) if args.fixture else live_result()
+    except rollout.RolloutError as error:
+        result = {
+            "schema": SCHEMA,
+            "status": error.status,
+            "reason": error.reason,
+            "diagnostics": error.diagnostics,
+        }
+
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
+    else:
+        print(f"schema={result['schema']}")
+        print(f"status={result['status']}")
+        print(f"reason={result['reason']}")
+    return 0 if result["status"] == "pass" else 2 if result["status"] in {"blocked", "unknown"} else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

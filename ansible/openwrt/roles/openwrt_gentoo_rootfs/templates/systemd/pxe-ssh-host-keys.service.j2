@@ -4,7 +4,6 @@ DefaultDependencies=yes
 Wants=network-online.target {{ openwrt_gentoo_networkd_role_service }} pxe-bootstrap.service
 After=network-online.target {{ openwrt_gentoo_networkd_role_service }} pxe-bootstrap.service
 Before={{ openwrt_gentoo_ssh_service }}
-ConditionPathExists={{ openwrt_gentoo_role_env_output_path }}
 
 [Service]
 Type=oneshot

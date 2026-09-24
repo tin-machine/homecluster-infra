@@ -1,0 +1,97 @@
+---
+- name: Pi5 common kernel live selector target入力を検証
+  ansible.builtin.assert:
+    that:
+      - homecluster_common_kernel_live_selector_targets is iterable
+      - homecluster_common_kernel_live_selector_targets | length > 0
+    fail_msg: common-kernel live selector targetが不正です
+  changed_when: false
+  no_log: true
+
+- name: Pi5 common kernel live selector用PXE client catalogを合成
+  ansible.builtin.include_role:
+    name: openwrt_pxe_client_catalog
+
+- name: Pi5 common kernel live selector target entryを解決
+  ansible.builtin.set_fact:
+    homecluster_common_kernel_live_selector_entries: >-
+      {{
+        openwrt_pxe_hosts_effective
+        | default([])
+        | selectattr('name', 'in', homecluster_common_kernel_live_selector_targets)
+        | list
+      }}
+  changed_when: false
+  no_log: true
+
+- name: Pi5 common kernel live selector target entryを検証
+  ansible.builtin.assert:
+    that:
+      - homecluster_common_kernel_live_selector_entries | length == homecluster_common_kernel_live_selector_targets | length
+      - item.name in homecluster_common_kernel_live_selector_targets
+      - item.board_hash | default('', true) | string | trim | length > 0
+    fail_msg: common-kernel live selector targetのboard hashを一意に解決できません
+  loop: "{{ homecluster_common_kernel_live_selector_entries }}"
+  changed_when: false
+  no_log: true
+
+- name: Pi5 common kernel live selectorをOpenWrtから取得
+  ansible.builtin.shell: |
+    set -eu
+    host_dir="/srv/gentoo/tftp-root/{{ item.board_hash }}"
+
+    if [ -L "$host_dir" ]; then
+      target="$(readlink "$host_dir")"
+      tftp_release="$(basename "$target")"
+    else
+      kernel_link="$(readlink "$host_dir/kernel8.img")"
+      tftp_release="$(basename "$(dirname "$kernel_link")")"
+    fi
+
+    rootfs_release="$(
+      sed -n 's#.*root=nfs4:[^ ]*:/gentoo/\([^/ ]*\)/nfs,[^ ]*.*#\1#p' "$host_dir/cmdline.txt" |
+        sed -n '1p'
+    )"
+
+    test -n "$tftp_release"
+    test -n "$rootfs_release"
+    printf '%s\t%s\n' "$tftp_release" "$rootfs_release"
+  args:
+    executable: /bin/sh
+  loop: "{{ homecluster_common_kernel_live_selector_entries }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: homecluster_common_kernel_live_selector_probes
+  changed_when: false
+  no_log: true
+
+- name: Pi5 common kernel live selector mapを作成
+  ansible.builtin.set_fact:
+    homecluster_common_kernel_live_selectors: >-
+      {%- set result = {} -%}
+      {%- for probe in homecluster_common_kernel_live_selector_probes.results | default([]) -%}
+        {%- set parts = (probe.stdout | default('', true) | string | trim).split('\t') -%}
+        {%- if parts | length == 2 -%}
+          {%- set _ = result.update({
+            probe.item.name: {
+              'tftp_release': parts[0],
+              'rootfs_release': parts[1]
+            }
+          }) -%}
+        {%- endif -%}
+      {%- endfor -%}
+      {{ result }}
+  changed_when: false
+  no_log: true
+
+- name: Pi5 common kernel live selector contractを検証
+  ansible.builtin.assert:
+    that:
+      - homecluster_common_kernel_live_selectors | length == homecluster_common_kernel_live_selector_targets | length
+      - item in homecluster_common_kernel_live_selectors
+      - homecluster_common_kernel_live_selectors[item].tftp_release | string is match('^[0-9]{8}-rpi5$')
+      - homecluster_common_kernel_live_selectors[item].rootfs_release | string is match('^[0-9]{8}-rpi5$')
+    fail_msg: common-kernel live selectorをOpenWrtから解決できません
+  loop: "{{ homecluster_common_kernel_live_selector_targets }}"
+  changed_when: false
+  no_log: true

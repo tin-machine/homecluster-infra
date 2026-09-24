@@ -110,6 +110,9 @@
     : > "${tmp}/etc/machine-id"
     rm -f "${tmp}/var/lib/dbus/machine-id"
 
+    # shared lower rootfs に source node の hostname を持ち越さない。
+    rm -f "${tmp}/etc/hostname"
+
     # PXE client ごとの k3s node identity は clone 先 rootfs に持ち越さない。
     rm -f \
       "${tmp}/etc/rancher/node/password" \
