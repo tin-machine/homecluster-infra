@@ -2,7 +2,7 @@
 status: current
 audience: ai
 scope: repository-memory
-last_reviewed: 2026-05-31
+last_reviewed: 2026-09-22
 lifecycle: memory-index
 ---
 
@@ -29,3 +29,11 @@ lifecycle: memory-index
 - default static check と、任意実行の Ansible syntax、Ansible task listing、backend-free Terraform validation gate を含む網羅的 offline validation が成功した。
 - `docs/publication-readiness-gate.md` は、visibility 変更前の最終 checklist を記録する。内容は GitHub metadata target、Actions settings、branch protection と rulesets の扱い、repository surface audit item、private validation prerequisite である。
 - PR #1 で branch / PR / Actions / merge path を確認し、`main` へ merge 済み。merge 済み public infra revision は private input revision と bundle `42ffe4d4caaa-a11f0281faca` として staged され、staging apply service は成功した。cluster は 2 Ready node、non-running Pod なしだった。
+
+## 2026-09-22
+
+- ARM64 standalone desktop host の distcc client / server を独立して無効化できる変更を [PR #215](https://github.com/tin-machine/homecluster-infra/pull/215) に作成した。`distcc.client_enabled` は Portage `FEATURES` と `enable-distcc`、`distcc.enabled` は distccd service を管理する。両方を無効にしても distcc package は削除しない。
+- 対応する private inventory 変更、生成 inventory の provenance、example / 実 inventory の syntax、対象 host 解決、`distcc_client` / `distcc_server` task listing は確認済みである。infra static check と PR CI も成功している。実機への Ansible apply は未実施である。
+- world-update timer は継続し、NFS binpkg policy と `EMERGE_DEFAULT_OPTS` は変更しない。次回再開時は PR と対応する private inventory revision を merge / 固定し、inventory を再生成して provenance を確認する。その後、operator の明示承認を得て、review 済み単一 host に `distcc_client,distcc_server` tag だけを check / apply する。
+- apply 後は distccd が disabled / inactive、Portage が `-distcc`、`enable-distcc` が absent、world-update timer が enabled / active、NFS binpkg mount が維持されていることを確認する。gate の考え方は `docs/full-execution-validation.md` の Gate 2 / Gate 3、変数契約は `docs/site-input-contract.md` を参照する。
+- local coding agent の記述は別途見直す。現在の運用は Pi Coding Agent が中心だが、この repository の skill / wrapper には OpenCode + local Gemma 4 を優先する記述が残っている。
