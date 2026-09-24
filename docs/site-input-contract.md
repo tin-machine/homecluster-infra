@@ -22,6 +22,7 @@ terraform/
   common-crds.tfvars.json
   common-addons.tfvars.json
   common-certificates.tfvars.json
+  cloudflare-dns.tfvars.json  # optional external DNS root
   staging.tfvars.json
 ```
 
@@ -42,6 +43,12 @@ helm/staging/
 
 `staging.tfvars.json` は `site_values_dir` にこの directory を設定する。Terraform は reusable base values と staging values の後、最後に各 site override を読み込む。
 
+### Cloudflare DNS
+
+`terraform/env/cloudflare-dns` は cluster root とは独立した optional external DNS root である。実 `zone_id` と DNS record 集合は private `cloudflare-dns.tfvars.json` から注入する。API token は tfvars に入れず、runtime environment の `CLOUDFLARE_API_TOKEN` だけから provider へ渡す。
+
+Cloudflare DNS state は k3s / Kubernetes state と共有しない。既存 record を管理対象へ移す場合は最初の apply より前に import し、未 import の既存 record と同じ record を新規作成しない。
+
 ## plan 例
 
 ```bash
@@ -52,6 +59,10 @@ terraform -chdir=terraform/env/common-crds plan \
 
 terraform -chdir=terraform/env/staging plan \
   -var-file="$inputs/terraform/staging.tfvars.json"
+
+# CLOUDFLARE_API_TOKEN は operator/controller runtime から別途注入する。
+terraform -chdir=terraform/env/cloudflare-dns plan \
+  -var-file="$inputs/terraform/cloudflare-dns.tfvars.json"
 ```
 
 backend state path は operator または controller runtime input として渡す。
@@ -144,6 +155,7 @@ site-local escape hatch である。role は値を shell-safe な Portage atom l
 ## 境界
 
 - generated tfvars、site values、kubeconfig、plan file、state はこの repository の外に置く。state と plan は sensitive variable の表示抑止だけでは secret 保持を防げないため、private secret material と同等に扱う。
+- Cloudflare API token は generated tfvars や SOPS site input に入れず、operator/controller runtime credential として `CLOUDFLARE_API_TOKEN` から渡す。
 - secret は Helm values に入れない。sensitive Terraform variable と Kubernetes Secret 経由で注入する。Kubernetes provider が write-only attribute を持つ Secret data は `data_wo` と revision marker を使い、rotation 時は revision を増やす。
 - public CI は実入力なしで source を validate し、live plan / apply は実行しない。
 - private operator workflow は、review 済み public commit SHA と commit 済み private input revision を 1 つの revision-pinned bundle に束ねてから live validation を実行する。
