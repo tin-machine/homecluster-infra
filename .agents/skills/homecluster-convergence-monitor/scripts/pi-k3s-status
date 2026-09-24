@@ -215,6 +215,7 @@ jq -c \
   --argjson target_node_hosts "$target_node_hosts_json" \
   --argjson diagnostics "$diagnostics" '
   .assessment.status as $status |
+  .assessment.issues as $issues |
   {
     orchestrator:"homecluster-convergence-monitor",
     workflow:"k3s-status",
@@ -223,6 +224,10 @@ jq -c \
     reason:(if $status == "healthy" then "cluster_healthy"
       elif $status == "converging" then "cluster_converging"
       elif $status == "blocked" then "cluster_blocked"
+      elif ($issues | index("kubernetes_api_unreachable")) != null and
+           ($issues | index("ssh_host_key_problem")) != null then "collector_unknown_api_ssh_trust"
+      elif ($issues | index("kubernetes_api_unreachable")) != null then "collector_unknown_api_unreachable"
+      elif ($issues | index("ssh_host_key_problem")) != null then "collector_unknown_ssh_trust"
       else "collector_unknown" end),
     generated_at:.generated_at,
     target_resolution:$target_resolution,
