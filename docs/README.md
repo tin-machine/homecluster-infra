@@ -61,7 +61,7 @@ Terraform state、vendor payloadのメモは含めない。
 - [ADR 0013](architecture-decision-record/0013-opencode-agent-privilege-taxonomy.md): OpenCode agent の privilege boundary。
 - [ADR 0014](architecture-decision-record/0014-k3s-converge-wrapper-contract.md): k3s converge wrapper contract。
 - [ADR 0015](architecture-decision-record/0015-homecluster-converge-unit-chain.md): homecluster converge unit chain。
-- [ADR 0016](architecture-decision-record/0016-cloudflare-dns-terraform-root.md): Cloudflare DNS の独立 Terraform root / state 境界。
+- [ADR 0016](architecture-decision-record/0016-cloudflare-terraform-root-layout.md): Cloudflare shared infrastructure の category / ownership / root-state 境界。
 
 ## 公開ドキュメントのルール
 

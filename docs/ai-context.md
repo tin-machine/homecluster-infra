@@ -71,6 +71,9 @@ secret、Terraform state、kubeconfig、raw operation log、desktop workload、s
 - secret policy、SOPS recipient、private key、復号済み値、tfvars、kubeconfigはこのrepositoryの外に置く。
 - Terraformはroot固有のtfvars JSONを受け取り、stagingはchart固有のsite valuesを受け取る。Terraformは
   Ansible inventoryを解析しない。
+- Cloudflare shared infrastructure は `terraform/cloudflare/` category 配下の独立 root で管理する。category
+  自体は Terraform root ではなく、現在の `dns/` は cluster root や将来の別 Cloudflare root と state を
+  共有しない。application 専用 Cloudflare resource は application 側の ownership / lifecycle を優先する。
 - site-specificなTerraform variableとstaging Helm site valuesは、外部入力がなければfail closedする。
 - PXE Gentoo nodeのroot overlayは意図的にdisposableとする。NFS lower rootfsとtmpfs upper、workにより、
   rootfs差分はrebootで破棄される。再起動後に残すべきstateは、root filesystemではなく、明示した

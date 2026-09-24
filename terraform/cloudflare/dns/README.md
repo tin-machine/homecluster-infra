@@ -1,6 +1,6 @@
-# cloudflare-dns
+# cloudflare/dns
 
-Cloudflare の DNS record を管理する独立 Terraform root です。
+Cloudflare の DNS record を管理する独立 Terraform root です。`terraform/cloudflare/` category の子 root ですが、他の Cloudflare resource と state は共有しません。
 
 この root は k3s / Kubernetes 用 Terraform state と分離します。Cloudflare DNS の変更で
 cluster provider refresh、cluster state lock、cluster apply を巻き込まないことを目的とします。
@@ -36,12 +36,12 @@ CAA、SRV、HTTPS、SVCB など structured data を使う record は、必要に
 backend path と site input は実行時に指定します。
 
 ```bash
-terraform -chdir=terraform/env/cloudflare-dns init \
+terraform -chdir=terraform/cloudflare/dns init \
   -backend-config='path=/srv/terraform-state/cloudflare/cloudflare-dns.tfstate'
 
 export CLOUDFLARE_API_TOKEN
 
-terraform -chdir=terraform/env/cloudflare-dns plan \
+terraform -chdir=terraform/cloudflare/dns plan \
   -var-file=/path/to/generated/site-inputs/terraform/cloudflare-dns.tfvars.json
 ```
 
