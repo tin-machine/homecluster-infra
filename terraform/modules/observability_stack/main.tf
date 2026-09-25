@@ -387,7 +387,7 @@ resource "kubernetes_cron_job_v1" "trace_smoke_producer" {
 
             container {
               name              = "trace-smoke-producer"
-              image             = "curlimages/curl:8.10.1"
+              image             = "curlimages/curl:8.22.0"
               image_pull_policy = "IfNotPresent"
               command           = ["/bin/sh", "-ec"]
               args = [<<-EOT
