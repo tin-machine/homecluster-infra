@@ -142,7 +142,7 @@ resource "helm_release" "node_exporter" {
   name             = local.node_exporter_release
   repository       = "https://prometheus-community.github.io/helm-charts"
   chart            = "prometheus-node-exporter"
-  version          = "4.47.3"
+  version          = "4.56.3"
   namespace        = kubernetes_namespace.observability.metadata[0].name
   create_namespace = false
 
