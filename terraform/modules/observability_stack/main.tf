@@ -108,7 +108,7 @@ resource "helm_release" "tempo" {
   name             = local.tempo_release
   repository       = "https://grafana.github.io/helm-charts"
   chart            = "tempo"
-  version          = "1.23.3"
+  version          = "1.24.4"
   namespace        = kubernetes_namespace.observability.metadata[0].name
   create_namespace = false
 
