@@ -58,6 +58,10 @@ Terraform state、vendor payloadのメモは含めない。
 - [ADR 0010](architecture-decision-record/0010-inventory-boundary.md): 外部inventory境界。
 - [ADR 0011](architecture-decision-record/0011-pxe-ssh-host-identity.md): 永続するPXE SSH host identity。
 - [ADR 0012](architecture-decision-record/0012-executable-public-source.md): 実行可能な公開側の正本。
+- [ADR 0013](architecture-decision-record/0013-opencode-agent-privilege-taxonomy.md): OpenCode agent の privilege boundary。
+- [ADR 0014](architecture-decision-record/0014-k3s-converge-wrapper-contract.md): k3s converge wrapper contract。
+- [ADR 0015](architecture-decision-record/0015-homecluster-converge-unit-chain.md): homecluster converge unit chain。
+- [ADR 0016](architecture-decision-record/0016-cloudflare-terraform-root-layout.md): Cloudflare shared infrastructure の category / ownership / root-state 境界。
 
 ## 公開ドキュメントのルール
 

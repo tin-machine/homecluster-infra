@@ -54,7 +54,11 @@ cat >"$tmp/collector" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
 env | grep -E '^(MONITOR_CONTROL_SSH|MONITOR_NODE_SSH_LIST|MONITOR_EXPECTED_NODES|HOMECLUSTER_K3S_NODE_TARGET_MAP)=' | sort >"$STATUS_CAPTURE"
-if [ "${FIXTURE_STATUS:-healthy}" = "converging" ]; then
+if [ "${FIXTURE_STATUS:-healthy}" = "unknown" ]; then
+  cat <<'JSON'
+{"generated_at":"2026-07-21T00:00:00Z","assessment":{"status":"unknown","issues":["kubernetes_api_unreachable","ssh_host_key_problem"]},"nodes":{"ready_count":0,"count":0,"items":[]},"pods":{"non_running":[],"running_not_ready":[]},"node_exporter":{"ready":0,"desired":0},"signals":[]}
+JSON
+elif [ "${FIXTURE_STATUS:-healthy}" = "converging" ]; then
   cat <<'JSON'
 {"generated_at":"2026-07-21T00:00:00Z","assessment":{"status":"converging","issues":["nodes_not_ready"]},"nodes":{"ready_count":1,"count":2,"items":[{"name":"control-a","ready":"True","memory_pressure":"False","disk_pressure":"False","pid_pressure":"False"},{"name":"agent-a","ready":"Unknown","memory_pressure":"Unknown","disk_pressure":"Unknown","pid_pressure":"Unknown"}]},"pods":{"non_running":[],"running_not_ready":[]},"node_exporter":{"ready":1,"desired":2},"signals":[]}
 JSON
@@ -138,6 +142,28 @@ set -e
 [ "$text_rc" -eq 1 ]
 grep -Fxq 'remediation_status=matched' <<<"$text_output"
 grep -Fq 'remediation_url=https://github.com/tin-machine/homecluster-infra/blob/main/docs/troubleshooting/k3s-node-not-ready.md' <<<"$text_output"
+
+set +e
+unknown_output="$(
+  PATH="$tmp/bin:$PATH" \
+  STATUS_CAPTURE="$tmp/capture.env" \
+  FIXTURE_STATUS=unknown \
+  HOMECLUSTER_ANSIBLE_INVENTORY="$tmp/inventory.yml" \
+  HOMECLUSTER_K3S_COLLECTOR="$tmp/collector" \
+  HOMECLUSTER_K3S_DIAGNOSER="$tmp/missing-diagnoser" \
+  HOMECLUSTER_K3S_CLASSIFIER="$tmp/missing-classifier" \
+  HOMECLUSTER_K3S_CASE_LIBRARY="$tmp/missing-cases" \
+  bash "$status_script" --json
+)"
+unknown_rc=$?
+set -e
+[ "$unknown_rc" -eq 2 ]
+printf '%s\n' "$unknown_output" | jq -e '
+  .status == "unknown" and
+  .reason == "collector_unknown_api_ssh_trust" and
+  .issues == ["kubernetes_api_unreachable", "ssh_host_key_problem"] and
+  .nodes_total == 0
+' >/dev/null
 
 cat >"$tmp/bin/ansible-inventory" <<'SH'
 #!/usr/bin/env bash
