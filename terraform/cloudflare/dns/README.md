@@ -42,7 +42,7 @@ export AWS_ACCESS_KEY_ID
 export AWS_SECRET_ACCESS_KEY
 export AWS_ENDPOINT_URL_S3="https://<account-id>.r2.cloudflarestorage.com"
 
-terraform -chdir=terraform/cloudflare/dns init \
+terraform -chdir="<zone-specific-private-workdir>" init \
   -reconfigure \
   -input=false \
   -lockfile=readonly \
@@ -50,22 +50,56 @@ terraform -chdir=terraform/cloudflare/dns init \
   -backend-config='key=<zone-state-key>'
 ```
 
-zone ごとに別の state key を使います。同じ reusable root を利用しても state は共有しません。
+zone ごとに別の state key と別の private work directory を使います。同じ reusable root を利用しても state と backend metadata は共有しません。
 
 R2 の Terraform backend で native S3 lockfile を使う互換性は初期導入時点では前提にしません。GitHub Actions は workflow concurrency で直列化し、CI 実行中に local operator から同じ state を plan/apply しない運用とします。R2 lockfile を採用する場合は別途互換性を acceptance してから `use_lockfile = true` を追加します。
 
-## existing state の移行
+## local state から R2 への cutover
 
-既存 local state を R2 へ移すときは、先に local state の private backup を保持し、対象 R2 key が未使用であることを確認します。
+この backend 変更を main へ merge する前に、Terraform 管理済みの全 zone を R2 へ移行し、zone ごとの no-op acceptance を完了します。merge 自体を local backend から R2 backend への運用 cutover gate とします。
 
-backend を R2 向けに init した private work directory から、acceptance 済み local state を明示的に push できます。
+R2 migration 中は main の既存 local-backend configuration が現行運用の正本です。migration 作業だけ、PR head の `terraform/cloudflare/dns` を exact commit SHA で取得して zone ごとの isolated private work directory に複製して使います。同じ work directory を複数 zone で再利用しません。
+
+zone ごとの手順:
+
+1. acceptance 済み local state の private backup と resource identity を確認する。
+2. 対象 R2 state key が未使用であることを確認する。
+3. PR head の Terraform root を、その zone 専用の private work directory へ配置する。
+4. その directory だけを対象 R2 key へ `terraform init` する。
+5. push 前に local state の zone ID、resource address、provider resource ID と対象 zone / R2 key の対応を private 側で照合する。
+6. acceptance 済み local state を現在設定された R2 backend へ pushする。
+7. R2 から state を再取得し、resource identity が local accepted state と一致することを確認する。
+8. 同じ zone の rendered input で live refresh plan を実行し、`0 add / 0 change / 0 destroy` を要求する。
+9. acceptance を記録してから次の zone へ進む。
+
+概念例:
 
 ```bash
-terraform -chdir=terraform/cloudflare/dns state push /private/path/to/accepted.tfstate
-terraform -chdir=terraform/cloudflare/dns plan -lock=false -var-file=/private/path/to/site.tfvars.json
+zone_workdir="<private-work-root>/<fixed-zone-alias>"
+accepted_state="<private-accepted-state>"
+site_tfvars="<private-rendered-tfvars>"
+
+terraform -chdir="${zone_workdir}" init \
+  -reconfigure \
+  -input=false \
+  -lockfile=readonly \
+  -backend-config='bucket=<state-bucket>' \
+  -backend-config='key=<zone-specific-state-key>'
+
+# push 前に destination が未使用であることと、
+# accepted state の zone/resource identity を private 側で照合する。
+terraform -chdir="${zone_workdir}" state push "${accepted_state}"
+
+terraform -chdir="${zone_workdir}" plan \
+  -lock=false \
+  -var-file="${site_tfvars}"
 ```
 
-migration acceptance は既存 state と R2 state の resource identity が一致し、live refresh plan が `No changes` になることです。差分がある場合は apply で合わせず、state/input/live のどこがずれているかを調査します。
+raw state、record content、zone ID、resource ID は public log に出しません。差分がある場合は apply で合わせず、state/input/live のどこがずれているかを調査します。
+
+すべての対象 zone で R2 state と live refresh plan の acceptance が完了するまで、この backend 変更を main へ mergeしません。merge 後の live plan / apply は R2 backend を前提とし、旧 local state は rollback / audit evidence として保持します。
+
+緊急に pre-R2 local state を再確認する必要がある場合は、最後に acceptance 済みだった pre-R2 exact commit SHA を isolated private work directory で使います。merge 後の R2-configured rootに対して `init -backend=false` を行い、そのまま旧 local stateで live planできるものとは扱いません。
 
 ## GitHub Actions contract
 
