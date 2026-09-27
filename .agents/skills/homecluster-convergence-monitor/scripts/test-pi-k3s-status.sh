@@ -93,6 +93,7 @@ printf '%s\n' "$output" | jq -e '
   .target_node_hosts == ["control-a", "agent-a"] and
   .nodes_ready == 2 and
   .nodes_total == 2 and
+  .not_ready_nodes == [] and
   .remediation.status == "none"
 ' >/dev/null
 
@@ -122,6 +123,7 @@ printf '%s\n' "$converging_output" | jq -e '
   .remediation.status == "matched" and
   .remediation.match_key == "issue:nodes_not_ready" and
   .remediation.id == "k3s-node-not-ready" and
+  .not_ready_nodes == ["agent-a"] and
   (.remediation.url | endswith("/docs/troubleshooting/k3s-node-not-ready.md"))
 ' >/dev/null
 
