@@ -248,7 +248,11 @@ jq -c \
     signals:(.signals | length),
     diagnostics_status:$diagnostics.status,
     diagnostic_triggers:$diagnostics.triggers,
-    not_ready_nodes:$diagnostics.not_ready_nodes,
+    not_ready_nodes:(
+      [.nodes.items[]? | select(.ready != "True") | .name |
+        select(type == "string" and test("^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$"))] |
+      unique | .[:16]
+    ),
     diagnostic_findings:$diagnostics.findings,
     diagnostic_failures:$diagnostics.commands_failed
   }
