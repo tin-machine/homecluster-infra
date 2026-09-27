@@ -21,8 +21,17 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Setup Terraform
+        # hashicorp/setup-terraform v4 resolved on 2026-09-27.
+        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4
+        with:
+          terraform_version: 1.16.4
+          terraform_wrapper: false
+
       - name: Run static checks
         shell: bash
+        env:
+          RUN_TERRAFORM_VALIDATE: "1"
         run: bash scripts/ci/static-check.sh
 
       - name: Validate convergence monitor status
