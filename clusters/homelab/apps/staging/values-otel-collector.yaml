@@ -6,9 +6,10 @@ config:
         http: {}
     filelog/pods:
       include:
-        - /var/log/containers/*.log
+        - /var/log/pods/*/*/*.log
       start_at: end
       include_file_name: false
+      include_file_path: true
       operators:
         - type: container
     syslog/openwrt:
