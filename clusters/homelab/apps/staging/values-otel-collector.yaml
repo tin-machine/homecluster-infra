@@ -73,6 +73,11 @@ config:
         processors: [batch]
         exporters: [otlp/tempo]
 
+# The collector image uses UID 10001. Pod logs and their parent directories are
+# root:root with group read/search permission on the staging nodes.
+securityContext:
+  runAsGroup: 0
+
 podLabels:
   environment: staging
 
