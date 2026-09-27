@@ -39,9 +39,14 @@ public source の backend blockには R2 compatibility に必要な固定 option
 同じ reusable Terraform rootを使用しても、zoneごとに state keyを分離する。zone間でstate、
 rollback unit、apply failureを共有しない。
 
-既存 local stateは作り直さず、zoneごとに R2へ移行する。migration acceptanceは、
+既存 local stateは作り直さず、zoneごとに R2へ移行する。backend変更をmainへmergeする前に、
+Terraform管理済みの全zoneについてR2 migration acceptanceを完了する。merge自体をlocal backendから
+R2 backendへの運用cutover gateとする。
+
+migration acceptanceは、zone専用のisolated private work directoryでPR headのexact commit SHAを使い、
 R2 stateのresource identityが既存 accepted stateと一致し、live refresh planが
-`0 add / 0 change / 0 destroy` になることとする。state migrationとDNS mutationを同じ操作にしない。
+`0 add / 0 change / 0 destroy` になることとする。同じwork directoryを複数zoneで再利用せず、
+state migrationとDNS mutationを同じ操作にしない。
 
 live plan / apply は public repository の GitHub Actionsから実行しない。real site inputとcredentialを扱う
 private controller boundaryが public Terraform rootを exact commit SHAで取得して実行する。
@@ -100,9 +105,14 @@ serializationで安全側に倒し、native lockは別acceptanceとする。
 ## 影響
 
 - `terraform/cloudflare/dns/providers.tf` に S3 backend blockを持つ。
-- local-only initでは backendを明示的に無効化するか、private backend configurationを渡す必要がある。
+- source-only validationでは `terraform init -backend=false` を使えるが、backend変更merge後に
+  旧local stateを使ったlive plan経路として `-backend=false` を扱わない。
+- R2 migration中はmainのpre-R2 local-backend configurationを現行運用の正本とし、PR headは
+  zone専用isolated work directoryでmigration検証にだけ使う。
+- 全managed zoneのR2 no-op acceptanceが完了するまでbackend変更をmainへmergeしない。
+- merge後に旧local stateを確認する必要がある場合は、最後にacceptance済みのpre-R2 exact commit SHAを使う。
 - provider credentialとR2 credentialは別物として扱う。
-- state migration前のaccepted local stateは、移行確認が完了するまでprivate rollback evidenceとして保持する。
+- state migration前のaccepted local stateは、R2 cutover後も一定期間private rollback / audit evidenceとして保持する。
 - private controllerはzone aliasからstate keyを固定的に解決し、free-form state keyをapply入力にしない。
 - raw state、saved plan、rendered real tfvarsをpublic artifactへ出さない。
 - ADR 0016 の「初期 state backendをR2にしない」というmigration-phase判断は、このADRによって後続運用では更新される。
