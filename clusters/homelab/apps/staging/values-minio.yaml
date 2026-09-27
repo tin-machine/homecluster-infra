@@ -1,3 +1,26 @@
+# Keep the legacy MinIO Helm chart and Kubernetes resource identity during the
+# first migration. Silo preserves the MINIO_* configuration surface and supports
+# the legacy chart entrypoint used for forward migration.
+image:
+  repository: docker.io/pgsty/silo
+  tag: RELEASE.2026-09-16T00-00-00Z
+  pullPolicy: IfNotPresent
+
+# The MinIO 5.4.0 chart uses mcImage for bucket bootstrap jobs. Pair the server
+# with Silo's maintained mcli-compatible client image so a fresh deployment does
+# not depend on the archived upstream MinIO image distribution.
+mcImage:
+  repository: docker.io/pgsty/mc
+  tag: RELEASE.2026-09-16T00-00-00Z
+  pullPolicy: IfNotPresent
+
+# Stop the old MinIO pod before Silo opens the same PVC and IAM state.
+deploymentUpdate:
+  type: Recreate
+
+# Do not create the legacy chart's default console administrator.
+users: []
+
 persistence:
   size: 50Gi
 
