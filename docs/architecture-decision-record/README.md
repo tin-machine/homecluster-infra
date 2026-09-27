@@ -30,7 +30,7 @@ operation 手順、troubleshooting raw log、実 host / IP / path / serial / tok
 | [ADR 0013](0013-opencode-agent-privilege-taxonomy.md) | accepted | OpenCode agent を privilege boundary で分割する |
 | [ADR 0014](0014-k3s-converge-wrapper-contract.md) | proposed | k3s daemon start を converge wrapper へ段階的に寄せる |
 | [ADR 0015](0015-homecluster-converge-unit-chain.md) | proposed | homecluster domain unit chain へ段階的に移行する |
-| [ADR 0016](0016-cloudflare-terraform-root-layout.md) | accepted | Cloudflare shared infrastructure を category 配下の独立 root / state に分ける |
+| [ADR 0016](0016-cloudflare-terraform-root-layout.md) | accepted | Cloudflare shared infrastructure を category 配下の独立 root / state に分ける |\n| [ADR 0017](0017-cloudflare-dns-r2-backend.md) | accepted | Cloudflare DNS state を R2 remote backend へ移行する |
 
 ## 書式
 
