@@ -14,6 +14,13 @@ mcImage:
   tag: RELEASE.2026-09-16T00-00-00Z
   pullPolicy: IfNotPresent
 
+# Stop the old MinIO pod before Silo opens the same PVC and IAM state.
+deploymentUpdate:
+  type: Recreate
+
+# Do not create the legacy chart's default console administrator.
+users: []
+
 persistence:
   size: 50Gi
 
