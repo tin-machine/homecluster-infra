@@ -103,11 +103,11 @@ raw state、record content、zone ID、resource ID は public log に出しま�
 
 ## GitHub Actions contract
 
-public `homecluster-infra` repository の Actions は引き続き source-only validation に限定します。実 DNS の desired state は private inventory boundary にあるため、live plan / apply controller は private 側からこの public Terraform root を exact commit SHA で checkout して利用します。
+public `homecluster-infra` repository の Actions は引き続き source-only validation に限定します。実 DNS の desired state は private inventory boundary が所有し、live plan / apply は private `homecluster-apply-controller` が inventory とこの public Terraform root の exact commit SHA を組み合わせて実行します。
 
 運用 contract:
 
-- pull request: read-only Cloudflare token + read-only R2 credential で `terraform plan -lock=false` のみ
+- private controller の plan workflow: read-only Cloudflare token + read-only R2 credential で `terraform plan -lock=false` のみ
 - main: mergeだけでは apply しない
 - apply: private workflow の明示的な manual dispatch からのみ実行
 - apply job: `cloudflare-production` GitHub Environment の write credential を利用
@@ -116,7 +116,7 @@ public `homecluster-infra` repository の Actions は引き続き source-only va
 - summary は add/change/destroy 件数だけを残す
 - apply 後に再度 plan し、`0 add / 0 change / 0 destroy` を要求する
 
-GitHub Actions credential の詳細は private inventory repository 側で管理し、public repository に secret 名以外の実値や private repository URL を置きません。
+GitHub Actions workflow、Environment Secret、Cloudflare / R2 credential は private `homecluster-apply-controller` 側で管理します。private inventory repository は desired state の owner とし、execution credential は置きません。public repository には secret 名以外の実値や private repository URL を置きません。
 
 ## Provider / import
 
