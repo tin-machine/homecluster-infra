@@ -46,7 +46,7 @@ def inventory_list(hosts: list[str]) -> str:
     )
 
 
-def host_vars(current: str) -> str:
+def host_vars(current: object) -> str:
     return json.dumps(
         {
             "openwrt_gentoo_release_bundle_stage_dates": {
@@ -95,6 +95,19 @@ class IdentityStatusTests(unittest.TestCase):
         )
         self.assertEqual(runner.calls, [])
 
+    def test_invalid_calendar_candidate_is_blocked_before_commands(self):
+        runner = FakeRunner([])
+
+        result = status.probe_candidate(
+            "20260230",
+            inventory_path=self.inventory,
+            runner=runner,
+        )
+
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["reason"], "probe_blocked")
+        self.assertEqual(runner.calls, [])
+
     def test_current_inventory_identity_is_in_use_without_remote_probe(self):
         runner = FakeRunner(
             [
@@ -117,6 +130,24 @@ class IdentityStatusTests(unittest.TestCase):
                 "candidate": "20260930",
             },
         )
+        self.assertEqual(len(runner.calls), 2)
+
+    def test_numeric_inventory_identity_is_normalized(self):
+        runner = FakeRunner(
+            [
+                completed([], stdout=inventory_list(["router.example.invalid"])),
+                completed([], stdout=host_vars(20260930)),
+            ]
+        )
+
+        result = status.probe_candidate(
+            "20260930",
+            inventory_path=self.inventory,
+            runner=runner,
+        )
+
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["reason"], "identity_in_use")
         self.assertEqual(len(runner.calls), 2)
 
     def test_remote_materialization_is_in_use(self):
