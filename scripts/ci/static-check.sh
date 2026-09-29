@@ -242,7 +242,8 @@ if [ "${RUN_TERRAFORM_VALIDATE:-0}" = "1" ]; then
     terraform/env/common-crds \
     terraform/env/common-addons \
     terraform/env/common-certificates \
-    terraform/env/staging
+    terraform/env/staging \
+    terraform/cloudflare/dns
   do
     terraform_env_name="$(basename "${terraform_env}")"
     TF_DATA_DIR="${terraform_data_root}/${terraform_env_name}" \

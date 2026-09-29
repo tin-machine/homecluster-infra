@@ -21,8 +21,26 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Install Terraform
+        shell: bash
+        run: |
+          set -euo pipefail
+          terraform_version="1.16.4"
+          terraform_archive="terraform_${terraform_version}_linux_amd64.zip"
+          terraform_url="https://releases.hashicorp.com/terraform/${terraform_version}/${terraform_archive}"
+          terraform_sha256="dc94af0eef1147718ad7c8daea792ed199e3e0492eec180d0adafa2a65a879df"
+          install_dir="${RUNNER_TEMP}/terraform-bin"
+
+          mkdir -p "${install_dir}"
+          curl --fail --silent --show-error --location             "${terraform_url}"             --output "${RUNNER_TEMP}/${terraform_archive}"
+          printf '%s  %s\n'             "${terraform_sha256}"             "${RUNNER_TEMP}/${terraform_archive}"             | sha256sum --check --strict -
+          unzip -q "${RUNNER_TEMP}/${terraform_archive}" -d "${install_dir}"
+          printf '%s\n' "${install_dir}" >> "${GITHUB_PATH}"
+
       - name: Run static checks
         shell: bash
+        env:
+          RUN_TERRAFORM_VALIDATE: "1"
         run: bash scripts/ci/static-check.sh
 
       - name: Validate convergence monitor status
