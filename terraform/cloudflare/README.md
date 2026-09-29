@@ -22,7 +22,7 @@ zone-wide / shared infrastructure はこの repository が reusable implementati
 
 `terraform/cloudflare/dns` は Cloudflare R2 を S3-compatible remote backend として使います。public source には R2 bucket、state key、account endpoint、credential を固定せず、controller / workflow が runtime に注入します。
 
-public `homecluster-infra` Actions は実 site input や Cloudflare credential を持たず、source-only validation の境界を維持します。live Cloudflare DNS plan / apply は private inventory boundary から、この public root の exact commit SHA を利用して行います。
+public `homecluster-infra` Actions は実 site input や Cloudflare credential を持たず、source-only validation の境界を維持します。実 DNS の desired state は private inventory boundary が所有し、live Cloudflare DNS plan / apply は private apply-controller boundary が inventory とこの public root の exact commit SHA を組み合わせて実行します。credential と GitHub Actions workflow も private apply-controller boundary が所有します。
 
 DNS live workflow は次を前提にします。
 
