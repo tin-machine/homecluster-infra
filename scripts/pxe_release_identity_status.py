@@ -13,6 +13,7 @@ import argparse
 import json
 import re
 import subprocess
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
@@ -44,7 +45,7 @@ def probe_candidate(
     inventory_path: Path,
     runner: Runner | None = None,
 ) -> dict[str, str]:
-    if _CANDIDATE_RE.fullmatch(candidate) is None:
+    if not _candidate_valid(candidate):
         return terminal("blocked", "probe_blocked", candidate)
 
     invoke = _run if runner is None else runner
@@ -122,9 +123,12 @@ def _current_inventory_identity(
     if not isinstance(stage_dates, dict):
         return None
     current = stage_dates.get(STAGE_NAME)
-    if not isinstance(current, str) or _CANDIDATE_RE.fullmatch(current) is None:
+    if type(current) not in {str, int}:
         return None
-    return current
+    normalized = str(current)
+    if not _candidate_valid(normalized):
+        return None
+    return normalized
 
 
 def _remote_collision(
@@ -158,7 +162,7 @@ def _remote_collision(
 
 
 def _remote_probe_command(candidate: str) -> str:
-    if _CANDIDATE_RE.fullmatch(candidate) is None:
+    if not _candidate_valid(candidate):
         raise ValueError("candidate_invalid")
     paths = (
         f"/srv/gentoo/releases/{candidate}.json",
@@ -172,10 +176,20 @@ def _remote_probe_command(candidate: str) -> str:
         "set -eu; "
         "collision=0; "
         f"for path in {quoted_paths}; do "
-        'if [ -e "$path" ]; then collision=1; fi; '
+        'if [ -e "$path" ] || [ -L "$path" ]; then collision=1; fi; '
         "done; "
         f'printf "{MARKER}=%s\\n" "$collision"'
     )
+
+
+def _candidate_valid(value: object) -> bool:
+    if not isinstance(value, str) or _CANDIDATE_RE.fullmatch(value) is None:
+        return False
+    try:
+        datetime.strptime(value, "%Y%m%d")
+    except ValueError:
+        return False
+    return True
 
 
 def _json_object(value: str) -> dict[str, Any] | None:
