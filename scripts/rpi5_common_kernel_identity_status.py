@@ -244,11 +244,11 @@ def _builder_contract(
         return None
 
     release_override = values.get(BUILD_RELEASE_OVERRIDE_KEY, "")
-    if release_override not in {"", None}:
+    if _override_present(release_override):
         return {"status": "blocked"}
 
     for key in UNSUPPORTED_PATH_OVERRIDE_KEYS:
-        if key in values and values.get(key) not in {"", None}:
+        if key in values and _override_present(values.get(key)):
             return {"status": "blocked"}
 
     build_work_root = values.get(
@@ -278,6 +278,10 @@ def _builder_contract(
     }
 
 
+def _override_present(value: object) -> bool:
+    return value is not None and value != ""
+
+
 def _safe_runtime_root(value: object) -> bool:
     if not isinstance(value, str) or not value.startswith("/var/lib/rancher/k3s/"):
         return False
@@ -285,6 +289,7 @@ def _safe_runtime_root(value: object) -> bool:
     if ".." in path.parts or not path.is_absolute():
         return False
     return "{{" not in value and "}}" not in value
+
 
 def _builder_collision(
     paths: tuple[str, ...],
@@ -341,6 +346,7 @@ def _safe_runtime_path(value: object) -> bool:
         and "{{" not in value
         and "}}" not in value
     )
+
 
 def _date_valid(value: object) -> bool:
     if not isinstance(value, str) or _DATE_RE.fullmatch(value) is None:
