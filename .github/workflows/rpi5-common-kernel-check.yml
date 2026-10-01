@@ -20,6 +20,8 @@ on:
       - 'scripts/ci/check-rpi5-common-kernel-source-validate.py'
       - 'scripts/test_pi_rpi5_common_kernel_known_good_fallback.py'
       - 'scripts/test_pi_rpi5_common_kernel_inspect.py'
+      - 'scripts/test_pi_rpi5_common_kernel_rollout_health.py'
+      - 'scripts/test_pi_rpi5_common_kernel_rollout_selector_resolution.py'
       - 'scripts/ci/check-rpi5-common-kernel-build.py'
       - '.github/workflows/rpi5-common-kernel-check.yml'
   push:
@@ -42,6 +44,8 @@ on:
       - 'scripts/ci/check-rpi5-common-kernel-source-validate.py'
       - 'scripts/test_pi_rpi5_common_kernel_known_good_fallback.py'
       - 'scripts/test_pi_rpi5_common_kernel_inspect.py'
+      - 'scripts/test_pi_rpi5_common_kernel_rollout_health.py'
+      - 'scripts/test_pi_rpi5_common_kernel_rollout_selector_resolution.py'
       - 'scripts/ci/check-rpi5-common-kernel-build.py'
       - '.github/workflows/rpi5-common-kernel-check.yml'
 
@@ -73,13 +77,17 @@ jobs:
             scripts/ci/check-rpi5-common-kernel-source-validate.py \
             scripts/test_pi_rpi5_common_kernel.py \
             scripts/test_pi_rpi5_common_kernel_known_good_fallback.py \
-            scripts/test_pi_rpi5_common_kernel_inspect.py
+            scripts/test_pi_rpi5_common_kernel_inspect.py \
+            scripts/test_pi_rpi5_common_kernel_rollout_health.py \
+            scripts/test_pi_rpi5_common_kernel_rollout_selector_resolution.py
 
       - name: Check Pi5 common kernel Pi Ops fixtures
         run: |
           python3 -m unittest discover -s scripts -p 'test_pi_rpi5_common_kernel.py' -v
           python3 -m unittest discover -s scripts -p 'test_pi_rpi5_common_kernel_known_good_fallback.py' -v
           python3 -m unittest discover -s scripts -p 'test_pi_rpi5_common_kernel_inspect.py' -v
+          python3 -m unittest discover -s scripts -p 'test_pi_rpi5_common_kernel_rollout_health.py' -v
+          python3 -m unittest discover -s scripts -p 'test_pi_rpi5_common_kernel_rollout_selector_resolution.py' -v
 
       - name: Check Pi5 common kernel source contract
         run: python3 scripts/ci/check-rpi5-common-kernel-build.py
