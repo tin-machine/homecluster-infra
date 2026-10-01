@@ -37,10 +37,10 @@
             )
             or
             (
-              homecluster_common_kernel_expected_accepted_generation_run_id | string is match('^[0-9]{8}T[0-9]{6}Z-[A-Za-z0-9._-]+$')
-              and homecluster_common_kernel_expected_accepted_record_sha256 | string is match('^[0-9a-f]{64}$')
-              and homecluster_common_kernel_expected_accepted_record_path | basename == (homecluster_common_kernel_expected_accepted_generation_run_id | string) ~ '.json'
-              and homecluster_common_kernel_expected_accepted_record_path | dirname | basename == 'accepted-generation'
+              homecluster_common_kernel_expected_accepted_generation_run_id | default('', true) | string is match('^[0-9]{8}T[0-9]{6}Z-[A-Za-z0-9._-]+$')
+              and homecluster_common_kernel_expected_accepted_record_sha256 | default('', true) | string is match('^[0-9a-f]{64}$')
+              and homecluster_common_kernel_expected_accepted_record_path | default('', true) | basename == (homecluster_common_kernel_expected_accepted_generation_run_id | default('', true) | string) ~ '.json'
+              and homecluster_common_kernel_expected_accepted_record_path | default('', true) | dirname | basename == 'accepted-generation'
             )
         fail_msg: common-kernel rollout input contractが不正です
       changed_when: false
