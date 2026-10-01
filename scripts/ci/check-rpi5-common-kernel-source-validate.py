@@ -103,12 +103,16 @@ class CommonKernelSourceValidatorTests(unittest.TestCase):
         self.assertEqual(result["checks"], 0)
 
     def test_unavailable_fixed_check_is_unknown(self):
-        runner = FakeRunner(
-            [
-                completed([], stdout="a" * 40 + "\n"),
-                completed([], stdout=""),
-            ]
-        )
+        calls = 0
+
+        def runner(command, **_kwargs):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                return completed(command, stdout="a" * 40 + "\n")
+            if calls == 2:
+                return completed(command, stdout="")
+            raise OSError("fixture command unavailable")
 
         result = validator.validate_source(repo_root=ROOT, runner=runner)
 
@@ -118,6 +122,7 @@ class CommonKernelSourceValidatorTests(unittest.TestCase):
             "infra_common_kernel_source_check_unavailable",
         )
         self.assertEqual(result["checks"], 0)
+        self.assertEqual(calls, 3)
 
     def test_invalid_revision_is_unknown(self):
         runner = FakeRunner([completed([], stdout="not-a-sha\n")])
