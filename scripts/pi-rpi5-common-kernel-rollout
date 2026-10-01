@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -18,6 +19,9 @@ RUNTIME_PHASES = ("generic_canary", "egpu_canary", "fleet_rollout", "full_fleet"
 AGENT_GROUP = "k3s_stg_agents"
 EGPU_GROUP = "rpi5_egpu_artifact_bundle"
 SAFE_RUN_ID = re.compile(r"^[0-9]{8}T[0-9]{6}Z-[A-Za-z0-9._-]+$")
+SHA256 = re.compile(r"^[0-9a-f]{64}$")
+EXPECTED_ACCEPTED_RUN_ENV = "HOMECLUSTER_RPI5_COMMON_KERNEL_EXPECTED_ACCEPTED_RUN_ID"
+EXPECTED_ACCEPTED_SHA_ENV = "HOMECLUSTER_RPI5_COMMON_KERNEL_EXPECTED_ACCEPTED_SHA256"
 KERNEL_RELEASE = re.compile(r"^.+-v8-homecluster\+$")
 SELECTOR = re.compile(r"^[0-9]{8}-rpi5$")
 TASK_LINE = re.compile(r"^TASK \[(.+?)\](?:\s+\*+)?$")
@@ -184,6 +188,64 @@ def read_json(path: Path) -> dict[str, Any]:
 def workflow_root() -> Path:
     state_home = Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state"))).expanduser()
     return state_home / "homecluster/rpi5-common-kernel"
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while True:
+            chunk = handle.read(1024 * 1024)
+            if not chunk:
+                break
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def expected_accepted_generation(
+    root: Path,
+) -> dict[str, str] | None:
+    expected_run_id = os.environ.get(EXPECTED_ACCEPTED_RUN_ENV, "").strip()
+    expected_sha256 = os.environ.get(EXPECTED_ACCEPTED_SHA_ENV, "").strip()
+    if not expected_run_id and not expected_sha256:
+        return None
+    if (
+        SAFE_RUN_ID.fullmatch(expected_run_id) is None
+        or SHA256.fullmatch(expected_sha256) is None
+    ):
+        raise RolloutError("accepted_generation_expectation_invalid", "unknown")
+
+    path = root / "accepted-generation" / f"{expected_run_id}.json"
+    try:
+        if path.is_symlink() or not path.is_file():
+            raise RolloutError(
+                "accepted_generation_expected_record_missing",
+                "unknown",
+            )
+        current_sha256 = sha256_file(path)
+        value = read_json(path)
+    except RolloutError:
+        raise
+    except (OSError, ValueError, json.JSONDecodeError) as error:
+        raise RolloutError(
+            "accepted_generation_expected_record_invalid",
+            "unknown",
+        ) from error
+
+    if (
+        current_sha256 != expected_sha256
+        or value.get("generation_run_id") != expected_run_id
+        or value.get("gate_version") != "rpi5-common-kernel-gate-v2"
+    ):
+        raise RolloutError("accepted_generation_expectation_changed", "unknown")
+
+    latest = latest_accepted(root)
+    if latest.get("generation_run_id") != expected_run_id:
+        raise RolloutError("accepted_generation_expectation_superseded", "unknown")
+    return {
+        "run_id": expected_run_id,
+        "sha256": expected_sha256,
+        "path": str(path.resolve()),
+    }
 
 
 def latest_accepted(root: Path) -> dict[str, Any]:
@@ -557,7 +619,18 @@ def main(argv: Sequence[str] | None = None) -> int:
                 raise RolloutError("infra_runtime_branch_not_stg")
             if dirty.returncode != 0 or dirty.stdout.strip():
                 raise RolloutError("infra_checkout_dirty")
-            accepted = latest_accepted(workflow_root())
+            workflow_state = workflow_root()
+            expected_accepted = expected_accepted_generation(workflow_state)
+            accepted = latest_accepted(workflow_state)
+            if (
+                expected_accepted is not None
+                and accepted.get("generation_run_id")
+                != expected_accepted["run_id"]
+            ):
+                raise RolloutError(
+                    "accepted_generation_expectation_superseded",
+                    "unknown",
+                )
             agents, egpu_target = inventory_targets(root, inventory)
             targets, rollback_selectors, record_phase = target_policy(
                 workflow_root(),
@@ -583,6 +656,21 @@ def main(argv: Sequence[str] | None = None) -> int:
                     "homecluster_common_kernel_accepted_kernel_artifact_manifest_sha256": accepted.get("kernel_artifact_manifest_sha256", ""),
                     "homecluster_common_kernel_accepted_kernel_artifact_payload_sha256": accepted.get("kernel_artifact_payload_sha256", ""),
                     "homecluster_common_kernel_accepted_pxe_release_manifest_sha256": accepted.get("pxe_release_manifest_sha256", ""),
+                    "homecluster_common_kernel_expected_accepted_generation_run_id": (
+                        expected_accepted["run_id"]
+                        if expected_accepted is not None
+                        else ""
+                    ),
+                    "homecluster_common_kernel_expected_accepted_record_sha256": (
+                        expected_accepted["sha256"]
+                        if expected_accepted is not None
+                        else ""
+                    ),
+                    "homecluster_common_kernel_expected_accepted_record_path": (
+                        expected_accepted["path"]
+                        if expected_accepted is not None
+                        else ""
+                    ),
                     "homecluster_common_kernel_rollback_selectors": rollback_selectors,
                 }
                 selector_apply = run(
