@@ -318,6 +318,45 @@
       changed_when: false
       no_log: true
 
+    - name: Pi5 common kernel accepted generation recordsをmutation直前に再列挙
+      ansible.builtin.find:
+        paths: "{{ homecluster_common_kernel_expected_accepted_record_path | dirname }}"
+        patterns:
+          - '*.json'
+        file_type: file
+        recurse: false
+        follow: false
+      register: homecluster_common_kernel_expected_accepted_generation_records
+      when:
+        - homecluster_common_kernel_rollout_phase != 'rollback_last_phase'
+        - homecluster_common_kernel_expected_accepted_record_sha256 | default('', true) | string | length > 0
+      delegate_to: localhost
+      vars:
+        ansible_connection: local
+        ansible_remote_tmp: /tmp/homecluster-ansible-tmp
+      changed_when: false
+      no_log: true
+
+    - name: Pi5 common kernel expected accepted generationが最新であることをmutation直前に再確認
+      ansible.builtin.assert:
+        that:
+          - homecluster_common_kernel_expected_accepted_generation_records.matched | default(0) | int > 0
+          - >-
+            (
+              homecluster_common_kernel_expected_accepted_generation_records.files
+              | default([])
+              | map(attribute='path')
+              | sort
+              | last
+              | basename
+            ) == (homecluster_common_kernel_expected_accepted_generation_run_id ~ '.json')
+        fail_msg: accepted-generationのlatest runがforward authorization後に変化しています。selector mutationを開始しません。
+      when:
+        - homecluster_common_kernel_rollout_phase != 'rollback_last_phase'
+        - homecluster_common_kernel_expected_accepted_record_sha256 | default('', true) | string | length > 0
+      changed_when: false
+      no_log: true
+
     - name: Pi5 common kernel accepted generation recordをmutation直前に再確認
       ansible.builtin.stat:
         path: "{{ homecluster_common_kernel_expected_accepted_record_path }}"
