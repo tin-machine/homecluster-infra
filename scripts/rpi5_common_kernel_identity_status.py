@@ -30,15 +30,20 @@ BUNDLE_OUTPUT_DIR_KEY = "rpi5_egpu_nvidia_artifact_bundle_output_dir"
 DEFAULT_BUILD_WORK_ROOT = "/var/lib/rancher/k3s/kernel-build"
 DEFAULT_BUNDLE_OUTPUT_DIR = "/var/lib/rancher/k3s/nvidia-artifacts"
 UNSUPPORTED_PATH_OVERRIDE_KEYS = (
+    "rpi5_common_kernel_build_release",
     "rpi5_common_kernel_build_label",
     "rpi5_common_kernel_build_dir",
+    "rpi5_common_kernel_build_modules_dir",
     "rpi5_common_kernel_build_metadata_path",
+    "rpi5_common_kernel_build_kernel_image_path",
+    "rpi5_common_kernel_build_device_tree_path",
     "rpi5_egpu_nvidia_artifact_bundle_archive_name",
     "rpi5_egpu_nvidia_artifact_bundle_archive_path",
     "rpi5_egpu_nvidia_artifact_bundle_manifest_path",
 )
 MARKER = "COMMON_KERNEL_IDENTITY_COLLISION"
 _DATE_RE = re.compile(r"^[0-9]{8}$")
+_RUNTIME_PATH_RE = re.compile(r"^/var/lib/rancher/k3s/[A-Za-z0-9._/-]+$")
 _MARKER_RE = re.compile(r"COMMON_KERNEL_IDENTITY_COLLISION=([01])")
 _TIMEOUT_SECONDS = 30
 
@@ -283,7 +288,7 @@ def _override_present(value: object) -> bool:
 
 
 def _safe_runtime_root(value: object) -> bool:
-    if not isinstance(value, str) or not value.startswith("/var/lib/rancher/k3s/"):
+    if not isinstance(value, str) or _RUNTIME_PATH_RE.fullmatch(value) is None:
         return False
     path = Path(value)
     if ".." in path.parts or not path.is_absolute():
@@ -337,7 +342,7 @@ def _builder_probe_command(paths: tuple[str, ...]) -> str:
 
 
 def _safe_runtime_path(value: object) -> bool:
-    if not isinstance(value, str) or not value.startswith("/var/lib/rancher/k3s/"):
+    if not isinstance(value, str) or _RUNTIME_PATH_RE.fullmatch(value) is None:
         return False
     path = Path(value)
     return (
