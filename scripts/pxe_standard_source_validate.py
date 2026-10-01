@@ -24,6 +24,12 @@ SOURCE_PATHS = (
     Path("ansible/openwrt/roles/openwrt_gentoo_rootfs/defaults/main.yml"),
     Path("scripts/pxe_release_identity_status.py"),
     Path("scripts/pi-pxe-release-identity-status"),
+    Path("scripts/ci/check-pxe-initramfs-contract.py"),
+    Path("scripts/ci/check-pxe-shared-lower-hostname.py"),
+    Path("scripts/ci/check-openwrt-gentoo-binary-preseed.py"),
+    Path("scripts/ci/check-openwrt-pxe-ansible-pull-chain.py"),
+    Path("scripts/ci/check-openwrt-pxe-client-catalog.py"),
+    Path("scripts/ci/check-pxe-release-identity-status.py"),
 )
 
 CHECKS: tuple[tuple[str, tuple[str, ...]], ...] = (
