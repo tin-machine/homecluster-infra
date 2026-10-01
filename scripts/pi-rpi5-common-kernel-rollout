@@ -620,7 +620,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             if dirty.returncode != 0 or dirty.stdout.strip():
                 raise RolloutError("infra_checkout_dirty")
             workflow_state = workflow_root()
-            expected_accepted = expected_accepted_generation(workflow_state)
+            expected_accepted = (
+                None
+                if args.phase == "rollback_last_phase"
+                else expected_accepted_generation(workflow_state)
+            )
             accepted = latest_accepted(workflow_state)
             if (
                 expected_accepted is not None
