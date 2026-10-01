@@ -244,6 +244,39 @@ class CommonKernelIdentityStatusTests(unittest.TestCase):
             builder_command,
         )
 
+    def test_custom_effective_root_collision_blocks(self):
+        runner = FakeRunner(
+            [
+                completed(
+                    stdout=kernel_inventory(
+                        build_work_root="/var/lib/rancher/k3s/custom-kernel-build",
+                        bundle_output_dir="/var/lib/rancher/k3s/custom-artifacts",
+                    )
+                ),
+                completed(stdout=f"{probe.MARKER}=1\n"),
+            ]
+        )
+
+        result = probe.probe_candidates(
+            KERNEL_DATE,
+            PXE_DATE,
+            inventory_path=Path("/fixture/inventory.yml"),
+            runner=runner,
+        )
+
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["reason"], "kernel_identity_in_use")
+        builder_command = runner.calls[1][-2]
+        self.assertIn(
+            f"/var/lib/rancher/k3s/custom-kernel-build/{KERNEL_DATE}-rpi5-homecluster",
+            builder_command,
+        )
+        self.assertIn(
+            f"/var/lib/rancher/k3s/custom-artifacts/rpi5-egpu-{KERNEL_DATE}-rpi5.tar.gz",
+            builder_command,
+        )
+        self.assertEqual(len(runner.calls), 2)
+
     def test_release_override_blocks_before_remote_probe(self):
         runner = FakeRunner(
             [
