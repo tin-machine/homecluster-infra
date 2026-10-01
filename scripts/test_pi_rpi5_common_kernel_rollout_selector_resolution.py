@@ -51,9 +51,17 @@ class RolloutSelectorResolutionContractTests(unittest.TestCase):
         self.assertLess(pre_mutation_plan, mutation)
         self.assertIn("homecluster_common_kernel_missing_selector_source_paths | join(',')", text)
 
-    def test_expected_accepted_record_is_rechecked_immediately_before_mutation(self) -> None:
+    def test_expected_accepted_record_and_latest_run_are_rechecked_immediately_before_mutation(self) -> None:
         text = PLAYBOOK.read_text(encoding="utf-8")
-        pre_mutation_plan = text.index("rollback可能なpre-mutation planをcontrollerへ保存")
+        pre_mutation_plan = text.index(
+            "rollback可能なpre-mutation planをcontrollerへ保存"
+        )
+        latest_scan = text.index(
+            "accepted generation recordsをmutation直前に再列挙"
+        )
+        latest_recheck = text.index(
+            "expected accepted generationが最新であることをmutation直前に再確認"
+        )
         accepted_recheck = text.index(
             "accepted generation recordをmutation直前に再確認"
         )
@@ -62,9 +70,19 @@ class RolloutSelectorResolutionContractTests(unittest.TestCase):
         )
         mutation = text.index("fixed PXE selectorを適用")
 
-        self.assertLess(pre_mutation_plan, accepted_recheck)
+        self.assertLess(pre_mutation_plan, latest_scan)
+        self.assertLess(latest_scan, latest_recheck)
+        self.assertLess(latest_recheck, accepted_recheck)
         self.assertLess(accepted_recheck, accepted_reject)
         self.assertLess(accepted_reject, mutation)
+        self.assertIn(
+            "homecluster_common_kernel_expected_accepted_generation_run_id ~ '.json'",
+            text,
+        )
+        self.assertIn(
+            "homecluster_common_kernel_expected_accepted_generation_records.files",
+            text,
+        )
         self.assertIn(
             "homecluster_common_kernel_expected_accepted_record_sha256",
             text,
@@ -82,8 +100,8 @@ class RolloutSelectorResolutionContractTests(unittest.TestCase):
             "        ansible_connection: local\n"
             "        ansible_remote_tmp: /tmp/homecluster-ansible-tmp"
         )
-        self.assertEqual(text.count(local_delegate), 3)
-        self.assertEqual(text.count("ansible_remote_tmp: /tmp/homecluster-ansible-tmp"), 3)
+        self.assertEqual(text.count(local_delegate), 4)
+        self.assertEqual(text.count("ansible_remote_tmp: /tmp/homecluster-ansible-tmp"), 4)
         self.assertLess(
             text.index("rollback可能なpre-mutation planをcontrollerへ保存"),
             text.index("fixed PXE selectorを適用"),
