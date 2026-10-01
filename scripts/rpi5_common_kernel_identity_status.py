@@ -24,6 +24,19 @@ import pxe_release_identity_status as pxe_identity
 
 BUILDER_GROUP = "rpi5_egpu_artifact_bundle"
 BUILD_DATE_KEY = "rpi5_common_kernel_build_stage_date"
+BUILD_RELEASE_OVERRIDE_KEY = "rpi5_common_kernel_build_release_override"
+BUILD_WORK_ROOT_KEY = "rpi5_common_kernel_build_work_root"
+BUNDLE_OUTPUT_DIR_KEY = "rpi5_egpu_nvidia_artifact_bundle_output_dir"
+DEFAULT_BUILD_WORK_ROOT = "/var/lib/rancher/k3s/kernel-build"
+DEFAULT_BUNDLE_OUTPUT_DIR = "/var/lib/rancher/k3s/nvidia-artifacts"
+UNSUPPORTED_PATH_OVERRIDE_KEYS = (
+    "rpi5_common_kernel_build_label",
+    "rpi5_common_kernel_build_dir",
+    "rpi5_common_kernel_build_metadata_path",
+    "rpi5_egpu_nvidia_artifact_bundle_archive_name",
+    "rpi5_egpu_nvidia_artifact_bundle_archive_path",
+    "rpi5_egpu_nvidia_artifact_bundle_manifest_path",
+)
 MARKER = "COMMON_KERNEL_IDENTITY_COLLISION"
 _DATE_RE = re.compile(r"^[0-9]{8}$")
 _MARKER_RE = re.compile(r"COMMON_KERNEL_IDENTITY_COLLISION=([01])")
@@ -85,11 +98,12 @@ def probe_candidates(
 
     invoke = _run if runner is None else runner
 
-    current_kernel = _current_kernel_identity(
+    builder_contract = _builder_contract(
+        kernel_build_date,
         inventory_path=inventory_path,
         runner=invoke,
     )
-    if current_kernel is None:
+    if builder_contract is None:
         return terminal(
             "unknown",
             "source_unavailable",
@@ -98,6 +112,16 @@ def probe_candidates(
             kernel_identity="unknown",
             pxe_identity="not_checked",
         )
+    if builder_contract["status"] == "blocked":
+        return terminal(
+            "blocked",
+            "probe_blocked",
+            kernel_build_date,
+            pxe_release_date,
+            kernel_identity="unknown",
+            pxe_identity="not_checked",
+        )
+    current_kernel = str(builder_contract["current_kernel"])
     if current_kernel == kernel_build_date:
         return terminal(
             "blocked",
@@ -109,7 +133,7 @@ def probe_candidates(
         )
 
     kernel_collision = _builder_collision(
-        kernel_build_date,
+        tuple(builder_contract["collision_paths"]),
         inventory_path=inventory_path,
         runner=invoke,
     )
@@ -174,11 +198,12 @@ def probe_candidates(
     )
 
 
-def _current_kernel_identity(
+def _builder_contract(
+    candidate: str,
     *,
     inventory_path: Path,
     runner: Runner,
-) -> str | None:
+) -> dict[str, object] | None:
     completed = runner(
         (
             "ansible-inventory",
@@ -210,15 +235,59 @@ def _current_kernel_identity(
     values = hostvars.get(host) if isinstance(hostvars, dict) else None
     if not isinstance(values, dict):
         return None
+
     current = values.get(BUILD_DATE_KEY)
     if type(current) not in {str, int}:
         return None
-    normalized = str(current)
-    return normalized if _date_valid(normalized) else None
+    current_kernel = str(current)
+    if not _date_valid(current_kernel):
+        return None
 
+    release_override = values.get(BUILD_RELEASE_OVERRIDE_KEY, "")
+    if release_override not in {"", None}:
+        return {"status": "blocked"}
+
+    for key in UNSUPPORTED_PATH_OVERRIDE_KEYS:
+        if key in values and values.get(key) not in {"", None}:
+            return {"status": "blocked"}
+
+    build_work_root = values.get(
+        BUILD_WORK_ROOT_KEY,
+        DEFAULT_BUILD_WORK_ROOT,
+    )
+    bundle_output_dir = values.get(
+        BUNDLE_OUTPUT_DIR_KEY,
+        DEFAULT_BUNDLE_OUTPUT_DIR,
+    )
+    if not _safe_runtime_root(build_work_root) or not _safe_runtime_root(
+        bundle_output_dir
+    ):
+        return {"status": "blocked"}
+
+    release = f"{candidate}-rpi5"
+    label = f"{release}-homecluster"
+    archive = f"rpi5-egpu-{release}.tar.gz"
+    return {
+        "status": "pass",
+        "current_kernel": current_kernel,
+        "collision_paths": (
+            str(Path(str(build_work_root)) / label),
+            str(Path(str(bundle_output_dir)) / archive),
+            str(Path(str(bundle_output_dir)) / f"{archive}.sha256"),
+        ),
+    }
+
+
+def _safe_runtime_root(value: object) -> bool:
+    if not isinstance(value, str) or not value.startswith("/var/lib/rancher/k3s/"):
+        return False
+    path = Path(value)
+    if ".." in path.parts or not path.is_absolute():
+        return False
+    return "{{" not in value and "}}" not in value
 
 def _builder_collision(
-    candidate: str,
+    paths: tuple[str, ...],
     *,
     inventory_path: Path,
     runner: Runner,
@@ -232,7 +301,7 @@ def _builder_collision(
             "-m",
             "raw",
             "-a",
-            _builder_probe_command(candidate),
+            _builder_probe_command(paths),
             "-o",
         ),
         _TIMEOUT_SECONDS,
@@ -245,15 +314,12 @@ def _builder_collision(
     return matches[0] == "1"
 
 
-def _builder_probe_command(candidate: str) -> str:
-    if not _date_valid(candidate):
-        raise ValueError("candidate_invalid")
-    release = f"{candidate}-rpi5"
-    paths = (
-        f"/var/lib/rancher/k3s/kernel-build/{release}-homecluster",
-        f"/var/lib/rancher/k3s/nvidia-artifacts/rpi5-egpu-{release}.tar.gz",
-        f"/var/lib/rancher/k3s/nvidia-artifacts/rpi5-egpu-{release}.tar.gz.sha256",
-    )
+def _builder_probe_command(paths: tuple[str, ...]) -> str:
+    if (
+        len(paths) != 3
+        or any(not _safe_runtime_path(path) for path in paths)
+    ):
+        raise ValueError("path_invalid")
     quoted_paths = " ".join(f"'{path}'" for path in paths)
     return (
         "set -eu; "
@@ -264,6 +330,17 @@ def _builder_probe_command(candidate: str) -> str:
         f'printf "{MARKER}=%s\\n" "$collision"'
     )
 
+
+def _safe_runtime_path(value: object) -> bool:
+    if not isinstance(value, str) or not value.startswith("/var/lib/rancher/k3s/"):
+        return False
+    path = Path(value)
+    return (
+        path.is_absolute()
+        and ".." not in path.parts
+        and "{{" not in value
+        and "}}" not in value
+    )
 
 def _date_valid(value: object) -> bool:
     if not isinstance(value, str) or _DATE_RE.fullmatch(value) is None:
