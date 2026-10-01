@@ -10,7 +10,10 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-MODULE_PATH = ROOT / "scripts/rpi5_common_kernel_identity_status.py"
+SCRIPTS = ROOT / "scripts"
+if str(SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS))
+MODULE_PATH = SCRIPTS / "rpi5_common_kernel_identity_status.py"
 spec = importlib.util.spec_from_file_location(
     "rpi5_common_kernel_identity_status_tested",
     MODULE_PATH,
@@ -118,10 +121,10 @@ class CommonKernelIdentityStatusTests(unittest.TestCase):
             },
         )
         self.assertEqual(len(runner.calls), 5)
-        builder_command = runner.calls[1][-3]
+        builder_command = runner.calls[1][-2]
         self.assertIn(f"{KERNEL_DATE}-rpi5-homecluster", builder_command)
         self.assertIn(f"rpi5-egpu-{KERNEL_DATE}-rpi5.tar.gz", builder_command)
-        pxe_command = runner.calls[4][-3]
+        pxe_command = runner.calls[4][-2]
         self.assertIn(f"/srv/gentoo/releases/{PXE_DATE}.json", pxe_command)
         self.assertNotIn(KERNEL_DATE, pxe_command)
 
