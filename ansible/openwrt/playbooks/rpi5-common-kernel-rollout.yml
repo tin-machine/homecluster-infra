@@ -348,6 +348,7 @@
               | map(attribute='path')
               | sort
               | last
+              | default('')
               | basename
             ) == (homecluster_common_kernel_expected_accepted_generation_run_id ~ '.json')
         fail_msg: accepted-generationのlatest runがforward authorization後に変化しています。selector mutationを開始しません。
