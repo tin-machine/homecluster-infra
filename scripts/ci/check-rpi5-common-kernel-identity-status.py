@@ -45,15 +45,31 @@ def completed(
     )
 
 
-def kernel_inventory(current: str = OLD_KERNEL_DATE) -> str:
+def kernel_inventory(
+    current: str = OLD_KERNEL_DATE,
+    *,
+    release_override: str = "",
+    build_work_root: str | None = None,
+    bundle_output_dir: str | None = None,
+    extra: dict[str, str] | None = None,
+) -> str:
+    values = {
+        probe.BUILD_DATE_KEY: current,
+    }
+    if release_override:
+        values[probe.BUILD_RELEASE_OVERRIDE_KEY] = release_override
+    if build_work_root is not None:
+        values[probe.BUILD_WORK_ROOT_KEY] = build_work_root
+    if bundle_output_dir is not None:
+        values[probe.BUNDLE_OUTPUT_DIR_KEY] = bundle_output_dir
+    if extra:
+        values.update(extra)
     return json.dumps(
         {
-            probe.BUILDER_GROUP: {"hosts": ["rpi5-03"]},
+            probe.BUILDER_GROUP: {"hosts": ["fixture-builder"]},
             "_meta": {
                 "hostvars": {
-                    "rpi5-03": {
-                        probe.BUILD_DATE_KEY: current,
-                    }
+                    "fixture-builder": values,
                 }
             },
         }
@@ -63,7 +79,7 @@ def kernel_inventory(current: str = OLD_KERNEL_DATE) -> str:
 def pxe_inventory() -> str:
     return json.dumps(
         {
-            "openwrt": {"hosts": ["home-router"]},
+            "openwrt": {"hosts": ["fixture-router"]},
         }
     )
 
@@ -189,6 +205,115 @@ class CommonKernelIdentityStatusTests(unittest.TestCase):
         self.assertEqual(result["kernel_identity"], "available")
         self.assertEqual(result["pxe_identity"], "in_use")
         self.assertEqual(len(runner.calls), 4)
+
+    def test_custom_effective_output_roots_are_probed(self):
+        runner = FakeRunner(
+            [
+                completed(
+                    stdout=kernel_inventory(
+                        build_work_root="/var/lib/rancher/k3s/custom-kernel-build",
+                        bundle_output_dir="/var/lib/rancher/k3s/custom-artifacts",
+                    )
+                ),
+                completed(stdout=f"{probe.MARKER}=0\n"),
+                completed(stdout=pxe_inventory()),
+                completed(stdout=pxe_host()),
+                completed(stdout="PXE_IDENTITY_COLLISION=0\n"),
+            ]
+        )
+
+        result = probe.probe_candidates(
+            KERNEL_DATE,
+            PXE_DATE,
+            inventory_path=Path("/fixture/inventory.yml"),
+            runner=runner,
+        )
+
+        self.assertEqual(result["status"], "pass")
+        builder_command = runner.calls[1][-2]
+        self.assertIn(
+            f"/var/lib/rancher/k3s/custom-kernel-build/{KERNEL_DATE}-rpi5-homecluster",
+            builder_command,
+        )
+        self.assertIn(
+            f"/var/lib/rancher/k3s/custom-artifacts/rpi5-egpu-{KERNEL_DATE}-rpi5.tar.gz",
+            builder_command,
+        )
+        self.assertNotIn(
+            f"{probe.DEFAULT_BUILD_WORK_ROOT}/{KERNEL_DATE}-rpi5-homecluster",
+            builder_command,
+        )
+
+    def test_release_override_blocks_before_remote_probe(self):
+        runner = FakeRunner(
+            [
+                completed(
+                    stdout=kernel_inventory(
+                        release_override="custom-release",
+                    )
+                ),
+            ]
+        )
+
+        result = probe.probe_candidates(
+            KERNEL_DATE,
+            PXE_DATE,
+            inventory_path=Path("/fixture/inventory.yml"),
+            runner=runner,
+        )
+
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["reason"], "probe_blocked")
+        self.assertEqual(result["kernel_identity"], "unknown")
+        self.assertEqual(result["pxe_identity"], "not_checked")
+        self.assertEqual(len(runner.calls), 1)
+
+    def test_direct_path_override_blocks_before_remote_probe(self):
+        runner = FakeRunner(
+            [
+                completed(
+                    stdout=kernel_inventory(
+                        extra={
+                            "rpi5_common_kernel_build_dir":
+                                "/var/lib/rancher/k3s/custom-direct-build"
+                        }
+                    )
+                ),
+            ]
+        )
+
+        result = probe.probe_candidates(
+            KERNEL_DATE,
+            PXE_DATE,
+            inventory_path=Path("/fixture/inventory.yml"),
+            runner=runner,
+        )
+
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["reason"], "probe_blocked")
+        self.assertEqual(len(runner.calls), 1)
+
+    def test_unsafe_effective_root_blocks_before_remote_probe(self):
+        runner = FakeRunner(
+            [
+                completed(
+                    stdout=kernel_inventory(
+                        build_work_root="/tmp/kernel-build",
+                    )
+                ),
+            ]
+        )
+
+        result = probe.probe_candidates(
+            KERNEL_DATE,
+            PXE_DATE,
+            inventory_path=Path("/fixture/inventory.yml"),
+            runner=runner,
+        )
+
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["reason"], "probe_blocked")
+        self.assertEqual(len(runner.calls), 1)
 
     def test_invalid_calendar_date_blocks_without_commands(self):
         runner = FakeRunner([])
