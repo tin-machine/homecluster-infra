@@ -79,7 +79,17 @@ R2 backend bucket、endpoint、credential、state key は controller/operator �
 
 ## Adoption
 
-既存 live state を apply で desired state に寄せません。最初の managed mutation より前に identity を照合して import します。
+既存 live state を apply で desired state に寄せません。最初の managed mutation より前に live status と identity を照合し、resource ごとに import か initial create かを決めます。
+
+`cloudflare_email_routing_dns` は例外的に status-aware adoption が必要です。Email Routing DNS GET は `status=unconfigured` の zone でも required DNS set を返し、provider import も zone ID を state に取り込めます。しかし unconfigured state を import しただけでは DNS resource の Create が呼ばれず、Email Routing enablement mutationを表現できない可能性があります。
+
+したがって:
+
+- live Email Routing が enabled/ready で、DNS ownershipも既存である zone: DNS resourceをimportしてno-op adoptionを目指す
+- live Email Routing が unconfigured の zone: DNS resourceをimportしない。initial enablementは `cloudflare_email_routing_dns.zone` の Createとして明示的なplanned mutationにする
+- statusがambiguous/misconfiguredなら停止して調査する
+
+rule/catch-allはlive identifierを照合し、既存managed objectだけをimportします。
 
 Import identities:
 
@@ -104,10 +114,12 @@ Adoption gate:
 4. private input validates without printing values.
 5. provider lock file is generated and reviewed.
 6. isolated zone-specific workdir and state key.
-7. existing resources that this root will own are imported before apply.
-8. refresh/live plan is reviewed.
-9. destroy count must be zero.
-10. provider tag-only drift is classified separately and must not trigger a blind apply.
-11. only after provider behavior is accepted may a mutation path be designed.
+7. DNS resourceはlive statusに応じて import または explicit initial create を選ぶ。
+8. existing rule/catch-all identifierを照合し、実在するmanaged objectだけをimportする。
+9. refresh/live plan is reviewed.
+10. destroy count must be zero.
+11. provider tag-only drift is classified separately and must not trigger a blind apply.
+12. unconfigured zoneのDNS enablementは明示的なmutationとしてreviewする。
+13. only after provider behavior is accepted may a mutation path be designed.
 
 Phase 8B itself does not enable GitHub Actions apply.
