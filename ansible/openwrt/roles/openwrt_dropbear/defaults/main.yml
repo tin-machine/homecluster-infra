@@ -1,0 +1,3 @@
+---
+# Site inventory must opt in before this role changes the router's SSH service.
+openwrt_dropbear_ssh_keepalive: null
