@@ -24,7 +24,7 @@ Phase 8B の初期 authority は次に限定します。
 
 ただし provider 側には `cloudflare_email_routing_rule` / `cloudflare_email_routing_catch_all` の deprecated computed `tag` が plan ごとに unknown へ戻り、tag-only in-place update を提案する既知 issue があるため、live adoption では必ず再現有無を確認します。tag-only drift が出た場合、apply を繰り返して収束させようとせず provider blocker として扱います。
 
-provider lock file は live adoption 前に `terraform providers lock` で生成し、review 済みの lock file を commit してから `terraform init -lockfile=readonly` を要求します。Phase 8B source-foundation PR では provider schema/authority の review を先に行い、lock file 生成は local validation checkpoint に残します。
+provider lock file は `.terraform.lock.hcl` として commit し、CI / controller では `terraform init -lockfile=readonly` を要求します。lock file の package checksum は Cloudflare provider v5.26.0 の公式 release asset digestを基準にし、public CIで backend-free init / validate を行います。
 
 ## Private input
 
@@ -112,7 +112,7 @@ Adoption gate:
 2. verified destination address exists externally.
 3. generic DNS ownership overlap is zero.
 4. private input validates without printing values.
-5. provider lock file is generated and reviewed.
+5. provider lock file is committed and CI backend-free init/validate succeeds.
 6. isolated zone-specific workdir and state key.
 7. DNS resourceはlive statusに応じて import または explicit initial create を選ぶ。
 8. existing rule/catch-all identifierを照合し、実在するmanaged objectだけをimportする。
