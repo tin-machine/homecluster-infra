@@ -176,7 +176,7 @@ resource "helm_release" "mimir" {
   name             = local.mimir_release
   repository       = "https://grafana.github.io/helm-charts"
   chart            = "mimir-distributed"
-  version          = "5.8.0"
+  version          = "6.2.0"
   namespace        = kubernetes_namespace.observability.metadata[0].name
   create_namespace = false
 
