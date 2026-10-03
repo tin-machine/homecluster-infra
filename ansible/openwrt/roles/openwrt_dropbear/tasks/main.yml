@@ -1,0 +1,32 @@
+---
+- name: Dropbear SSH keepalive interval を検証
+  ansible.builtin.assert:
+    that:
+      - (openwrt_dropbear_ssh_keepalive | string) is match('^[0-9]+$')
+      - (openwrt_dropbear_ssh_keepalive | int) <= 86400
+    fail_msg: openwrt_dropbear_ssh_keepalive は 0 から 86400 秒で指定してください
+  when: openwrt_dropbear_ssh_keepalive is not none
+
+- name: Dropbear SSH keepalive interval を適用
+  ansible.builtin.shell: |
+    set -eu
+    desired='{{ openwrt_dropbear_ssh_keepalive | int }}'
+    current="$(uci -q get dropbear.main.SSHKeepAlive 2>/dev/null || true)"
+    pending="$(uci changes dropbear)"
+    if [ -n "$pending" ]; then
+      echo 'uncommitted dropbear UCI changes exist' >&2
+      exit 1
+    fi
+    if [ "$current" = "$desired" ]; then
+      echo ok
+      exit 0
+    fi
+    uci set "dropbear.main.SSHKeepAlive=$desired"
+    uci commit dropbear
+    /etc/init.d/dropbear reload
+    echo changed
+  args:
+    executable: /bin/sh
+  register: openwrt_dropbear_apply
+  changed_when: "'changed' in openwrt_dropbear_apply.stdout"
+  when: openwrt_dropbear_ssh_keepalive is not none
