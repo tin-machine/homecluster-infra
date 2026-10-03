@@ -77,7 +77,7 @@ variable "rules" {
     condition = alltrue([
       for rule in values(var.rules) :
       lower(rule.action.type) == "forward"
-      ? length(rule.action.value) == 1 && trimspace(rule.action.value[0]) != ""
+      ? length(rule.action.value) == 1 && try(trimspace(rule.action.value[0]) != "", false)
       : length(rule.action.value) == 0
     ])
     error_message = "forward requires exactly one non-empty destination; drop must omit action values."
@@ -109,7 +109,7 @@ variable "catch_all" {
   validation {
     condition = (
       lower(var.catch_all.action.type) == "forward"
-      ? length(var.catch_all.action.value) == 1 && trimspace(var.catch_all.action.value[0]) != ""
+      ? length(var.catch_all.action.value) == 1 && try(trimspace(var.catch_all.action.value[0]) != "", false)
       : length(var.catch_all.action.value) == 0
     )
     error_message = "catch-all forward requires exactly one non-empty destination; drop must omit action values."
