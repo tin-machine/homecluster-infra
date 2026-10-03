@@ -233,14 +233,6 @@ else
   echo "terraform not found; skipping fmt check"
 fi
 
-print_section "Email Routing lock regeneration probe"
-rm -f terraform/cloudflare/email-routing/.terraform.lock.hcl
-terraform -chdir=terraform/cloudflare/email-routing providers lock -platform=linux_amd64
-echo "-----BEGIN EMAIL ROUTING LOCK-----"
-cat terraform/cloudflare/email-routing/.terraform.lock.hcl
-echo "-----END EMAIL ROUTING LOCK-----"
-exit 1
-
 print_section "optional terraform validate"
 if [ "${RUN_TERRAFORM_VALIDATE:-0}" = "1" ]; then
   terraform_data_root="$(mktemp -d)"
