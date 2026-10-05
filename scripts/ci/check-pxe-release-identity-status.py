@@ -132,6 +132,24 @@ class IdentityStatusTests(unittest.TestCase):
         )
         self.assertEqual(len(runner.calls), 2)
 
+    def test_older_identity_is_rejected_without_remote_probe(self):
+        runner = FakeRunner(
+            [
+                completed([], stdout=inventory_list(["router.example.invalid"])),
+                completed([], stdout=host_vars("20261006")),
+            ]
+        )
+
+        result = status.probe_candidate(
+            "20261005",
+            inventory_path=self.inventory,
+            runner=runner,
+        )
+
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["reason"], "identity_in_use")
+        self.assertEqual(len(runner.calls), 2)
+
     def test_numeric_inventory_identity_is_normalized(self):
         runner = FakeRunner(
             [
