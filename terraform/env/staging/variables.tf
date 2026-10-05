@@ -14,8 +14,7 @@ variable "loki_objectstore_access_key" {
   type        = string
   sensitive   = true
   description = "Access key ID used by Loki to access MinIO (defaults to minio_root_user when null)"
-  default     = null
-  nullable    = true
+  default     = ""
 }
 
 variable "loki_objectstore_secret_key" {
@@ -154,8 +153,7 @@ variable "github_actions_runner_config_url" {
   type        = string
   sensitive   = true
   description = "Repository or organization URL used to register the staging runner scale set"
-  default     = null
-  nullable    = true
+  default     = ""
 }
 
 variable "github_actions_runner_secret_name" {
