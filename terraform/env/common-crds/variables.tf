@@ -12,3 +12,9 @@ variable "metallb_tolerate_control_plane" {
   type        = bool
   description = "Whether MetalLB controller/speaker should tolerate control-plane NoSchedule taints."
 }
+
+variable "github_actions_runner_controller_enabled" {
+  type        = bool
+  description = "Whether to deploy the shared Actions Runner Controller CRDs and controller"
+  default     = false
+}
