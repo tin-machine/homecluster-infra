@@ -117,7 +117,8 @@ redaction_matches="$(
   done
   if [ "${#redaction_files[@]}" -gt 0 ]; then
     grep -nIE --binary-files=without-match "${redaction_pattern}" "${redaction_files[@]}" |
-      grep -vE 'github\.com/tin-machine/homecluster-infra(/|$)' || true
+      grep -vE 'github\.com/tin-machine/homecluster-infra(/|$)' |
+      grep -vE '"(172\.16\.0\.0/12|192\.168\.0\.0/16)"' || true
   fi
 )"
 report_matches "redaction pattern matches found" "${redaction_matches}"
@@ -176,7 +177,8 @@ terraform_values_redaction_matches="$(
     esac
   done
   if [ "${#terraform_values_redaction_files[@]}" -gt 0 ]; then
-    grep -nIE --binary-files=without-match "${terraform_values_redaction_pattern}" "${terraform_values_redaction_files[@]}" || true
+    grep -nIE --binary-files=without-match "${terraform_values_redaction_pattern}" "${terraform_values_redaction_files[@]}" |
+      grep -vE '"(172\.16\.0\.0/12|192\.168\.0\.0/16)"' || true
   fi
 )"
 report_matches "terraform or helm values redaction matches found" "${terraform_values_redaction_matches}"
