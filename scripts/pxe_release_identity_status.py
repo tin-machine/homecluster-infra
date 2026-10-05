@@ -55,7 +55,7 @@ def probe_candidate(
     )
     if current_identity is None:
         return terminal("unknown", "source_unavailable", candidate)
-    if current_identity == candidate:
+    if candidate <= current_identity:
         return terminal("blocked", "identity_in_use", candidate)
 
     collision = _remote_collision(

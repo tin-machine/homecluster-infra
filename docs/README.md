@@ -19,6 +19,8 @@ Terraform state、vendor payloadのメモは含めない。
 - [Memory](memory.md): 公開可能な短い履歴メモ。
 - [Troubleshooting index](troubleshooting/README.md):
   `pi-k3s-status`が検出する既知caseの背景、evidence、operator-gatedな対応方針。
+- [PXE release identity status](pxe-release-identity-status.md):
+  standard PXE identity候補のinventory / immutable release衝突をread-onlyで判定するcontract。
 - [k3s observability validation checklist](k3s-observability-validation-checklist.md):
   Terraform管理のstaging observability stackを確認するための公開可能なoperator checklist。
 - [Full execution validation](full-execution-validation.md):

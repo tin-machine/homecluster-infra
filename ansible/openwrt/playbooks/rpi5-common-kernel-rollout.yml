@@ -29,6 +29,19 @@
             homecluster_common_kernel_rollout_phase == 'rollback_last_phase'
             or (homecluster_common_kernel_accepted_pxe_release_manifest_sha256 | default('', true) | string is match('^[0-9a-f]{64}$'))
           - homecluster_common_kernel_rollback_selectors is mapping
+          - >-
+            (
+              homecluster_common_kernel_expected_accepted_generation_run_id | default('', true) | string | length == 0
+              and homecluster_common_kernel_expected_accepted_record_sha256 | default('', true) | string | length == 0
+              and homecluster_common_kernel_expected_accepted_record_path | default('', true) | string | length == 0
+            )
+            or
+            (
+              homecluster_common_kernel_expected_accepted_generation_run_id | default('', true) | string is match('^[0-9]{8}T[0-9]{6}Z-[A-Za-z0-9._-]+$')
+              and homecluster_common_kernel_expected_accepted_record_sha256 | default('', true) | string is match('^[0-9a-f]{64}$')
+              and homecluster_common_kernel_expected_accepted_record_path | default('', true) | basename == (homecluster_common_kernel_expected_accepted_generation_run_id | default('', true) | string) ~ '.json'
+              and homecluster_common_kernel_expected_accepted_record_path | default('', true) | dirname | basename == 'accepted-generation'
+            )
         fail_msg: common-kernel rollout input contractが不正です
       changed_when: false
       no_log: true
@@ -302,6 +315,77 @@
       vars:
         ansible_connection: local
         ansible_remote_tmp: /tmp/homecluster-ansible-tmp
+      changed_when: false
+      no_log: true
+
+    - name: Pi5 common kernel accepted generation recordsをmutation直前に再列挙
+      ansible.builtin.find:
+        paths: "{{ homecluster_common_kernel_expected_accepted_record_path | dirname }}"
+        patterns:
+          - '*.json'
+        file_type: file
+        recurse: false
+        follow: false
+      register: homecluster_common_kernel_expected_accepted_generation_records
+      when:
+        - homecluster_common_kernel_rollout_phase != 'rollback_last_phase'
+        - homecluster_common_kernel_expected_accepted_record_sha256 | default('', true) | string | length > 0
+      delegate_to: localhost
+      vars:
+        ansible_connection: local
+        ansible_remote_tmp: /tmp/homecluster-ansible-tmp
+      changed_when: false
+      no_log: true
+
+    - name: Pi5 common kernel expected accepted generationが最新であることをmutation直前に再確認
+      ansible.builtin.assert:
+        that:
+          - homecluster_common_kernel_expected_accepted_generation_records.matched | default(0) | int > 0
+          - >-
+            (
+              homecluster_common_kernel_expected_accepted_generation_records.files
+              | default([])
+              | map(attribute='path')
+              | sort
+              | last
+              | default('')
+              | basename
+            ) == (homecluster_common_kernel_expected_accepted_generation_run_id ~ '.json')
+        fail_msg: accepted-generationのlatest runがforward authorization後に変化しています。selector mutationを開始しません。
+      when:
+        - homecluster_common_kernel_rollout_phase != 'rollback_last_phase'
+        - homecluster_common_kernel_expected_accepted_record_sha256 | default('', true) | string | length > 0
+      changed_when: false
+      no_log: true
+
+    - name: Pi5 common kernel accepted generation recordをmutation直前に再確認
+      ansible.builtin.stat:
+        path: "{{ homecluster_common_kernel_expected_accepted_record_path }}"
+        checksum_algorithm: sha256
+        follow: false
+        get_attributes: false
+        get_mime: false
+      register: homecluster_common_kernel_expected_accepted_record_stat
+      when:
+        - homecluster_common_kernel_rollout_phase != 'rollback_last_phase'
+        - homecluster_common_kernel_expected_accepted_record_sha256 | default('', true) | string | length > 0
+      delegate_to: localhost
+      vars:
+        ansible_connection: local
+        ansible_remote_tmp: /tmp/homecluster-ansible-tmp
+      changed_when: false
+      no_log: true
+
+    - name: Pi5 common kernel accepted generation record driftをmutation直前に拒否
+      ansible.builtin.assert:
+        that:
+          - homecluster_common_kernel_expected_accepted_record_stat.stat.isreg | default(false)
+          - not (homecluster_common_kernel_expected_accepted_record_stat.stat.islnk | default(false))
+          - homecluster_common_kernel_expected_accepted_record_stat.stat.checksum | default('') == homecluster_common_kernel_expected_accepted_record_sha256
+        fail_msg: accepted-generation recordがforward authorization後に変化しています。selector mutationを開始しません。
+      when:
+        - homecluster_common_kernel_rollout_phase != 'rollback_last_phase'
+        - homecluster_common_kernel_expected_accepted_record_sha256 | default('', true) | string | length > 0
       changed_when: false
       no_log: true
 

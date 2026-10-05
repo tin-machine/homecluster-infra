@@ -1,5 +1,11 @@
 ---
 distcc_enabled: "{{ (distcc | default({})).enabled | default(false) | bool }}"
+distcc_client_enabled: >-
+  {{
+    (distcc | default({})).client_enabled
+    | default((distcc | default({})).enabled | default(false))
+    | bool
+  }}
 distcc_package: sys-devel/distcc
 distcc_port: "{{ (distcc | default({})).port | default(3632) }}"
 distcc_jobs: "{{ (distcc | default({})).jobs | default((distcc | default({})).slots | default(ansible_facts.processor_vcpus | default(4))) }}"

@@ -133,6 +133,11 @@ PXE Gentoo binary preseed:
 
 official binhost を有効にすると、package list が空でも `binrepos.conf` を rootfs へ配置する。heavy preseed は Python target migration と通常 runtime emerge より先に、configured official binhost と local binpkg cache から compatible binary だけを選ぶ。version pin、`--usepkgonly`、source fallback は role 側の assert で拒否する。legacy 明示 preseed だけは `PORTAGE_BINHOST` を該当 emerge の環境変数として一時上書きする。
 
+Pi5 eGPU lower-rootfs repair の Vulkan `emerge --usepkg` は、OpenWrt の `/srv/gentoo/binpkgs` を
+対象 rootfs の同じ path へ一時 bind mount して使う。通常の rootfs build は自身の mount を終了時に解除し、
+repair は独立して mount と解除を行う。互換 binpkg がない場合は source build し、`FEATURES=buildpkg` の
+成果物を共有 cache に保存する。次の generation での再利用は package version、USE、profile が一致する場合に限る。
+
 gpkg signature verificationのtrust anchorは`/usr/bin/getuto`を正とする。roleは空の`/etc/portage/gnupg`を先に作らず、手動の`gpg --recv-keys`も使わない。`getuto`の初回初期化がlocal trust key、release keyのlocal signature、trust databaseを作成したことを`mykeyid`と`trustdb.gpg`でfail-closedに確認する。verification user/groupはGentooのprivilege-drop defaultを維持する。
 
 ## ARM64 host role live input
@@ -141,7 +146,8 @@ ARM64 host role でも、network exposure を変える値は外部 inventory を
 
 | 変数 | 外部入力 |
 | --- | --- |
-| `distcc.enabled` | distcc を有効化する host だけ外部 inventory で `true` にする。public default は disabled |
+| `distcc.enabled` | distccd server を有効化する host だけ外部 inventory で `true` にする。`false` では package を削除せず、homecluster drop-in と service の enable / active 状態を無効へ収束させる。public default は disabled |
+| `distcc.client_enabled` | Portage の distcc client を有効化する host だけ外部 inventory で `true` にする。`make.conf` の `FEATURES` と `/etc/portage/env/enable-distcc` を管理する。未指定時は後方互換のため `distcc.enabled` に追随し、両方未指定時は disabled |
 | `distcc.allow`、`distcc_default_allow` | distcc daemon の allowlist。public default は empty list とし、実 subnet / host range は外部 inventory に置く |
 | `gentoo_world_update_exclude_packages` | ARM64 host の `gentoo-world-update.service` で runtime `emerge @world` から除外する package atom の list。public default は undefined / empty で no-op |
 
