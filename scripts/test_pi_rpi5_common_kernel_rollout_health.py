@@ -45,6 +45,72 @@ class RolloutHealthTests(unittest.TestCase):
         }
         return subprocess.CompletedProcess(["fixture"], returncode, json.dumps(payload), "")
 
+    def accepted_record(self, root: Path):
+        run_id = "20261001T120000Z-common-kernel"
+        accepted = root / "accepted-generation"
+        accepted.mkdir(parents=True)
+        path = accepted / f"{run_id}.json"
+        path.write_text(
+            json.dumps(
+                {
+                    "generation_run_id": run_id,
+                    "exact_kernel_release": "6.18.40-v8-homecluster+",
+                    "pxe_candidate_selector": "20261003-rpi5",
+                    "gate_version": "rpi5-common-kernel-gate-v2",
+                },
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
+        return run_id, path, ROLLOUT_MODULE.sha256_file(path)
+
+    def test_expected_accepted_generation_matches_exact_record(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            run_id, path, digest = self.accepted_record(root)
+            with mock.patch.dict(
+                ROLLOUT_MODULE.os.environ,
+                {
+                    ROLLOUT_MODULE.EXPECTED_ACCEPTED_RUN_ENV: run_id,
+                    ROLLOUT_MODULE.EXPECTED_ACCEPTED_SHA_ENV: digest,
+                },
+                clear=False,
+            ):
+                value = ROLLOUT_MODULE.expected_accepted_generation(root)
+
+        self.assertEqual(
+            value,
+            {
+                "run_id": run_id,
+                "sha256": digest,
+                "path": str(path.resolve()),
+            },
+        )
+
+    def test_expected_accepted_generation_rejects_content_drift(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            run_id, path, digest = self.accepted_record(root)
+            value = json.loads(path.read_text(encoding="utf-8"))
+            value["checked_at"] = "2026-10-02T00:00:00Z"
+            path.write_text(json.dumps(value, sort_keys=True), encoding="utf-8")
+            with mock.patch.dict(
+                ROLLOUT_MODULE.os.environ,
+                {
+                    ROLLOUT_MODULE.EXPECTED_ACCEPTED_RUN_ENV: run_id,
+                    ROLLOUT_MODULE.EXPECTED_ACCEPTED_SHA_ENV: digest,
+                },
+                clear=False,
+            ):
+                with self.assertRaises(ROLLOUT_MODULE.RolloutError) as raised:
+                    ROLLOUT_MODULE.expected_accepted_generation(root)
+
+        self.assertEqual(
+            raised.exception.reason,
+            "accepted_generation_expectation_changed",
+        )
+        self.assertEqual(raised.exception.status, "unknown")
+
     def test_cluster_health_is_observation_not_rollout_blocker(self):
         with tempfile.TemporaryDirectory() as temporary:
             runbook = self.runbook(Path(temporary))

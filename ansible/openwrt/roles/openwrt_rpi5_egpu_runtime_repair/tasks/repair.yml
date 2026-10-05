@@ -33,6 +33,29 @@
           - "{{ openwrt_rpi5_egpu_runtime_repair_target_rootfs_resolved }}/proc"
       changed_when: true
 
+    - name: rpi5 eGPU target rootfs binpkg mountpoint を作成
+      ansible.builtin.file:
+        path: "{{ openwrt_rpi5_egpu_runtime_repair_target_rootfs_resolved }}/srv/gentoo/binpkgs"
+        state: directory
+        mode: '0755'
+      when: openwrt_rpi5_egpu_runtime_repair_install_vulkan_packages | bool
+
+    - name: rpi5 eGPU target rootfs へ共有 binpkg を bind mount
+      ansible.builtin.shell: |
+        set -eu
+        target="{{ openwrt_rpi5_egpu_runtime_repair_target_rootfs_resolved }}/srv/gentoo/binpkgs"
+        test -d /srv/gentoo/binpkgs
+        if grep -qs " $target " /proc/mounts; then
+          echo "binpkg target is already mounted: $target" >&2
+          exit 1
+        fi
+        /bin/mount -o bind /srv/gentoo/binpkgs "$target"
+      args:
+        executable: /bin/ash
+      register: openwrt_rpi5_egpu_binpkg_bind_mount
+      changed_when: true
+      when: openwrt_rpi5_egpu_runtime_repair_install_vulkan_packages | bool
+
     - name: rpi5 eGPU target rootfs artifact payload mountpoint を作成
       ansible.builtin.file:
         path: "{{ openwrt_rpi5_egpu_runtime_repair_target_rootfs_resolved }}/.homecluster-rpi5-egpu-artifact"
@@ -118,6 +141,21 @@
         state: absent
       failed_when: false
 
+    - name: rpi5 eGPU target rootfs の共有 binpkg bind mount を解除
+      ansible.builtin.shell: |
+        set -eu
+        target="{{ openwrt_rpi5_egpu_runtime_repair_target_rootfs_resolved }}/srv/gentoo/binpkgs"
+        if grep -qs " $target " /proc/mounts; then
+          /bin/umount -l "$target"
+        fi
+      args:
+        executable: /bin/ash
+      changed_when: false
+      failed_when: false
+      when:
+        - openwrt_rpi5_egpu_binpkg_bind_mount is defined
+        - openwrt_rpi5_egpu_binpkg_bind_mount.rc | default(1) == 0
+
     - name: rpi5 eGPU target rootfs の host /proc bind mount を解除
       ansible.builtin.command:
         argv:
@@ -135,3 +173,14 @@
           - "{{ openwrt_rpi5_egpu_runtime_repair_target_rootfs_resolved }}/dev"
       changed_when: false
       failed_when: false
+
+    - name: rpi5 eGPU target rootfs の共有 binpkg bind mount 解除を確認
+      ansible.builtin.shell: |
+        target="{{ openwrt_rpi5_egpu_runtime_repair_target_rootfs_resolved }}/srv/gentoo/binpkgs"
+        ! grep -qs " $target " /proc/mounts
+      args:
+        executable: /bin/ash
+      changed_when: false
+      when:
+        - openwrt_rpi5_egpu_binpkg_bind_mount is defined
+        - openwrt_rpi5_egpu_binpkg_bind_mount.rc | default(1) == 0

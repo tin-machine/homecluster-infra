@@ -16,10 +16,12 @@ on:
       - 'ansible/openwrt/roles/openwrt_rpi5_egpu_runtime_repair/**'
       - 'scripts/pi-rpi5-common-kernel-*'
       - 'scripts/rpi5_common_kernel_source_validate.py'
-      - 'scripts/ci/check-rpi5-common-kernel-source-validate.py'
       - 'scripts/test_pi_rpi5_common_kernel.py'
+      - 'scripts/ci/check-rpi5-common-kernel-source-validate.py'
       - 'scripts/test_pi_rpi5_common_kernel_known_good_fallback.py'
       - 'scripts/test_pi_rpi5_common_kernel_inspect.py'
+      - 'scripts/test_pi_rpi5_common_kernel_rollout_health.py'
+      - 'scripts/test_pi_rpi5_common_kernel_rollout_selector_resolution.py'
       - 'scripts/ci/check-rpi5-common-kernel-build.py'
       - '.github/workflows/rpi5-common-kernel-check.yml'
   push:
@@ -38,10 +40,12 @@ on:
       - 'ansible/openwrt/roles/openwrt_rpi5_egpu_runtime_repair/**'
       - 'scripts/pi-rpi5-common-kernel-*'
       - 'scripts/rpi5_common_kernel_source_validate.py'
-      - 'scripts/ci/check-rpi5-common-kernel-source-validate.py'
       - 'scripts/test_pi_rpi5_common_kernel.py'
+      - 'scripts/ci/check-rpi5-common-kernel-source-validate.py'
       - 'scripts/test_pi_rpi5_common_kernel_known_good_fallback.py'
       - 'scripts/test_pi_rpi5_common_kernel_inspect.py'
+      - 'scripts/test_pi_rpi5_common_kernel_rollout_health.py'
+      - 'scripts/test_pi_rpi5_common_kernel_rollout_selector_resolution.py'
       - 'scripts/ci/check-rpi5-common-kernel-build.py'
       - '.github/workflows/rpi5-common-kernel-check.yml'
 
@@ -54,7 +58,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
 
@@ -73,13 +77,17 @@ jobs:
             scripts/ci/check-rpi5-common-kernel-source-validate.py \
             scripts/test_pi_rpi5_common_kernel.py \
             scripts/test_pi_rpi5_common_kernel_known_good_fallback.py \
-            scripts/test_pi_rpi5_common_kernel_inspect.py
+            scripts/test_pi_rpi5_common_kernel_inspect.py \
+            scripts/test_pi_rpi5_common_kernel_rollout_health.py \
+            scripts/test_pi_rpi5_common_kernel_rollout_selector_resolution.py
 
       - name: Check Pi5 common kernel Pi Ops fixtures
         run: |
           python3 -m unittest discover -s scripts -p 'test_pi_rpi5_common_kernel.py' -v
           python3 -m unittest discover -s scripts -p 'test_pi_rpi5_common_kernel_known_good_fallback.py' -v
           python3 -m unittest discover -s scripts -p 'test_pi_rpi5_common_kernel_inspect.py' -v
+          python3 -m unittest discover -s scripts -p 'test_pi_rpi5_common_kernel_rollout_health.py' -v
+          python3 -m unittest discover -s scripts -p 'test_pi_rpi5_common_kernel_rollout_selector_resolution.py' -v
 
       - name: Check Pi5 common kernel source contract
         run: python3 scripts/ci/check-rpi5-common-kernel-build.py

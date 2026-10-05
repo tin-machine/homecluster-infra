@@ -122,6 +122,18 @@ def main() -> int:
     require(repair, "rpi5 eGPU target rootfs proc mountpoint を作成", "target rootfs proc mountpoint")
     require(repair, "rpi5 eGPU target rootfs artifact payload mountpoint を作成", "target rootfs artifact mountpoint")
     require(repair, "rpi5 eGPU target rootfs へ artifact payload を bind mount", "target rootfs artifact bind mount")
+    require(repair, "rpi5 eGPU target rootfs へ共有 binpkg を bind mount", "shared binpkg bind mount")
+    require(repair, "test -d /srv/gentoo/binpkgs", "shared binpkg source guard")
+    require(repair, "binpkg target is already mounted", "preexisting binpkg mount guard")
+    require(
+        repair,
+        'target="{{ openwrt_rpi5_egpu_runtime_repair_target_rootfs_resolved }}/srv/gentoo/binpkgs"',
+        "shared binpkg target",
+    )
+    require(repair, "/bin/mount -o bind /srv/gentoo/binpkgs \"$target\"", "shared binpkg source")
+    require(repair, "openwrt_rpi5_egpu_binpkg_bind_mount.rc | default(1) == 0", "owned binpkg mount cleanup guard")
+    require(repair, '/bin/umount -l "$target"', "shared binpkg cleanup command")
+    require(repair, "rpi5 eGPU target rootfs の共有 binpkg bind mount 解除を確認", "binpkg mount cleanup check")
     require(repair, "openwrt_rpi5_egpu_runtime_repair_nvidia_runfile_path_resolved | dirname", "artifact source directory")
     require(repair, "/.homecluster-rpi5-egpu-artifact/", "artifact in-chroot path")
     require_not(
@@ -140,6 +152,7 @@ def main() -> int:
         (
             "rpi5 eGPU target rootfs へ host /dev を recursive bind mount",
             "rpi5 eGPU target rootfs へ host /proc を recursive bind mount",
+            "rpi5 eGPU target rootfs へ共有 binpkg を bind mount",
             "rpi5 eGPU target rootfs へ artifact payload を bind mount",
             "rpi5 eGPU Vulkan packages を target rootfs に導入",
         ),
@@ -150,8 +163,10 @@ def main() -> int:
         (
             "rpi5 eGPU target rootfs の artifact payload bind mount を解除",
             "rpi5 eGPU target rootfs の artifact payload mountpoint を削除",
+            "rpi5 eGPU target rootfs の共有 binpkg bind mount を解除",
             "rpi5 eGPU target rootfs の host /proc bind mount を解除",
             "rpi5 eGPU target rootfs の host /dev bind mount を解除",
+            "rpi5 eGPU target rootfs の共有 binpkg bind mount 解除を確認",
         ),
         "lower-rootfs pseudo-filesystem cleanup order",
     )

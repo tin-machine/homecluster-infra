@@ -11,6 +11,8 @@
       tags: ['always']
     - role: bootstrap_python
       tags: ['never', 'bootstrap']
+    - role: openwrt_dropbear
+      tags: ['never', 'openwrt_dropbear']
 
     - role: openwrt_storage
       tags: ['never', 'openwrt_storage']

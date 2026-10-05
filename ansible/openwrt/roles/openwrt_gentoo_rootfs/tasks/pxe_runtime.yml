@@ -1,8 +1,11 @@
 ---
 - name: 従来の ansible-pull スクリプトを削除
   ansible.builtin.file:
-    path: "{{ openwrt_gentoo_rootfs_dir }}/usr/local/sbin/pxe-ansible-pull.sh"
+    path: "{{ item }}/usr/local/sbin/pxe-ansible-pull.sh"
     state: absent
+  loop: "{{ openwrt_gentoo_pxe_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+  loop_control:
+    label: "{{ item }}"
   when:
     - openwrt_gentoo_enabled | bool
 
@@ -109,10 +112,13 @@
 - name: Slack 通知スクリプトを配置
   ansible.builtin.template:
     src: pxe-slack-notify.sh.j2
-    dest: "{{ openwrt_gentoo_rootfs_dir }}/usr/local/sbin/pxe-slack-notify.sh"
+    dest: "{{ item }}/usr/local/sbin/pxe-slack-notify.sh"
     owner: root
     group: root
     mode: '0755'
+  loop: "{{ openwrt_gentoo_ansible_pull_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+  loop_control:
+    label: "{{ item }}"
   when:
     - openwrt_gentoo_enabled | bool
     - openwrt_gentoo_ansible_pull_enabled | bool
@@ -714,10 +720,13 @@
 - name: k3s staging token publisher スクリプトを配置
   ansible.builtin.template:
     src: pxe-k3s-stg-token.sh.j2
-    dest: "{{ openwrt_gentoo_rootfs_dir }}/usr/local/sbin/pxe-k3s-stg-token.sh"
+    dest: "{{ item }}/usr/local/sbin/pxe-k3s-stg-token.sh"
     owner: root
     group: root
     mode: '0755'
+  loop: "{{ openwrt_gentoo_ansible_pull_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+  loop_control:
+    label: "{{ item }}"
   when:
     - openwrt_gentoo_enabled | bool
     - openwrt_gentoo_ansible_pull_enabled | bool
@@ -729,18 +738,17 @@
 
 - name: k3s staging token publisher systemd unit を配置
   ansible.builtin.template:
-    src: "systemd/{{ item.src }}"
-    dest: "{{ openwrt_gentoo_rootfs_dir }}/etc/systemd/system/{{ item.dest }}"
+    src: "systemd/{{ item.1.src }}"
+    dest: "{{ item.0 }}/etc/systemd/system/{{ item.1.dest }}"
     owner: root
     group: root
     mode: '0644'
-  loop:
-    - src: pxe-k3s-stg-token.service.j2
-      dest: pxe-k3s-stg-token.service
-    - src: pxe-k3s-stg-token.timer.j2
-      dest: pxe-k3s-stg-token.timer
+  loop: "{{ (openwrt_gentoo_ansible_pull_rootfs_dirs | default([openwrt_gentoo_rootfs_dir])) | product([
+    {'src': 'pxe-k3s-stg-token.service.j2', 'dest': 'pxe-k3s-stg-token.service'},
+    {'src': 'pxe-k3s-stg-token.timer.j2', 'dest': 'pxe-k3s-stg-token.timer'}
+  ]) | list }}"
   loop_control:
-    label: "{{ item.dest }}"
+    label: "{{ item.0 }} {{ item.1.dest }}"
   when:
     - openwrt_gentoo_enabled | bool
     - openwrt_gentoo_ansible_pull_enabled | bool
@@ -752,11 +760,14 @@
 
 - name: systemd timers target wants ディレクトリを作成
   ansible.builtin.file:
-    path: "{{ openwrt_gentoo_rootfs_dir }}/etc/systemd/system/timers.target.wants"
+    path: "{{ item }}/etc/systemd/system/timers.target.wants"
     state: directory
     owner: root
     group: root
     mode: '0755'
+  loop: "{{ openwrt_gentoo_ansible_pull_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+  loop_control:
+    label: "{{ item }}"
   when:
     - openwrt_gentoo_enabled | bool
     - openwrt_gentoo_ansible_pull_enabled | bool
@@ -770,10 +781,13 @@
   ansible.builtin.file:
     state: link
     src: "../pxe-k3s-stg-token.timer"
-    dest: "{{ openwrt_gentoo_rootfs_dir }}/etc/systemd/system/timers.target.wants/pxe-k3s-stg-token.timer"
+    dest: "{{ item }}/etc/systemd/system/timers.target.wants/pxe-k3s-stg-token.timer"
     owner: root
     group: root
     force: true
+  loop: "{{ openwrt_gentoo_ansible_pull_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+  loop_control:
+    label: "{{ item }}"
   when:
     - openwrt_gentoo_enabled | bool
     - openwrt_gentoo_ansible_pull_enabled | bool
@@ -820,9 +834,12 @@
 
 - name: PXE rootfs の旧 QNAP fstab entries を削除
   ansible.builtin.lineinfile:
-    path: "{{ openwrt_gentoo_rootfs_dir }}/etc/fstab"
+    path: "{{ item }}/etc/fstab"
     regexp: "{{ openwrt_gentoo_legacy_nfs_fstab_regexp }}"
     state: absent
+  loop: "{{ openwrt_gentoo_pxe_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+  loop_control:
+    label: "{{ item }}"
   when:
     - openwrt_gentoo_enabled | bool
   tags:
