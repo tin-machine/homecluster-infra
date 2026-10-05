@@ -110,7 +110,23 @@ print_section "redaction pattern scan"
 redaction_pattern='10\.10\.|10\.11\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|f[c-d][0-9a-fA-F]{2}(:[0-9a-fA-F]{1,4}){2,7}::?/[0-9]{1,3}|home-router|rpi[0-9]-[0-9]{2}|k3s-prd|backup-disk|tin-machine\.io|github\.com/tin-machine|desktop-lab|PRIVATE KEY|BEGIN [A-Z ]*PRIVATE KEY|xox[baprs]-[A-Za-z0-9_-]{12,}|xapp-[A-Za-z0-9_-]{12,}|gh[pousr]_[A-Za-z0-9_]{20,}|k3s_iscsi_storage|terraform_auto_apply|common/nfs_mount|softether'
 # These complete RFC1918 aggregate CIDRs are public standards constants used to
 # express deny boundaries. Site-specific private addresses remain redacted.
-public_safe_network_literal_pattern='"(172\.16\.0\.0/12|192\.168\.0\.0/16)"'
+# Never exclude an entire matching line. Replace only the public standards
+# CIDR literal so another private address on the same line is still scanned.
+public_safe_network_literal_filter='s/"(172\.16\.0\.0\/12|192\.168\.0\.0\/16)"/"<public-safe-rfc1918-cidr>"/g'
+
+redaction_cidr_regression_input='fixture.tf:1:allowed = "192.168.0.0/16"
+fixture.tf:2:allowed = "192.168.0.0/16" leaked = "192.168.23.42"'
+redaction_cidr_regression_matches="$(
+  printf '%s\n' "${redaction_cidr_regression_input}" |
+    sed -E "${public_safe_network_literal_filter}" |
+    grep -E "${redaction_pattern}" || true
+)"
+if grep -q '^fixture.tf:1:' <<<"${redaction_cidr_regression_matches}" ||
+   ! grep -q '^fixture.tf:2:.*192\.168\.23\.42' <<<"${redaction_cidr_regression_matches}"; then
+  print_section "redaction CIDR exception regression failed"
+  printf '%s\n' "${redaction_cidr_regression_matches}"
+  fail=1
+fi
 redaction_matches="$(
   redaction_files=()
   for path in "${scan_files[@]}"; do
@@ -120,8 +136,9 @@ redaction_matches="$(
   done
   if [ "${#redaction_files[@]}" -gt 0 ]; then
     grep -nIE --binary-files=without-match "${redaction_pattern}" "${redaction_files[@]}" |
-      grep -vE 'github\.com/tin-machine/homecluster-infra(/|$)' |
-      grep -vE "${public_safe_network_literal_pattern}" || true
+      sed -E "${public_safe_network_literal_filter}" |
+      grep -E "${redaction_pattern}" |
+      grep -vE 'github\.com/tin-machine/homecluster-infra(/|$)' || true
   fi
 )"
 report_matches "redaction pattern matches found" "${redaction_matches}"
@@ -181,7 +198,8 @@ terraform_values_redaction_matches="$(
   done
   if [ "${#terraform_values_redaction_files[@]}" -gt 0 ]; then
     grep -nIE --binary-files=without-match "${terraform_values_redaction_pattern}" "${terraform_values_redaction_files[@]}" |
-      grep -vE "${public_safe_network_literal_pattern}" || true
+      sed -E "${public_safe_network_literal_filter}" |
+      grep -E "${terraform_values_redaction_pattern}" || true
   fi
 )"
 report_matches "terraform or helm values redaction matches found" "${terraform_values_redaction_matches}"
