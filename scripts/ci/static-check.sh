@@ -108,6 +108,9 @@ print_section "redaction pattern scan"
 # Product names are not secrets. Keep this scan focused on site identifiers and token-like values
 # so public-safe PicoClaw and Codex CLI implementation can remain covered by the same CI boundary.
 redaction_pattern='10\.10\.|10\.11\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|f[c-d][0-9a-fA-F]{2}(:[0-9a-fA-F]{1,4}){2,7}::?/[0-9]{1,3}|home-router|rpi[0-9]-[0-9]{2}|k3s-prd|backup-disk|tin-machine\.io|github\.com/tin-machine|desktop-lab|PRIVATE KEY|BEGIN [A-Z ]*PRIVATE KEY|xox[baprs]-[A-Za-z0-9_-]{12,}|xapp-[A-Za-z0-9_-]{12,}|gh[pousr]_[A-Za-z0-9_]{20,}|k3s_iscsi_storage|terraform_auto_apply|common/nfs_mount|softether'
+# These complete RFC1918 aggregate CIDRs are public standards constants used to
+# express deny boundaries. Site-specific private addresses remain redacted.
+public_safe_network_literal_pattern='"(172\.16\.0\.0/12|192\.168\.0\.0/16)"'
 redaction_matches="$(
   redaction_files=()
   for path in "${scan_files[@]}"; do
@@ -118,7 +121,7 @@ redaction_matches="$(
   if [ "${#redaction_files[@]}" -gt 0 ]; then
     grep -nIE --binary-files=without-match "${redaction_pattern}" "${redaction_files[@]}" |
       grep -vE 'github\.com/tin-machine/homecluster-infra(/|$)' |
-      grep -vE '"(172\.16\.0\.0/12|192\.168\.0\.0/16)"' || true
+      grep -vE "${public_safe_network_literal_pattern}" || true
   fi
 )"
 report_matches "redaction pattern matches found" "${redaction_matches}"
@@ -178,7 +181,7 @@ terraform_values_redaction_matches="$(
   done
   if [ "${#terraform_values_redaction_files[@]}" -gt 0 ]; then
     grep -nIE --binary-files=without-match "${terraform_values_redaction_pattern}" "${terraform_values_redaction_files[@]}" |
-      grep -vE '"(172\.16\.0\.0/12|192\.168\.0\.0/16)"' || true
+      grep -vE "${public_safe_network_literal_pattern}" || true
   fi
 )"
 report_matches "terraform or helm values redaction matches found" "${terraform_values_redaction_matches}"
