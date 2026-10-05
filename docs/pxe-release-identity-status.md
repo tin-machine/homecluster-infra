@@ -22,13 +22,13 @@ standard PXE release identity候補が再利用可能かを一度だけread-only
 candidateは次の両方で未使用である必要がある。
 
 1. generated inventoryの `openwrt` groupで、stagingの
-   `openwrt_gentoo_release_bundle_stage_dates.stg` と一致しないこと。
+    `openwrt_gentoo_release_bundle_stage_dates.stg` と一致しないこと。
 2. OpenWrt側で次のimmutable release pathが1つも存在しないこと。
-   - `/srv/gentoo/releases/<candidate>.json`
-   - `/srv/gentoo/<candidate>-rpi4`
-   - `/srv/gentoo/<candidate>-rpi5`
-   - `/srv/gentoo/tftp-root/dates/<candidate>-rpi4`
-   - `/srv/gentoo/tftp-root/dates/<candidate>-rpi5`
+    - `/srv/gentoo/releases/<candidate>.json`
+    - `/srv/gentoo/<candidate>-rpi4`
+    - `/srv/gentoo/<candidate>-rpi5`
+    - `/srv/gentoo/tftp-root/dates/<candidate>-rpi4`
+    - `/srv/gentoo/tftp-root/dates/<candidate>-rpi5`
 
 manifestがまだ作られていなくても、partial rootfs / TFTP materializationが存在すれば
 `blocked / identity_in_use` とする。既存pathを新しいgenerationで再利用しない。
