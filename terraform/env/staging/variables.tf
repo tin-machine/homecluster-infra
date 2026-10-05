@@ -143,3 +143,25 @@ variable "registry_port" {
   description = "Registry TCP port"
   default     = 5000
 }
+
+variable "github_actions_runner_enabled" {
+  type        = bool
+  description = "Whether to deploy the staging GitHub Actions runner scale set"
+  default     = false
+}
+
+variable "github_actions_runner_config_url" {
+  type        = string
+  sensitive   = true
+  description = "Repository or organization URL used to register the staging runner scale set"
+  default     = null
+  nullable    = true
+}
+
+variable "github_actions_runner_secret_name" {
+  type        = string
+  sensitive   = true
+  description = "Name of an existing Kubernetes Secret in the runner namespace containing ARC GitHub authentication"
+  default     = null
+  nullable    = true
+}
