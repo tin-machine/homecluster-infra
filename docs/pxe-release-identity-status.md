@@ -19,7 +19,7 @@ standard PXE release identity候補が再利用可能かを一度だけread-only
 
 ## 判定対象
 
-candidateは次の両方で未使用である必要がある。
+candidateは次の両方で未使用であり、現行staging日付より新しい必要がある。
 
 1. generated inventoryの `openwrt` groupで、stagingの
     `openwrt_gentoo_release_bundle_stage_dates.stg` と一致しないこと。
