@@ -14,7 +14,8 @@ variable "loki_objectstore_access_key" {
   type        = string
   sensitive   = true
   description = "Access key ID used by Loki to access MinIO (defaults to minio_root_user when null)"
-  default     = ""
+  default     = null
+  nullable    = true
 }
 
 variable "loki_objectstore_secret_key" {
@@ -160,6 +161,5 @@ variable "github_actions_runner_secret_name" {
   type        = string
   sensitive   = true
   description = "Name of an existing Kubernetes Secret in the runner namespace containing ARC GitHub authentication"
-  default     = null
-  nullable    = true
+  default     = ""
 }
