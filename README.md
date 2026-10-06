@@ -107,6 +107,8 @@ site 固有 Terraform variable は documentation-value default を持ちませ�
 - `terraform/env/common-addons`
 - `terraform/env/common-certificates`
 - `terraform/cloudflare/dns`
+- `terraform/cloudflare/email-routing`
+- `terraform/cloudflare/worldweaver-hosting`
 - `terraform/env/staging`
 - `terraform/env/production/README.md`
 
