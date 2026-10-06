@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import errno
 import ipaddress
 import json
 import platform
@@ -56,22 +57,35 @@ def _resolved_private_addresses(host: str, port: int) -> list[str]:
     return addresses
 
 
+def _classify_private_connect_error(error: OSError) -> str:
+    # The current k3s NetworkPolicy implementation is expected to drop denied
+    # traffic, which is observed as a connection timeout. Active refusal or
+    # routing errors prove neither policy enforcement nor endpoint health.
+    if isinstance(error, TimeoutError) or error.errno == errno.ETIMEDOUT:
+        return "blocked"
+    return "indeterminate"
+
+
 def _private_tcp_is_blocked(host: str, port: int, timeout: float) -> None:
     addresses = _resolved_private_addresses(host, port)
-    failures = 0
+    blocked = 0
     for address in addresses:
         family = socket.AF_INET6 if ":" in address else socket.AF_INET
         sock = socket.socket(family, socket.SOCK_STREAM)
         sock.settimeout(timeout)
         try:
             sock.connect((address, port))
-        except OSError:
-            failures += 1
+        except OSError as exc:
+            if _classify_private_connect_error(exc) != "blocked":
+                raise RuntimeError(
+                    f"private endpoint probe is indeterminate: {type(exc).__name__}"
+                ) from exc
+            blocked += 1
         else:
             raise RuntimeError("private endpoint is reachable from CI runner")
         finally:
             sock.close()
-    if failures != len(addresses):
+    if blocked != len(addresses):
         raise RuntimeError("private endpoint deny result is incomplete")
 
 
@@ -118,6 +132,26 @@ def self_test() -> None:
     for value in private_examples:
         ip = ipaddress.ip_address(value)
         assert ip.is_private or ip.is_loopback or ip.is_link_local
+
+    assert _classify_private_connect_error(TimeoutError()) == "blocked"
+    assert (
+        _classify_private_connect_error(
+            OSError(errno.ETIMEDOUT, "fixture connection timed out")
+        )
+        == "blocked"
+    )
+    assert (
+        _classify_private_connect_error(
+            ConnectionRefusedError(errno.ECONNREFUSED, "fixture connection refused")
+        )
+        == "indeterminate"
+    )
+    assert (
+        _classify_private_connect_error(
+            OSError(errno.EHOSTUNREACH, "fixture host unreachable")
+        )
+        == "indeterminate"
+    )
 
 
 def main() -> int:
