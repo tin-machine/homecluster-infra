@@ -4,11 +4,13 @@ Cloudflare の shared infrastructure を用途別の独立 Terraform root に分
 
 この directory 自体は Terraform root ではありません。子 directory ごとに provider、state、credential、plan / apply lifecycle を分離します。
 
-初期 root:
+現在の root:
 
-- `dns/`: zone の DNS record。
+- `dns/`: zone の generic DNS record。
+- `email-routing/`: Email Routing DNS / rule / catch-all lifecycle。
+- `worldweaver-hosting/`: WorldWeaver の Worker Custom Domain と既存 R2 bucket の Custom Domain association。Worker release bytes と R2 object bytes は管理しない。
 
-将来 Email Routing、Tunnel / Access、WAF / cache などを Terraform 管理へ追加する場合も、Cloudflare という product 名だけを理由に同じ state へまとめません。次が十分に近い resource だけを同じ root に置きます。
+将来 Tunnel / Access、WAF / cache などを Terraform 管理へ追加する場合も、Cloudflare という product 名だけを理由に同じ state へまとめません。次が十分に近い resource だけを同じ root に置きます。
 
 - operator / ownership
 - credential scope
@@ -16,7 +18,9 @@ Cloudflare の shared infrastructure を用途別の独立 Terraform root に分
 - rollback unit
 - failure / blast radius
 
-zone-wide / shared infrastructure はこの repository が reusable implementation を所有します。一方、実 zone ID、record content、credential、state は private boundary に置きます。特定 application だけが使う R2、D1、Vectorize、Queue などの durable resource は application repository 側を ownership 候補とします。application artifact や Worker code の deploy lifecycle は Terraform state と機械的に結合しません。
+zone-wide / shared infrastructure はこの repository が reusable implementation を所有します。一方、実 zone ID、record content、credential、state は private boundary に置きます。特定 application だけが使う R2、D1、Vectorize、Queue などの durable resource 本体は application repository 側を ownership 候補とします。application artifact や Worker code の deploy lifecycle は Terraform state と機械的に結合しません。
+
+WorldWeaver ではこの境界をさらに分離し、Worker script / Static Assets release と R2 object bytes は `worldweaver` 側、public hostname を long-lived Cloudflare resource へ結び付ける Worker / R2 Custom Domain association は `worldweaver-hosting/` root が所有します。Custom Domain が生成・管理する DNS record を generic `dns/` root で二重所有しません。
 
 ## GitHub Actions と state
 
