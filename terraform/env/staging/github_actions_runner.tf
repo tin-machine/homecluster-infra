@@ -1,3 +1,9 @@
+locals {
+  # ARC creates AutoscalingListener resources and listener Pods in the
+  # controller namespace, not in the runner scale-set namespace.
+  github_actions_runner_controller_namespace = "arc-systems"
+}
+
 resource "kubernetes_namespace_v1" "github_actions_runners" {
   count = var.github_actions_runner_bootstrap_enabled ? 1 : 0
 
@@ -95,6 +101,13 @@ resource "helm_release" "github_actions_runner" {
     minRunners         = 0
     maxRunners         = 2
     runnerScaleSetName = "homecluster-stg-ci"
+    resourceMeta = {
+      autoscalingListener = {
+        labels = {
+          "homelab.example.com/metrics-target" = "arc-stg-ci"
+        }
+      }
+    }
     template = {
       metadata = {
         labels = {
@@ -149,4 +162,39 @@ resource "helm_release" "github_actions_runner" {
       error_message = "github_actions_runner_secret_name must be set when github_actions_runner_enabled is true."
     }
   }
+}
+
+resource "kubernetes_service_v1" "github_actions_runner_listener_metrics" {
+  count = var.github_actions_runner_enabled ? 1 : 0
+
+  metadata {
+    name      = "homecluster-stg-ci-listener-metrics"
+    namespace = local.github_actions_runner_controller_namespace
+    annotations = {
+      "prometheus.io/scrape" = "true"
+      "prometheus.io/path"   = "/metrics"
+    }
+    labels = {
+      "app.kubernetes.io/name"      = "github-actions-runner"
+      "app.kubernetes.io/component" = "metrics"
+      "app.kubernetes.io/part-of"   = "ci-stack"
+      environment                   = "staging"
+    }
+  }
+
+  spec {
+    selector = {
+      "app.kubernetes.io/component"        = "runner-scale-set-listener"
+      "homelab.example.com/metrics-target" = "arc-stg-ci"
+    }
+
+    port {
+      name        = "metrics"
+      port        = 8080
+      target_port = 8080
+      protocol    = "TCP"
+    }
+  }
+
+  depends_on = [helm_release.github_actions_runner]
 }
