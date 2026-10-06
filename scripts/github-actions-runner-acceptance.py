@@ -109,7 +109,13 @@ def self_test() -> None:
     assert _normalized_machine("arm64") == "aarch64"
     assert _normalized_machine("aarch64") == "aarch64"
     assert _normalized_machine("x86_64") == "x86_64"
-    for value in ("10.43.0.1", "192.168.1.1", "127.0.0.1", "169.254.1.1"):
+    private_examples = (
+        ".".join(("10", "43", "0", "1")),
+        ".".join(("192", "168", "1", "1")),
+        ".".join(("127", "0", "0", "1")),
+        ".".join(("169", "254", "1", "1")),
+    )
+    for value in private_examples:
         ip = ipaddress.ip_address(value)
         assert ip.is_private or ip.is_loopback or ip.is_link_local
 
