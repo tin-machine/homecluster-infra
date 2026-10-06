@@ -144,6 +144,13 @@ variable "registry_port" {
   default     = 5000
 }
 
+
+variable "github_actions_runner_bootstrap_enabled" {
+  type        = bool
+  description = "Whether to create the staging ARC runner namespace and CI network boundary before credential bootstrap"
+  default     = false
+}
+
 variable "github_actions_runner_enabled" {
   type        = bool
   description = "Whether to deploy the staging GitHub Actions runner scale set"
