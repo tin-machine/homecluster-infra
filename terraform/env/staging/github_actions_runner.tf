@@ -1,5 +1,5 @@
 resource "kubernetes_namespace_v1" "github_actions_runners" {
-  count = var.github_actions_runner_enabled ? 1 : 0
+  count = var.github_actions_runner_bootstrap_enabled ? 1 : 0
 
   metadata {
     name = "arc-runners-stg"
@@ -13,7 +13,7 @@ resource "kubernetes_namespace_v1" "github_actions_runners" {
 }
 
 resource "kubernetes_network_policy_v1" "github_actions_runner_ci_boundary" {
-  count = var.github_actions_runner_enabled ? 1 : 0
+  count = var.github_actions_runner_bootstrap_enabled ? 1 : 0
 
   metadata {
     name      = "github-actions-runner-ci-boundary"
@@ -134,6 +134,11 @@ resource "helm_release" "github_actions_runner" {
   ]
 
   lifecycle {
+    precondition {
+      condition     = var.github_actions_runner_bootstrap_enabled
+      error_message = "github_actions_runner_bootstrap_enabled must be true before github_actions_runner_enabled can be enabled."
+    }
+
     precondition {
       condition     = try(length(trimspace(var.github_actions_runner_config_url)) > 0, false)
       error_message = "github_actions_runner_config_url must be set when github_actions_runner_enabled is true."
