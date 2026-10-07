@@ -51,17 +51,39 @@
           }}
       no_log: true
 
-    - name: Require all production role variable files
+    - name: Keep only common and base group variables in the production rootfs
+      ansible.builtin.set_fact:
+        openwrt_gentoo_ansible_pull_group_vars_effective:
+          all: "{{ openwrt_pxe_client_catalog.ansible_pull_group_vars.get('all', {}) }}"
+          role_base: "{{ openwrt_pxe_client_catalog.ansible_pull_group_vars.get('role_base', {}) }}"
+      no_log: true
+
+    - name: Require production storage and server variable files
       ansible.builtin.assert:
         that:
-          - openwrt_gentoo_ansible_pull_client_vars_effective | map(attribute='role') | list | sort == openwrt_gentoo_ansible_pull_roles | sort
-        fail_msg: The production rootfs needs generated variables for all three roles.
+          - openwrt_gentoo_ansible_pull_client_vars_effective | map(attribute='role') | list | sort == ['k3s_prd_server', 'k3s_prd_storage']
+        fail_msg: The production rootfs needs generated storage and server variables.
       no_log: true
 
     - name: Configure the production rootfs boot and ansible-pull units
       ansible.builtin.include_role:
         name: openwrt_gentoo_rootfs
         tasks_from: pxe_runtime
+
+    - name: Remove inherited staging boot links and token publisher from the clone
+      ansible.builtin.file:
+        path: "{{ pxe_prod_rootfs_dir }}/{{ item }}"
+        state: absent
+      loop:
+        - etc/systemd/system/multi-user.target.wants/k3s.service
+        - etc/systemd/system/multi-user.target.wants/k3s-agent.service
+        - etc/systemd/system/multi-user.target.wants/ansible-pull@k3s_stg_storage.service
+        - etc/systemd/system/multi-user.target.wants/ansible-pull@k3s_stg_server.service
+        - etc/systemd/system/multi-user.target.wants/ansible-pull@k3s_stg_agent.service
+        - etc/systemd/system/timers.target.wants/pxe-k3s-stg-token.timer
+        - etc/systemd/system/pxe-k3s-stg-token.timer
+        - etc/systemd/system/pxe-k3s-stg-token.service
+        - usr/local/sbin/pxe-k3s-stg-token.sh
 
     - name: Require the production base unit to start the boot chain
       ansible.builtin.stat:
