@@ -717,6 +717,33 @@ def _build_generated_client(
         )
         role_extra_vars["k3s_stg_storage"].update(_build_k3s_iscsi_session_vars(hv))
 
+    if "k3s_prd_server" in role_names:
+        role_extra_vars["k3s_prd_server"] = _build_k3s_stg_server_vars(
+            hostname,
+            hv,
+            cfg,
+            overlay_id,
+        )
+        role_extra_vars["k3s_prd_server"].update(
+            {
+                "k3s_build_cluster": False,
+                "k3s_control_node": True,
+                "k3s_flannel_backend": hv.get("k3s_flannel_backend", "vxlan"),
+                "k3s_flannel_mtu": hv.get("k3s_flannel_mtu", 1400),
+            }
+        )
+        if hv.get("k3s_release_version"):
+            role_extra_vars["k3s_prd_server"]["k3s_release_version"] = hv[
+                "k3s_release_version"
+            ]
+    if "k3s_prd_storage" in role_names:
+        role_extra_vars["k3s_prd_storage"] = _build_k3s_local_storage_vars(
+            hv,
+            default_ephemeral_agent_data=False,
+            default_node_password_sync_enabled=False,
+        )
+        role_extra_vars["k3s_prd_storage"].update(_build_k3s_iscsi_session_vars(hv))
+
 
     for role_name, role_vars in extra_vars_cfg.items():
         role_name_text = _clean_string(role_name)
