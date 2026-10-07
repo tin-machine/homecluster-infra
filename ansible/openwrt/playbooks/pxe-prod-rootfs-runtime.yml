@@ -1,0 +1,77 @@
+---
+# Configure only an already cloned production rootfs. TFTP selectors stay unchanged.
+- name: Configure a production PXE rootfs runtime
+  hosts: openwrt
+  gather_facts: false
+  become: false
+  vars:
+    pxe_prod_rootfs_dir: "/srv/gentoo/{{ pxe_prod_release }}/nfs"
+    openwrt_gentoo_pxe_rootfs_dirs:
+      - "{{ pxe_prod_rootfs_dir }}"
+    openwrt_gentoo_rootfs_dir: "{{ pxe_prod_rootfs_dir }}"
+    openwrt_gentoo_homecluster_unit_chain_start_enabled: true
+    openwrt_gentoo_ansible_pull_roles: "{{ hostvars[pxe_prod_host_name].openwrt_pxe_client.roles }}"
+
+  pre_tasks:
+    - name: Require one existing production release and one production host
+      ansible.builtin.assert:
+        that:
+          - pxe_prod_release | default('') is match('^[0-9]{8}-prod-rpi5$')
+          - pxe_prod_host_name | default('') in groups['all']
+          - hostvars[pxe_prod_host_name].openwrt_pxe_client.stage == 'prod'
+          - hostvars[pxe_prod_host_name].openwrt_pxe_client.rootfs_release == pxe_prod_release
+          - openwrt_gentoo_ansible_pull_roles == ['base', 'k3s_prd_storage', 'k3s_prd_server']
+        fail_msg: The production host and release must match an ordered base/storage/server chain.
+      no_log: true
+
+    - name: Verify the production rootfs is a real directory
+      ansible.builtin.stat:
+        path: "{{ pxe_prod_rootfs_dir }}"
+        follow: false
+      register: pxe_prod_rootfs
+
+    - name: Refuse a missing or linked rootfs
+      ansible.builtin.assert:
+        that:
+          - pxe_prod_rootfs.stat.isdir | default(false)
+          - not (pxe_prod_rootfs.stat.islnk | default(false))
+
+  tasks:
+    - name: Build the current inventory-backed PXE client catalog
+      ansible.builtin.include_role:
+        name: openwrt_pxe_client_catalog
+
+    - name: Keep only the requested production host client variables
+      ansible.builtin.set_fact:
+        openwrt_gentoo_ansible_pull_client_vars_effective: >-
+          {{
+            openwrt_pxe_client_catalog.ansible_pull_client_vars
+            | selectattr('overlay_id', 'equalto', pxe_prod_host_name)
+            | list
+          }}
+      no_log: true
+
+    - name: Require all production role variable files
+      ansible.builtin.assert:
+        that:
+          - openwrt_gentoo_ansible_pull_client_vars_effective | map(attribute='role') | list | sort == openwrt_gentoo_ansible_pull_roles | sort
+        fail_msg: The production rootfs needs generated variables for all three roles.
+      no_log: true
+
+    - name: Configure the production rootfs boot and ansible-pull units
+      ansible.builtin.include_role:
+        name: openwrt_gentoo_rootfs
+        tasks_from: pxe_runtime
+
+    - name: Require the production base unit to start the boot chain
+      ansible.builtin.stat:
+        path: "{{ pxe_prod_rootfs_dir }}/etc/systemd/system/multi-user.target.wants/homecluster-base.service"
+      register: pxe_prod_boot_unit
+      when: not ansible_check_mode
+
+    - name: Verify the production boot entrypoint
+      ansible.builtin.assert:
+        that:
+          - pxe_prod_boot_unit.stat.islnk | default(false)
+        fail_msg: The production rootfs did not enable its base unit.
+      when: not ansible_check_mode

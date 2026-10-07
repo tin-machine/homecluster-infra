@@ -404,3 +404,193 @@
         and ((k3s_registration_address | default('') | string | length) > 0)
         and ((k3s_control_token | default('') | string | length) > 0)
       }}
+
+- name: k3s production base
+  hosts: "env_prd:&role_base"
+  gather_facts: true
+  tags:
+    - base
+    - prd_base
+  roles:
+    - common/base
+    - common/change_make_conf
+    - common/zram_swap
+    - common/run_tmpfs_resize
+    - common/wait_network_up
+    - common/resolver
+    - common/cli_tools
+    - common/ntp
+    - common/daemon
+
+- name: k3s production iSCSI storage
+  hosts: "env_prd:&role_k3s_prd_storage"
+  gather_facts: true
+  tags:
+    - k3s_prd_storage
+  pre_tasks:
+    - name: Require the production storage identity and a fresh target
+      ansible.builtin.assert:
+        that:
+          - stage | default('') == 'prod'
+          - k3s_iscsi_session_enabled | default(false) | bool
+          - k3s_iscsi_session_device_path | default('') is match('^/dev/disk/by-path/ip-[A-Za-z0-9.:_-]+-iscsi-[A-Za-z0-9.:_-]+-lun-1$')
+          - k3s_local_storage_enabled | default(false) | bool
+          - k3s_local_storage_device | default('') == k3s_iscsi_session_device_path ~ '-part1'
+          - not (k3s_local_storage_force_format | default(false) | bool)
+          - not (k3s_local_storage_ephemeral_agent_data | default(false) | bool)
+        fail_msg: Production storage requires one explicit iSCSI disk and its first partition.
+
+  tasks:
+    - name: Establish the production iSCSI session
+      ansible.builtin.include_role:
+        name: k3s_iscsi_session
+
+    - name: Check whether the production data partition exists
+      ansible.builtin.command:
+        argv:
+          - test
+          - -b
+          - "{{ k3s_local_storage_device }}"
+      register: k3s_prd_partition_exists
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    - name: Check the raw disk for a previous filesystem or partition table
+      ansible.builtin.command:
+        argv:
+          - blkid
+          - -p
+          - "{{ k3s_iscsi_session_device_path }}"
+      register: k3s_prd_raw_signature
+      changed_when: false
+      failed_when: false
+      check_mode: false
+      when: k3s_prd_partition_exists.rc != 0
+
+    - name: Refuse to partition a disk with an existing signature
+      ansible.builtin.assert:
+        that:
+          - k3s_prd_raw_signature.rc == 2
+        fail_msg: Production iSCSI disk is not blank; partitioning requires separate recovery.
+      when: k3s_prd_partition_exists.rc != 0
+
+    - name: Create one GPT data partition on the blank production target
+      become: true
+      ansible.builtin.shell: >-
+        printf ',,L\n' |
+        sfdisk --label gpt --wipe never {{ k3s_iscsi_session_device_path | quote }}
+      args:
+        executable: /bin/sh
+      register: k3s_prd_partition_created
+      when:
+        - not ansible_check_mode
+        - k3s_prd_partition_exists.rc != 0
+
+    - name: Wait for the production data partition device
+      become: true
+      ansible.builtin.command: udevadm settle --timeout=30
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Require the production data partition device
+      ansible.builtin.command:
+        argv:
+          - test
+          - -b
+          - "{{ k3s_local_storage_device }}"
+      changed_when: false
+      check_mode: false
+      when: not ansible_check_mode
+
+    - name: Format only a partition created during this run and mount k3s data
+      ansible.builtin.include_role:
+        name: k3s_local_storage
+      vars:
+        k3s_local_storage_allow_format: "{{ k3s_prd_partition_created.changed | default(false) }}"
+        k3s_local_storage_wipe_signatures: false
+      when: not ansible_check_mode
+
+- name: k3s production server
+  hosts: "env_prd:&role_k3s_prd_server"
+  gather_facts: true
+  tags:
+    - k3s_prd
+    - k3s_prd_server
+  pre_tasks:
+    - name: Require one production server with explicit release and mounted storage
+      ansible.builtin.assert:
+        that:
+          - stage | default('') == 'prod'
+          - groups['k3s_prd_server'] | default([]) | length == 1
+          - k3s_build_cluster is defined
+          - not (k3s_build_cluster | bool)
+          - k3s_control_node | default(false) | bool
+          - k3s_release_version | default('') | length > 0
+          - k3s_server is mapping
+          - k3s_server['node-ip'] | default('') | length > 0
+          - k3s_server['node-name'] | default('') | length > 0
+        fail_msg: Production server requires one explicit host, version, and control role.
+
+    - name: Require the production k3s data mount
+      ansible.builtin.command: findmnt --mountpoint /var/lib/rancher/k3s
+      changed_when: false
+      check_mode: false
+
+    - name: Verify memory cgroup support
+      ansible.builtin.command: grep -w memory /sys/fs/cgroup/cgroup.controllers
+      changed_when: false
+      check_mode: false
+
+    - name: Load the k3s network modules
+      become: true
+      ansible.builtin.command: "modprobe {{ item }}"
+      changed_when: false
+      loop:
+        - br_netfilter
+        - overlay
+        - vxlan
+
+    - name: Install production k3s sysctl settings
+      become: true
+      ansible.builtin.copy:
+        dest: /etc/sysctl.d/90-k3s-prod.conf
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          net.ipv4.ip_forward = 1
+          net.bridge.bridge-nf-call-iptables = 1
+          net.bridge.bridge-nf-call-ip6tables = 1
+
+    - name: Apply production k3s sysctl settings
+      become: true
+      ansible.builtin.command: sysctl -p /etc/sysctl.d/90-k3s-prod.conf
+      changed_when: false
+
+  roles:
+    - k3s_log_limits
+    - k3s_iptables_nft
+    - role: xanmanning.k3s
+      vars:
+        k3s_state: downloaded
+        k3s_service_name: k3s
+        k3s_defer_service_restart: true
+    - role: k3s_networking
+      vars:
+        k3s_control_node: true
+        k3s_service_name: k3s
+        k3s_defer_service_restart: true
+        k3s_wifi_manage: false
+    - role: k3s_server_install_config
+      vars:
+        k3s_server_install_config_enabled: true
+        k3s_server_install_config_release_version: "{{ k3s_release_version }}"
+        k3s_server_install_config_control_token: "{{ k3s_control_token | default('', true) }}"
+        k3s_server_install_config_service_name: k3s
+    - role: k3s_converge_check
+      vars:
+        k3s_converge_check_node_role: server
+        k3s_converge_check_service_name: k3s
+        k3s_converge_check_mountpoint: /var/lib/rancher/k3s
+        k3s_converge_check_mode: start
