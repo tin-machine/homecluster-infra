@@ -18,6 +18,14 @@ has_role() {
 }
 
 select_k3s_role() {
+  if [ "${STAGE:-}" = "prod" ]; then
+    if has_role "k3s_prd_server"; then
+      printf '%s\n' "k3s_prd_server"
+      return 0
+    fi
+    echo "skip homecluster stage k3s-converge: no k3s production role in ROLES=${ROLES:-}" >&2
+    return 2
+  fi
   if has_role "k3s_stg_server"; then
     printf '%s\n' "k3s_stg_server"
     return 0
@@ -36,7 +44,11 @@ role_for_stage() {
       printf '%s\n' "base"
       ;;
     storage)
-      printf '%s\n' "k3s_stg_storage"
+      if [ "${STAGE:-}" = "prod" ]; then
+        printf '%s\n' "k3s_prd_storage"
+      else
+        printf '%s\n' "k3s_stg_storage"
+      fi
       ;;
     k3s|k3s-converge)
       select_k3s_role
