@@ -68,7 +68,7 @@ resource "helm_release" "loki" {
   name             = local.loki_release
   repository       = "https://grafana.github.io/helm-charts"
   chart            = "loki"
-  version          = "5.45.0"
+  version          = "5.48.0"
   namespace        = kubernetes_namespace.observability.metadata[0].name
   create_namespace = false
 
