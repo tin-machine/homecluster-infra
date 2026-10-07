@@ -1,0 +1,62 @@
+---
+# Add one production PXE host to an existing, paired Pi release. The release
+# artifacts and shared rootfs are deliberately left untouched.
+- name: Add one production PXE host directory
+  hosts: openwrt
+  gather_facts: false
+  become: false
+  pre_tasks:
+    - name: Discover inventory PXE clients
+      ansible.builtin.include_role:
+        name: openwrt_pxe_client_catalog
+
+    - name: Select the requested PXE host
+      ansible.builtin.set_fact:
+        pxe_prod_bootstrap_matches: >-
+          {{ openwrt_pxe_client_catalog.pxe_hosts
+             | selectattr('name', 'equalto', pxe_prod_bootstrap_host | default(''))
+             | list }}
+      no_log: true
+
+    - name: Refuse an ambiguous or non-production target
+      ansible.builtin.assert:
+        that:
+          - pxe_prod_bootstrap_host | default('') | length > 0
+          - pxe_prod_bootstrap_matches | length == 1
+          - pxe_prod_bootstrap_matches[0].tftp_stage | default(pxe_prod_bootstrap_matches[0].stage | default('')) == 'prod'
+          - pxe_prod_bootstrap_matches[0].board_hash | default('') is match('^[0-9a-fA-F]{8}$')
+          - pxe_prod_bootstrap_matches[0].tftp_release | default('') is match('^[0-9]{8}-rpi5$')
+          - pxe_prod_bootstrap_matches[0].rootfs_release | default('') == pxe_prod_bootstrap_matches[0].tftp_release | default('')
+          - openwrt_gentoo_tftp_hosts_mode | default('symlink') == 'directory'
+        fail_msg: >-
+          Select exactly one prod host with an eight-digit board hash,
+          paired explicit Pi 5 releases, and directory-mode TFTP hosts.
+      no_log: true
+
+    - name: Check the selected release artifacts
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - "/srv/gentoo/tftp-root/dates/{{ pxe_prod_bootstrap_matches[0].tftp_release }}"
+        - "/srv/gentoo/{{ pxe_prod_bootstrap_matches[0].rootfs_release }}/nfs"
+      register: pxe_prod_bootstrap_release_paths
+      no_log: true
+
+    - name: Require an existing paired release
+      ansible.builtin.assert:
+        that:
+          - pxe_prod_bootstrap_release_paths.results | length == 2
+          - pxe_prod_bootstrap_release_paths.results | map(attribute='stat.isdir') | select('equalto', true) | list | length == 2
+        fail_msg: The selected TFTP and NFS rootfs release directories must already exist.
+      no_log: true
+
+    - name: Restrict TFTP host tasks to the selected client
+      ansible.builtin.set_fact:
+        openwrt_pxe_hosts_effective: "{{ pxe_prod_bootstrap_matches }}"
+      no_log: true
+
+  tasks:
+    - name: Create the selected host TFTP files
+      ansible.builtin.include_role:
+        name: openwrt_gentoo_rootfs
+        tasks_from: tftp_hosts
