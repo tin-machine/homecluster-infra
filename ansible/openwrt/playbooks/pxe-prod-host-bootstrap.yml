@@ -25,7 +25,7 @@
           - pxe_prod_bootstrap_matches | length == 1
           - pxe_prod_bootstrap_matches[0].tftp_stage | default(pxe_prod_bootstrap_matches[0].stage | default('')) == 'prod'
           - pxe_prod_bootstrap_matches[0].board_hash | default('') is match('^[0-9a-fA-F]{8}$')
-          - pxe_prod_bootstrap_matches[0].tftp_release | default('') is match('^[0-9]{8}-rpi5$')
+          - pxe_prod_bootstrap_matches[0].tftp_release | default('') is match('^[0-9]{8}-(prod-)?rpi5$')
           - pxe_prod_bootstrap_matches[0].rootfs_release | default('') == pxe_prod_bootstrap_matches[0].tftp_release | default('')
           - openwrt_gentoo_tftp_hosts_mode | default('symlink') == 'directory'
         fail_msg: >-
