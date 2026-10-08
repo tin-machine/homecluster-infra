@@ -44,9 +44,12 @@ k3s_stg_readyz_anonymous_enabled: true
 ```
 
 The default is **false**. This public source change alone does not change a live
-API server. The role checks `stage=stg`, control-plane role, the downloaded
-K3s version (v1.34+), and the absence of other `kube-apiserver-arg` source
-values before staging two files in the root filesystem:
+API server. The networking role checks `stage=stg`, control-plane role, and
+the absence of competing `kube-apiserver-arg` source values before staging
+two files in the root filesystem. The actual K3s version (v1.34+) is verified
+later by `k3s_server_install_config` **after the binary link is installed and
+before the service can start** (an initial PXE rootfs may not have the link
+while `k3s_networking` runs):
 
 - `/etc/rancher/k3s/authentication-stg-readyz.yaml`:
   `anonymous.enabled=true`, with **only** `conditions: [{path: /readyz}]`.
