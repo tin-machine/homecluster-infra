@@ -26,6 +26,89 @@ from uuid import uuid4
 
 DEFAULT_DATA_DIR = Path("/var/lib/rancher/k3s")
 
+# Recognize an actual kernel mount, not merely a path on a different st_dev.
+# /proc/self/mountinfo also distinguishes nested mounts and bind mounts.
+PERSISTENT_FILESYSTEMS = frozenset({"ext4", "xfs", "btrfs", "zfs", "nfs", "nfs4"})
+
+
+def _unescape_mount_field(value: str) -> str:
+    import re
+
+    return re.sub(r"\\([0-7]{3})", lambda m: chr(int(m.group(1), 8)), value)
+
+
+def read_mountinfo() -> list[tuple[Path, str, str]]:
+    mounts: list[tuple[Path, str, str]] = []
+    for line in Path("/proc/self/mountinfo").read_text(encoding="utf-8").splitlines():
+        pre, separator, post = line.partition(" - ")
+        if not separator:
+            raise RuntimeError("invalid mountinfo record")
+        fields, fs = pre.split(), post.split()
+        if len(fields) < 5 or len(fs) < 2:
+            raise RuntimeError("invalid mountinfo fields")
+        mounts.append(
+            (Path(_unescape_mount_field(fields[4])),
+             _unescape_mount_field(fs[0]),
+             _unescape_mount_field(fs[1]))
+        )
+    if not mounts:
+        raise RuntimeError("mountinfo is empty")
+    return mounts
+
+
+def effective_mount(path: Path, mounts: list[tuple[Path, str, str]]) -> tuple[Path, str, str]:
+    # Last record wins on stacked mounts at the same path.
+    matching = [
+        mount for mount in mounts
+        if path == mount[0] or mount[0] in path.parents
+    ]
+    if not matching:
+        raise RuntimeError("no mountinfo entry for path")
+    return max(enumerate(matching), key=lambda entry: (len(entry[1][0].parts), entry[0]))[1]
+
+
+def validate_mounts(
+    data_dir: Path,
+    destination: Path,
+    source_mount: Path,
+    destination_mount: Path,
+    destination_fstype: str,
+    destination_source: str,
+    source_fstype: str = "ext4",
+) -> None:
+    # Canonicalize every CLI-supplied path before comparison. Never special-case
+    # the literal DEFAULT_DATA_DIR string: ../ and symlink aliases must not bypass checks.
+    source_real = data_dir.resolve(strict=True)
+    expected_source = source_mount.resolve(strict=True)
+    destination_real = destination.resolve(strict=True)
+    expected_destination = destination_mount.resolve(strict=True)
+
+    if source_real != expected_source:
+        raise RuntimeError("data-dir must equal its expected source mountpoint")
+    if not (
+        destination_real == expected_destination or
+        expected_destination in destination_real.parents
+    ):
+        raise RuntimeError("destination must reside under its expected mountpoint")
+    if expected_destination == Path("/"):
+        raise RuntimeError("root filesystem is not a valid backup destination mount")
+    if source_fstype not in PERSISTENT_FILESYSTEMS or destination_fstype not in PERSISTENT_FILESYSTEMS:
+        raise RuntimeError("expected filesystem must be persistent")
+    if not destination_source:
+        raise RuntimeError("expected destination mount source must be specified")
+
+    mounts = read_mountinfo()
+    src = effective_mount(source_real, mounts)
+    dst = effective_mount(destination_real, mounts)
+    if src[0] != expected_source or src[1] != source_fstype:
+        raise RuntimeError("k3s data-dir is not the expected persistent mount")
+    if dst != (expected_destination, destination_fstype, destination_source):
+        raise RuntimeError("backup destination is not the expected mounted filesystem")
+    if source_real.stat().st_dev == destination_real.stat().st_dev:
+        raise RuntimeError("destination must be on a different filesystem")
+
+
+
 
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
@@ -69,18 +152,22 @@ def backup(
     recipient: str,
     age_bin: str = "age",
     *,
-    require_distinct_device: bool = True,
+    source_mount: Path = DEFAULT_DATA_DIR,
+    destination_mount: Path,
+    destination_fstype: str,
+    destination_source: str,
+    source_fstype: str = "ext4",
 ) -> Path:
     if not recipient.startswith("age1") or any(c.isspace() for c in recipient):
         raise ValueError("expected an age X25519 public recipient")
     if not data_dir.is_dir() or data_dir.is_symlink():
         raise RuntimeError("k3s data directory missing or symlinked")
-    if data_dir == DEFAULT_DATA_DIR and not os.path.ismount(data_dir):
-        raise RuntimeError("k3s data directory is not a mountpoint")
     if not destination.is_dir() or destination.is_symlink():
         raise RuntimeError("destination directory must exist and must not be a symlink")
-    if require_distinct_device and data_dir.stat().st_dev == destination.stat().st_dev:
-        raise RuntimeError("destination must be on a different filesystem")
+    validate_mounts(
+        data_dir, destination, source_mount, destination_mount,
+        destination_fstype, destination_source, source_fstype,
+    )
 
     db = data_dir / "server/db/state.db"
     token = data_dir / "server/token"
@@ -114,6 +201,11 @@ def backup(
                 "state_db_sha256": sha256_file(snapshot),
                 "server_token_sha256": hashlib.sha256(token_before).hexdigest(),
             }
+            # Refuse a lost/replaced mount before writing to an overlay fallback.
+            validate_mounts(
+                data_dir, destination, source_mount, destination_mount,
+                destination_fstype, destination_source, source_fstype,
+            )
             fd, raw_path = tempfile.mkstemp(prefix=".k3s-sqlite-", suffix=".partial", dir=destination)
             partial = Path(raw_path)
             with os.fdopen(fd, "wb") as encrypted:
@@ -141,6 +233,11 @@ def backup(
                     raise
                 encrypted.flush()
                 os.fsync(encrypted.fileno())
+            # Never publish if the mount changed during encryption.
+            validate_mounts(
+                data_dir, destination, source_mount, destination_mount,
+                destination_fstype, destination_source, source_fstype,
+            )
             finished = destination / name
             os.rename(partial, finished)
             partial = None
@@ -154,10 +251,18 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
     parser.add_argument("--destination", type=Path, required=True, help="existing external directory")
+    parser.add_argument("--destination-mount", type=Path, required=True, help="expected mounted backup filesystem root")
+    parser.add_argument("--destination-fstype", required=True, help="expected persistent filesystem type, e.g. nfs4/ext4")
+    parser.add_argument("--destination-source", required=True, help="expected mountinfo source, e.g. NFS export or block device")
     parser.add_argument("--recipient", required=True, help="age public recipient (not an identity)")
     args = parser.parse_args()
     try:
-        output = backup(args.data_dir, args.destination, args.recipient)
+        output = backup(
+            args.data_dir, args.destination, args.recipient,
+            destination_mount=args.destination_mount,
+            destination_fstype=args.destination_fstype,
+            destination_source=args.destination_source,
+        )
     except (OSError, ValueError, RuntimeError, sqlite3.Error, subprocess.SubprocessError) as exc:
         # Do not include the token, source contents, or age stderr in stdout/stderr.
         print(f"backup failed: {type(exc).__name__}", file=sys.stderr)
