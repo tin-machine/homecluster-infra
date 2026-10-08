@@ -59,6 +59,7 @@ class SqliteBackupTests(unittest.TestCase):
     def backup_options(self, **kwargs):
         options = {
             "source_mount": self.data,
+            "source_mount_source": "/dev/fixture-iscsi",
             "destination_mount": self.dest,
             "destination_fstype": "nfs4",
             "destination_source": "backup.example.invalid:/archive",
@@ -184,6 +185,12 @@ class SqliteBackupTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "expected source mountpoint"):
             backup(other, self.dest, RECIPIENT, str(self.fake_age),
                    **self.backup_options(require_distinct_device=False))
+
+    def test_wrong_source_block_device_is_rejected(self) -> None:
+        self.mount_records[1] = (self.data, "ext4", "/dev/unexpected-lun")
+        with self.assertRaisesRegex(RuntimeError, "expected persistent mount"):
+            self.run_backup()
+        self.assertFalse(list(self.dest.iterdir()))
 
     def test_source_mount_fstype_is_verified(self) -> None:
         self.mount_records[1] = (self.data, "tmpfs", "tmpfs")
