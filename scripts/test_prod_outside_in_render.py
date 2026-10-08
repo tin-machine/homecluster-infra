@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sys
@@ -86,6 +87,54 @@ class ProductionOutsideInTest(unittest.TestCase):
         self.assertEqual(prom_policy["egress"][1]["to"][0]["podSelector"]["matchLabels"]["app.kubernetes.io/name"],
                          "prod-blackbox-exporter")
         self.assertNotIn("hostNetwork", json.dumps(m))
+
+    def test_configmap_updates_change_only_corresponding_pod_template(self) -> None:
+        first_site = fixture()
+        original = objects(r.build_manifest(first_site))
+        unchanged = objects(r.build_manifest(fixture()))
+        self.assertEqual(original["prod-blackbox-exporter"]["spec"]["template"],
+                         unchanged["prod-blackbox-exporter"]["spec"]["template"])
+        self.assertEqual(original["prod-prometheus"]["spec"]["template"],
+                         unchanged["prod-prometheus"]["spec"]["template"])
+
+        def assert_checksum(m: dict, component: str, config_name: str, key: str) -> None:
+            payload = m[config_name]["data"][key]
+            annotations = m[component]["spec"]["template"]["metadata"]["annotations"]
+            self.assertEqual(annotations["checksum/config"],
+                             hashlib.sha256(payload.encode("utf-8")).hexdigest())
+
+        for m in (original, unchanged):
+            assert_checksum(m, "prod-blackbox-exporter", "prod-blackbox-config", "config.json")
+            assert_checksum(m, "prod-prometheus", "prod-prometheus-config", "prometheus.json")
+
+        changed_site = fixture()
+        changed_site["api_targets"][0]["target"] = "https://api2.lab.example.invalid:6443/readyz"
+        updated = objects(r.build_manifest(changed_site))
+        self.assertNotEqual(original["prod-prometheus-config"]["data"],
+                            updated["prod-prometheus-config"]["data"])
+        self.assertNotEqual(original["prod-prometheus"]["spec"]["template"],
+                            updated["prod-prometheus"]["spec"]["template"])
+        self.assertEqual(original["prod-blackbox-config"]["data"],
+                         updated["prod-blackbox-config"]["data"])
+        self.assertEqual(original["prod-blackbox-exporter"]["spec"]["template"],
+                         updated["prod-blackbox-exporter"]["spec"]["template"])
+        assert_checksum(updated, "prod-prometheus", "prod-prometheus-config", "prometheus.json")
+
+        changed_site = fixture()
+        changed_site["api_ca_secret"] = "staging-api-ca"
+        updated = objects(r.build_manifest(changed_site))
+        self.assertNotEqual(original["prod-blackbox-config"]["data"],
+                            updated["prod-blackbox-config"]["data"])
+        self.assertNotEqual(original["prod-blackbox-exporter"]["spec"]["template"],
+                            updated["prod-blackbox-exporter"]["spec"]["template"])
+        assert_checksum(updated, "prod-blackbox-exporter", "prod-blackbox-config", "config.json")
+
+    def test_prometheus_readiness_is_not_liveness(self) -> None:
+        things = objects(r.build_manifest(fixture()))
+        prom_container = things["prod-prometheus"]["spec"]["template"]["spec"]["containers"][0]
+        self.assertEqual(prom_container["readinessProbe"]["httpGet"]["path"], "/-/ready")
+        self.assertEqual(prom_container["livenessProbe"]["httpGet"]["path"], "/-/healthy")
+        self.assertNotEqual(prom_container["readinessProbe"], prom_container["livenessProbe"])
 
     def test_api_ca_from_operator_secret_only(self) -> None:
         site = fixture()
