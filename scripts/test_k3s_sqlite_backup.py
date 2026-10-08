@@ -4,13 +4,15 @@
 from __future__ import annotations
 
 import hashlib
-import io
 import json
 from pathlib import Path
 import sqlite3
 import tarfile
 import tempfile
 import unittest
+from unittest.mock import patch
+
+import k3s_sqlite_backup
 
 from k3s_sqlite_backup import backup
 
@@ -43,13 +45,35 @@ class SqliteBackupTests(unittest.TestCase):
         self.fake_age.write_text("#!/bin/sh\ncat\n", encoding="utf-8")
         self.fake_age.chmod(0o700)
 
+        # Simulate mounted ext4 iSCSI datastore + external NFS export.
+        # Real loopback/bind mounts are intentionally not used in CI.
+        self.mount_records = [
+            (Path("/"), "overlay", "overlay"),
+            (self.data, "ext4", "/dev/fixture-iscsi"),
+            (self.dest, "nfs4", "backup.example.invalid:/archive"),
+        ]
+        mount_patch = patch.object(k3s_sqlite_backup, "read_mountinfo", lambda: self.mount_records)
+        mount_patch.start()
+        self.addCleanup(mount_patch.stop)
+
+    def backup_options(self, **kwargs):
+        options = {
+            "source_mount": self.data,
+            "destination_mount": self.dest,
+            "destination_fstype": "nfs4",
+            "destination_source": "backup.example.invalid:/archive",
+        }
+        options.update(kwargs)
+        return options
+
+
     def run_backup(self) -> Path:
         return backup(
             self.data,
             self.dest,
             RECIPIENT,
             str(self.fake_age),
-            require_distinct_device=False,
+            **self.backup_options(require_distinct_device=False),
         )
 
     def test_wal_snapshot_token_and_manifest_are_consistent(self) -> None:
@@ -96,7 +120,7 @@ class SqliteBackupTests(unittest.TestCase):
 
     def test_reject_same_filesystem_by_default(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "different filesystem"):
-            backup(self.data, self.dest, RECIPIENT, str(self.fake_age))
+            backup(self.data, self.dest, RECIPIENT, str(self.fake_age), **self.backup_options())
 
     def test_failed_encryption_does_not_publish_partial_archive(self) -> None:
         self.fake_age.write_text("#!/bin/sh\nexit 7\n", encoding="utf-8")
@@ -104,11 +128,86 @@ class SqliteBackupTests(unittest.TestCase):
             self.run_backup()
         self.assertFalse(list(self.dest.iterdir()))
 
+
+    def test_alias_cannot_bypass_missing_source_mount(self) -> None:
+        # /path/data/../data resolves to the same directory. Without its
+        # expected ext4 mount it must fail rather than read a stale overlay DB.
+        self.mount_records = [(Path("/"), "overlay", "overlay"), self.mount_records[2]]
+        alias = self.data / ".." / "data"
+        with self.assertRaisesRegex(RuntimeError, "expected persistent mount"):
+            backup(alias, self.dest, RECIPIENT, str(self.fake_age),
+                   **self.backup_options(require_distinct_device=False))
+        self.assertFalse(list(self.dest.iterdir()))
+
+    def test_alias_resolves_to_valid_mount_when_present(self) -> None:
+        alias = self.data / ".." / "data"
+        result = backup(alias, self.dest, RECIPIENT, str(self.fake_age),
+                        **self.backup_options(require_distinct_device=False))
+        self.assertTrue(result.is_file())
+
+    def test_unmounted_destination_is_rejected(self) -> None:
+        self.mount_records = self.mount_records[:2]
+        with self.assertRaisesRegex(RuntimeError, "expected mounted filesystem"):
+            self.run_backup()
+        self.assertFalse(list(self.dest.iterdir()))
+
+    def test_overlay_or_tmpfs_destination_is_rejected(self) -> None:
+        for fstype in ("overlay", "tmpfs"):
+            with self.subTest(fstype=fstype):
+                self.mount_records[2] = (self.dest, fstype, fstype)
+                with self.assertRaisesRegex(RuntimeError, "expected mounted filesystem"):
+                    self.run_backup()
+                self.assertFalse(list(self.dest.iterdir()))
+
+    def test_wrong_mounted_source_is_rejected(self) -> None:
+        self.mount_records[2] = (self.dest, "nfs4", "other.example.invalid:/wrong")
+        with self.assertRaisesRegex(RuntimeError, "expected mounted filesystem"):
+            self.run_backup()
+
+    def test_nested_tmpfs_under_expected_destination_is_rejected(self) -> None:
+        child = self.dest / "subdir"
+        child.mkdir()
+        self.mount_records.append((child, "tmpfs", "tmpfs"))
+        with self.assertRaisesRegex(RuntimeError, "expected mounted filesystem"):
+            backup(self.data, child, RECIPIENT, str(self.fake_age),
+                   **self.backup_options(require_distinct_device=False))
+
+    def test_explicit_root_destination_mount_is_rejected(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "root filesystem"):
+            backup(self.data, self.dest, RECIPIENT, str(self.fake_age),
+                   **self.backup_options(destination_mount=Path("/"),
+                                         require_distinct_device=False))
+
+    def test_data_dir_unrelated_to_expected_mount_is_rejected(self) -> None:
+        other = self.root / "other"
+        other.mkdir()
+        with self.assertRaisesRegex(RuntimeError, "expected source mountpoint"):
+            backup(other, self.dest, RECIPIENT, str(self.fake_age),
+                   **self.backup_options(require_distinct_device=False))
+
+    def test_source_mount_fstype_is_verified(self) -> None:
+        self.mount_records[1] = (self.data, "tmpfs", "tmpfs")
+        with self.assertRaisesRegex(RuntimeError, "expected persistent mount"):
+            self.run_backup()
+
+    def test_mount_removed_before_publish_is_rejected(self) -> None:
+        original_snapshot = k3s_sqlite_backup.snapshot_sqlite
+
+        def unmount_after_snapshot(db: Path, output: Path) -> None:
+            original_snapshot(db, output)
+            self.mount_records = self.mount_records[:2]
+
+        with patch.object(k3s_sqlite_backup, "snapshot_sqlite", unmount_after_snapshot):
+            with self.assertRaisesRegex(RuntimeError, "expected mounted filesystem"):
+                self.run_backup()
+        self.assertFalse(list(self.dest.iterdir()))
+
+
     def test_reject_symlinked_destination(self) -> None:
         link = self.root / "destination-link"
         link.symlink_to(self.dest, target_is_directory=True)
         with self.assertRaisesRegex(RuntimeError, "symlink"):
-            backup(self.data, link, RECIPIENT, str(self.fake_age), require_distinct_device=False)
+            backup(self.data, link, RECIPIENT, str(self.fake_age), **self.backup_options(require_distinct_device=False))
 
 
 if __name__ == "__main__":
