@@ -75,6 +75,7 @@ def validate_mounts(
     destination_fstype: str,
     destination_source: str,
     source_fstype: str = "ext4",
+    require_distinct_device: bool = True,
 ) -> None:
     # Canonicalize every CLI-supplied path before comparison. Never special-case
     # the literal DEFAULT_DATA_DIR string: ../ and symlink aliases must not bypass checks.
@@ -104,7 +105,7 @@ def validate_mounts(
         raise RuntimeError("k3s data-dir is not the expected persistent mount")
     if dst != (expected_destination, destination_fstype, destination_source):
         raise RuntimeError("backup destination is not the expected mounted filesystem")
-    if source_real.stat().st_dev == destination_real.stat().st_dev:
+    if require_distinct_device and source_real.stat().st_dev == destination_real.stat().st_dev:
         raise RuntimeError("destination must be on a different filesystem")
 
 
@@ -157,6 +158,7 @@ def backup(
     destination_fstype: str,
     destination_source: str,
     source_fstype: str = "ext4",
+    require_distinct_device: bool = True,  # Internal fixture-only override; never exposed by CLI.
 ) -> Path:
     if not recipient.startswith("age1") or any(c.isspace() for c in recipient):
         raise ValueError("expected an age X25519 public recipient")
@@ -167,6 +169,7 @@ def backup(
     validate_mounts(
         data_dir, destination, source_mount, destination_mount,
         destination_fstype, destination_source, source_fstype,
+        require_distinct_device,
     )
 
     db = data_dir / "server/db/state.db"
@@ -205,6 +208,7 @@ def backup(
             validate_mounts(
                 data_dir, destination, source_mount, destination_mount,
                 destination_fstype, destination_source, source_fstype,
+                require_distinct_device,
             )
             fd, raw_path = tempfile.mkstemp(prefix=".k3s-sqlite-", suffix=".partial", dir=destination)
             partial = Path(raw_path)
@@ -237,6 +241,7 @@ def backup(
             validate_mounts(
                 data_dir, destination, source_mount, destination_mount,
                 destination_fstype, destination_source, source_fstype,
+                require_distinct_device,
             )
             finished = destination / name
             os.rename(partial, finished)
