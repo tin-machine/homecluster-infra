@@ -53,3 +53,6 @@ jobs:
 
       - name: Validate common-kernel rollout health diagnostics
         run: python3 -m unittest discover -s scripts -p 'test_pi_rpi5_common_kernel_rollout_health.py' -v
+
+      - name: Validate SQLite encrypted backup fixtures
+        run: python3 -m unittest discover -s scripts -p 'test_k3s_sqlite_backup.py' -v
