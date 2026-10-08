@@ -41,14 +41,25 @@ It creates a Kubernetes List containing:
   probes demand TLS verification, status 200, and response body `ok`.
 - One small **Prometheus** Deployment / ClusterIP Service, scraping the
   exporter every 30 seconds plus its own health metrics.
-- ConfigMaps for the Blackbox modules and Prometheus target list.
+- ConfigMaps for the Blackbox modules and Prometheus target list. Each relevant
+  Deployment Pod template includes a SHA-256 annotation calculated from the
+  exact rendered ConfigMap content. Changing a target recreates the Prometheus
+  Pod; changing Blackbox probe modules recreates the Blackbox Pod. Identical
+  inputs produce identical annotations and do not cause needless rollouts.
+  Automatic Prometheus reload is **not** assumed or enabled.
+- Prometheus uses `/-/ready` for readiness (query-serving readiness) and
+  `/-/healthy` for liveness. These endpoints intentionally differ.
 - Ingress/egress NetworkPolicies scoped to the two Pods and explicitly
   declared narrow destination CIDRs. DNS is allowed on port 53;
   egress probing is confined to TCP 443, 6443 and 9100.
 - Prometheus uses a **256Mi emptyDir**, 6-hour retention and 128MB
   retention size; history disappears after Pod rescheduling/recreation.
   This is intentionally acceptable in the first O1 iteration, but it
-  is not durable, backup-protected monitoring history.
+  is not durable, backup-protected monitoring history. Because configuration
+  changes roll the Prometheus Pod, they also discard this ephemeral history.
+  If the operator rotates only the *contents* of an existing CA Secret without
+  changing its name, the checksum does not change; coordinate an explicit
+  Blackbox Pod rollout after such Secret rotation.
 
 The Deployment service accounts do not mount Kubernetes API tokens. Services
 use ClusterIP only. No ingress, nodeport, load balancer, API credentials,
