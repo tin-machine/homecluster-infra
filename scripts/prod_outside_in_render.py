@@ -72,7 +72,7 @@ def validate_site(document: object) -> dict:
             url.scheme != "https" or not _valid_host(url.hostname)
             or url.username is not None or url.password is not None
             or url.query or url.fragment or url.path != "/readyz"
-            or not url.netloc or url.port is None
+            or not url.netloc or url.port not in (443, 6443)
         ):
             raise ValueError("API targets must be HTTPS /readyz on an explicit port without credentials, query or fragment")
     for entry in tcp:
@@ -82,7 +82,7 @@ def validate_site(document: object) -> dict:
             not _valid_host(parsed.hostname) or not parsed.port
             or parsed.username is not None or parsed.password is not None
             or parsed.path or parsed.query or parsed.fragment
-            or ":" not in entry["target"]
+            or ":" not in entry["target"] or parsed.port != 9100
         ):
             raise ValueError("TCP target must be a host:port")
     cidrs = document["egress_cidrs"]
@@ -313,6 +313,11 @@ def main() -> int:
     if args.validate_only == bool(args.output):
         parser.error("specify exactly one of --validate-only or --output")
     try:
+        if args.site_config.is_symlink():
+            raise ValueError("site input must not be symlink")
+        info = args.site_config.stat()
+        if not args.site_config.is_file() or info.st_uid != os.geteuid() or info.st_mode & 0o077:
+            raise ValueError("site input must be a private regular file owned by the operator")
         site = json.loads(args.site_config.read_text(encoding="utf-8"))
         manifest = build_manifest(site)
         if args.output:
