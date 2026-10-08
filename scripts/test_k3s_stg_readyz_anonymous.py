@@ -63,7 +63,9 @@ class ScopedReadyzTest(unittest.TestCase):
                      "kube-apiserver-arg"):
             self.assertIn(term, checks)
         v = next(t for t in SERVER_TASKS if t["name"] == "staging /readyz endpoint-scoped authn の k3s version を検証")
+        # Jinja's quoted literal unescapes double backslashes before regex evaluation.
         pattern = v["ansible.builtin.assert"]["that"][1].split("search('")[1].split("')")[0]
+        pattern = pattern.replace("\\\\", "\\")
         self.assertRegex("k3s version v1.36.5+k3s1", pattern)
         self.assertNotRegex("k3s version v1.33.9+k3s1", pattern)
         names = [t["name"] for t in SERVER_TASKS]
