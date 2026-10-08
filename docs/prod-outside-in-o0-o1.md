@@ -41,15 +41,34 @@ by the public Ansible `k3s_networking` role:
 # Set this only for the selected staging k3s server in private inventory,
 # after source review and operator-authorized maintenance planning.
 k3s_stg_readyz_anonymous_enabled: true
+# Pin the same release selected by k3s_server_install_config; the public
+# staging group vars default to false, which is intentionally rejected.
+k3s_release_version: v1.36.5+k3s1
 ```
 
 The default is **false**. This public source change alone does not change a live
-API server. The networking role checks `stage=stg`, control-plane role, and
-the absence of competing `kube-apiserver-arg` source values before staging
-two files in the root filesystem. The actual K3s version (v1.34+) is verified
-later by `k3s_server_install_config` **after the binary link is installed and
-before the service can start** (an initial PXE rootfs may not have the link
-while `k3s_networking` runs):
+API server. Enabling the setting also requires an **explicitly pinned**
+`k3s_release_version` in private inventory. The public staging group default
+`k3s_release_version: false` is deliberately **rejected** for this opt-in:
+do not guess a new release or inspect the currently selected `k3s` symlink
+when the upcoming release might differ.
+
+The same tagged `k3s_networking` role that writes the two files first
+checks `stage=stg`, control-plane role and absence of competing
+`kube-apiserver-arg`, then validates the pinned version is Kubernetes
+v1.34+ and directly inspects and runs
+`<install-dir>/k3s-<pinned-release> --version`. The versioned file must
+already exist, be regular and executable, and report **the same** release.
+This happens **before** any authentication config write, including with
+`--tags k3s_networking` and `--check`. The version command is read-only
+(`changed_when: false`, `check_mode: false`) and does not rely on a
+symlink written later by `k3s_server_install_config`.
+
+On initial PXE or check-mode runs when the intended downloaded binary is
+not yet available, this safety check intentionally **fails closed**, rather
+than writing an authentication flag for an unverified release. First
+converge/download the pinned binary through the existing owner, then retry
+the staging-only opt-in. The two generated files are:
 
 - `/etc/rancher/k3s/authentication-stg-readyz.yaml`:
   `anonymous.enabled=true`, with **only** `conditions: [{path: /readyz}]`.
