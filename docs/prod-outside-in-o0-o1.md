@@ -53,16 +53,31 @@ API server. Enabling the setting also requires an **explicitly pinned**
 do not guess a new release or inspect the currently selected `k3s` symlink
 when the upcoming release might differ.
 
-The same tagged `k3s_networking` role that writes the two files first
-checks `stage=stg`, control-plane role and absence of competing
-`kube-apiserver-arg`, then validates the pinned version is Kubernetes
-v1.34+ and directly inspects and runs
-`<install-dir>/k3s-<pinned-release> --version`. The versioned file must
-already exist, be regular and executable, and report **the same** release.
-This happens **before** any authentication config write, including with
-`--tags k3s_networking` and `--check`. The version command is read-only
-(`changed_when: false`, `check_mode: false`) and does not rely on a
-symlink written later by `k3s_server_install_config`.
+The staging server playbook now **asserts and captures the effective
+inventory/run-input `k3s_release_version` in `pre_tasks`, before
+`xanmanning.k3s` can replace `false` with a channel-resolved release via
+`set_fact`. Both pre-tasks explicitly carry `k3s_networking` tags, so
+`--tags k3s_networking` cannot skip the early provenance check. The
+`k3s_networking` role then compares the saved original pin against its
+effective release *after* the upstream role. An unsupported, missing or
+upstream-rewritten release fails **before either authn file is written**.
+
+The same `k3s_networking` role validates the selected release as v1.34+
+and directly inspects and runs `<install-dir>/k3s-<pinned-release> --version`.
+The versioned file must exist, be regular and executable, and report **the
+same release**. The command is read-only (`changed_when: false`,
+`check_mode: false`) and does not rely on a symlink created later by
+`k3s_server_install_config`.
+
+A **networking-only tagged run** does not invoke the later server-install
+role that would update `/usr/local/bin/k3s`. For that case, the role
+also checks with `stat(follow=false)` that the live `k3s` symlink points
+to the exact validated versioned file; a missing/stale/non-symlink link
+fails before authn configuration. Full staging convergence may let the
+server-install role repoint the link afterward; if its tag is explicitly
+skipped, the live-link check is still required. This preserves the
+difference between a full two-role convergence and a partial tagged
+operation, including in `--check` mode.
 
 On initial PXE or check-mode runs when the intended downloaded binary is
 not yet available, this safety check intentionally **fails closed**, rather
