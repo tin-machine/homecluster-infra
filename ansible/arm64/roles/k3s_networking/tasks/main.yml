@@ -9,33 +9,48 @@
     fail_msg: "staging /readyz authn は staging server 限定。既存 kube-apiserver-arg との競合を先に解消してください"
   when: k3s_stg_readyz_anonymous_enabled | bool
 
-# This gate lives in the same tagged role as both authn config writes.
-# The versioned artifact is what k3s_server_install_config will select; never
-# ask the current /usr/local/bin/k3s link for its version when a release is pinned.
-- name: staging /readyz 向け既存 k3s link の参照先を観測
-  ansible.builtin.stat:
-    path: "{{ k3s_server_install_config_install_dir | default('/usr/local/bin') }}/k3s"
-    follow: false
-  register: k3s_stg_readyz_existing_link
-  when: k3s_stg_readyz_anonymous_enabled | bool
-
-- name: staging /readyz が対象とする release と binary path を解決
-  ansible.builtin.set_fact:
-    k3s_stg_readyz_release_effective: >-
-      {{
-        (k3s_release_version | string)
-        if (k3s_release_version | default('', true) | string | lower not in ['', 'false', 'none'])
-        else (
-          k3s_stg_readyz_existing_link.stat.lnk_source | default('')
-          | basename | regex_replace('^k3s-', '')
-        )
-      }}
-  when: k3s_stg_readyz_anonymous_enabled | bool
-
-- name: staging /readyz の release identity と検査先を検証
+- name: staging /readyz 用の pinned K3s release を検証
   ansible.builtin.assert:
     that:
-      - k3s_stg_readyz_release_effective is match('^v1[.](3[4-9]|[4-9][0-9]|[1-9][0-9][0-9]+)[.][0-9]+[+]k3s[0-9]+
+      - (k3s_release_version | default('', true) | string) is match('^v1[.](3[4-9]|[4-9][0-9]|[1-9][0-9][0-9]+)[.][0-9]+[+]k3s[0-9]+$')
+    fail_msg: 'staging /readyz opt-in は k3s_release_version の明示 pin (v1.34+）が必須'
+  when: k3s_stg_readyz_anonymous_enabled | bool
+
+- name: staging /readyz 用の pinned versioned binary を stat で確認
+  ansible.builtin.stat:
+    path: "{{ k3s_server_install_config_install_dir | default('/usr/local/bin') }}/k3s-{{ k3s_release_version }}"
+    follow: false
+  register: k3s_stg_readyz_versioned_binary
+  when: k3s_stg_readyz_anonymous_enabled | bool
+
+- name: staging /readyz 用の pinned versioned binary の存在を検証
+  ansible.builtin.assert:
+    that:
+      - k3s_stg_readyz_versioned_binary.stat.isreg | default(false)
+      - k3s_stg_readyz_versioned_binary.stat.executable | default(false)
+    fail_msg: 'ダウンロード済みの k3s-<release> が実行可能な通常ファイルではないため配置中断'
+  when: k3s_stg_readyz_anonymous_enabled | bool
+
+- name: staging /readyz 用の pinned binary version を観測
+  ansible.builtin.command:
+    argv:
+      - "{{ k3s_server_install_config_install_dir | default('/usr/local/bin') }}/k3s-{{ k3s_release_version }}"
+      - --version
+  register: k3s_stg_readyz_binary_version
+  changed_when: false
+  check_mode: false
+  when: k3s_stg_readyz_anonymous_enabled | bool
+
+- name: staging /readyz の pinned release と実バイナリの一致を検証
+  ansible.builtin.assert:
+    that:
+      - (k3s_stg_readyz_binary_version.stdout.split() | length) >= 3
+      - k3s_stg_readyz_binary_version.stdout.split()[0:2] == ['k3s', 'version']
+      - k3s_stg_readyz_binary_version.stdout.split()[2] == k3s_release_version
+    fail_msg: 'k3s versioned binary が pin されたリリースと一致しないため配置中断'
+  when: k3s_stg_readyz_anonymous_enabled | bool
+
+- name: 判定用変数を準備
   ansible.builtin.set_fact:
     k3s_wifi_backend_resolved: "{{ k3s_wifi_backend | default('networkmanager', true) | string | trim }}"
     k3s_wifi_connection_name_resolved: "{{ k3s_wifi_connection_name | default('', true) | string | trim }}"
