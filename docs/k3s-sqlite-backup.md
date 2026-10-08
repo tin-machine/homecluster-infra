@@ -16,7 +16,7 @@ not an automatic production deployment.
   and atomic rename. Transient plaintext DB snapshot lives in an owner-private
   directory on the source data-dir filesystem and is removed after completion.
 - The k3s data-dir must resolve to its expected mountpoint, with its
-  persistent filesystem type verified against Linux /proc/self/mountinfo.
+  persistent filesystem type **and backing mount source** verified against Linux /proc/self/mountinfo.
   This check applies to **all** CLI path spellings, including '..' aliases.
 - Destination mountpoint, filesystem type, and backing source/export must be
   **explicitly declared** and match the effective mount (not a parent mount).
@@ -37,6 +37,8 @@ not an automatic production deployment.
    three expectations and fails if they are not met.
    For example inspect `findmnt -T /mnt/external-k3s-backups -o TARGET,SOURCE,FSTYPE`.
    On the current NanoCluster design the source k3s data mount is ext4.
+   Record the source mount source as well (usually the iSCSI-backed partition).
+   The script will not accept a different ext4 backing device silently.
 4. Generate a dedicated age recovery identity on **another trusted host**.
    Install **only the public age recipient** on the k3s server.
 5. Ensure the source filesystem has enough free space for one SQLite snapshot.
@@ -47,6 +49,7 @@ Example (the recipient is a placeholder, replace before running):
 
     python3 scripts/k3s_sqlite_backup.py \
       --data-dir /var/lib/rancher/k3s \
+      --source-mount-source /dev/REPLACE_WITH_REAL_ISCSI_PARTITION \
       --destination /mnt/external-k3s-backups \
       --destination-mount /mnt/external-k3s-backups \
       --destination-fstype nfs4 \
@@ -54,7 +57,7 @@ Example (the recipient is a placeholder, replace before running):
       --recipient 'age1REPLACE_WITH_REAL_PUBLIC_RECIPIENT'
 
 The destination path, mountpoint, filesystem type, and mount source in this
-example are illustrative. Replace all with a real operator-verified mount;
+example are illustrative. Replace all with real operator-verified mounts;
 otherwise the command refuses to run. The source mount defaults to the
 canonical /var/lib/rancher/k3s path with expected ext4 filesystem.
 
