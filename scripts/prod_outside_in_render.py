@@ -8,6 +8,7 @@ contains site-local target URLs and MUST remain outside public source control.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import ipaddress
 import json
 import os
@@ -143,9 +144,12 @@ def _container(name: str, image: str, port: int, args: list[str], mounts: list[d
     }
 
 
-def _deployment(name: str, container: dict, volumes: list[dict], group: int = 65534) -> dict:
+def _deployment(name: str, container: dict, volumes: list[dict], config_text: str, group: int = 65534) -> dict:
     labels = _pod_labels(name)
-    container["readinessProbe"] = {"httpGet": {"path": "/-/healthy" if name == "prod-prometheus" else "/", "port": "http"}, "periodSeconds": 10}
+    # Changing the mounted ConfigMap does not reload these processes by default.
+    # Tie Pod-template identity to the exact ConfigMap data to trigger a rollout.
+    config_sha256 = hashlib.sha256(config_text.encode("utf-8")).hexdigest()
+    container["readinessProbe"] = {"httpGet": {"path": "/-/ready" if name == "prod-prometheus" else "/", "port": "http"}, "periodSeconds": 10}
     container["livenessProbe"] = {"httpGet": {"path": "/-/healthy" if name == "prod-prometheus" else "/", "port": "http"}, "periodSeconds": 20}
     return _obj(
         "Deployment", "apps/v1", name,
@@ -154,7 +158,7 @@ def _deployment(name: str, container: dict, volumes: list[dict], group: int = 65
             "strategy": {"type": "Recreate"},
             "selector": {"matchLabels": labels},
             "template": {
-                "metadata": {"labels": labels},
+                "metadata": {"labels": labels, "annotations": {"checksum/config": config_sha256}},
                 "spec": {
                     "automountServiceAccountToken": False,
                     "securityContext": {"runAsUser": 65534, "runAsGroup": 65534, "runAsNonRoot": True, "fsGroup": group},
@@ -221,6 +225,8 @@ def build_manifest(site: dict) -> dict:
     if site["tcp_targets"]:
         jobs.append(job("tcp", site["tcp_targets"], "tcp_connect"))
     prometheus_cfg = {"global": {"scrape_interval": "30s", "evaluation_interval": "30s"}, "scrape_configs": jobs}
+    blackbox_config_text = json.dumps({"modules": bb_modules}, sort_keys=True)
+    prometheus_config_text = json.dumps(prometheus_cfg, sort_keys=True)
 
     bb_volumes = [{"name": "config", "configMap": {"name": "prod-blackbox-config"}}]
     bb_mounts = [{"name": "config", "mountPath": "/etc/blackbox", "readOnly": True}]
@@ -254,13 +260,13 @@ def build_manifest(site: dict) -> dict:
     # egress ports are deliberately not arbitrary: only HTTPS/k3s API/node metric TCP.
     items = [
         {"apiVersion": "v1", "kind": "Namespace", "metadata": {"name": NAMESPACE, "labels": {"app.kubernetes.io/part-of": "prod-outside-in"}}},
-        _configmap("prod-blackbox-config", {"config.json": json.dumps({"modules": bb_modules}, sort_keys=True)}),
-        _configmap("prod-prometheus-config", {"prometheus.json": json.dumps(prometheus_cfg, sort_keys=True)}),
-        _deployment(blackbox, bb_container, bb_volumes),
+        _configmap("prod-blackbox-config", {"config.json": blackbox_config_text}),
+        _configmap("prod-prometheus-config", {"prometheus.json": prometheus_config_text}),
+        _deployment(blackbox, bb_container, bb_volumes, blackbox_config_text),
         _deployment(prometheus, prom_container, [
             {"name": "config", "configMap": {"name": "prod-prometheus-config"}},
             {"name": "data", "emptyDir": {"sizeLimit": "256Mi"}},
-        ]),
+        ], prometheus_config_text),
         _service(blackbox, 9115),
         _service(prometheus, 9090),
         _obj("NetworkPolicy", "networking.k8s.io/v1", "prod-blackbox-restricted",
