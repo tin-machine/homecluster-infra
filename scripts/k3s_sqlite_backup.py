@@ -75,6 +75,7 @@ def validate_mounts(
     destination_fstype: str,
     destination_source: str,
     source_fstype: str = "ext4",
+    source_mount_source: str = "",
     require_distinct_device: bool = True,
 ) -> None:
     # Canonicalize every CLI-supplied path before comparison. Never special-case
@@ -95,13 +96,13 @@ def validate_mounts(
         raise RuntimeError("root filesystem is not a valid backup destination mount")
     if source_fstype not in PERSISTENT_FILESYSTEMS or destination_fstype not in PERSISTENT_FILESYSTEMS:
         raise RuntimeError("expected filesystem must be persistent")
-    if not destination_source:
-        raise RuntimeError("expected destination mount source must be specified")
+    if not destination_source or not source_mount_source:
+        raise RuntimeError("both expected mount sources must be specified")
 
     mounts = read_mountinfo()
     src = effective_mount(source_real, mounts)
     dst = effective_mount(destination_real, mounts)
-    if src[0] != expected_source or src[1] != source_fstype:
+    if src != (expected_source, source_fstype, source_mount_source):
         raise RuntimeError("k3s data-dir is not the expected persistent mount")
     if dst != (expected_destination, destination_fstype, destination_source):
         raise RuntimeError("backup destination is not the expected mounted filesystem")
@@ -158,6 +159,7 @@ def backup(
     destination_fstype: str,
     destination_source: str,
     source_fstype: str = "ext4",
+    source_mount_source: str,
     require_distinct_device: bool = True,  # Internal fixture-only override; never exposed by CLI.
 ) -> Path:
     if not recipient.startswith("age1") or any(c.isspace() for c in recipient):
@@ -169,7 +171,7 @@ def backup(
     validate_mounts(
         data_dir, destination, source_mount, destination_mount,
         destination_fstype, destination_source, source_fstype,
-        require_distinct_device,
+        source_mount_source, require_distinct_device,
     )
 
     db = data_dir / "server/db/state.db"
@@ -208,7 +210,7 @@ def backup(
             validate_mounts(
                 data_dir, destination, source_mount, destination_mount,
                 destination_fstype, destination_source, source_fstype,
-                require_distinct_device,
+                source_mount_source, require_distinct_device,
             )
             fd, raw_path = tempfile.mkstemp(prefix=".k3s-sqlite-", suffix=".partial", dir=destination)
             partial = Path(raw_path)
@@ -241,7 +243,7 @@ def backup(
             validate_mounts(
                 data_dir, destination, source_mount, destination_mount,
                 destination_fstype, destination_source, source_fstype,
-                require_distinct_device,
+                source_mount_source, require_distinct_device,
             )
             finished = destination / name
             os.rename(partial, finished)
@@ -255,6 +257,7 @@ def backup(
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
+    parser.add_argument("--source-mount-source", required=True, help="expected mountinfo source of k3s data-dir, e.g. iSCSI block partition")
     parser.add_argument("--destination", type=Path, required=True, help="existing external directory")
     parser.add_argument("--destination-mount", type=Path, required=True, help="expected mounted backup filesystem root")
     parser.add_argument("--destination-fstype", required=True, help="expected persistent filesystem type, e.g. nfs4/ext4")
@@ -267,6 +270,7 @@ def main() -> int:
             destination_mount=args.destination_mount,
             destination_fstype=args.destination_fstype,
             destination_source=args.destination_source,
+            source_mount_source=args.source_mount_source,
         )
     except (OSError, ValueError, RuntimeError, sqlite3.Error, subprocess.SubprocessError) as exc:
         # Do not include the token, source contents, or age stderr in stdout/stderr.
