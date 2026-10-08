@@ -27,7 +27,8 @@ def fixture() -> dict:
 
 
 def objects(manifest: dict) -> dict:
-    return {o["metadata"]["name"]: o for o in manifest["items"]}
+    return {(o["metadata"]["name"] + "-service") if o["kind"] == "Service"
+            else o["metadata"]["name"]: o for o in manifest["items"]}
 
 
 class ProductionOutsideInTest(unittest.TestCase):
@@ -53,8 +54,8 @@ class ProductionOutsideInTest(unittest.TestCase):
             self.assertEqual(sec["capabilities"]["drop"], ["ALL"])
         self.assertEqual(things["prod-blackbox-exporter"]["spec"]["template"]["spec"]["containers"][0]["image"], r.BLACKBOX_IMAGE)
         self.assertEqual(things["prod-prometheus"]["spec"]["template"]["spec"]["containers"][0]["image"], r.PROMETHEUS_IMAGE)
-        self.assertEqual(things["prod-blackbox-exporter"]["spec"]["type"], "ClusterIP")
-        self.assertEqual(things["prod-prometheus"]["spec"]["type"], "ClusterIP")
+        self.assertEqual(things["prod-blackbox-exporter-service"]["spec"]["type"], "ClusterIP")
+        self.assertEqual(things["prod-prometheus-service"]["spec"]["type"], "ClusterIP")
 
         bb = json.loads(things["prod-blackbox-config"]["data"]["config.json"])
         self.assertEqual(bb["modules"]["http_readyz"]["http"]["valid_status_codes"], [200])
