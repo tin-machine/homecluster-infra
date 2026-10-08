@@ -72,6 +72,547 @@
     - k3s_stg
     - k3s_stg_server
   pre_tasks:
+    # k3s_release_version may be overwritten by upstream xanmanning.k3s set_fact.
+    # Capture the inventory value before any role; explicitly tag both tasks
+    # so --tags k3s_networking cannot bypass the inventory provenance check.
+    - name: staging /readyz の upstream 前 inventory release pin を検証
+      ansible.builtin.assert:
+        that:
+          - (k3s_release_version | default('', true) | string) is match('^v1[.](3[4-9]|[4-9][0-9]|[1-9][0-9][0-9]+)[.][0-9]+[+]k3s[0-9]+
+      ansible.builtin.assert:
+        that:
+          - groups['k3s_stg_server'] | default([]) | length == 1
+        fail_msg: "k3s_stg_server は active host 1台だけにしてください"
+      run_once: true
+
+    - name: staging server 対象を stage=stg に限定
+      ansible.builtin.assert:
+        that:
+          - stage | default('') == 'stg'
+        fail_msg: "k3s_stg_server は stage=stg の host だけで実行する"
+
+    - name: staging server k3s 変数を確認
+      ansible.builtin.assert:
+        that:
+          - k3s_build_cluster is defined
+          - not (k3s_build_cluster | bool)
+          - k3s_control_node is defined
+          - k3s_control_node | bool
+          - k3s_server is mapping
+          - ((k3s_server | default({}))['node-ip'] | default('') | string | length) > 0
+          - ((k3s_server | default({}))['node-name'] | default('') | string | length) > 0
+        fail_msg: "k3s_stg_server の必須変数は外部 inventory 側で定義してください"
+
+    - name: memory cgroup が有効か確認
+      ansible.builtin.command: grep -w memory /sys/fs/cgroup/cgroup.controllers
+      changed_when: false
+
+    - name: k3s に必要な kernel module を読み込む
+      become: true
+      ansible.builtin.command: "modprobe {{ item }}"
+      changed_when: false
+      loop:
+        - br_netfilter
+        - overlay
+        - vxlan
+
+    - name: k3s 用 sysctl 設定を配置
+      become: true
+      ansible.builtin.copy:
+        dest: /etc/sysctl.d/90-k3s-stg.conf
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          net.ipv4.ip_forward = 1
+          net.bridge.bridge-nf-call-iptables = 1
+          net.bridge.bridge-nf-call-ip6tables = 1
+
+    - name: k3s 用 sysctl 設定を反映
+      become: true
+      ansible.builtin.command: sysctl -p /etc/sysctl.d/90-k3s-stg.conf
+      changed_when: false
+
+    - name: k3s_local_storage のマウント状態を確認
+      block:
+        - name: findmnt を実行
+          ansible.builtin.command: findmnt --target /var/lib/rancher/k3s
+          changed_when: false
+          failed_when: false
+          register: findmnt_result
+        - name: マウント状態を検証
+          ansible.builtin.assert:
+            that:
+              - findmnt_result.rc == 0
+            fail_msg: "k3s_stg_storage は k3s_stg_server の前に実行する必要があります"
+      when: k3s_local_storage_enabled | default(false)
+  roles:
+    - role: k3s_log_limits
+      tags:
+        - k3s_log_limits
+    - role: k3s_iptables_nft
+      tags:
+        - k3s_iptables_nft
+    - role: xanmanning.k3s
+      vars:
+        k3s_state: downloaded
+        k3s_service_name: k3s
+        k3s_defer_service_restart: true
+    - role: k3s_networking
+      vars:
+        k3s_control_node: true
+        k3s_service_name: k3s
+        k3s_defer_service_restart: true
+      tags:
+        - k3s_networking
+    - role: k3s_server_install_config
+      vars:
+        k3s_server_install_config_enabled: true
+        k3s_server_install_config_release_version: "{{ k3s_release_version }}"
+        k3s_server_install_config_control_token: "{{ k3s_control_token | default('', true) }}"
+        k3s_server_install_config_service_name: k3s
+      tags:
+        - k3s_server_install_config
+    - role: k3s_converge_check
+      vars:
+        k3s_converge_check_node_role: server
+        k3s_converge_check_service_name: k3s
+        k3s_converge_check_mountpoint: /var/lib/rancher/k3s
+        k3s_converge_check_mode: start
+      tags:
+        - k3s_converge_check
+
+- name: k3s observability terraform apply
+  hosts: "env_stg:&role_terraform_stg"
+  gather_facts: true
+  tags:
+    - terraform_stg
+    - k3s_observability_apply
+  pre_tasks:
+    - name: terraform staging 対象を stage=stg に限定
+      ansible.builtin.assert:
+        that:
+          - stage | default('') == 'stg'
+        fail_msg: "terraform_stg は stage=stg の host だけで実行する"
+  roles:
+    - role: k3s_observability_apply
+
+- name: k3s staging registry config
+  hosts: "env_stg:&k3s_stg"
+  gather_facts: true
+  tags:
+    - k3s_registry
+  roles:
+    - role: k3s_registries
+      when: k3s_stg_runtime_role in ['', 'k3s_stg_server', 'k3s_stg_agent']
+  vars:
+    k3s_stg_runtime_role: "{{ role | default('', true) }}"
+
+- name: k3s staging agents
+  hosts: "env_stg:&k3s_stg"
+  gather_facts: true
+  tags:
+    - k3s_stg
+    - k3s_stg_agents
+  pre_tasks:
+    - name: agent join 先を単一 staging server に限定
+      ansible.builtin.assert:
+        that:
+          - groups['k3s_stg_server'] | default([]) | length == 1
+        fail_msg: "k3s_stg_server は active host 1台だけにしてください"
+      run_once: true
+      when:
+        - k3s_stg_agent_play_enabled | bool
+        - not (k3s_stg_agent_pull_mode | bool)
+
+    - name: staging server k3s version を取得
+      ansible.builtin.command:
+        argv:
+          - /usr/local/bin/k3s
+          - --version
+      register: k3s_server_version_cmd
+      changed_when: false
+      delegate_to: "{{ k3s_stg_server_host | default('localhost', true) }}"
+      run_once: true
+      when:
+        - k3s_stg_agent_play_enabled | bool
+        - k3s_stg_server_hosts | length > 0
+
+    - name: staging server k3s version を fact 化
+      ansible.builtin.set_fact:
+        k3s_server_release_version: "{{ k3s_server_version_cmd.stdout | regex_search('v[0-9]+\\.[0-9]+\\.[0-9]+\\+k3s[0-9]+') }}"
+      delegate_to: "{{ k3s_stg_server_host | default('localhost', true) }}"
+      delegate_facts: true
+      run_once: true
+      when:
+        - k3s_stg_agent_play_enabled | bool
+        - k3s_stg_server_hosts | length > 0
+
+    - name: staging server k3s token を取得
+      become: true
+      ansible.builtin.slurp:
+        path: /var/lib/rancher/k3s/server/node-token
+      register: k3s_server_token_slurp
+      delegate_to: "{{ k3s_stg_server_host | default('localhost', true) }}"
+      run_once: true
+      no_log: true
+      when:
+        - k3s_stg_agent_play_enabled | bool
+        - k3s_stg_server_hosts | length > 0
+        - (k3s_control_token | default('', true) | string | length) == 0
+
+    - name: staging server k3s token を fact 化
+      ansible.builtin.set_fact:
+        k3s_server_token: "{{ k3s_server_token_slurp.content | b64decode | trim }}"
+      delegate_to: "{{ k3s_stg_server_host | default('localhost', true) }}"
+      delegate_facts: true
+      run_once: true
+      no_log: true
+      when:
+        - k3s_stg_agent_play_enabled | bool
+        - k3s_stg_server_hosts | length > 0
+        - (k3s_control_token | default('', true) | string | length) == 0
+
+    - name: staging server k3s address を fact 化
+      ansible.builtin.set_fact:
+        k3s_server_ip: "{{ hostvars[k3s_stg_server_host].ansible_host | default(hostvars[k3s_stg_server_host].ansible_facts.get('default_ipv4', {}).get('address', ''), true) }}"
+      delegate_to: "{{ k3s_stg_server_host | default('localhost', true) }}"
+      delegate_facts: true
+      run_once: true
+      when:
+        - k3s_stg_agent_play_enabled | bool
+        - k3s_stg_server_hosts | length > 0
+
+    - name: staging agent join 値を fact 化
+      ansible.builtin.set_fact:
+        k3s_stg_agent_registration_address_effective: "{{ k3s_registration_address | default(hostvars[k3s_stg_server_host].k3s_server_ip | default('', true), true) }}"
+        k3s_stg_agent_control_token_effective: "{{ k3s_control_token | default(hostvars[k3s_stg_server_host].k3s_server_token | default('', true), true) }}"
+      no_log: true
+      when:
+        - k3s_stg_agent_play_enabled | bool
+        - inventory_hostname in (groups['k3s_stg_agents'] | default([]))
+
+    - name: staging agent join に必要な値を確認
+      ansible.builtin.assert:
+        that:
+          - stage | default('') == 'stg'
+          - k3s_stg_agent_registration_address_effective | default('') | length > 0
+          - k3s_stg_agent_control_token_effective | default('') | length > 0
+        fail_msg: "stage=stg、k3s_registration_address、k3s_control_token を外部 inventory または実行時変数で渡してください"
+      no_log: true
+      when:
+        - k3s_stg_agent_play_enabled | bool
+        - inventory_hostname in (groups['k3s_stg_agents'] | default([]))
+
+    - name: k3s server API を待つ
+      become: false
+      vars:
+        ansible_become: false
+      ansible.builtin.wait_for:
+        host: "{{ k3s_stg_agent_registration_address_effective }}"
+        port: 6443
+        timeout: 300
+      delegate_to: localhost
+      when:
+        - k3s_stg_agent_play_enabled | bool
+        - inventory_hostname in (groups['k3s_stg_agents'] | default([]))
+
+    - name: k3s_local_storage のマウント状態を確認
+      block:
+        - name: findmnt を実行
+          ansible.builtin.command: findmnt --target /var/lib/rancher/k3s
+          changed_when: false
+          failed_when: false
+          register: findmnt_result
+        - name: マウント状態を検証
+          ansible.builtin.assert:
+            that:
+              - findmnt_result.rc == 0
+            fail_msg: "k3s_stg_storage は k3s_stg_agent の前に実行する必要があります"
+      when:
+        - k3s_stg_agent_play_enabled | bool
+        - k3s_local_storage_enabled | default(false)
+        - inventory_hostname in (groups['k3s_stg_agents'] | default([]))
+  roles:
+    - role: k3s_log_limits
+      when:
+        - k3s_stg_agent_play_enabled | bool
+        - inventory_hostname in (groups['k3s_stg_agents'] | default([]))
+      tags:
+        - k3s_log_limits
+    - role: k3s_iptables_nft
+      when:
+        - k3s_stg_agent_play_enabled | bool
+        - inventory_hostname in (groups['k3s_stg_agents'] | default([]))
+      tags:
+        - k3s_iptables_nft
+    - role: xanmanning.k3s
+      when:
+        - k3s_stg_agent_play_enabled | bool
+        - inventory_hostname in (groups['k3s_stg_agents'] | default([]))
+      vars:
+        k3s_state: downloaded
+        k3s_release_version: "{{ hostvars[k3s_stg_server_host].k3s_server_release_version if (k3s_stg_server_host | length > 0) else false }}"
+        k3s_control_node: false
+        k3s_primary_control_node: false
+        k3s_build_cluster: true
+        k3s_control_delegate: "{{ k3s_stg_server_host if (k3s_stg_server_host | length > 0) else 'k3s_stg_server' }}"
+        k3s_service_name: k3s
+        k3s_defer_service_restart: true
+    - role: k3s_agent_install_config
+      when:
+        - k3s_stg_agent_play_enabled | bool
+        - inventory_hostname in (groups['k3s_stg_agents'] | default([]))
+      vars:
+        k3s_agent_install_config_enabled: true
+        k3s_agent_install_config_release_version: "{{ hostvars[k3s_stg_server_host].k3s_server_release_version if (k3s_stg_server_host | length > 0) else false }}"
+        k3s_agent_install_config_registration_address: "{{ k3s_stg_agent_registration_address_effective }}"
+        k3s_agent_install_config_control_token: "{{ k3s_stg_agent_control_token_effective }}"
+        k3s_agent_install_config_service_name: k3s
+      tags:
+        - k3s_agent_install_config
+    - role: k3s_networking
+      when:
+        - k3s_stg_agent_play_enabled | bool
+        - inventory_hostname in (groups['k3s_stg_agents'] | default([]))
+      vars:
+        k3s_control_node: false
+        k3s_service_name: k3s
+        k3s_defer_service_restart: true
+      tags:
+        - k3s_networking
+    - role: k3s_converge_check
+      when:
+        - k3s_stg_agent_play_enabled | bool
+        - inventory_hostname in (groups['k3s_stg_agents'] | default([]))
+      vars:
+        k3s_converge_check_node_role: agent
+        k3s_converge_check_service_name: k3s
+        k3s_converge_check_mountpoint: /var/lib/rancher/k3s
+        k3s_converge_check_mode: start
+      tags:
+        - k3s_converge_check
+    - role: rpi5_egpu_local_llm
+      when:
+        - k3s_stg_agent_play_enabled | bool
+        - inventory_hostname in (groups['k3s_stg_agents'] | default([]))
+        - rpi5_egpu_local_llm_enabled | default(false) | bool
+      tags:
+        - rpi5_egpu_local_llm
+  vars:
+    k3s_stg_runtime_role: "{{ role | default('', true) }}"
+    k3s_stg_agent_play_enabled: "{{ k3s_stg_runtime_role in ['', 'k3s_stg_agent'] }}"
+    k3s_stg_server_hosts: "{{ groups['k3s_stg_server'] | default([]) }}"
+    k3s_stg_server_host: "{{ (groups['k3s_stg_server'] | default([]) | first) | default('', true) }}"
+    k3s_stg_agent_pull_mode: >-
+      {{
+        (groups['k3s_stg_server'] | default([]) | length == 0)
+        and ((k3s_registration_address | default('') | string | length) > 0)
+        and ((k3s_control_token | default('') | string | length) > 0)
+      }}
+
+- name: k3s production base
+  hosts: "env_prd:&role_base"
+  gather_facts: true
+  tags:
+    - base
+    - prd_base
+  roles:
+    - common/base
+    - common/change_make_conf
+    - common/zram_swap
+    - common/run_tmpfs_resize
+    - common/wait_network_up
+    - common/resolver
+    - common/cli_tools
+    - common/ntp
+    - common/daemon
+
+- name: k3s production iSCSI storage
+  hosts: "env_prd:&role_k3s_prd_storage"
+  gather_facts: true
+  tags:
+    - k3s_prd_storage
+  pre_tasks:
+    - name: Require the production storage identity and a fresh target
+      ansible.builtin.assert:
+        that:
+          - stage | default('') == 'prod'
+          - k3s_iscsi_session_enabled | default(false) | bool
+          - k3s_iscsi_session_device_path | default('') is match('^/dev/disk/by-path/ip-[A-Za-z0-9.:_-]+-iscsi-[A-Za-z0-9.:_-]+-lun-1$')
+          - k3s_local_storage_enabled | default(false) | bool
+          - k3s_local_storage_device | default('') == k3s_iscsi_session_device_path ~ '-part1'
+          - not (k3s_local_storage_force_format | default(false) | bool)
+          - not (k3s_local_storage_ephemeral_agent_data | default(false) | bool)
+        fail_msg: Production storage requires one explicit iSCSI disk and its first partition.
+
+  tasks:
+    - name: Establish the production iSCSI session
+      ansible.builtin.include_role:
+        name: k3s_iscsi_session
+
+    - name: Check whether the production data partition exists
+      ansible.builtin.command:
+        argv:
+          - test
+          - -b
+          - "{{ k3s_local_storage_device }}"
+      register: k3s_prd_partition_exists
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    - name: Check the raw disk for a previous filesystem or partition table
+      ansible.builtin.command:
+        argv:
+          - blkid
+          - -p
+          - "{{ k3s_iscsi_session_device_path }}"
+      register: k3s_prd_raw_signature
+      changed_when: false
+      failed_when: false
+      check_mode: false
+      when: k3s_prd_partition_exists.rc != 0
+
+    - name: Refuse to partition a disk with an existing signature
+      ansible.builtin.assert:
+        that:
+          - k3s_prd_raw_signature.rc == 2
+        fail_msg: Production iSCSI disk is not blank; partitioning requires separate recovery.
+      when: k3s_prd_partition_exists.rc != 0
+
+    - name: Create one GPT data partition on the blank production target
+      become: true
+      ansible.builtin.shell: >-
+        printf ',,L\n' |
+        sfdisk --label gpt --wipe never {{ k3s_iscsi_session_device_path | quote }}
+      args:
+        executable: /bin/sh
+      register: k3s_prd_partition_created
+      when:
+        - not ansible_check_mode
+        - k3s_prd_partition_exists.rc != 0
+
+    - name: Wait for the production data partition device
+      become: true
+      ansible.builtin.command: udevadm settle --timeout=30
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Require the production data partition device
+      ansible.builtin.command:
+        argv:
+          - test
+          - -b
+          - "{{ k3s_local_storage_device }}"
+      changed_when: false
+      check_mode: false
+      when: not ansible_check_mode
+
+    - name: Format only a partition created during this run and mount k3s data
+      ansible.builtin.include_role:
+        name: k3s_local_storage
+      vars:
+        k3s_local_storage_allow_format: "{{ k3s_prd_partition_created.changed | default(false) }}"
+        k3s_local_storage_wipe_signatures: false
+      when: not ansible_check_mode
+
+- name: k3s production server
+  hosts: "env_prd:&role_k3s_prd_server"
+  gather_facts: true
+  tags:
+    - k3s_prd
+    - k3s_prd_server
+  pre_tasks:
+    - name: Require one production server with explicit release and mounted storage
+      ansible.builtin.assert:
+        that:
+          - stage | default('') == 'prod'
+          - groups['k3s_prd_server'] | default([]) | length == 1
+          - k3s_build_cluster is defined
+          - not (k3s_build_cluster | bool)
+          - k3s_control_node | default(false) | bool
+          - k3s_release_version | default('') | length > 0
+          - k3s_server is mapping
+          - k3s_server['node-ip'] | default('') | length > 0
+          - k3s_server['node-name'] | default('') | length > 0
+        fail_msg: Production server requires one explicit host, version, and control role.
+
+    - name: Require the production k3s data mount
+      ansible.builtin.command: findmnt --mountpoint /var/lib/rancher/k3s
+      changed_when: false
+      check_mode: false
+
+    - name: Verify memory cgroup support
+      ansible.builtin.command: grep -w memory /sys/fs/cgroup/cgroup.controllers
+      changed_when: false
+      check_mode: false
+
+    - name: Load the k3s network modules
+      become: true
+      ansible.builtin.command: "modprobe {{ item }}"
+      changed_when: false
+      loop:
+        - br_netfilter
+        - overlay
+        - vxlan
+
+    - name: Install production k3s sysctl settings
+      become: true
+      ansible.builtin.copy:
+        dest: /etc/sysctl.d/90-k3s-prod.conf
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          net.ipv4.ip_forward = 1
+          net.bridge.bridge-nf-call-iptables = 1
+          net.bridge.bridge-nf-call-ip6tables = 1
+
+    - name: Apply production k3s sysctl settings
+      become: true
+      ansible.builtin.command: sysctl -p /etc/sysctl.d/90-k3s-prod.conf
+      changed_when: false
+
+  roles:
+    - k3s_log_limits
+    - k3s_iptables_nft
+    - role: xanmanning.k3s
+      vars:
+        k3s_state: downloaded
+        k3s_service_name: k3s
+        k3s_defer_service_restart: true
+    - role: k3s_networking
+      vars:
+        k3s_control_node: true
+        k3s_service_name: k3s
+        k3s_defer_service_restart: true
+        k3s_wifi_manage: false
+    - role: k3s_server_install_config
+      vars:
+        k3s_server_install_config_enabled: true
+        k3s_server_install_config_release_version: "{{ k3s_release_version }}"
+        k3s_server_install_config_control_token: "{{ k3s_control_token | default('', true) }}"
+        k3s_server_install_config_service_name: k3s
+    - role: k3s_converge_check
+      vars:
+        k3s_converge_check_node_role: server
+        k3s_converge_check_service_name: k3s
+        k3s_converge_check_mountpoint: /var/lib/rancher/k3s
+        k3s_converge_check_mode: start
+)
+        fail_msg: "staging /readyz は upstream set_fact 前に inventory k3s_release_version=v1.34+ を明示 pin する必要があります"
+      when: k3s_stg_readyz_anonymous_enabled | default(false) | bool
+      tags:
+        - k3s_networking
+
+    - name: staging /readyz の検証済み inventory release pin を保存
+      ansible.builtin.set_fact:
+        k3s_stg_readyz_inventory_release_pin: "{{ k3s_release_version }}"
+      when: k3s_stg_readyz_anonymous_enabled | default(false) | bool
+      tags:
+        - k3s_networking
+
     - name: staging server group を単一 active host に限定
       ansible.builtin.assert:
         that:
