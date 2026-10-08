@@ -9,6 +9,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 ROLE = ROOT / "ansible/arm64/roles/k3s_networking"
 TASKS = yaml.safe_load((ROLE / "tasks/main.yml").read_text())
+SERVER_TASKS = yaml.safe_load((ROOT / "ansible/arm64/roles/k3s_server_install_config/tasks/main.yml").read_text())
 
 
 def render(enabled: bool) -> dict:
@@ -61,10 +62,15 @@ class ScopedReadyzTest(unittest.TestCase):
                      "k3s_control_node | default(false) | bool",
                      "kube-apiserver-arg"):
             self.assertIn(term, checks)
-        v = task("staging /readyz endpoint-scoped authn のサポートを確認")
-        pattern = v["ansible.builtin.assert"]["that"][0].split("search('")[1].split("')")[0]
+        v = next(t for t in SERVER_TASKS if t["name"] == "staging /readyz endpoint-scoped authn の k3s version を検証")
+        pattern = v["ansible.builtin.assert"]["that"][1].split("search('")[1].split("')")[0]
         self.assertRegex("k3s version v1.36.5+k3s1", pattern)
         self.assertNotRegex("k3s version v1.33.9+k3s1", pattern)
+        names = [t["name"] for t in SERVER_TASKS]
+        self.assertLess(names.index("k3s server binary link を配置"),
+                        names.index("staging /readyz opt-in 用 binary version を symlink 配置後に確認"))
+        self.assertLess(names.index("staging /readyz endpoint-scoped authn の k3s version を検証"),
+                        names.index("k3s server systemd unit を配置"))
 
     def test_authentication_config_is_staged_before_server_config(self):
         names = [t["name"] for t in TASKS]
