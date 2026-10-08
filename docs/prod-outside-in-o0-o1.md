@@ -31,6 +31,101 @@ The source inventory shows that the existing public
 This MVP therefore renders standalone Kubernetes objects that an authorized
 private production deployment workflow can review and apply separately.
 
+## Optional staging API readiness authentication (source-only, no rollout)
+
+Kubernetes v1.34+ supports endpoint-scoped anonymous authentication using an
+`AuthenticationConfiguration`. A controlled staging-only opt-in is implemented
+by the public Ansible `k3s_networking` role:
+
+```yaml
+# Set this only for the selected staging k3s server in private inventory,
+# after source review and operator-authorized maintenance planning.
+k3s_stg_readyz_anonymous_enabled: true
+# Pin the same release selected by k3s_server_install_config; the public
+# staging group vars default to false, which is intentionally rejected.
+k3s_release_version: v1.36.5+k3s1
+```
+
+The default is **false**. This public source change alone does not change a live
+API server. Enabling the setting also requires an **explicitly pinned**
+`k3s_release_version` in private inventory. The public staging group default
+`k3s_release_version: false` is deliberately **rejected** for this opt-in:
+do not guess a new release or inspect the currently selected `k3s` symlink
+when the upcoming release might differ.
+
+The staging server playbook now **asserts and captures the effective
+inventory/run-input `k3s_release_version` in `pre_tasks`, before
+`xanmanning.k3s` can replace `false` with a channel-resolved release via
+`set_fact`. Both pre-tasks explicitly carry `k3s_networking` tags, so
+`--tags k3s_networking` cannot skip the early provenance check. The
+`k3s_networking` role then compares the saved original pin against its
+effective release *after* the upstream role. An unsupported, missing or
+upstream-rewritten release fails **before either authn file is written**.
+
+The same `k3s_networking` role validates the selected release as v1.34+
+and directly inspects and runs `<install-dir>/k3s-<pinned-release> --version`.
+The versioned file must exist, be regular and executable, and report **the
+same release**. The command is read-only (`changed_when: false`,
+`check_mode: false`) and does not rely on a symlink created later by
+`k3s_server_install_config`.
+
+A **networking-only tagged run** does not invoke the later server-install
+role that would update `/usr/local/bin/k3s`. For that case, the role
+also checks with `stat(follow=false)` that the live `k3s` symlink points
+to the exact validated versioned file; a missing/stale/non-symlink link
+fails before authn configuration. Full staging convergence may let the
+server-install role repoint the link afterward; if its tag is explicitly
+skipped, the live-link check is still required. This preserves the
+difference between a full two-role convergence and a partial tagged
+operation, including in `--check` mode.
+
+On initial PXE or check-mode runs when the intended downloaded binary is
+not yet available, this safety check intentionally **fails closed**, rather
+than writing an authentication flag for an unverified release. First
+converge/download the pinned binary through the existing owner, then retry
+the staging-only opt-in. The two generated files are:
+
+- `/etc/rancher/k3s/authentication-stg-readyz.yaml`:
+  `anonymous.enabled=true`, with **only** `conditions: [{path: /readyz}]`.
+- `/etc/rancher/k3s/config.yaml`: an additional
+  `kube-apiserver-arg: [authentication-config=/etc/rancher/k3s/authentication-stg-readyz.yaml]`
+  when the opt-in is enabled.
+
+In the staging site playbook, `k3s_defer_service_restart=true`, so writing
+the files does **not** restart the running k3s API server. An operator-controlled
+restart or cold boot is required before this setting takes effect. On PXE
+overlay-root nodes, both files must be recreated by the Ansible convergence
+path at every boot **before** the k3s server starts. Confirm the
+`authentication-config` file survives that sequence in the *effective* overlay
+and that the effective flags do not also include `--anonymous-auth=false`.
+Do not deploy only the config-file reference without its target file.
+
+This does **not** intentionally grant anonymous access to `/api` or `/apis`.
+Authentication and authorization are separate: where the existing upstream
+`system:public-info-viewer` ClusterRoleBinding already grants
+`system:unauthenticated` read access to `GET /readyz`, **do not create
+another RBAC binding**. Verify the effective binding read-only and check
+the following with TLS CA and SAN verification *after* the authorized restart:
+
+- Anonymous HTTPS `GET /readyz` must yield HTTP 200 with body `ok`.
+- Anonymous HTTPS `GET /api` and `GET /apis` must be rejected (normally 401).
+- An authenticated operator client and all existing staging workloads still
+  behave as before; staging node readiness returns to the pre-change baseline.
+
+If this fails, keep the endpoint-scoped gate; do not replace it with globally
+enabled anonymous authentication or skip TLS verification. No client key or
+token is used for this proposed readiness probe; the CA Secret remains a
+**server certificate trust** input on the production Blackbox side.
+
+This change is **staging server only**. It does not touch production k3s,
+Kubernetes Secret delivery, the outside-in renderer/admission (currently nine
+objects), or Prometheus's planned iSCSI-backed PVC. Those are separately reviewed
+stages before O1 apply.
+
+Reference:
+- https://kubernetes.io/docs/reference/access-authn-authz/authentication/
+- https://github.com/k3s-io/k3s/blob/v1.36.5%2Bk3s1/pkg/daemons/control/server.go
+
 ## O1 — minimal deployed components
 
 The renderer is `scripts/prod_outside_in_render.py`.
@@ -86,8 +181,10 @@ replace all values after the O0 discovery.
 
 - `api_targets`: 1–4 approved HTTPS `/readyz` URLs on port 443 or
   6443, no credentials, query strings, or redirects. An API that denies
-  unauthenticated requests is a blocker for this specific module; do not
-  disable authentication or turn off certificate verification to bypass it.
+  unauthenticated requests blocks the current module until a separately
+  authorized, **/readyz-only anonymous authentication** configuration is
+  confirmed on staging. Never globally open unrelated API endpoints or
+  disable TLS verification to bypass this check.
 - `tcp_targets`: optional 0–8 `host:9100` targets, only if O0 confirmed
   the host/port is reachable and the node exporter protocol matches.
 - `egress_cidrs`: 1–12 IPv4 networks, all with prefix length at least /24.

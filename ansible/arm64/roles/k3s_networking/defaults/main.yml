@@ -31,3 +31,8 @@ k3s_wifi_dhcp_mode: ipv4
 k3s_wifi_ipv6_accept_ra: false
 k3s_wifi_dhcp_use_broadcast: true
 k3s_wifi_dhcp_client_identifier: mac
+
+# Opt-in staging server only. The separate AuthenticationConfiguration authorizes
+# anonymous authentication on /readyz; the current built-in public-info-viewer
+# binding must still be verified on the real cluster. Never enable for prod.
+k3s_stg_readyz_anonymous_enabled: false

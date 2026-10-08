@@ -72,6 +72,24 @@
     - k3s_stg
     - k3s_stg_server
   pre_tasks:
+    # xanmanning.k3s can overwrite k3s_release_version using set_fact.
+    # This is checked and snapshotted before any role, including tagged runs.
+    - name: staging /readyz の upstream 前 inventory release pin を検証
+      ansible.builtin.assert:
+        that:
+          - (k3s_release_version | default('', true) | string) is match('^v1[.](3[4-9]|[4-9][0-9]|[1-9][0-9][0-9]+)[.][0-9]+[+]k3s[0-9]+$')
+        fail_msg: "staging /readyz は upstream set_fact 前に inventory k3s_release_version=v1.34+ の pin が必要です"
+      when: k3s_stg_readyz_anonymous_enabled | default(false) | bool
+      tags:
+        - k3s_networking
+
+    - name: staging /readyz の検証済み inventory release pin を保存
+      ansible.builtin.set_fact:
+        k3s_stg_readyz_inventory_release_pin: "{{ k3s_release_version }}"
+      when: k3s_stg_readyz_anonymous_enabled | default(false) | bool
+      tags:
+        - k3s_networking
+
     - name: staging server group を単一 active host に限定
       ansible.builtin.assert:
         that:
