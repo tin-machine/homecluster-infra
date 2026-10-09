@@ -190,6 +190,23 @@ class ScopedReadyzTest(unittest.TestCase):
                             for c in verification["ansible.builtin.assert"]["that"]))
         self.assertFalse(any("staging /readyz" in t["name"] for t in SERVER_TASKS))
 
+    def test_versioned_binary_output_matches_pin(self):
+        verification = task("staging /readyz の pinned release と実バイナリの一致を検証")
+        conditions = verification["ansible.builtin.assert"]["that"]
+
+        def accepted(output: str) -> bool:
+            return all(eval_assert(condition,
+                k3s_stg_readyz_binary_version={"stdout": output},
+                k3s_release_version="v1.36.5+k3s1",
+            ) for condition in conditions)
+
+        self.assertTrue(accepted("k3s-v1.36.5+k3s1 version v1.36.5+k3s1 (3dd98cc5)\n"
+                                 "go version go1.26.8"))
+        self.assertTrue(accepted("k3s version v1.36.5+k3s1 (3dd98cc5)"))
+        self.assertFalse(accepted("k3s-v1.36.4+k3s1 version v1.36.5+k3s1"))
+        self.assertFalse(accepted("k3s-v1.36.5+k3s1 version v1.36.4+k3s1"))
+        self.assertFalse(accepted("unrelated version v1.36.5+k3s1"))
+
     def test_authentication_config_is_staged_before_server_config(self):
         names = [t["name"] for t in TASKS]
         self.assertLess(names.index("staging /readyz 限定 AuthenticationConfiguration を配置"),

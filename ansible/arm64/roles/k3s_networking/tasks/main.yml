@@ -43,10 +43,12 @@
   when: k3s_stg_readyz_anonymous_enabled | bool
 
 - name: staging /readyz の pinned release と実バイナリの一致を検証
+  # k3s reports argv[0], so the versioned binary prints k3s-vX.Y.Z+k3sN.
   ansible.builtin.assert:
     that:
       - (k3s_stg_readyz_binary_version.stdout.split() | length) >= 3
-      - k3s_stg_readyz_binary_version.stdout.split()[0:2] == ['k3s', 'version']
+      - k3s_stg_readyz_binary_version.stdout.split()[0] in ['k3s', 'k3s-' ~ k3s_release_version]
+      - k3s_stg_readyz_binary_version.stdout.split()[1] == 'version'
       - k3s_stg_readyz_binary_version.stdout.split()[2] == k3s_release_version
     fail_msg: 'k3s versioned binary が pin されたリリースと一致しないため配置中断'
   when: k3s_stg_readyz_anonymous_enabled | bool
