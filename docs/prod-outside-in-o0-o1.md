@@ -117,14 +117,14 @@ enabled anonymous authentication or skip TLS verification. No client key or
 token is used for this proposed readiness probe; the CA Secret remains a
 **server certificate trust** input on the production Blackbox side.
 
-This change is **staging server only**. It does not touch production k3s,
-Kubernetes Secret delivery, the outside-in renderer/admission (currently nine
-objects), or Prometheus's planned iSCSI-backed PVC. Those are separately reviewed
-stages before O1 apply.
+The staging authentication change is **staging server only**. Production k3s,
+Secret delivery, the outside-in renderer, and its admission are separately
+reviewed stages before O1 apply.
 
 Reference:
-- https://kubernetes.io/docs/reference/access-authn-authz/authentication/
-- https://github.com/k3s-io/k3s/blob/v1.36.5%2Bk3s1/pkg/daemons/control/server.go
+
+- [Kubernetes authentication](https://kubernetes.io/docs/reference/access-authn-authz/authentication/)
+- [K3s API server implementation](https://github.com/k3s-io/k3s/blob/v1.36.5%2Bk3s1/pkg/daemons/control/server.go)
 
 ## O1 — minimal deployed components
 
@@ -136,6 +136,10 @@ It creates a Kubernetes List containing:
   probes demand TLS verification, status 200, and response body `ok`.
 - One small **Prometheus** Deployment / ClusterIP Service, scraping the
   exporter every 30 seconds plus its own health metrics.
+- One `local-path` PersistentVolumeClaim (`prod-prometheus-data`, `4Gi`,
+  `ReadWriteOnce`) for Prometheus TSDB. The production node's local-path
+  backing directory must be on its iSCSI ext4 mount; the claim, generated PV,
+  and non-root write access are runtime acceptance gates.
 - ConfigMaps for the Blackbox modules and Prometheus target list. Each relevant
   Deployment Pod template includes a SHA-256 annotation calculated from the
   exact rendered ConfigMap content. Changing a target recreates the Prometheus
@@ -147,19 +151,20 @@ It creates a Kubernetes List containing:
 - Ingress/egress NetworkPolicies scoped to the two Pods and explicitly
   declared narrow destination CIDRs. DNS is allowed on port 53;
   egress probing is confined to TCP 443, 6443 and 9100.
-- Prometheus uses a **256Mi emptyDir**, 6-hour retention and 128MB
-  retention size; history disappears after Pod rescheduling/recreation.
-  This is intentionally acceptable in the first O1 iteration, but it
-  is not durable, backup-protected monitoring history. Because configuration
-  changes roll the Prometheus Pod, they also discard this ephemeral history.
+- Prometheus retains data for 7 days or 2GB of TSDB blocks and mounts the
+  claim at `/prometheus`. `4Gi` is a storage request, not a quota; retention
+  does not strictly bound WAL, head, or compaction space. Monitor actual use
+  and DiskPressure because the TSDB shares the iSCSI filesystem with the
+  production k3s datastore. A ConfigMap checksum rollout keeps the same PVC.
   If the operator rotates only the *contents* of an existing CA Secret without
   changing its name, the checksum does not change; coordinate an explicit
   Blackbox Pod rollout after such Secret rotation.
 
 The Deployment service accounts do not mount Kubernetes API tokens. Services
 use ClusterIP only. No ingress, nodeport, load balancer, API credentials,
-staging mutation, collector reconfiguration, alerting, dashboard, or PV is
-created. NetworkPolicy enforcement must be independently verified: manifest
+staging mutation, collector reconfiguration, alerting, or dashboard is
+created. A PV is provisioned only when the approved PVC binds. NetworkPolicy
+enforcement must be independently verified: manifest
 existence alone does not prove traffic isolation.
 
 ## Site input contract (private; never commit)
@@ -234,29 +239,26 @@ python3 -m unittest discover -s scripts -p 'test_prod_outside_in_render.py' -v
 ## Operator review / runtime acceptance (not done by this PR)
 
 1. Approve the exact rendered resource set and destinations via the existing
-   private production mutation authority, not staging Terraform.
+    private production mutation authority, not staging Terraform.
 2. Compare prod/stg readiness and the prod datastore mount before/after.
 3. Verify only the intended namespace and two Pods are added; verify CPU,
-   memory, TSDB space, and DNS/NetworkPolicy behavior.
+    memory, TSDB space, and DNS/NetworkPolicy behavior.
 4. Query Prometheus on the prod side for
-   `probe_success{job="staging-api"}`,
-   `probe_duration_seconds`, and the self `up` series.
-   A real healthy readiness response should produce `probe_success=1`.
-   A failed probe should produce `probe_success=0` with an independent
-   Prometheus scrape `up=1`. A scrape failure (`up=0`) is different.
+    `probe_success{job="staging-api"}`,
+    `probe_duration_seconds`, and the self `up` series.
+    A real healthy readiness response should produce `probe_success=1`.
+    A failed probe should produce `probe_success=0` with an independent
+    Prometheus scrape `up=1`. A scrape failure (`up=0`) is different.
 5. Use a **test target** to simulate failure. Do not stop/restart the actual
-   staging API, k3s, OpenWrt target daemon, or any iSCSI connection.
+    staging API, k3s, OpenWrt target daemon, or any iSCSI connection.
 6. Confirm metrics collection continues within prod when staging probes fail;
-   establish loss-of-history behavior across a deliberate **test Pod** restart
-   before considering persistent volumes.
-7. Only then expand into O2 Grafana, node metrics, persistence, and longer
-   retention; O3 alerts and O4 logs follow independently.
+    verify that existing TSDB series survive a Prometheus Pod recreation and
+    that the PVC is on the intended iSCSI ext4 filesystem.
+7. Only then expand into O2 Grafana and node metrics; O3 alerts and O4 logs
+    follow independently.
 
 ## References
 
-- Prometheus Blackbox Exporter configuration:
-  https://github.com/prometheus/blackbox_exporter/blob/master/CONFIGURATION.md
-- Prometheus configuration:
-  https://prometheus.io/docs/prometheus/latest/configuration/configuration/
-- Kubernetes NetworkPolicy:
-  https://kubernetes.io/docs/concepts/services-networking/network-policies/
+- [Prometheus Blackbox Exporter configuration](https://github.com/prometheus/blackbox_exporter/blob/master/CONFIGURATION.md)
+- [Prometheus configuration](https://prometheus.io/docs/prometheus/latest/configuration/configuration/)
+- [Kubernetes NetworkPolicy](https://kubernetes.io/docs/concepts/services-networking/network-policies/)

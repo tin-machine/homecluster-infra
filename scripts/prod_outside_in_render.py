@@ -242,7 +242,7 @@ def build_manifest(site: dict) -> dict:
     prom_container = _container(
         "prometheus", PROMETHEUS_IMAGE, 9090,
         ["--config.file=/etc/prometheus/prometheus.json", "--storage.tsdb.path=/prometheus",
-         "--storage.tsdb.retention.time=6h", "--storage.tsdb.retention.size=128MB",
+         "--storage.tsdb.retention.time=7d", "--storage.tsdb.retention.size=2GB",
          "--web.listen-address=:9090"],
         [{"name": "config", "mountPath": "/etc/prometheus", "readOnly": True},
          {"name": "data", "mountPath": "/prometheus"}],
@@ -262,10 +262,14 @@ def build_manifest(site: dict) -> dict:
         {"apiVersion": "v1", "kind": "Namespace", "metadata": {"name": NAMESPACE, "labels": {"app.kubernetes.io/part-of": "prod-outside-in"}}},
         _configmap("prod-blackbox-config", {"config.json": blackbox_config_text}),
         _configmap("prod-prometheus-config", {"prometheus.json": prometheus_config_text}),
+        _obj("PersistentVolumeClaim", "v1", "prod-prometheus-data", spec={
+            "accessModes": ["ReadWriteOnce"], "storageClassName": "local-path",
+            "volumeMode": "Filesystem", "resources": {"requests": {"storage": "4Gi"}},
+        }),
         _deployment(blackbox, bb_container, bb_volumes, blackbox_config_text),
         _deployment(prometheus, prom_container, [
             {"name": "config", "configMap": {"name": "prod-prometheus-config"}},
-            {"name": "data", "emptyDir": {"sizeLimit": "256Mi"}},
+            {"name": "data", "persistentVolumeClaim": {"claimName": "prod-prometheus-data"}},
         ], prometheus_config_text),
         _service(blackbox, 9115),
         _service(prometheus, 9090),
