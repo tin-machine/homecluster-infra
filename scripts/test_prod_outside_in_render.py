@@ -39,8 +39,8 @@ class ProductionOutsideInTest(unittest.TestCase):
         self.assertEqual(m["kind"], "List")
         self.assertEqual(m["apiVersion"], "v1")
         things = objects(m)
-        self.assertEqual(len(things), 9)
-        self.assertEqual({x["kind"] for x in m["items"]}, {"Namespace", "ConfigMap", "Deployment", "Service", "NetworkPolicy"})
+        self.assertEqual(len(things), 10)
+        self.assertEqual({x["kind"] for x in m["items"]}, {"Namespace", "ConfigMap", "PersistentVolumeClaim", "Deployment", "Service", "NetworkPolicy"})
         for o in m["items"]:
             if o["kind"] != "Namespace":
                 self.assertEqual(o["metadata"]["namespace"], r.NAMESPACE)
@@ -71,11 +71,17 @@ class ProductionOutsideInTest(unittest.TestCase):
         self.assertEqual(jobs["staging-api"]["params"]["module"], ["http_readyz"])
         self.assertEqual(jobs["staging-tcp"]["params"]["module"], ["tcp_connect"])
         self.assertNotIn("remote_write", pr)
+        pvc = things["prod-prometheus-data"]
+        self.assertEqual(pvc["spec"], {
+            "accessModes": ["ReadWriteOnce"], "storageClassName": "local-path",
+            "volumeMode": "Filesystem", "resources": {"requests": {"storage": "4Gi"}},
+        })
         prom_spec = things["prod-prometheus"]["spec"]["template"]["spec"]
-        self.assertEqual(prom_spec["volumes"][1]["emptyDir"]["sizeLimit"], "256Mi")
+        self.assertEqual(prom_spec["volumes"][1]["persistentVolumeClaim"]["claimName"], "prod-prometheus-data")
+        self.assertNotIn("emptyDir", json.dumps(prom_spec))
         prom_args = prom_spec["containers"][0]["args"]
-        self.assertIn("--storage.tsdb.retention.time=6h", prom_args)
-        self.assertIn("--storage.tsdb.retention.size=128MB", prom_args)
+        self.assertIn("--storage.tsdb.retention.time=7d", prom_args)
+        self.assertIn("--storage.tsdb.retention.size=2GB", prom_args)
 
         bb_policy = things["prod-blackbox-restricted"]["spec"]
         self.assertEqual(bb_policy["policyTypes"], ["Ingress", "Egress"])
