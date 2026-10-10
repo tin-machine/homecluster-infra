@@ -132,7 +132,7 @@ class AlertEvaluationTests(unittest.TestCase):
             work = Path(tmp)
             os.chmod(work, 0o755)  # nobody inside the isolated container
             (work / "alerts.json").write_text(
-                json.dumps(self.rules, sort_keys=True) + "\\n", encoding="utf-8")
+                json.dumps(self.rules, sort_keys=True) + "\n", encoding="utf-8")
             shutil.copyfile(fixture, work / "fixture.json")
             if shutil.which("docker"):
                 command = [
@@ -157,7 +157,7 @@ class AlertEvaluationTests(unittest.TestCase):
                         command + action, cwd=work, capture_output=True,
                         text=True, timeout=240, check=False)
                     self.assertEqual(proc.returncode, 0,
-                                     f"promtool {' '.join(action)} failed:\\n{proc.stdout}\\n{proc.stderr}")
+                                     f"promtool {' '.join(action)} failed:\n{proc.stdout}\n{proc.stderr}")
 
 
 
