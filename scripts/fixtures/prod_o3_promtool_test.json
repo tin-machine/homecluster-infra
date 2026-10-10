@@ -39,6 +39,22 @@
         {
           "series": "up{job=\"staging-node-exporter\",instance=\"node-4:9100\",node_name=\"node-4\"}",
           "values": "1x24"
+        },
+        {
+          "series": "up{job=\"staging-tcp\",instance=\"node-2:9100\",probe_name=\"tcp-2\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "probe_success{job=\"staging-tcp\",instance=\"node-2:9100\",probe_name=\"tcp-2\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "up{job=\"staging-tcp\",instance=\"node-3:9100\",probe_name=\"tcp-3\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "probe_success{job=\"staging-tcp\",instance=\"node-3:9100\",probe_name=\"tcp-3\"}",
+          "values": "1x24"
         }
       ],
       "alert_rule_test": [
@@ -75,6 +91,11 @@
         {
           "eval_time": "10m",
           "alertname": "StagingNodeExporterTargetsMissing",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "10m",
+          "alertname": "StagingTCPProbeTargetsMissing",
           "exp_alerts": []
         }
       ]
@@ -712,6 +733,148 @@
         {
           "eval_time": "6m",
           "alertname": "StagingNodeExporterTargetsMissing",
+          "exp_alerts": []
+        }
+      ]
+    },
+    {
+      "name": "tcp-target-group-fully-disappeared",
+      "interval": "30s",
+      "input_series": [
+        {
+          "series": "up{job=\"staging-api\",instance=\"api-1\",probe_name=\"api\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "probe_success{job=\"staging-api\",instance=\"api-1\",probe_name=\"api\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "up{job=\"staging-node-exporter\",instance=\"node-1:9100\",node_name=\"node-1\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "up{job=\"staging-node-exporter\",instance=\"node-2:9100\",node_name=\"node-2\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "up{job=\"staging-node-exporter\",instance=\"node-3:9100\",node_name=\"node-3\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "up{job=\"staging-node-exporter\",instance=\"node-4:9100\",node_name=\"node-4\"}",
+          "values": "1x24"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "4m30s",
+          "alertname": "StagingTCPProbeTargetsMissing",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "5m",
+          "alertname": "StagingTCPProbeTargetsMissing",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "scope": "staging",
+                "source": "prod-outside-in",
+                "severity": "warning"
+              },
+              "exp_annotations": {
+                "summary": "Fewer than the expected three staging TCP probe targets are present"
+              }
+            }
+          ]
+        },
+        {
+          "eval_time": "6m",
+          "alertname": "StagingTCPBlackboxScrapeFailed",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "6m",
+          "alertname": "StagingTCPProbeFailed",
+          "exp_alerts": []
+        }
+      ]
+    },
+    {
+      "name": "tcp-target-single-series-disappeared",
+      "interval": "30s",
+      "input_series": [
+        {
+          "series": "up{job=\"staging-api\",instance=\"api-1\",probe_name=\"api\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "probe_success{job=\"staging-api\",instance=\"api-1\",probe_name=\"api\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "up{job=\"staging-tcp\",instance=\"node-1:9100\",probe_name=\"tcp-1\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "probe_success{job=\"staging-tcp\",instance=\"node-1:9100\",probe_name=\"tcp-1\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "up{job=\"staging-node-exporter\",instance=\"node-1:9100\",node_name=\"node-1\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "up{job=\"staging-node-exporter\",instance=\"node-2:9100\",node_name=\"node-2\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "up{job=\"staging-node-exporter\",instance=\"node-3:9100\",node_name=\"node-3\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "up{job=\"staging-node-exporter\",instance=\"node-4:9100\",node_name=\"node-4\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "up{job=\"staging-tcp\",instance=\"node-2:9100\",probe_name=\"tcp-2\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "probe_success{job=\"staging-tcp\",instance=\"node-2:9100\",probe_name=\"tcp-2\"}",
+          "values": "1x24"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "4m30s",
+          "alertname": "StagingTCPProbeTargetsMissing",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "5m",
+          "alertname": "StagingTCPProbeTargetsMissing",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "scope": "staging",
+                "source": "prod-outside-in",
+                "severity": "warning"
+              },
+              "exp_annotations": {
+                "summary": "Fewer than the expected three staging TCP probe targets are present"
+              }
+            }
+          ]
+        },
+        {
+          "eval_time": "6m",
+          "alertname": "StagingTCPBlackboxScrapeFailed",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "6m",
+          "alertname": "StagingTCPProbeFailed",
           "exp_alerts": []
         }
       ]
