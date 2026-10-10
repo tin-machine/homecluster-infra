@@ -56,12 +56,18 @@ def _valid_host(host: str | None) -> bool:
 
 
 def validate_site(document: object) -> dict:
-    if not isinstance(document, dict) or set(document) != {
-        "api_targets", "tcp_targets", "egress_cidrs", "api_ca_secret"
-    }:
-        raise ValueError("site input must declare exactly four documented keys")
+    required = {"api_targets", "tcp_targets", "egress_cidrs", "api_ca_secret"}
+    allowed = required | {"metrics_targets"}
+    if not isinstance(document, dict) or not required <= set(document) or set(document) - allowed:
+        raise ValueError("site input must declare four O1 keys and optional metrics_targets")
     api = _names(document["api_targets"], "api_targets", 4)
     tcp = _names(document["tcp_targets"], "tcp_targets", 8)
+    # O2 is opt-in; legacy four-key O1 inputs must render exactly the same objects.
+    metrics = _names(document.get("metrics_targets", []), "metrics_targets", 4)
+    if len({entry["name"] for entry in metrics}) != len(metrics):
+        raise ValueError("duplicate metrics target name")
+    if len({entry["target"] for entry in metrics}) != len(metrics):
+        raise ValueError("duplicate metrics endpoint")
     seen = set()
     for entry in api + tcp:
         if entry["name"] in seen:
@@ -86,6 +92,17 @@ def validate_site(document: object) -> dict:
             or ":" not in entry["target"] or parsed.port != 9100
         ):
             raise ValueError("TCP target must be a host:port")
+    for entry in metrics:
+        # Scrape only the existing unauthenticated node-exporter /metrics port.
+        # Do not allow URLs, schemes, userinfo, IPv6, query or arbitrary ports.
+        parsed = urlsplit("tcp://" + entry["target"])
+        if (
+            not _valid_host(parsed.hostname) or parsed.port != 9100
+            or parsed.username is not None or parsed.password is not None
+            or parsed.path or parsed.query or parsed.fragment
+            or ":" not in entry["target"]
+        ):
+            raise ValueError("metrics target must be a host:9100 endpoint")
     cidrs = document["egress_cidrs"]
     if not isinstance(cidrs, list) or not cidrs or len(cidrs) > 12:
         raise ValueError("egress_cidrs must contain 1-12 explicitly scoped IPv4 CIDRs")
@@ -109,7 +126,10 @@ def validate_site(document: object) -> dict:
         not isinstance(secret, str) or not NAME_RE.fullmatch(secret)
     ):
         raise ValueError("api_ca_secret must be null or Kubernetes DNS name")
-    return {"api_targets": api, "tcp_targets": tcp, "egress_cidrs": result_cidrs, "api_ca_secret": secret}
+    return {
+        "api_targets": api, "tcp_targets": tcp, "egress_cidrs": result_cidrs,
+        "api_ca_secret": secret, "metrics_targets": metrics,
+    }
 
 
 def _meta(name: str, labels: dict | None = None) -> dict:
@@ -224,6 +244,31 @@ def build_manifest(site: dict) -> dict:
     ]
     if site["tcp_targets"]:
         jobs.append(job("tcp", site["tcp_targets"], "tcp_connect"))
+    if site["metrics_targets"]:
+        # Explicit direct scrape, not Blackbox TCP probing. Bound the accepted
+        # metrics to O2 fundamentals and cap samples per target per scrape.
+        node_metric_names = (
+            "node_cpu_seconds_total|node_memory_MemTotal_bytes|"
+            "node_memory_MemAvailable_bytes|node_filesystem_size_bytes|"
+            "node_filesystem_avail_bytes|node_load1|node_boot_time_seconds|"
+            "node_network_receive_bytes_total|node_network_transmit_bytes_total"
+        )
+        jobs.append({
+            "job_name": "staging-node-exporter",
+            "metrics_path": "/metrics",
+            "scheme": "http",
+            "scrape_interval": "60s",
+            "scrape_timeout": "10s",
+            "sample_limit": 2000,
+            "static_configs": [
+                {"targets": [item["target"]], "labels": {"node_name": item["name"]}}
+                for item in site["metrics_targets"]
+            ],
+            "metric_relabel_configs": [{
+                "action": "keep", "source_labels": ["__name__"],
+                "regex": node_metric_names,
+            }],
+        })
     prometheus_cfg = {"global": {"scrape_interval": "30s", "evaluation_interval": "30s"}, "scrape_configs": jobs}
     blackbox_config_text = json.dumps({"modules": bb_modules}, sort_keys=True)
     prometheus_config_text = json.dumps(prometheus_cfg, sort_keys=True)
@@ -258,6 +303,15 @@ def build_manifest(site: dict) -> dict:
         "ports": [{"protocol": "TCP", "port": 443}, {"protocol": "TCP", "port": 6443}, {"protocol": "TCP", "port": 9100}],
     }]
     # egress ports are deliberately not arbitrary: only HTTPS/k3s API/node metric TCP.
+    prometheus_egress = dns_egress + [{
+        "to": [{"podSelector": {"matchLabels": _pod_labels(blackbox)}}],
+        "ports": [{"protocol": "TCP", "port": 9115}],
+    }]
+    if site["metrics_targets"]:
+        prometheus_egress.append({
+            "to": [{"ipBlock": {"cidr": network}} for network in site["egress_cidrs"]],
+            "ports": [{"protocol": "TCP", "port": 9100}],
+        })
     items = [
         {"apiVersion": "v1", "kind": "Namespace", "metadata": {"name": NAMESPACE, "labels": {"app.kubernetes.io/part-of": "prod-outside-in"}}},
         _configmap("prod-blackbox-config", {"config.json": blackbox_config_text}),
@@ -284,8 +338,7 @@ def build_manifest(site: dict) -> dict:
              spec={
                 "podSelector": {"matchLabels": _pod_labels(prometheus)}, "policyTypes": ["Ingress", "Egress"],
                 "ingress": [],
-                "egress": dns_egress + [{"to": [{"podSelector": {"matchLabels": _pod_labels(blackbox)}}],
-                                         "ports": [{"protocol": "TCP", "port": 9115}]}],
+                "egress": prometheus_egress,
              }),
     ]
     return {"apiVersion": "v1", "kind": "List", "items": items}
