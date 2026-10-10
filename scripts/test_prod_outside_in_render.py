@@ -166,6 +166,9 @@ class ProductionOutsideInTest(unittest.TestCase):
         o1_cfg = json.loads(o1["prod-prometheus-config"]["data"]["prometheus.json"])
         self.assertNotIn("staging-node-exporter", [x["job_name"] for x in o1_cfg["scrape_configs"]])
         self.assertEqual(len(o1["prod-prometheus-restricted"]["spec"]["egress"]), 2)
+        legacy_with_empty_opt_in = fixture()
+        legacy_with_empty_opt_in["metrics_targets"] = []
+        self.assertEqual(r.build_manifest(legacy_with_empty_opt_in), r.build_manifest(fixture()))
 
         site = fixture()
         site["metrics_targets"] = [
@@ -232,8 +235,8 @@ class ProductionOutsideInTest(unittest.TestCase):
             ({"metrics_targets": [{"name": "bad", "target": "127.0.0.1:9100"}]}, "loopback"),
             ({"metrics_targets": [{"name": "bad", "target": "example.invalid:9100?x=1"}]}, "query"),
             ({"metrics_targets": [{"name": "bad", "target": "example.invalid:9100#x"}]}, "fragment"),
-            ({"metrics_targets": [{"name": "a", "target": "node.lab.example.invalid:9100"},
-                                  {"name": "a", "target": "node2.lab.example.invalid:9100"}]}, "duplicate names"),
+            ({"metrics_targets": [{"name": "node-a", "target": "node.lab.example.invalid:9100"},
+                                  {"name": "node-a", "target": "node2.lab.example.invalid:9100"}]}, "duplicate names"),
             ({"metrics_targets": [{"name": f"node-{i}", "target": f"node-{i}.example.invalid:9100"}
                                   for i in range(5)]}, "limit"),
             ({"metrics_targets": [{"name": "bad", "target": "node.lab.example.invalid:9100"},
