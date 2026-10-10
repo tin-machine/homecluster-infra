@@ -233,8 +233,26 @@ controller's policy remain a separate acceptance.
 Fixture-only tests (no k3s, network, credentials, or image pull required):
 
 ```bash
-python3 -m unittest discover -s scripts -p 'test_prod_outside_in_render.py' -v
+python3 -m unittest discover -s scripts -p 'test_prod_outside_in*.py' -v
 ```
+
+## Disposable negative-probe acceptance
+
+`scripts/prod_outside_in_negative_acceptance.py` renders a fixed three-object
+List: one ConfigMap, one Pod running the same pinned Prometheus image, and one
+NetworkPolicy that lets this Pod scrape the existing production Blackbox
+Exporter. Its only target is unreachable loopback HTTPS. It contains no site
+input or credentials, has bounded CPU, memory, and temporary `emptyDir`, and
+does not match the production Prometheus Service selector. The existing
+Prometheus configuration and Deployment remain unchanged.
+
+An operator may render the List to a local file, review the identities,
+server-dry-run it, create it temporarily, query that Pod for
+`probe_success=0` and `up=1`, then delete exactly the same List. This tests
+the scrape-versus-probe distinction in the production cluster using the
+existing Blackbox path. It does **not** prove that the existing Prometheus
+instance has collected a negative series. Source merge itself creates no
+Kubernetes resources.
 
 ## Operator review / runtime acceptance (not done by this PR)
 
