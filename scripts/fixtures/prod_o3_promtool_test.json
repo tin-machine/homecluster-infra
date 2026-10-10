@@ -1,0 +1,720 @@
+{
+  "rule_files": [
+    "alerts.json"
+  ],
+  "evaluation_interval": "30s",
+  "tests": [
+    {
+      "name": "all-healthy",
+      "interval": "30s",
+      "input_series": [
+        {
+          "series": "up{job=\"staging-api\",instance=\"api-1\",probe_name=\"api\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "probe_success{job=\"staging-api\",instance=\"api-1\",probe_name=\"api\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "up{job=\"staging-tcp\",instance=\"node-1:9100\",probe_name=\"tcp-1\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "probe_success{job=\"staging-tcp\",instance=\"node-1:9100\",probe_name=\"tcp-1\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "up{job=\"staging-node-exporter\",instance=\"node-1:9100\",node_name=\"node-1\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "up{job=\"staging-node-exporter\",instance=\"node-2:9100\",node_name=\"node-2\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "up{job=\"staging-node-exporter\",instance=\"node-3:9100\",node_name=\"node-3\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "up{job=\"staging-node-exporter\",instance=\"node-4:9100\",node_name=\"node-4\"}",
+          "values": "1x24"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "10m",
+          "alertname": "StagingAPIProbeFailed",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "10m",
+          "alertname": "StagingAPIBlackboxScrapeFailed",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "10m",
+          "alertname": "StagingAPIProbeTargetsMissing",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "10m",
+          "alertname": "StagingTCPProbeFailed",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "10m",
+          "alertname": "StagingTCPBlackboxScrapeFailed",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "10m",
+          "alertname": "StagingNodeExporterScrapeFailed",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "10m",
+          "alertname": "StagingNodeExporterTargetsMissing",
+          "exp_alerts": []
+        }
+      ]
+    },
+    {
+      "name": "api-probe-failure-distinct-from-scrape",
+      "interval": "30s",
+      "input_series": [
+        {
+          "series": "up{job=\"staging-api\",instance=\"api-1\",probe_name=\"api\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "probe_success{job=\"staging-api\",instance=\"api-1\",probe_name=\"api\"}",
+          "values": "0x24"
+        },
+        {
+          "series": "up{job=\"staging-node-exporter\",instance=\"node-1:9100\",node_name=\"node-1\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "up{job=\"staging-node-exporter\",instance=\"node-2:9100\",node_name=\"node-2\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "up{job=\"staging-node-exporter\",instance=\"node-3:9100\",node_name=\"node-3\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "up{job=\"staging-node-exporter\",instance=\"node-4:9100\",node_name=\"node-4\"}",
+          "values": "1x24"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "1m",
+          "alertname": "StagingAPIProbeFailed",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "2m",
+          "alertname": "StagingAPIProbeFailed",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "job": "staging-api",
+                "instance": "api-1",
+                "probe_name": "api",
+                "scope": "staging",
+                "source": "prod-outside-in",
+                "severity": "critical"
+              },
+              "exp_annotations": {
+                "summary": "Staging Kubernetes API /readyz probe has failed"
+              }
+            }
+          ]
+        },
+        {
+          "eval_time": "3m",
+          "alertname": "StagingAPIBlackboxScrapeFailed",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "6m",
+          "alertname": "StagingAPIProbeTargetsMissing",
+          "exp_alerts": []
+        }
+      ],
+      "promql_expr_test": [
+        {
+          "expr": "ALERTS{alertname=\"StagingAPIProbeFailed\",alertstate=\"pending\"}",
+          "eval_time": "1m",
+          "exp_samples": [
+            {
+              "labels": "ALERTS{alertname=\"StagingAPIProbeFailed\",alertstate=\"pending\",job=\"staging-api\",instance=\"api-1\",probe_name=\"api\",scope=\"staging\",source=\"prod-outside-in\",severity=\"critical\"}",
+              "value": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "api-blackbox-scrape-failure",
+      "interval": "30s",
+      "input_series": [
+        {
+          "series": "up{job=\"staging-api\",instance=\"api-1\",probe_name=\"api\"}",
+          "values": "0x24"
+        },
+        {
+          "series": "up{job=\"staging-node-exporter\",instance=\"node-1:9100\",node_name=\"node-1\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "up{job=\"staging-node-exporter\",instance=\"node-2:9100\",node_name=\"node-2\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "up{job=\"staging-node-exporter\",instance=\"node-3:9100\",node_name=\"node-3\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "up{job=\"staging-node-exporter\",instance=\"node-4:9100\",node_name=\"node-4\"}",
+          "values": "1x24"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "2m",
+          "alertname": "StagingAPIBlackboxScrapeFailed",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "job": "staging-api",
+                "instance": "api-1",
+                "probe_name": "api",
+                "scope": "staging",
+                "source": "prod-outside-in",
+                "severity": "warning"
+              },
+              "exp_annotations": {
+                "summary": "Prometheus cannot scrape the staging API Blackbox probe"
+              }
+            }
+          ]
+        },
+        {
+          "eval_time": "3m",
+          "alertname": "StagingAPIProbeFailed",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "6m",
+          "alertname": "StagingAPIProbeTargetsMissing",
+          "exp_alerts": []
+        }
+      ]
+    },
+    {
+      "name": "api-target-absent",
+      "interval": "30s",
+      "input_series": [
+        {
+          "series": "up{job=\"staging-node-exporter\",instance=\"node-1:9100\",node_name=\"node-1\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "up{job=\"staging-node-exporter\",instance=\"node-2:9100\",node_name=\"node-2\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "up{job=\"staging-node-exporter\",instance=\"node-3:9100\",node_name=\"node-3\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "up{job=\"staging-node-exporter\",instance=\"node-4:9100\",node_name=\"node-4\"}",
+          "values": "1x24"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "4m30s",
+          "alertname": "StagingAPIProbeTargetsMissing",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "5m",
+          "alertname": "StagingAPIProbeTargetsMissing",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "scope": "staging",
+                "source": "prod-outside-in",
+                "severity": "warning"
+              },
+              "exp_annotations": {
+                "summary": "No staging API Blackbox scrape target is present"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "tcp-probe-failure",
+      "interval": "30s",
+      "input_series": [
+        {
+          "series": "up{job=\"staging-api\",instance=\"api-1\",probe_name=\"api\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "probe_success{job=\"staging-api\",instance=\"api-1\",probe_name=\"api\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "up{job=\"staging-tcp\",instance=\"node-1:9100\",probe_name=\"tcp-1\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "probe_success{job=\"staging-tcp\",instance=\"node-1:9100\",probe_name=\"tcp-1\"}",
+          "values": "0x24"
+        },
+        {
+          "series": "up{job=\"staging-node-exporter\",instance=\"node-1:9100\",node_name=\"node-1\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "up{job=\"staging-node-exporter\",instance=\"node-2:9100\",node_name=\"node-2\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "up{job=\"staging-node-exporter\",instance=\"node-3:9100\",node_name=\"node-3\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "up{job=\"staging-node-exporter\",instance=\"node-4:9100\",node_name=\"node-4\"}",
+          "values": "1x24"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "2m30s",
+          "alertname": "StagingTCPProbeFailed",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "3m",
+          "alertname": "StagingTCPProbeFailed",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "job": "staging-tcp",
+                "instance": "node-1:9100",
+                "probe_name": "tcp-1",
+                "scope": "staging",
+                "source": "prod-outside-in",
+                "severity": "warning"
+              },
+              "exp_annotations": {
+                "summary": "Staging TCP probe has failed"
+              }
+            }
+          ]
+        },
+        {
+          "eval_time": "4m",
+          "alertname": "StagingTCPBlackboxScrapeFailed",
+          "exp_alerts": []
+        }
+      ]
+    },
+    {
+      "name": "tcp-blackbox-scrape-failure",
+      "interval": "30s",
+      "input_series": [
+        {
+          "series": "up{job=\"staging-api\",instance=\"api-1\",probe_name=\"api\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "probe_success{job=\"staging-api\",instance=\"api-1\",probe_name=\"api\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "up{job=\"staging-tcp\",instance=\"node-1:9100\",probe_name=\"tcp-1\"}",
+          "values": "0x24"
+        },
+        {
+          "series": "up{job=\"staging-node-exporter\",instance=\"node-1:9100\",node_name=\"node-1\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "up{job=\"staging-node-exporter\",instance=\"node-2:9100\",node_name=\"node-2\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "up{job=\"staging-node-exporter\",instance=\"node-3:9100\",node_name=\"node-3\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "up{job=\"staging-node-exporter\",instance=\"node-4:9100\",node_name=\"node-4\"}",
+          "values": "1x24"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "3m",
+          "alertname": "StagingTCPBlackboxScrapeFailed",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "job": "staging-tcp",
+                "instance": "node-1:9100",
+                "probe_name": "tcp-1",
+                "scope": "staging",
+                "source": "prod-outside-in",
+                "severity": "warning"
+              },
+              "exp_annotations": {
+                "summary": "Prometheus cannot scrape a staging TCP Blackbox probe"
+              }
+            }
+          ]
+        },
+        {
+          "eval_time": "4m",
+          "alertname": "StagingTCPProbeFailed",
+          "exp_alerts": []
+        }
+      ]
+    },
+    {
+      "name": "single-node-scrape-failure",
+      "interval": "30s",
+      "input_series": [
+        {
+          "series": "up{job=\"staging-api\",instance=\"api-1\",probe_name=\"api\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "probe_success{job=\"staging-api\",instance=\"api-1\",probe_name=\"api\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "up{job=\"staging-node-exporter\",instance=\"node-1:9100\",node_name=\"node-1\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "up{job=\"staging-node-exporter\",instance=\"node-2:9100\",node_name=\"node-2\"}",
+          "values": "0x24"
+        },
+        {
+          "series": "up{job=\"staging-node-exporter\",instance=\"node-3:9100\",node_name=\"node-3\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "up{job=\"staging-node-exporter\",instance=\"node-4:9100\",node_name=\"node-4\"}",
+          "values": "1x24"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "2m30s",
+          "alertname": "StagingNodeExporterScrapeFailed",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "3m",
+          "alertname": "StagingNodeExporterScrapeFailed",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "job": "staging-node-exporter",
+                "instance": "node-2:9100",
+                "node_name": "node-2",
+                "scope": "staging",
+                "source": "prod-outside-in",
+                "severity": "warning"
+              },
+              "exp_annotations": {
+                "summary": "Prometheus cannot scrape a staging node-exporter"
+              }
+            }
+          ]
+        },
+        {
+          "eval_time": "8m",
+          "alertname": "StagingNodeExporterTargetsMissing",
+          "exp_alerts": []
+        }
+      ]
+    },
+    {
+      "name": "one-node-target-disappeared",
+      "interval": "30s",
+      "input_series": [
+        {
+          "series": "up{job=\"staging-api\",instance=\"api-1\",probe_name=\"api\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "probe_success{job=\"staging-api\",instance=\"api-1\",probe_name=\"api\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "up{job=\"staging-node-exporter\",instance=\"node-1:9100\",node_name=\"node-1\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "up{job=\"staging-node-exporter\",instance=\"node-2:9100\",node_name=\"node-2\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "up{job=\"staging-node-exporter\",instance=\"node-3:9100\",node_name=\"node-3\"}",
+          "values": "1x24"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "4m30s",
+          "alertname": "StagingNodeExporterTargetsMissing",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "5m",
+          "alertname": "StagingNodeExporterTargetsMissing",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "scope": "staging",
+                "source": "prod-outside-in",
+                "severity": "warning"
+              },
+              "exp_annotations": {
+                "summary": "Fewer than the expected four node-exporter scrape targets are present"
+              }
+            }
+          ]
+        },
+        {
+          "eval_time": "6m",
+          "alertname": "StagingNodeExporterScrapeFailed",
+          "exp_alerts": []
+        }
+      ]
+    },
+    {
+      "name": "all-node-targets-disappeared",
+      "interval": "30s",
+      "input_series": [
+        {
+          "series": "up{job=\"staging-api\",instance=\"api-1\",probe_name=\"api\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "probe_success{job=\"staging-api\",instance=\"api-1\",probe_name=\"api\"}",
+          "values": "1x24"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "4m30s",
+          "alertname": "StagingNodeExporterTargetsMissing",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "5m",
+          "alertname": "StagingNodeExporterTargetsMissing",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "scope": "staging",
+                "source": "prod-outside-in",
+                "severity": "warning"
+              },
+              "exp_annotations": {
+                "summary": "Fewer than the expected four node-exporter scrape targets are present"
+              }
+            }
+          ]
+        },
+        {
+          "eval_time": "6m",
+          "alertname": "StagingNodeExporterScrapeFailed",
+          "exp_alerts": []
+        }
+      ]
+    },
+    {
+      "name": "temporary-scrape-failure-recovers-before-for",
+      "interval": "30s",
+      "input_series": [
+        {
+          "series": "up{job=\"staging-api\",instance=\"api-1\",probe_name=\"api\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "probe_success{job=\"staging-api\",instance=\"api-1\",probe_name=\"api\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "up{job=\"staging-node-exporter\",instance=\"node-1:9100\",node_name=\"node-1\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "up{job=\"staging-node-exporter\",instance=\"node-2:9100\",node_name=\"node-2\"}",
+          "values": "1x3 0x3 1x15"
+        },
+        {
+          "series": "up{job=\"staging-node-exporter\",instance=\"node-3:9100\",node_name=\"node-3\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "up{job=\"staging-node-exporter\",instance=\"node-4:9100\",node_name=\"node-4\"}",
+          "values": "1x24"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "2m30s",
+          "alertname": "StagingNodeExporterScrapeFailed",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "6m",
+          "alertname": "StagingNodeExporterScrapeFailed",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "7m",
+          "alertname": "StagingNodeExporterTargetsMissing",
+          "exp_alerts": []
+        }
+      ]
+    },
+    {
+      "name": "node-series-goes-stale-not-merely-up-zero",
+      "interval": "30s",
+      "input_series": [
+        {
+          "series": "up{job=\"staging-api\",instance=\"api-1\",probe_name=\"api\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "probe_success{job=\"staging-api\",instance=\"api-1\",probe_name=\"api\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "up{job=\"staging-node-exporter\",instance=\"node-1:9100\",node_name=\"node-1\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "up{job=\"staging-node-exporter\",instance=\"node-2:9100\",node_name=\"node-2\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "up{job=\"staging-node-exporter\",instance=\"node-3:9100\",node_name=\"node-3\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "up{job=\"staging-node-exporter\",instance=\"node-4:9100\",node_name=\"node-4\"}",
+          "values": "1x2 stale _x20"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "5m30s",
+          "alertname": "StagingNodeExporterTargetsMissing",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "6m",
+          "alertname": "StagingNodeExporterTargetsMissing",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "scope": "staging",
+                "source": "prod-outside-in",
+                "severity": "warning"
+              },
+              "exp_annotations": {
+                "summary": "Fewer than the expected four node-exporter scrape targets are present"
+              }
+            }
+          ]
+        },
+        {
+          "eval_time": "6m",
+          "alertname": "StagingNodeExporterScrapeFailed",
+          "exp_alerts": []
+        }
+      ]
+    },
+    {
+      "name": "node-firing-then-resolved",
+      "interval": "30s",
+      "input_series": [
+        {
+          "series": "up{job=\"staging-api\",instance=\"api-1\",probe_name=\"api\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "probe_success{job=\"staging-api\",instance=\"api-1\",probe_name=\"api\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "up{job=\"staging-node-exporter\",instance=\"node-1:9100\",node_name=\"node-1\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "up{job=\"staging-node-exporter\",instance=\"node-2:9100\",node_name=\"node-2\"}",
+          "values": "1x24"
+        },
+        {
+          "series": "up{job=\"staging-node-exporter\",instance=\"node-3:9100\",node_name=\"node-3\"}",
+          "values": "0x6 1x18"
+        },
+        {
+          "series": "up{job=\"staging-node-exporter\",instance=\"node-4:9100\",node_name=\"node-4\"}",
+          "values": "1x24"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "2m30s",
+          "alertname": "StagingNodeExporterScrapeFailed",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "3m",
+          "alertname": "StagingNodeExporterScrapeFailed",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "job": "staging-node-exporter",
+                "instance": "node-3:9100",
+                "node_name": "node-3",
+                "scope": "staging",
+                "source": "prod-outside-in",
+                "severity": "warning"
+              },
+              "exp_annotations": {
+                "summary": "Prometheus cannot scrape a staging node-exporter"
+              }
+            }
+          ]
+        },
+        {
+          "eval_time": "4m",
+          "alertname": "StagingNodeExporterScrapeFailed",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "6m",
+          "alertname": "StagingNodeExporterTargetsMissing",
+          "exp_alerts": []
+        }
+      ]
+    }
+  ]
+}
