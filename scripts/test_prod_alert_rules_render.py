@@ -44,18 +44,19 @@ class AlertEvaluationTests(unittest.TestCase):
         self.assertNotIn(("ConfigMap", alert.RULE_CONFIGMAP), original | existing_grafana)
         self.assertEqual(self.manifest, alert.build_manifest())
 
-    def test_exact_seven_distinct_alerts_and_bounded_cardinality(self):
+    def test_exact_eight_distinct_alerts_and_bounded_cardinality(self):
         expected = {
             "StagingAPIProbeFailed",
             "StagingAPIBlackboxScrapeFailed",
             "StagingAPIProbeTargetsMissing",
             "StagingTCPProbeFailed",
             "StagingTCPBlackboxScrapeFailed",
+            "StagingTCPProbeTargetsMissing",
             "StagingNodeExporterScrapeFailed",
             "StagingNodeExporterTargetsMissing",
         }
         self.assertEqual(set(self.alerts), expected)
-        self.assertEqual(len(self.alerts), 7)
+        self.assertEqual(len(self.alerts), 8)
         self.assertEqual(self.rules["groups"][0]["name"], "staging-outside-in")
         self.assertEqual(self.rules["groups"][0]["interval"], "30s")
         for name, rule in self.alerts.items():
@@ -82,12 +83,16 @@ class AlertEvaluationTests(unittest.TestCase):
     def test_missing_series_has_explicit_or_vector_zero_fallback(self):
         self.assertEqual(self.alerts["StagingAPIProbeTargetsMissing"]["expr"],
                          '(count(up{job="staging-api"}) or vector(0)) < 1')
+        self.assertEqual(self.alerts["StagingTCPProbeTargetsMissing"]["expr"],
+                         '(count(up{job="staging-tcp"}) or vector(0)) < 3')
+        self.assertEqual(alert.EXPECTED_STAGING_TCP_TARGETS, 3)
         self.assertEqual(self.alerts["StagingNodeExporterTargetsMissing"]["expr"],
                          '(count(up{job="staging-node-exporter"}) or vector(0)) < 4')
         self.assertEqual(alert.EXPECTED_STAGING_NODES, 4)
         # Avoid "up == 0" as the sole signal: missing targets produce no series.
         self.assertTrue(all("or vector(0)" in self.alerts[name]["expr"]
                             for name in ("StagingAPIProbeTargetsMissing",
+                                         "StagingTCPProbeTargetsMissing",
                                          "StagingNodeExporterTargetsMissing")))
 
     def test_no_private_target_or_notification_receiver_material(self):
@@ -127,7 +132,7 @@ class AlertEvaluationTests(unittest.TestCase):
         fixture = Path(alert.__file__).parent / "fixtures/prod_o3_promtool_test.json"
         test_spec = json.loads(fixture.read_text(encoding="utf-8"))
         self.assertEqual(test_spec["rule_files"], ["alerts.json"])
-        self.assertGreaterEqual(len(test_spec["tests"]), 12)
+        self.assertGreaterEqual(len(test_spec["tests"]), 14)
         with tempfile.TemporaryDirectory(prefix="prod-o3-promtool-") as tmp:
             work = Path(tmp)
             os.chmod(work, 0o755)  # nobody inside the isolated container
