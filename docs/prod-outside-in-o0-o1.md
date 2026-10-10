@@ -236,6 +236,59 @@ Fixture-only tests (no k3s, network, credentials, or image pull required):
 python3 -m unittest discover -s scripts -p 'test_prod_outside_in*.py' -v
 ```
 
+## O2 source-only extension: direct staging node metrics (not yet applied)
+
+The O1 four-key site input still produces **exactly the same ten resources**,
+including unchanged Blackbox jobs and Prometheus egress NetworkPolicy. O2 can
+be prepared independently by adding an optional fifth key `metrics_targets`
+to the owner-only site input (omission or `[]` disables direct scraping):
+
+```json
+{
+  "api_targets": [
+    {"name": "staging-api", "target": "https://api.lab.example.invalid:6443/readyz"}
+  ],
+  "tcp_targets": [],
+  "egress_cidrs": ["198.51.100.0/24"],
+  "api_ca_secret": null,
+  "metrics_targets": [
+    {"name": "stg-node-1", "target": "node1.lab.example.invalid:9100"}
+  ]
+}
+```
+
+- `metrics_targets`: at most four **explicit** approved node-exporter
+  `host:9100` endpoints; no URL scheme, paths, credentials, other ports, IPv6,
+  or broad/unsafe endpoint defaults. Duplicate names and endpoints fail.
+  Names become `node_name` labels. The private operator must inspect the
+  actual 4 staging nodes and verify each scrape target before live update;
+  O1's existing three TCP reachability probes are not sufficient evidence
+  of successful direct node metrics collection.
+- The opt-in `staging-node-exporter` Prometheus job directly scrapes `/metrics`
+  over HTTP every 60 seconds, with a 10-second timeout, fixed 2,000-sample
+  limit per scrape and metric-name allowlist for basic CPU, memory,
+  filesystem, load, uptime and network I/O. Do **not** confuse
+  `probe_success` from Blackbox with Prometheus `up` for a direct scrape.
+- Only when `metrics_targets` is nonempty, Prometheus egress NetworkPolicy
+  adds TCP/9100 to the existing explicit private `egress_cidrs`.
+  Blackbox egress, O1 scrape jobs, Service, PVC, images, permissions,
+  Pod security and retention stay unchanged. This extension uses the
+  **same ten resource identities** and a checksum-driven `Recreate`
+  rollout of the existing Prometheus Deployment when the ConfigMap changes.
+  The operator must verify CIDRs cover every approved real target; DNS
+  resolution and SNAT still require live acceptance.
+- **No runtime update mechanism is added here.** The existing private
+  `prod-observability.apply-initial` operation is create-only and cannot
+  update a deployed O1. A separate reviewed controller reconcile/update
+  operation, or an explicitly authorized bounded one-off update, must be
+  accepted before any live O2 mutation. Do not use the source PR or its
+  CI success as permission for `kubectl apply`.
+- O2 completion additionally needs a small production Grafana with a
+  verified Prometheus datasource/dashboard and four-node real metrics,
+  along with post-update TSDB/PVC history continuity. Grafana is not
+  included in this source-only change; avoid expanding the O1 renderer
+  resource allowlist before choosing its private mutation owner.
+
 ## Disposable negative-probe acceptance
 
 `scripts/prod_outside_in_negative_acceptance.py` renders a fixed three-object
