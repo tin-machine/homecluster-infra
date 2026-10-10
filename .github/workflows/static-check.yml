@@ -60,5 +60,8 @@ jobs:
       - name: Validate prod outside-in renderer and acceptance fixtures
         run: python3 -m unittest discover -s scripts -p 'test_prod_outside_in*.py' -v
 
+      - name: Validate prod Grafana renderer and provisioning fixtures
+        run: python3 -m unittest discover -s scripts -p 'test_prod_grafana_render.py' -v
+
       - name: Validate staging /readyz scoped authentication fixtures
         run: python3 -m unittest discover -s scripts -p 'test_k3s_stg_readyz_anonymous.py' -v

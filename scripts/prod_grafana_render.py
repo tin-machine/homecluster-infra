@@ -13,7 +13,7 @@ import json
 import sys
 
 NAMESPACE = "observability-prod"
-IMAGE = "grafana/grafana:12.3.2"
+IMAGE = "grafana/grafana:13.2.3"
 ADMIN_SECRET = "prod-grafana-admin"
 CONFIG_NAME = "prod-grafana-provisioning"
 DATASOURCE_UID = "prod-prometheus"
@@ -148,7 +148,7 @@ def build_manifest() -> dict:
         },
         "resources": {
             "requests": {"cpu": "50m", "memory": "96Mi"},
-            "limits": {"cpu": "350m", "memory": "256Mi"},
+            "limits": {"cpu": "350m", "memory": "512Mi"},
         },
     }
     volumes = [
