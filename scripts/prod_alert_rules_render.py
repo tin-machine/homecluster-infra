@@ -20,6 +20,9 @@ RULE_MOUNT = "/etc/prometheus/rules"
 RULE_PATH = f"{RULE_MOUNT}/{RULE_KEY}"
 GROUP_NAME = "staging-outside-in"
 EXPECTED_STAGING_NODES = 4
+# O1 acceptance established three configured staging TCP probes. Review together with
+# private site input whenever the intended probe cardinality changes.
+EXPECTED_STAGING_TCP_TARGETS = 3
 
 
 def _canonical(value: object) -> str:
@@ -77,6 +80,12 @@ def rules() -> dict:
                     'up{job="staging-tcp"} == 0',
                     "3m", "warning",
                     "Prometheus cannot scrape a staging TCP Blackbox probe",
+                ),
+                _alert(
+                    "StagingTCPProbeTargetsMissing",
+                    f'(count(up{{job="staging-tcp"}}) or vector(0)) < {EXPECTED_STAGING_TCP_TARGETS}',
+                    "5m", "warning",
+                    "Fewer than the expected three staging TCP probe targets are present",
                 ),
                 _alert(
                     "StagingNodeExporterScrapeFailed",

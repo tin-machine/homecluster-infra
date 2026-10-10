@@ -24,7 +24,7 @@ GrafanaのDBは初回構成では`emptyDir`のため、
 ## 判定ルールと不在検知
 
 `alerts.json`はJSONで書いたPrometheus互換のYAMLルール。
-7条件、groupの評価間隔30秒、`for`は2〜5分。
+8条件、groupの評価間隔30秒、`for`は2〜5分。
 
 | alert | 条件 | hold |
 | --- | --- | --- |
@@ -33,6 +33,7 @@ GrafanaのDBは初回構成では`emptyDir`のため、
 | StagingAPIProbeTargetsMissing | `(count(up{job="staging-api"}) or vector(0)) < 1` | 5m |
 | StagingTCPProbeFailed | `probe_success{job="staging-tcp"} == 0` | 3m |
 | StagingTCPBlackboxScrapeFailed | `up{job="staging-tcp"} == 0` | 3m |
+| StagingTCPProbeTargetsMissing | `(count(up{job="staging-tcp"}) or vector(0)) < 3` | 5m |
 | StagingNodeExporterScrapeFailed | `up{job="staging-node-exporter"} == 0` | 3m |
 | StagingNodeExporterTargetsMissing | `(count(up{job="staging-node-exporter"}) or vector(0)) < 4` | 5m |
 
@@ -43,9 +44,15 @@ GrafanaのDBは初回構成では`emptyDir`のため、
 - `up{job="staging-node-exporter"}=0`はPrometheus→対象node scrape障害。
 - `up=0`だけでは**設定からtargetが消滅した場合**に発火しない。
   count+vector(0)でjob全体が消えた場合も検知する。
+- staging TCP probeはO1実機acceptanceで確認した**3 target**を期待値とし、
+  1件または全件が構成から消えた場合も`StagingTCPProbeTargetsMissing`で検出する。
+  意図してTCP target数を変更する際はprivate site input、
+  `EXPECTED_STAGING_TCP_TARGETS`、synthetic fixtureを同時reviewする。
 - 4node countは**現在のO2の固定4 target source contract**。
   台数変更の際はルール、site、dashboard、testsを同時reviewする。
-  0 targetでもAlertが立ち上がることをpromtool fixtureで確認する。
+  API 0件/TCP 0件/node-exporter 0件の欠損についてもpromtool fixtureで確認する。
+- `count`による検証はtargetの**数**のみ。期待targetの1件が別の1件へ置換され、
+  数が変わらない場合には検出できない。必要なら期待label集合との比較を後続検討する。
 - `for`の2〜5分は仮置き。stagingリブート時の短い収束と
   通知遅延のトレードオフがある。live acceptanceで調整する。
 - Prometheus停止時は自身のrules評価も止まるため、
@@ -69,11 +76,21 @@ ConfigMapをread-only volumeとしてPodにmountする必要がある。
 旧block/WAL、Grafana/Blackbox serviceと15resource UIDを保存・検証する。
 既存`prod-observability.update-metrics`はO1→O2更新専用であり、**流用しない**。
 
-ルールの構文・発火・解消は以下を使って検証する。
-ruleのsource-only CIはPython structural testsのみであるため、
-**PromQLの意味の合格判定には実行可能なpromtool test rules fixtureが別途必要**。
-prodへ反映する前に、operator環境のpinned Prometheus imageの
-`promtool check rules`および`promtool test rules`、実機preflightを要求する。
+ルールの構文・発火・解消は既存hosted `static-check`から実行する
+`test_prod_alert_rules_render.py`で検証済み。構造テストに加えて、
+**productionと同じPrometheus `v3.14.0` の`promtool check rules` / `promtool test rules`**
+をpinned container上で実行し、14件のsynthetic時系列ケースを評価する。
+対象には全正常、API/TCP probe失敗とBlackbox scrape失敗の分離、
+TCP 3件中1件/全件のtarget消失、node-exporter 1件失敗・一部/全target消失、
+stalenessと`for`の境界、短期障害の回復、pending→firing→resolvedを含める。
+CIでは`--network=none`、read-only bind mount、非root、capability削除を使用し、
+Dockerが使用できなければテストをskipせずfailとする。
+
+**CIの合格はsynthetic seriesでのルール意味検証であり、実機へルールがロードされた証拠ではない。**
+prod反映の前にはoperatorが最新main・manifest SHA・private site identityを照合し、
+operator承認付き固定operationで実機preflightを実施する。
+反映後はPrometheus `/api/v1/rules`で8ルールと状態を確認し、
+PVC/PV・既存TSDB・O1/O2/GrafanaリソースUIDを確認する。
 
 ## 通知側（後続O3 Step B）
 
