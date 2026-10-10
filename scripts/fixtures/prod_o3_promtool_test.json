@@ -628,7 +628,7 @@
           "exp_alerts": []
         },
         {
-          "eval_time": "6m",
+          "eval_time": "6m30s",
           "alertname": "StagingNodeExporterTargetsMissing",
           "exp_alerts": [
             {
