@@ -125,7 +125,7 @@ resource "helm_release" "prometheus" {
   name             = local.prometheus_release
   repository       = "https://prometheus-community.github.io/helm-charts"
   chart            = "prometheus"
-  version          = "25.8.2"
+  version          = "29.34.0"
   namespace        = kubernetes_namespace.observability.metadata[0].name
   create_namespace = false
 
