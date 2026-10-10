@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import shutil
 from pathlib import Path
 import subprocess
 import sys
@@ -114,6 +116,49 @@ class AlertEvaluationTests(unittest.TestCase):
                                        capture_output=True)
             self.assertNotEqual(duplicate.returncode, 0)
             self.assertEqual(target.read_bytes(), expected)
+
+
+    def test_promtool_synthetic_evaluation(self):
+        """Execute the actual Prometheus 3.14 rule engine on isolated time series.
+
+        CI must run this, not silently skip if Docker is unavailable. No cluster
+        credentials, namespace or network are exposed to the evaluation.
+        """
+        fixture = Path(alert.__file__).parent / "fixtures/prod_o3_promtool_test.json"
+        test_spec = json.loads(fixture.read_text(encoding="utf-8"))
+        self.assertEqual(test_spec["rule_files"], ["alerts.json"])
+        self.assertGreaterEqual(len(test_spec["tests"]), 12)
+        with tempfile.TemporaryDirectory(prefix="prod-o3-promtool-") as tmp:
+            work = Path(tmp)
+            os.chmod(work, 0o755)  # nobody inside the isolated container
+            (work / "alerts.json").write_text(
+                json.dumps(self.rules, sort_keys=True) + "\\n", encoding="utf-8")
+            shutil.copyfile(fixture, work / "fixture.json")
+            if shutil.which("docker"):
+                command = [
+                    "docker", "run", "--rm", "--network=none", "--read-only",
+                    "--cap-drop=ALL", "--security-opt=no-new-privileges",
+                    "--user=65534:65534",
+                    "--tmpfs", "/tmp:rw,nosuid,nodev,size=64m,mode=1777",
+                    "--mount", f"type=bind,source={work},target=/work,readonly",
+                    "--workdir", "/work", "--entrypoint", "/bin/promtool",
+                    "quay.io/prometheus/prometheus:v3.14.0",
+                ]
+            elif shutil.which("promtool") and not os.getenv("CI"):
+                command = ["promtool"]
+            elif os.getenv("CI"):
+                self.fail("CI requires Docker to execute pinned Prometheus promtool fixtures")
+            else:
+                self.skipTest("Docker/promtool unavailable for local semantic evaluation")
+            for action in (["check", "rules", "alerts.json"],
+                           ["test", "rules", "fixture.json"]):
+                with self.subTest(action=action):
+                    proc = subprocess.run(
+                        command + action, cwd=work, capture_output=True,
+                        text=True, timeout=240, check=False)
+                    self.assertEqual(proc.returncode, 0,
+                                     f"promtool {' '.join(action)} failed:\\n{proc.stdout}\\n{proc.stderr}")
+
 
 
 if __name__ == "__main__":
