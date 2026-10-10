@@ -57,8 +57,8 @@ jobs:
       - name: Validate SQLite encrypted backup fixtures
         run: python3 -m unittest discover -s scripts -p 'test_k3s_sqlite_backup.py' -v
 
-      - name: Validate prod outside-in renderer fixtures
-        run: python3 -m unittest discover -s scripts -p 'test_prod_outside_in_render.py' -v
+      - name: Validate prod outside-in renderer and acceptance fixtures
+        run: python3 -m unittest discover -s scripts -p 'test_prod_outside_in*.py' -v
 
       - name: Validate staging /readyz scoped authentication fixtures
         run: python3 -m unittest discover -s scripts -p 'test_k3s_stg_readyz_anonymous.py' -v
