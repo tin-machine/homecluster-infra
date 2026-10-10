@@ -235,6 +235,8 @@ class ProductionOutsideInTest(unittest.TestCase):
             ({"metrics_targets": [{"name": "bad", "target": "127.0.0.1:9100"}]}, "loopback"),
             ({"metrics_targets": [{"name": "bad", "target": "example.invalid:9100?x=1"}]}, "query"),
             ({"metrics_targets": [{"name": "bad", "target": "example.invalid:9100#x"}]}, "fragment"),
+            ({"metrics_targets": [{"name": "bad", "target": "node.example.invalid:9100?"}]}, "empty query delimiter"),
+            ({"metrics_targets": [{"name": "bad", "target": "node.example.invalid:9100#"}]}, "empty fragment delimiter"),
             ({"metrics_targets": [{"name": "node-a", "target": "node.lab.example.invalid:9100"},
                                   {"name": "node-a", "target": "node2.lab.example.invalid:9100"}]}, "duplicate names"),
             ({"metrics_targets": [{"name": f"node-{i}", "target": f"node-{i}.example.invalid:9100"}

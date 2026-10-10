@@ -100,6 +100,9 @@ def validate_site(document: object) -> dict:
             not _valid_host(parsed.hostname) or parsed.port != 9100
             or parsed.username is not None or parsed.password is not None
             or parsed.path or parsed.query or parsed.fragment
+            # urlsplit discards empty '?' and '#' delimiters from netloc.
+            # Compare the full authority with the original host:port input.
+            or parsed.netloc != entry["target"]
             or ":" not in entry["target"]
         ):
             raise ValueError("metrics target must be a host:9100 endpoint")
