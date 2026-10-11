@@ -55,7 +55,7 @@ class ProdO4LokiRenderTest(unittest.TestCase):
         self.assertTrue(cfg["limits_config"]["allow_structured_metadata"])
         self.assertTrue(cfg["compactor"]["retention_enabled"])
         self.assertEqual(cfg["compactor"]["delete_request_store"], "filesystem")
-        self.assertFalse(any("s3" in json.dumps(cfg) for _ in [1]))
+        self.assertNotIn("s3", json.dumps(cfg))
         self.assertEqual(cfg["analytics"]["reporting_enabled"], False)
 
     def test_single_writer_safe_pod(self):
