@@ -35,6 +35,12 @@ Loki imageは `grafana/loki:3.7.8` に固定。Monolithic構成は公式 `v3.7.8
 4. journaldの収集は別途実装が必要。既存`filelog/pods`をもってsystemd journalが転送できていると判断しない。journalctl availability、read permissions、boot ID/cursorとreboot resilienceをread-only discoveryしてからsourceを作る。
 5. Loki受入れ後にGrafana Loki datasourceのadditive source管理を追加し、既存Prometheus datasource・8panelを変更しないことを検証。
 
+## レビュー指摘 #298: 内部ring通信とNetworkPolicyの整合
+
+Loki v3.7.8の公式monolithic設定を直接照合し、`common.instance_addr: 127.0.0.1` を明示した。inmemory ringの参照先をloopbackに固定することで、暗黙のPod IPへの自己通信を避ける。Loki egress全拒否はそのまま維持し、個別CNIのNetworkPolicyでの正確なpacket扱いは実機試験まで未確認とする。
+
+source-only fixtureでconfigとNetworkPolicyを同時にassertする。さらにhosted CIの `scripts/ci/check-prod-o4-loki-image.sh` は、実際にmanifestのConfigMapから設定を抜き出して `grafana/loki:3.7.8` イメージで `-verify-config=true` を実行し、`--network none` / `--read-only` / nonrootの隔離containerからlocalhost `/ready` の応答を確認する。Docker socketがない場合はskipせずfail。ARM64 manifest存在も検証する。これは**孤立したcontainerのsmokeであってKubernetes実機CNIを再現しているわけではない**。
+
 ## CI / source-only検証
 
 ```bash
