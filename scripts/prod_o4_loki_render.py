@@ -45,6 +45,9 @@ def loki_config() -> dict:
         "analytics": {"reporting_enabled": False},
         "server": {"http_listen_port": 3100, "log_level": "info"},
         "common": {
+            # Monolithic components talk over loopback, not the Pod IP.
+            # This is required before applying deny-all Loki egress.
+            "instance_addr": "127.0.0.1",
             "path_prefix": "/var/loki",
             "replication_factor": 1,
             "ring": {"kvstore": {"store": "inmemory"}},
