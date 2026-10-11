@@ -13,7 +13,9 @@
 | NetworkPolicy/`prod-loki-restricted` | ingressはGrafana Podのみ、egressを拒否 |
 | NetworkPolicy/`prod-grafana-loki-egress` | GrafanaからLokiへのTCP/3100だけを追加許可 |
 
-Loki imageは `grafana/loki:3.7.8` に固定。production ARM64 manifest digest・実Pod起動・config validation・PVC permissionは**実機導入前に別途検証**する。snapshotが古くなる場合はsource revisionとtestsをセットで更新する。
+Loki imageは `grafana/loki:3.7.8` に固定。Monolithic構成は公式 `v3.7.8/cmd/loki/loki-local-config.yaml` と同じ `common.instance_addr: 127.0.0.1` / `ring.kvstore: inmemory` / `replication_factor: 1` に固定し、同一processのring通信をPod IPではなくloopbackへ寄せる。Loki PodのNetworkPolicy egress全拒否を安易に緩和しない。KubernetesでのNetworkPolicy enforcement/loopback動作は採用CNIに依存するため、source testと隔離container testだけでは実機受入れ完了にならない。production ARM64 manifest digest・実Pod起動・PVC permissionは**実機導入前に別途検証**する。snapshotが古くなる場合はsource revisionとtestsをセットで更新する。
+
+参照: [Grafana Loki v3.7.8単一バイナリ設定](https://github.com/grafana/loki/blob/v3.7.8/cmd/loki/loki-local-config.yaml)、[Kubernetes NetworkPolicy](https://kubernetes.io/docs/concepts/services-networking/network-policies/)。
 
 初期のLokiは `auth_enabled: false` の**single-tenant内部Service限定**であり、LANやstagingからpush可能なendpointを持たない。Loki APIに認証機能を期待してはいけない。認証/TLS付きpush gateway、NetworkPolicy許可、site-local credential、およびstaging側送信を**別レビューのPRとoperator承認**なしに追加してはならない。
 
