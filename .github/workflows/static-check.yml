@@ -66,5 +66,11 @@ jobs:
       - name: Validate prod O3 alert rule source-only fixtures
         run: python3 -m unittest discover -s scripts -p 'test_prod_alert_rules_render.py' -v
 
+      - name: Validate prod O4 Loki backend source-only fixtures
+        run: python3 -m unittest discover -s scripts -p 'test_prod_o4_loki_render.py' -v
+
+      - name: Validate isolated prod O4 Loki image config and loopback readiness
+        run: bash scripts/ci/check-prod-o4-loki-image.sh
+
       - name: Validate staging /readyz scoped authentication fixtures
         run: python3 -m unittest discover -s scripts -p 'test_k3s_stg_readyz_anonymous.py' -v
