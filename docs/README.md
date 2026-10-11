@@ -23,6 +23,8 @@ Terraform state、vendor payloadのメモは含めない。
   standard PXE identity候補のinventory / immutable release衝突をread-onlyで判定するcontract。
 - [k3s observability validation checklist](k3s-observability-validation-checklist.md):
   Terraform管理のstaging observability stackを確認するための公開可能なoperator checklist。
+- [prod O4 staging logs](prod-o4-staging-logs.md):
+  production Lokiの独立したsource-only保存先、認証付き転送の後続契約、実機acceptance境界。
 - [Full execution validation](full-execution-validation.md):
   網羅的なoffline validation、site-local admission、controlled live convergenceを分ける文書。
 - [Publication readiness gate](publication-readiness-gate.md):
