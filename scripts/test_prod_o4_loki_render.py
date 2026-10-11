@@ -45,6 +45,9 @@ class ProdO4LokiRenderTest(unittest.TestCase):
         cm = self.by_key[("ConfigMap", "prod-loki-config")]
         cfg = json.loads(cm["data"]["loki.yaml"])
         self.assertFalse(cfg["auth_enabled"])  # intentional: NEVER publicly exposed
+        # Deny-all NetworkPolicy can remain strict only if ring self-talk
+        # uses loopback (official Loki 3.7.x monolithic config).
+        self.assertEqual(cfg["common"]["instance_addr"], "127.0.0.1")
         self.assertEqual(cfg["common"]["replication_factor"], 1)
         self.assertEqual(cfg["common"]["ring"]["kvstore"]["store"], "inmemory")
         self.assertEqual(cfg["schema_config"]["configs"][0]["store"], "tsdb")
