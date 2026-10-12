@@ -27,7 +27,7 @@ def merge_values(left: dict, right: dict) -> dict:
 
 
 class O4StagingLogSenderTests(unittest.TestCase):
-    def test_overlay_changes_only_pod_log_exporter_and_keeps_host_logs(self):
+    def test_overlay_sends_pod_and_openwrt_logs_from_all_four_nodes(self):
         values = {}
         for path in (BASE, STAGING, OVERLAY):
             values = merge_values(values, yaml.safe_load(path.read_text()))
@@ -35,7 +35,13 @@ class O4StagingLogSenderTests(unittest.TestCase):
         pipelines = config["service"]["pipelines"]
         self.assertEqual(pipelines["logs"]["receivers"], ["filelog/pods"])
         self.assertEqual(pipelines["logs"]["exporters"], ["otlphttp/prod-logs"])
-        self.assertEqual(pipelines["logs/openwrt"]["exporters"], ["loki"])
+        self.assertEqual(pipelines["logs/openwrt"]["exporters"], ["otlphttp/prod-logs"])
+        self.assertEqual(pipelines["logs/openwrt"]["receivers"], ["syslog/openwrt"])
+        self.assertEqual(pipelines["logs/openwrt"]["processors"],
+                         ["attributes/openwrt", "resource/environment", "batch/o4-prod-logs"])
+        self.assertIsNone(values["nodeSelector"])
+        self.assertEqual(values["tolerations"], [{
+            "operator": "Exists", "effect": "NoSchedule"}])
         self.assertEqual(pipelines["metrics"]["exporters"], ["prometheus"])
         self.assertEqual(pipelines["traces"]["exporters"], ["otlp/tempo"])
         exporter = config["exporters"]["otlphttp/prod-logs"]

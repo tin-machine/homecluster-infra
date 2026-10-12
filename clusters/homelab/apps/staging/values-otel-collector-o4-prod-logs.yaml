@@ -1,5 +1,11 @@
-# Opt-in O4: send only staging Pod container logs to the authenticated prod gateway.
+# Opt-in O4: send staging Pod and OpenWrt logs to the authenticated prod gateway.
 # The operator must create the fixed owner-only Secret before enabling this overlay.
+# The private site values select only workload nodes. Clear that selector so this
+# DaemonSet also covers the staging control-plane node and its Pod logs.
+nodeSelector: null
+tolerations:
+  - operator: Exists
+    effect: NoSchedule
 config:
   processors:
     batch/o4-prod-logs:
@@ -28,6 +34,10 @@ config:
       logs:
         receivers: [filelog/pods]
         processors: [resource/environment, batch/o4-prod-logs]
+        exporters: [otlphttp/prod-logs]
+      "logs/openwrt":
+        receivers: [syslog/openwrt]
+        processors: [attributes/openwrt, resource/environment, batch/o4-prod-logs]
         exporters: [otlphttp/prod-logs]
 
 extraEnvs:
