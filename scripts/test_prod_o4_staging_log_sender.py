@@ -41,8 +41,7 @@ class O4StagingLogSenderTests(unittest.TestCase):
                          ["attributes/openwrt", "resource/environment", "batch/o4-prod-logs"])
         self.assertIsNone(values["nodeSelector"])
         self.assertEqual(values["tolerations"], [{
-            "key": "tin-machine.io/control-plane-only", "operator": "Equal",
-            "value": "true", "effect": "NoSchedule"}])
+            "operator": "Exists", "effect": "NoSchedule"}])
         self.assertEqual(pipelines["metrics"]["exporters"], ["prometheus"])
         self.assertEqual(pipelines["traces"]["exporters"], ["otlp/tempo"])
         exporter = config["exporters"]["otlphttp/prod-logs"]

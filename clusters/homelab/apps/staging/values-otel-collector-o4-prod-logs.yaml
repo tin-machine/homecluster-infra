@@ -4,9 +4,7 @@
 # DaemonSet also covers the staging control-plane node and its Pod logs.
 nodeSelector: null
 tolerations:
-  - key: tin-machine.io/control-plane-only
-    operator: Equal
-    value: "true"
+  - operator: Exists
     effect: NoSchedule
 config:
   processors:
