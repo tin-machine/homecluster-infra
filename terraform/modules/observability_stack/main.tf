@@ -179,6 +179,7 @@ resource "helm_release" "mimir" {
   version          = "6.2.0"
   namespace        = kubernetes_namespace.observability.metadata[0].name
   create_namespace = false
+  timeout          = 900
 
   values = [
     file("${var.values_base_dir}/values-mimir.yaml"),
@@ -318,11 +319,16 @@ resource "helm_release" "otel_collector" {
   namespace        = kubernetes_namespace.observability.metadata[0].name
   create_namespace = false
 
-  values = [
-    file("${var.values_base_dir}/values-otel-collector.yaml"),
-    file("${var.values_env_dir}/values-otel-collector.yaml"),
-    file("${var.values_site_dir}/values-otel-collector.yaml")
-  ]
+  values = concat(
+    [
+      file("${var.values_base_dir}/values-otel-collector.yaml"),
+      file("${var.values_env_dir}/values-otel-collector.yaml"),
+      file("${var.values_site_dir}/values-otel-collector.yaml"),
+    ],
+    var.o4_prod_container_logs_enabled ? [
+      file("${var.values_env_dir}/values-otel-collector-o4-prod-logs.yaml")
+    ] : [],
+  )
 
   depends_on = [
     helm_release.loki,
@@ -331,6 +337,20 @@ resource "helm_release" "otel_collector" {
     helm_release.mimir,
     kubernetes_namespace.observability
   ]
+}
+
+resource "helm_release" "journal_agent" {
+  count            = var.o4_prod_container_logs_enabled ? 1 : 0
+  name             = "${var.release_prefix}-journal-agent"
+  repository       = "https://fluent.github.io/helm-charts"
+  chart            = "fluent-bit"
+  version          = "0.58.3"
+  namespace        = kubernetes_namespace.observability.metadata[0].name
+  create_namespace = false
+
+  values = [file("${var.values_env_dir}/values-fluent-bit-journal.yaml")]
+
+  depends_on = [helm_release.otel_collector]
 }
 
 resource "kubernetes_cron_job_v1" "trace_smoke_producer" {
