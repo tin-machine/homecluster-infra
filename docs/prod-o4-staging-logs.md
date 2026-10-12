@@ -81,6 +81,8 @@ source-only gateway fixtureと隔離image smokeは実clusterへ接続しない�
 
 `terraform/env/staging`の`o4_prod_container_logs_enabled`は既定`false`。`true`のときだけ、既存base/staging/site valuesの最後に`values-otel-collector-o4-prod-logs.yaml`を追加する。source mergeだけではCollectorを変更しない。切替対象は`filelog/pods`の`logs` pipelineのみで、`logs/openwrt`、metrics、tracesのexporter設定は維持する。既存staging LokiへのPodログ配送継続は第1目標の必須条件ではない。
 
+第2段階では同じoverlayを拡張し、private siteのworkload専用`nodeSelector`を解除してcontrol-planeの固定taintを許容する。これによりCollectorを4 nodeへ配置し、4台目のPod logも収集する。OpenWrt syslogの`logs/openwrt`も同じ認証付きprod exporterへ送る。metricsとtracesのpipelineは変更しない。staging LokiへのOpenWrt配送はoperatorが維持を必須条件から外している。変更後はDaemonSet 4/4 Ready、control-plane由来のPod log、OpenWrt syslogのprod Loki検索をそれぞれ実機で検証する。
+
 overlayはCollector `0.102.1`の`otlphttp/prod-logs`を使い、owner-only Secret `staging-prod-loki-push`の`endpoint`、`basic_authorization_b64`、`ca.crt`を参照する。endpointはgatewayの**base path `/otlp`まで**を指定し、exporterが`/v1/logs`を付ける。TLS検証を無効化しない。Secret自体、endpoint値、認証値、CA実値はこのrepositoryへ追加しない。`extraVolumes`/`extraVolumeMounts`はHelmの配列上書きに備え、Pod log用`/var/log`を含む既存mountとCA mountを明示する。送信queueはmemory内32 batch、retryは最大1分で、停止・再作成・容量超過時の欠落は許容する。
 
 切替前にgatewayのTLS/auth、NodePort/firewall/NetworkPolicy、Secretのowner-only配置、Collector実imageとHelm chart render、Terraform planをfreshに確認する。切替後はCollector Ready、prod側へのPOST成功、prod Lokiで固定markerをLogQL検索できることをacceptanceにする。staging側の実機applyは別のoperator承認を要する。[Collector 0.102.1のOTLP/HTTP exporter](https://github.com/open-telemetry/opentelemetry-collector/blob/v0.102.1/exporter/otlphttpexporter/README.md)ではbase endpointに`/v1/logs`を付与する。
