@@ -28,6 +28,10 @@
       tags:
         - distcc
     - common/emerge
+    - role: stg_rpi_health_metrics
+      when: "'k3s_stg' in group_names"
+      tags:
+        - stg_rpi_health_metrics
 
 - name: workstation_cli
   gather_facts: true
