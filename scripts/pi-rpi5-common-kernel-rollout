@@ -6,8 +6,11 @@ import hashlib
 import json
 import os
 import re
+import secrets
 import subprocess
+import sys
 import tempfile
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -188,6 +191,104 @@ def read_json(path: Path) -> dict[str, Any]:
 def workflow_root() -> Path:
     state_home = Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state"))).expanduser()
     return state_home / "homecluster/rpi5-common-kernel"
+
+
+class ProgressWriter:
+    """Bounded operator hint; the terminal JSON remains the result authority."""
+
+    def __init__(self, root: Path, action: str) -> None:
+        self.path = root / "progress/current.json"
+        self.started = time.monotonic()
+        self.lock = threading.RLock()
+        self.stop_event = threading.Event()
+        self.thread: threading.Thread | None = None
+        now = utc_now()
+        self.value: dict[str, Any] = {
+            "schema": 1,
+            "workflow": "rpi5-common-kernel-rollout",
+            "attempt_id": f"{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}-{secrets.token_hex(4)}",
+            "action": action,
+            "started_at": now,
+            "elapsed_seconds": 0,
+            "phase": "accepted",
+            "check_id": "rollout_start",
+            "check_status": "started",
+            "last_transition_at": now,
+            "heartbeat_at": now,
+            "next_deadline_at": "",
+            "mutation_started": False,
+            "mutation_committed": False,
+            "power_cycle_started": False,
+            "terminal": False,
+            "status": "in_progress",
+        }
+
+    def _emit(self, *, heartbeat: bool) -> None:
+        with self.lock:
+            now = utc_now()
+            self.value["elapsed_seconds"] = int(time.monotonic() - self.started)
+            self.value["heartbeat_at"] = now
+            if not heartbeat:
+                self.value["last_transition_at"] = now
+            parent = self.path.parent
+            parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            if parent.stat().st_mode & 0o077:
+                raise OSError("progress_directory_permissions_invalid")
+            fd, temporary = tempfile.mkstemp(prefix=".current-", suffix=".json", dir=parent)
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                    os.fchmod(handle.fileno(), 0o600)
+                    json.dump(self.value, handle, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+                    handle.write("\n")
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                os.replace(temporary, self.path)
+            finally:
+                if os.path.exists(temporary):
+                    os.unlink(temporary)
+            label = "heartbeat" if heartbeat else "transition"
+            print(
+                f"progress={label} attempt={self.value['attempt_id']} "
+                f"elapsed_seconds={self.value['elapsed_seconds']} phase={self.value['phase']} "
+                f"check_id={self.value['check_id']} check_status={self.value['check_status']}",
+                file=sys.stderr,
+                flush=True,
+            )
+
+    def start(self) -> None:
+        try:
+            self._emit(heartbeat=False)
+        except OSError as error:
+            raise RolloutError("rollout_progress_unavailable") from error
+        self.thread = threading.Thread(target=self._heartbeat, daemon=True)
+        self.thread.start()
+
+    def _heartbeat(self) -> None:
+        while not self.stop_event.wait(45):
+            try:
+                self._emit(heartbeat=True)
+            except OSError:
+                print("progress=unavailable", file=sys.stderr, flush=True)
+                return
+
+    def transition(self, phase: str, check_id: str, check_status: str, **flags: bool | None) -> None:
+        for key in flags:
+            if key not in {"mutation_started", "mutation_committed", "power_cycle_started"}:
+                raise ValueError("progress_flag_invalid")
+        with self.lock:
+            self.value.update({"phase": phase, "check_id": check_id, "check_status": check_status, **flags})
+            self._emit(heartbeat=False)
+
+    def finish(self, status: str) -> None:
+        self.stop_event.set()
+        if self.thread is not None:
+            self.thread.join(timeout=2)
+        with self.lock:
+            self.value.update({"phase": "terminal", "check_id": "rollout_result", "check_status": status, "terminal": True, "status": status})
+            self._emit(heartbeat=False)
+
+
+_PROGRESS: ProgressWriter | None = None
 
 
 def sha256_file(path: Path) -> str:
@@ -601,13 +702,19 @@ def parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    global _PROGRESS
     args = parser().parse_args(argv)
+    progress_started = False
     try:
         if args.fixture:
             result = fixture_result(Path(args.fixture), args.phase)
         else:
             if os.environ.get("HOMECLUSTER_RPI5_COMMON_KERNEL_ROLLOUT_APPLY") != "1":
                 raise RolloutError("missing_HOMECLUSTER_RPI5_COMMON_KERNEL_ROLLOUT_APPLY")
+            _PROGRESS = ProgressWriter(workflow_root(), args.phase)
+            _PROGRESS.start()
+            progress_started = True
+            _PROGRESS.transition("selector_inspection", "rollout_preflight", "started")
             root = Path(__file__).resolve().parents[1]
             runbook = Path(os.environ.get("HOMECLUSTER_RUNBOOK_ROOT", str(root.parent / "homecluster-runbook"))).resolve()
             inventory = Path(os.environ.get("HOMECLUSTER_ANSIBLE_INVENTORY", str(root.parent / "inventory.yml"))).resolve()
@@ -645,6 +752,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             if args.phase in RUNTIME_PHASES:
                 ensure_cluster_healthy(runbook)
             ensure_no_active_fresh_boot(runbook)
+            _PROGRESS.transition("selector_inspection", "rollout_preflight", "pass")
             started_at = utc_now()
             playbook = root / "ansible/openwrt/playbooks/rpi5-common-kernel-rollout.yml"
             with tempfile.TemporaryDirectory(prefix="homecluster-common-kernel-rollout-", dir="/tmp") as temporary:
@@ -677,6 +785,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                     ),
                     "homecluster_common_kernel_rollback_selectors": rollback_selectors,
                 }
+                _PROGRESS.transition(
+                    "selector_apply", "common_kernel_selector_apply", "started",
+                    mutation_started=None, mutation_committed=None,
+                )
                 selector_apply = run(
                     [
                         "ansible-playbook",
@@ -695,6 +807,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                         selector_result = read_json(output)
                     except (ValueError, json.JSONDecodeError):
                         selector_result = {}
+                applied = selector_result.get("status") == "applied"
+                _PROGRESS.transition(
+                    "selector_apply",
+                    "common_kernel_selector_apply",
+                    "pass" if selector_apply.returncode == 0 and applied else "fail",
+                    mutation_started=True if applied else None if selector_result.get("status") == "planned" else False,
+                    mutation_committed=True if applied else None if selector_result.get("status") == "planned" else False,
+                )
                 if selector_apply.returncode != 0 or selector_result.get("status") != "applied":
                     failure_reason, failure_stage, mutation_committed, next_check_id = selector_failure_contract(
                         selector_apply.returncode,
@@ -791,6 +911,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             "reason": error.reason,
             "diagnostics": error.diagnostics,
         }
+    finally:
+        if progress_started and _PROGRESS is not None:
+            try:
+                _PROGRESS.finish(result["status"] if "result" in locals() else "unknown")
+            except OSError:
+                print("progress=unavailable", file=sys.stderr, flush=True)
+            _PROGRESS = None
     if args.json:
         print(json.dumps(result, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
     else:
@@ -939,13 +1066,20 @@ def run_fresh_boot(runbook: Path) -> tuple[str, str]:
         if accepted:
             _PREFLIGHT_ACCEPTANCE = (accepted, diagnostics)
             _LAST_FRESH_BOOT_STATUS = "not_required"
+            if _PROGRESS is not None:
+                _PROGRESS.transition("fresh_boot", "fresh_boot_reuse", "not_required")
             return "", "pass"
+    if _PROGRESS is not None:
+        _PROGRESS.transition("fresh_boot", "fresh_boot_start", "started", power_cycle_started=None)
+        _PROGRESS.transition("fresh_boot", "fresh_boot_watch", "waiting")
     run_id, status = _original_run_fresh_boot(runbook)
     _LAST_FRESH_BOOT_STATUS = status
+    if _PROGRESS is not None:
+        _PROGRESS.transition("fresh_boot", "fresh_boot_watch", status, power_cycle_started=bool(run_id))
     return run_id, status
 
 
-def run_phase_acceptance(
+def _run_phase_acceptance_impl(
     root: Path,
     runbook: Path,
     inventory: Path,
@@ -1046,6 +1180,33 @@ def run_phase_acceptance(
         diagnostics.append("fresh_boot=not_required_current_release_already_accepted")
     _LAST_KERNEL_ACCEPTANCE = True
     return True, diagnostics
+
+
+def run_phase_acceptance(
+    root: Path,
+    runbook: Path,
+    inventory: Path,
+    phase: str,
+    targets: Sequence[str],
+    all_agents: Sequence[str],
+    exact_release: str,
+    *,
+    preflight: bool = False,
+) -> tuple[bool, list[str]]:
+    cached_preboot = not preflight and _PREFLIGHT_ACCEPTANCE is not None
+    progress_phase = "preboot_acceptance" if preflight or cached_preboot else "postboot_acceptance"
+    if _PROGRESS is not None:
+        _PROGRESS.transition(progress_phase, "common_kernel_phase_acceptance", "started")
+    accepted, diagnostics = _run_phase_acceptance_impl(
+        root, runbook, inventory, phase, targets, all_agents, exact_release, preflight=preflight
+    )
+    if _PROGRESS is not None:
+        _PROGRESS.transition(
+            progress_phase,
+            "common_kernel_phase_acceptance",
+            "not_required" if cached_preboot and accepted else "pass" if accepted else "fail",
+        )
+    return accepted, diagnostics
 
 
 def artifact_reference(accepted: Mapping[str, Any]) -> dict[str, str]:
