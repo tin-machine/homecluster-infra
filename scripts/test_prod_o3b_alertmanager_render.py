@@ -64,6 +64,7 @@ class ProdO3BAlertmanagerRenderTest(unittest.TestCase):
         self.assertEqual(dep["strategy"]["type"], "Recreate")
         pod = dep["template"]
         self.assertFalse(pod["spec"]["automountServiceAccountToken"])
+        self.assertEqual(pod["spec"]["securityContext"]["fsGroup"], 65534)
         container = pod["spec"]["containers"][0]
         self.assertEqual(container["image"], renderer.IMAGE)
         self.assertTrue(container["securityContext"]["readOnlyRootFilesystem"])

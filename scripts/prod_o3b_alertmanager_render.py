@@ -101,6 +101,8 @@ def build_manifest(channel_id: str) -> dict:
             "automountServiceAccountToken": False,
             "securityContext": {"runAsNonRoot": True,
                                 "runAsUser": 65534, "runAsGroup": 65534,
+                                "fsGroup": 65534,
+                                "fsGroupChangePolicy": "OnRootMismatch",
                                 "seccompProfile": {"type": "RuntimeDefault"}},
             "containers": [{
                 "name": "alertmanager",
