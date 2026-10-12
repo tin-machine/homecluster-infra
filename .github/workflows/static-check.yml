@@ -78,5 +78,8 @@ jobs:
       - name: Validate isolated prod O4 push gateway TLS and authentication
         run: bash scripts/ci/check-prod-o4-push-gateway-image.sh
 
+      - name: Validate opt-in staging O4 container log sender
+        run: python3 -m unittest discover -s scripts -p 'test_prod_o4_staging_log_sender.py' -v
+
       - name: Validate staging /readyz scoped authentication fixtures
         run: python3 -m unittest discover -s scripts -p 'test_k3s_stg_readyz_anonymous.py' -v

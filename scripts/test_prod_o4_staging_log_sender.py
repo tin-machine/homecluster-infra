@@ -1,0 +1,73 @@
+#!/usr/bin/env python3
+"""Source-only O4 Collector opt-in and log pipeline safety contracts."""
+from __future__ import annotations
+
+import copy
+from pathlib import Path
+import re
+import unittest
+
+import yaml
+
+ROOT = Path(__file__).resolve().parents[1]
+BASE = ROOT / "clusters/homelab/apps/base/values-otel-collector.yaml"
+STAGING = ROOT / "clusters/homelab/apps/staging/values-otel-collector.yaml"
+OVERLAY = ROOT / "clusters/homelab/apps/staging/values-otel-collector-o4-prod-logs.yaml"
+
+
+def merge_values(left: dict, right: dict) -> dict:
+    """Model Helm's map merge and list replacement for the scoped fixture."""
+    result = copy.deepcopy(left)
+    for key, value in right.items():
+        if isinstance(value, dict) and isinstance(result.get(key), dict):
+            result[key] = merge_values(result[key], value)
+        else:
+            result[key] = copy.deepcopy(value)
+    return result
+
+
+class O4StagingLogSenderTests(unittest.TestCase):
+    def test_overlay_changes_only_pod_log_exporter_and_keeps_host_logs(self):
+        values = {}
+        for path in (BASE, STAGING, OVERLAY):
+            values = merge_values(values, yaml.safe_load(path.read_text()))
+        config = values["config"]
+        pipelines = config["service"]["pipelines"]
+        self.assertEqual(pipelines["logs"]["receivers"], ["filelog/pods"])
+        self.assertEqual(pipelines["logs"]["exporters"], ["otlphttp/prod-logs"])
+        self.assertEqual(pipelines["logs/openwrt"]["exporters"], ["loki"])
+        self.assertEqual(pipelines["metrics"]["exporters"], ["prometheus"])
+        self.assertEqual(pipelines["traces"]["exporters"], ["otlp/tempo"])
+        exporter = config["exporters"]["otlphttp/prod-logs"]
+        self.assertEqual(exporter["endpoint"], "${env:PROD_LOKI_OTLP_BASE}")
+        self.assertEqual(exporter["tls"]["ca_file"],
+                         "/etc/otel/prod-loki-ca/ca.crt")
+        self.assertNotIn("insecure", exporter["tls"])
+        self.assertEqual(exporter["sending_queue"]["queue_size"], 32)
+        self.assertEqual(exporter["retry_on_failure"]["max_elapsed_time"], "1m")
+        names = {volume["name"] for volume in values["extraVolumes"]}
+        mounts = {mount["name"] for mount in values["extraVolumeMounts"]}
+        self.assertEqual(names, mounts)
+        self.assertEqual(names, {"varlog", "host-proc", "host-sys",
+                                 "host-run", "prod-loki-ca"})
+        self.assertEqual({entry["name"] for entry in values["extraEnvs"]},
+                         {"PROD_LOKI_OTLP_BASE", "PROD_LOKI_BASIC_B64"})
+
+    def test_terraform_overlay_requires_explicit_opt_in(self):
+        env = (ROOT / "terraform/env/staging/variables.tf").read_text()
+        module = (ROOT / "terraform/modules/observability_stack/variables.tf").read_text()
+        env_main = (ROOT / "terraform/env/staging/main.tf").read_text()
+        module_main = (ROOT / "terraform/modules/observability_stack/main.tf").read_text()
+        for source in (env, module):
+            self.assertRegex(source, re.compile(
+                r'variable "o4_prod_container_logs_enabled"\s*\{[^}]*default\s*=\s*false',
+                re.S))
+        self.assertIn("o4_prod_container_logs_enabled = var.o4_prod_container_logs_enabled",
+                      env_main)
+        self.assertIn('var.o4_prod_container_logs_enabled ? [', module_main)
+        self.assertIn('file("${var.values_env_dir}/values-otel-collector-o4-prod-logs.yaml")',
+                      module_main)
+
+
+if __name__ == "__main__":
+    unittest.main()

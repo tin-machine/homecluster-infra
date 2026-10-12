@@ -76,3 +76,11 @@ O4 acceptanceはLoki Pod Readyだけで完了しない。stagingからのcontain
 source-only gateway fixtureと隔離image smokeは実clusterへ接続しない。gatewayのlive導入にはsource-pinned fixed operationと別のoperator承認が必要で、backend PR mergeやsource CIだけでは実行しない。
 
 参照: [Kubernetes NodePort source IP](https://kubernetes.io/docs/tutorials/services/source-ip/)、[NGINX Basic認証](https://nginx.org/en/docs/http/ngx_http_auth_basic_module.html)、[NGINX TLS](https://nginx.org/en/docs/http/ngx_http_ssl_module.html)。
+
+## staging container log sender source（opt-in）
+
+`terraform/env/staging`の`o4_prod_container_logs_enabled`は既定`false`。`true`のときだけ、既存base/staging/site valuesの最後に`values-otel-collector-o4-prod-logs.yaml`を追加する。source mergeだけではCollectorを変更しない。切替対象は`filelog/pods`の`logs` pipelineのみで、`logs/openwrt`、metrics、tracesのexporter設定は維持する。既存staging LokiへのPodログ配送継続は第1目標の必須条件ではない。
+
+overlayはCollector `0.102.1`の`otlphttp/prod-logs`を使い、owner-only Secret `staging-prod-loki-push`の`endpoint`、`basic_authorization_b64`、`ca.crt`を参照する。endpointはgatewayの**base path `/otlp`まで**を指定し、exporterが`/v1/logs`を付ける。TLS検証を無効化しない。Secret自体、endpoint値、認証値、CA実値はこのrepositoryへ追加しない。`extraVolumes`/`extraVolumeMounts`はHelmの配列上書きに備え、Pod log用`/var/log`を含む既存mountとCA mountを明示する。送信queueはmemory内32 batch、retryは最大1分で、停止・再作成・容量超過時の欠落は許容する。
+
+切替前にgatewayのTLS/auth、NodePort/firewall/NetworkPolicy、Secretのowner-only配置、Collector実imageとHelm chart render、Terraform planをfreshに確認する。切替後はCollector Ready、prod側へのPOST成功、prod Lokiで固定markerをLogQL検索できることをacceptanceにする。staging側の実機applyは別のoperator承認を要する。[Collector 0.102.1のOTLP/HTTP exporter](https://github.com/open-telemetry/opentelemetry-collector/blob/v0.102.1/exporter/otlphttpexporter/README.md)ではbase endpointに`/v1/logs`を付与する。
