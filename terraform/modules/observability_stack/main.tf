@@ -41,15 +41,16 @@ resource "helm_release" "minio" {
 
   depends_on = [kubernetes_namespace.object_storage]
 
-  set_sensitive {
-    name  = "rootUser"
-    value = var.minio_root_user
-  }
-
-  set_sensitive {
-    name  = "rootPassword"
-    value = var.minio_root_password
-  }
+  set_sensitive = [
+    {
+      name  = "rootUser"
+      value = var.minio_root_user
+    },
+    {
+      name  = "rootPassword"
+      value = var.minio_root_password
+    }
+  ]
 }
 
 resource "kubernetes_namespace" "observability" {
@@ -83,25 +84,24 @@ resource "helm_release" "loki" {
     helm_release.minio
   ]
 
-  set_sensitive {
-    name  = "loki.storage_config.aws.access_key_id"
-    value = local.loki_objectstore_access_key
-  }
-
-  set_sensitive {
-    name  = "loki.storage_config.aws.secret_access_key"
-    value = local.loki_objectstore_secret_key
-  }
-
-  set_sensitive {
-    name  = "loki.rulerConfig.storage.s3.access_key_id"
-    value = local.loki_objectstore_access_key
-  }
-
-  set_sensitive {
-    name  = "loki.rulerConfig.storage.s3.secret_access_key"
-    value = local.loki_objectstore_secret_key
-  }
+  set_sensitive = [
+    {
+      name  = "loki.storage_config.aws.access_key_id"
+      value = local.loki_objectstore_access_key
+    },
+    {
+      name  = "loki.storage_config.aws.secret_access_key"
+      value = local.loki_objectstore_secret_key
+    },
+    {
+      name  = "loki.rulerConfig.storage.s3.access_key_id"
+      value = local.loki_objectstore_access_key
+    },
+    {
+      name  = "loki.rulerConfig.storage.s3.secret_access_key"
+      value = local.loki_objectstore_secret_key
+    }
+  ]
 }
 
 resource "helm_release" "tempo" {
@@ -125,7 +125,7 @@ resource "helm_release" "prometheus" {
   name             = local.prometheus_release
   repository       = "https://prometheus-community.github.io/helm-charts"
   chart            = "prometheus"
-  version          = "25.8.2"
+  version          = "29.34.0"
   namespace        = kubernetes_namespace.observability.metadata[0].name
   create_namespace = false
 
@@ -176,7 +176,7 @@ resource "helm_release" "mimir" {
   name             = local.mimir_release
   repository       = "https://grafana.github.io/helm-charts"
   chart            = "mimir-distributed"
-  version          = "5.8.0"
+  version          = "6.2.0"
   namespace        = kubernetes_namespace.observability.metadata[0].name
   create_namespace = false
 
@@ -191,50 +191,47 @@ resource "helm_release" "mimir" {
     helm_release.minio
   ]
 
-  set {
-    name  = "mimir.structuredConfig.blocks_storage.s3.endpoint"
-    value = "${local.minio_release}.${var.object_storage_namespace}.svc.cluster.local:9000"
-  }
+  set = [
+    {
+      name  = "mimir.structuredConfig.blocks_storage.s3.endpoint"
+      value = "${local.minio_release}.${var.object_storage_namespace}.svc.cluster.local:9000"
+    },
+    {
+      name  = "mimir.structuredConfig.ruler_storage.s3.endpoint"
+      value = "${local.minio_release}.${var.object_storage_namespace}.svc.cluster.local:9000"
+    },
+    {
+      name  = "mimir.structuredConfig.alertmanager_storage.s3.endpoint"
+      value = "${local.minio_release}.${var.object_storage_namespace}.svc.cluster.local:9000"
+    }
+  ]
 
-  set {
-    name  = "mimir.structuredConfig.ruler_storage.s3.endpoint"
-    value = "${local.minio_release}.${var.object_storage_namespace}.svc.cluster.local:9000"
-  }
-
-  set {
-    name  = "mimir.structuredConfig.alertmanager_storage.s3.endpoint"
-    value = "${local.minio_release}.${var.object_storage_namespace}.svc.cluster.local:9000"
-  }
-
-  set_sensitive {
-    name  = "mimir.structuredConfig.blocks_storage.s3.access_key_id"
-    value = var.minio_root_user
-  }
-
-  set_sensitive {
-    name  = "mimir.structuredConfig.blocks_storage.s3.secret_access_key"
-    value = var.minio_root_password
-  }
-
-  set_sensitive {
-    name  = "mimir.structuredConfig.ruler_storage.s3.access_key_id"
-    value = var.minio_root_user
-  }
-
-  set_sensitive {
-    name  = "mimir.structuredConfig.ruler_storage.s3.secret_access_key"
-    value = var.minio_root_password
-  }
-
-  set_sensitive {
-    name  = "mimir.structuredConfig.alertmanager_storage.s3.access_key_id"
-    value = var.minio_root_user
-  }
-
-  set_sensitive {
-    name  = "mimir.structuredConfig.alertmanager_storage.s3.secret_access_key"
-    value = var.minio_root_password
-  }
+  set_sensitive = [
+    {
+      name  = "mimir.structuredConfig.blocks_storage.s3.access_key_id"
+      value = var.minio_root_user
+    },
+    {
+      name  = "mimir.structuredConfig.blocks_storage.s3.secret_access_key"
+      value = var.minio_root_password
+    },
+    {
+      name  = "mimir.structuredConfig.ruler_storage.s3.access_key_id"
+      value = var.minio_root_user
+    },
+    {
+      name  = "mimir.structuredConfig.ruler_storage.s3.secret_access_key"
+      value = var.minio_root_password
+    },
+    {
+      name  = "mimir.structuredConfig.alertmanager_storage.s3.access_key_id"
+      value = var.minio_root_user
+    },
+    {
+      name  = "mimir.structuredConfig.alertmanager_storage.s3.secret_access_key"
+      value = var.minio_root_password
+    }
+  ]
 }
 
 resource "kubernetes_config_map" "grafana_dashboards" {
@@ -297,10 +294,12 @@ resource "helm_release" "grafana" {
     file("${var.values_site_dir}/values-grafana.yaml")
   ]
 
-  set {
-    name  = "service.loadBalancerIP"
-    value = var.grafana_load_balancer_ip
-  }
+  set = [
+    {
+      name  = "service.loadBalancerIP"
+      value = var.grafana_load_balancer_ip
+    }
+  ]
 
   depends_on = [
     helm_release.prometheus,
