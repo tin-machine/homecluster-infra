@@ -31,7 +31,10 @@ class ProgressTests(unittest.TestCase):
             with redirect_stderr(stderr):
                 writer.start()
                 first = json.loads(writer.path.read_text(encoding="utf-8"))
-                writer.transition("selector_apply", "common_kernel_selector_apply", "started")
+                writer.transition(
+                    "selector_apply", "common_kernel_selector_apply", "started",
+                    mutation_started=None, mutation_committed=None,
+                )
                 transition = json.loads(writer.path.read_text(encoding="utf-8"))
                 writer._emit(heartbeat=True)
                 heartbeat = json.loads(writer.path.read_text(encoding="utf-8"))
@@ -41,6 +44,8 @@ class ProgressTests(unittest.TestCase):
             self.assertEqual(stat.S_IMODE(writer.path.parent.stat().st_mode), 0o700)
             self.assertEqual(first["phase"], "accepted")
             self.assertEqual(transition["phase"], "selector_apply")
+            self.assertIsNone(transition["mutation_started"])
+            self.assertIsNone(transition["mutation_committed"])
             self.assertEqual(heartbeat["last_transition_at"], transition["last_transition_at"])
             self.assertEqual(terminal["attempt_id"], first["attempt_id"])
             self.assertTrue(terminal["terminal"])

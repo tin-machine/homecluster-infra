@@ -785,7 +785,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                     ),
                     "homecluster_common_kernel_rollback_selectors": rollback_selectors,
                 }
-                _PROGRESS.transition("selector_apply", "common_kernel_selector_apply", "started")
+                _PROGRESS.transition(
+                    "selector_apply", "common_kernel_selector_apply", "started",
+                    mutation_started=None, mutation_committed=None,
+                )
                 selector_apply = run(
                     [
                         "ansible-playbook",
