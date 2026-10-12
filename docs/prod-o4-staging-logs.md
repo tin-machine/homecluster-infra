@@ -1,0 +1,90 @@
+# O4 — staging logsをproduction Lokiへ保存するsource-only基盤
+
+## 現在の実装範囲
+
+`scripts/prod_o4_loki_render.py` は**新規のlog backend 6resourceのみ**を決定論的JSON Listにrenderする。productionの既存Prometheus/GrafanaのConfigMap、Deployment、PVC/PV、NetworkPolicy、alert rulesを変更しない。以下は**source-onlyであり、実機導入・転送成功・保存成功を意味しない**。
+
+| object | role |
+| --- | --- |
+| ConfigMap/`prod-loki-config` | Loki monolithicの固定schema/limits |
+| PVC/`prod-loki-data` | 専用4Gi local-path / RWO、既存Prometheus PVCとは分離 |
+| Deployment/`prod-loki` | 1 replica、Recreate、non-root、専用PVC |
+| Service/`prod-loki` | ClusterIP port 3100のみ |
+| NetworkPolicy/`prod-loki-restricted` | ingressはGrafana Podのみ、egressを拒否 |
+| NetworkPolicy/`prod-grafana-loki-egress` | GrafanaからLokiへのTCP/3100だけを追加許可 |
+
+Loki imageは `grafana/loki:3.7.8` に固定。Monolithic構成は公式 `v3.7.8/cmd/loki/loki-local-config.yaml` と同じ `common.instance_addr: 127.0.0.1` / `ring.kvstore: inmemory` / `replication_factor: 1` に固定し、同一processのring通信をPod IPではなくloopbackへ寄せる。Loki PodのNetworkPolicy egress全拒否を安易に緩和しない。KubernetesでのNetworkPolicy enforcement/loopback動作は採用CNIに依存するため、source testと隔離container testだけでは実機受入れ完了にならない。production ARM64 manifest digest・実Pod起動・PVC permissionは**実機導入前に別途検証**する。snapshotが古くなる場合はsource revisionとtestsをセットで更新する。
+
+参照: [Grafana Loki v3.7.8単一バイナリ設定](https://github.com/grafana/loki/blob/v3.7.8/cmd/loki/loki-local-config.yaml)、[Kubernetes NetworkPolicy](https://kubernetes.io/docs/concepts/services-networking/network-policies/)。
+
+初期のLokiは `auth_enabled: false` の**single-tenant内部Service限定**であり、LANやstagingからpush可能なendpointを持たない。Loki APIに認証機能を期待してはいけない。認証/TLS付きpush gateway、NetworkPolicy許可、site-local credential、およびstaging側送信を**別レビューのPRとoperator承認**なしに追加してはならない。
+
+## Storage / retention
+
+- Monolithic Loki / filesystem / TSDB schema v13 / 24h index / ring `inmemory` / replication factor 1。
+- `limits_config.retention_period=72h`、`compactor.retention_enabled=true`。retentionはcompactorが処理するので、設定値だけでは直ちに物理容量が減るとは限らない。
+- log write budget: 1MiB/s相当のrate設定と2MiB burstを初期上限として固定。CPU/memory requests/limits、single-writer PVC、`readOnlyRootFilesystem`/tmp emptyDirを設定。
+- PVC 4GiはKubernetesの**要求容量でありhard quotaではない**。node free-space、inode、Loki compactorとdisk growthを別途監視し、実測log流量/日と保持期間によって容量を再調整する。
+- local-path volumeや下位storageの障害はprod Lokiの喪失原因となる。これをstagingとは別のfailure domainとして扱えるか、物理storage topologyを別途確認する。
+
+## 次のsource-only PR
+
+1. production側のTLS認証付きログ専用gateway、host/network制限、read/writeの分離、必要なowner-only credential contract。
+2. staging Collectorの既存`filelog/pods`→staging Lokiの経路を維持しつつ、新しいOTLP HTTP exporterでprod Loki native OTLP `/otlp/v1/logs`へ配送する。Collector exporter設定は`https://<private-gateway>/otlp`というbase endpointとし、`/v1/logs`はOTLP HTTP exporterに任せる。
+3. 既存Collectorの追加exporterが既存staging backendへのdeliveryやmetrics/tracesを阻害しないことをbounded queue/retry/timeoutと負例fixtureで固定。もし分離不能ならログ専用Alloy agent等を検討。
+4. journaldの収集は別途実装が必要。既存`filelog/pods`をもってsystemd journalが転送できていると判断しない。journalctl availability、read permissions、boot ID/cursorとreboot resilienceをread-only discoveryしてからsourceを作る。
+5. Loki受入れ後にGrafana Loki datasourceのadditive source管理を追加し、既存Prometheus datasource・8panelを変更しないことを検証。
+
+## レビュー指摘 #298: 内部ring通信とNetworkPolicyの整合
+
+Loki v3.7.8の公式monolithic設定を直接照合し、`common.instance_addr: 127.0.0.1` を明示した。inmemory ringの参照先をloopbackに固定することで、暗黙のPod IPへの自己通信を避ける。Loki egress全拒否はそのまま維持し、個別CNIのNetworkPolicyでの正確なpacket扱いは実機試験まで未確認とする。
+
+source-only fixtureでconfigとNetworkPolicyを同時にassertする。さらにhosted CIの `scripts/ci/check-prod-o4-loki-image.sh` は、実際にmanifestのConfigMapから設定を抜き出して `grafana/loki:3.7.8` イメージで `-verify-config=true` を実行し、`--network none` / `--read-only` / nonrootの隔離containerからlocalhost `/ready` の応答を確認する。Docker socketがない場合はskipせずfail。ARM64 manifest存在も検証する。これは**孤立したcontainerのsmokeであってKubernetes実機CNIを再現しているわけではない**。
+
+## CI / source-only検証
+
+```bash
+python3 scripts/prod_o4_loki_render.py --output /tmp/prod-o4-loki-manifest.json
+python3 -m unittest discover -s scripts -p 'test_prod_o4_loki_render.py' -v
+```
+
+- rendererはstdoutまたはowner-only/exclusive-createの`--output`のみで、既存ファイルを上書きしない。
+- fixtureは生成6resource、namespace、single replica/Recreate、PVC独立、Loki config、retention、network ingress denyとGrafana限定例外、checksum、および再生成のdeterminismとsymlink/overwrite拒否を確認する。
+- 追加のCI・PRにkubeconfig、host名、IP、credential、raw log、site inputは含めない。
+- source CIの成功はKubernetes API schema admissionやLoki imageのruntime configuration loadの代用にならない。
+
+## 実機acceptanceへの移行境界
+
+prod backendのruntime createは、mainにmergeしたsource/full SHAを固定し、owner-only site state、production cluster identity、既存Prometheus/Grafana/TSDB/PVC resource identity、PVC独立、NetworkPolicy reachabilityを確認できる**専用のoperator-approved fixed operation**を実装した後に限る。bootstrap前に既存15resourceのUID/baseline、bootstrap後に同一UID/TSDB historyを確認する。既存production resourceのupdateを伴う場合は変更対象と承認を別定義する。
+
+O4 acceptanceはLoki Pod Readyだけで完了しない。stagingからのcontainer logとjournalをprodへ転送し、staging APIが参照できない想定でもprodからLogQLで時刻・node・workload別に検索できること、delivery失敗/再送/重複/retentionの監視が成立することを別途確認する。実stagingの障害注入は不要。
+
+参考:
+- https://grafana.com/docs/loki/latest/setup/install/helm/install-monolithic/
+- https://grafana.com/docs/loki/latest/operations/storage/retention/
+- https://grafana.com/docs/loki/latest/send-data/otel/
+- https://grafana.com/docs/loki/latest/reference/loki-http-api/
+
+## 第1目標とpush gateway source（2026-10-12）
+
+第1目標は、既存staging CollectorのPod container logをprod Lokiへ送信し、prod側から検索すること。operatorは既存staging Loki配送とprod O3-A履歴の継続を、この目標の必須条件から外した。上記のdual-write・履歴保全の記述は当時の計画であり、以後の判断ではこの更新を優先する。OpenWrt syslog、journal、4台目control-planeの収集、Grafana Loki datasourceは後続で扱う。
+
+`scripts/prod_o4_push_gateway_render.py` は、prod Loki backendの後段に追加する固定5件だけをrenderする。Nginx `1.30.5-alpine3.24`の単一PodがTLSとBasic認証を終端し、`POST /otlp/v1/logs`だけを内部Lokiへ転送する。clientのAuthorizationとtenant headerはLokiへ渡さない。NodePort `32443`は`externalTrafficPolicy: Local`に固定し、送信元IPv4 CIDRはowner-only JSON site file（schema 1、`staging_source_cidrs`、1～4個、RFC1918内の/24以上）からのみ取得する。manifest出力はowner `0700` directory内の`0600` fileを排他的に作る。認証値やCIDR実値を公開source、CI、標準出力へ出さない。
+
+固定名`prod-loki-push-gateway-credentials`のowner-only Secret（`tls.crt`、`tls.key`、`htpasswd`）は**別途live導入時の前提**であり、rendererはSecretを作らない。Secret、NodePort、DNS selector、stagingからの送信元IP、firewallは実機前にfresh read-onlyで照合する。追加NetworkPolicyはgateway ingressをsite CIDRに限定し、egressをLokiとkube-dnsに限定し、既存Loki ingressへgateway Podだけを加算する。NodePortでのsource IP保持とNetworkPolicy enforcementは実機acceptanceまで未確認。gatewayのTLS/auth負例、Loki到達、staging exporterからのPOST、prod LogQL検索も導入後に確認する。
+
+source-only gateway fixtureと隔離image smokeは実clusterへ接続しない。gatewayのlive導入にはsource-pinned fixed operationと別のoperator承認が必要で、backend PR mergeやsource CIだけでは実行しない。
+
+参照: [Kubernetes NodePort source IP](https://kubernetes.io/docs/tutorials/services/source-ip/)、[NGINX Basic認証](https://nginx.org/en/docs/http/ngx_http_auth_basic_module.html)、[NGINX TLS](https://nginx.org/en/docs/http/ngx_http_ssl_module.html)。
+
+## staging container log sender source（opt-in）
+
+`terraform/env/staging`の`o4_prod_container_logs_enabled`は既定`false`。`true`のときだけ、既存base/staging/site valuesの最後に`values-otel-collector-o4-prod-logs.yaml`を追加する。source mergeだけではCollectorを変更しない。切替対象は`filelog/pods`の`logs` pipelineのみで、`logs/openwrt`、metrics、tracesのexporter設定は維持する。既存staging LokiへのPodログ配送継続は第1目標の必須条件ではない。
+
+第2段階では同じoverlayを拡張し、private siteのworkload専用`nodeSelector`を解除して`NoSchedule` taintを許容する。これによりCollectorを4 nodeへ配置し、4台目のPod logも収集する。OpenWrt syslogの`logs/openwrt`も同じ認証付きprod exporterへ送る。metricsとtracesのpipelineは変更しない。staging LokiへのOpenWrt配送はoperatorが維持を必須条件から外している。変更後はDaemonSet 4/4 Ready、control-plane由来のPod log、OpenWrt syslogのprod Loki検索をそれぞれ実機で検証する。
+
+systemd journalは専用のFluent Bit DaemonSetが4 nodeの`/run/log/journal`を読み、同じnodeのOTel Collector ServiceへOTLP/HTTPで渡す。Collectorは`logs/journal` pipelineへ`service.name=staging-journal`、`environment=staging`、journalのhost名を付け、既存の認証付きprod exporterへ送る。既存Pod logをFluent Bitで重複収集しない。journal cursorはPod内の一時領域なのでPod再作成時に継続しない。今回は既存journalからの完全な再送より、稼働中の4 nodeからprod検索できることをacceptanceにする。各nodeから固定の非機密markerを`logger`で発生させ、prodの`{service_name="staging-journal"}`から検証する。
+
+overlayはCollector `0.102.1`の`otlphttp/prod-logs`を使い、owner-only Secret `staging-prod-loki-push`の`endpoint`、`basic_authorization_b64`、`ca.crt`を参照する。endpointはgatewayの**base path `/otlp`まで**を指定し、exporterが`/v1/logs`を付ける。TLS検証を無効化しない。Secret自体、endpoint値、認証値、CA実値はこのrepositoryへ追加しない。`extraVolumes`/`extraVolumeMounts`はHelmの配列上書きに備え、Pod log用`/var/log`を含む既存mountとCA mountを明示する。送信queueはmemory内32 batch、retryは最大1分で、停止・再作成・容量超過時の欠落は許容する。
+
+切替前にgatewayのTLS/auth、NodePort/firewall/NetworkPolicy、Secretのowner-only配置、Collector実imageとHelm chart render、Terraform planをfreshに確認する。切替後はCollector Ready、prod側へのPOST成功、prod Lokiで固定markerをLogQL検索できることをacceptanceにする。staging側の実機applyは別のoperator承認を要する。[Collector 0.102.1のOTLP/HTTP exporter](https://github.com/open-telemetry/opentelemetry-collector/blob/v0.102.1/exporter/otlphttpexporter/README.md)ではbase endpointに`/v1/logs`を付与する。

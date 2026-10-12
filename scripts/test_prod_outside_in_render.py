@@ -39,8 +39,8 @@ class ProductionOutsideInTest(unittest.TestCase):
         self.assertEqual(m["kind"], "List")
         self.assertEqual(m["apiVersion"], "v1")
         things = objects(m)
-        self.assertEqual(len(things), 9)
-        self.assertEqual({x["kind"] for x in m["items"]}, {"Namespace", "ConfigMap", "Deployment", "Service", "NetworkPolicy"})
+        self.assertEqual(len(things), 10)
+        self.assertEqual({x["kind"] for x in m["items"]}, {"Namespace", "ConfigMap", "PersistentVolumeClaim", "Deployment", "Service", "NetworkPolicy"})
         for o in m["items"]:
             if o["kind"] != "Namespace":
                 self.assertEqual(o["metadata"]["namespace"], r.NAMESPACE)
@@ -71,11 +71,17 @@ class ProductionOutsideInTest(unittest.TestCase):
         self.assertEqual(jobs["staging-api"]["params"]["module"], ["http_readyz"])
         self.assertEqual(jobs["staging-tcp"]["params"]["module"], ["tcp_connect"])
         self.assertNotIn("remote_write", pr)
+        pvc = things["prod-prometheus-data"]
+        self.assertEqual(pvc["spec"], {
+            "accessModes": ["ReadWriteOnce"], "storageClassName": "local-path",
+            "volumeMode": "Filesystem", "resources": {"requests": {"storage": "4Gi"}},
+        })
         prom_spec = things["prod-prometheus"]["spec"]["template"]["spec"]
-        self.assertEqual(prom_spec["volumes"][1]["emptyDir"]["sizeLimit"], "256Mi")
+        self.assertEqual(prom_spec["volumes"][1]["persistentVolumeClaim"]["claimName"], "prod-prometheus-data")
+        self.assertNotIn("emptyDir", json.dumps(prom_spec))
         prom_args = prom_spec["containers"][0]["args"]
-        self.assertIn("--storage.tsdb.retention.time=6h", prom_args)
-        self.assertIn("--storage.tsdb.retention.size=128MB", prom_args)
+        self.assertIn("--storage.tsdb.retention.time=7d", prom_args)
+        self.assertIn("--storage.tsdb.retention.size=2GB", prom_args)
 
         bb_policy = things["prod-blackbox-restricted"]["spec"]
         self.assertEqual(bb_policy["policyTypes"], ["Ingress", "Egress"])
@@ -154,6 +160,96 @@ class ProductionOutsideInTest(unittest.TestCase):
         manifest = objects(r.build_manifest(site))
         prometheus_cfg = json.loads(manifest["prod-prometheus-config"]["data"]["prometheus.json"])
         self.assertNotIn("staging-tcp", [job["job_name"] for job in prometheus_cfg["scrape_configs"]])
+
+    def test_o2_node_metrics_opt_in_preserves_o1_and_network_scope(self) -> None:
+        o1 = objects(r.build_manifest(fixture()))
+        o1_cfg = json.loads(o1["prod-prometheus-config"]["data"]["prometheus.json"])
+        self.assertNotIn("staging-node-exporter", [x["job_name"] for x in o1_cfg["scrape_configs"]])
+        self.assertEqual(len(o1["prod-prometheus-restricted"]["spec"]["egress"]), 2)
+        legacy_with_empty_opt_in = fixture()
+        legacy_with_empty_opt_in["metrics_targets"] = []
+        self.assertEqual(r.build_manifest(legacy_with_empty_opt_in), r.build_manifest(fixture()))
+
+        site = fixture()
+        site["metrics_targets"] = [
+            {"name": "node-a", "target": "node-a.lab.example.invalid:9100"},
+            {"name": "node-b", "target": "192.0.2.11:9100"},
+            {"name": "node-c", "target": "192.0.2.12:9100"},
+            {"name": "node-d", "target": "192.0.2.13:9100"},
+        ]
+        a = objects(r.build_manifest(site))
+        b = objects(r.build_manifest(site))
+        self.assertEqual(len(a), 10)
+        self.assertEqual(a, b)
+        self.assertEqual(o1["prod-blackbox-config"], a["prod-blackbox-config"])
+        self.assertEqual(o1["prod-blackbox-exporter"]["spec"]["template"],
+                         a["prod-blackbox-exporter"]["spec"]["template"])
+        self.assertEqual(o1["prod-prometheus-data"], a["prod-prometheus-data"])
+        self.assertEqual(o1["prod-blackbox-restricted"], a["prod-blackbox-restricted"])
+        self.assertEqual(o1["prod-prometheus"]["spec"]["template"]["spec"]["volumes"],
+                         a["prod-prometheus"]["spec"]["template"]["spec"]["volumes"])
+        cfg = json.loads(a["prod-prometheus-config"]["data"]["prometheus.json"])
+        before_jobs = {x["job_name"]: x for x in o1_cfg["scrape_configs"]}
+        jobs = {x["job_name"]: x for x in cfg["scrape_configs"]}
+        for name, original in before_jobs.items():
+            self.assertEqual(original, jobs[name])
+        node_job = jobs["staging-node-exporter"]
+        self.assertEqual(node_job["scheme"], "http")
+        self.assertEqual(node_job["metrics_path"], "/metrics")
+        self.assertEqual(node_job["scrape_interval"], "60s")
+        self.assertEqual(node_job["scrape_timeout"], "10s")
+        self.assertEqual(node_job["sample_limit"], 2000)
+        self.assertEqual(len(node_job["static_configs"]), 4)
+        self.assertEqual(node_job["static_configs"][0],
+                         {"targets": ["node-a.lab.example.invalid:9100"], "labels": {"node_name": "node-a"}})
+        keep = node_job["metric_relabel_configs"]
+        self.assertEqual(keep[0]["action"], "keep")
+        self.assertIn("node_cpu_seconds_total", keep[0]["regex"])
+        self.assertIn("node_filesystem_avail_bytes", keep[0]["regex"])
+        self.assertNotIn("bearer_token", json.dumps(a))
+        self.assertNotIn("insecure_skip_verify", json.dumps(a))
+        prom_policy = a["prod-prometheus-restricted"]["spec"]
+        self.assertEqual(prom_policy["policyTypes"], ["Ingress", "Egress"])
+        self.assertEqual(prom_policy["ingress"], [])
+        self.assertEqual(len(prom_policy["egress"]), 3)
+        self.assertEqual(prom_policy["egress"][-1], {
+            "to": [{"ipBlock": {"cidr": "198.51.100.0/24"}}],
+            "ports": [{"protocol": "TCP", "port": 9100}],
+        })
+        self.assertNotEqual(o1["prod-prometheus"]["spec"]["template"],
+                            a["prod-prometheus"]["spec"]["template"])
+        checksum = hashlib.sha256(
+            a["prod-prometheus-config"]["data"]["prometheus.json"].encode("utf-8")
+        ).hexdigest()
+        self.assertEqual(a["prod-prometheus"]["spec"]["template"]["metadata"]["annotations"]["checksum/config"],
+                         checksum)
+
+    def test_o2_node_metrics_validation_fails_closed(self) -> None:
+        cases = [
+            ({"metrics_targets": "node-a:9100"}, "not a list"),
+            ({"metrics_targets": [{"name": "bad", "target": "http://example.invalid:9100/metrics"}]}, "scheme"),
+            ({"metrics_targets": [{"name": "bad", "target": "example.invalid:9090"}]}, "port"),
+            ({"metrics_targets": [{"name": "bad", "target": "example.invalid:9100/metrics"}]}, "path"),
+            ({"metrics_targets": [{"name": "bad", "target": "user:pw@example.invalid:9100"}]}, "userinfo"),
+            ({"metrics_targets": [{"name": "bad", "target": "[::1]:9100"}]}, "ipv6"),
+            ({"metrics_targets": [{"name": "bad", "target": "127.0.0.1:9100"}]}, "loopback"),
+            ({"metrics_targets": [{"name": "bad", "target": "example.invalid:9100?x=1"}]}, "query"),
+            ({"metrics_targets": [{"name": "bad", "target": "example.invalid:9100#x"}]}, "fragment"),
+            ({"metrics_targets": [{"name": "bad", "target": "node.example.invalid:9100?"}]}, "empty query delimiter"),
+            ({"metrics_targets": [{"name": "bad", "target": "node.example.invalid:9100#"}]}, "empty fragment delimiter"),
+            ({"metrics_targets": [{"name": "node-a", "target": "node.lab.example.invalid:9100"},
+                                  {"name": "node-a", "target": "node2.lab.example.invalid:9100"}]}, "duplicate names"),
+            ({"metrics_targets": [{"name": f"node-{i}", "target": f"node-{i}.example.invalid:9100"}
+                                  for i in range(5)]}, "limit"),
+            ({"metrics_targets": [{"name": "bad", "target": "node.lab.example.invalid:9100"},
+                                  {"name": "other", "target": "node.lab.example.invalid:9100"}]}, "duplicate endpoint"),
+        ]
+        for fields, why in cases:
+            with self.subTest(reason=why):
+                site = fixture()
+                site.update(fields)
+                with self.assertRaises(ValueError):
+                    r.build_manifest(site)
 
     def test_reject_invalid_site_inputs(self) -> None:
         invalid = [
