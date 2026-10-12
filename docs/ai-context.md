@@ -2,7 +2,7 @@
 status: current
 audience: ai
 scope: repository
-last_reviewed: 2026-07-22
+last_reviewed: 2026-10-12
 lifecycle: current-context
 ---
 
@@ -36,8 +36,10 @@ lifecycle: current-context
 
 この状態に到達していない間は「完了」と扱わない。実装またはsite inputの不足を修正し、対象revisionを
 更新し、k3s staging全体を再起動またはpower cycleして、起動後のself-convergenceとobservability
-validationを繰り返す。停止するのは、同じblockerが再現し外部入力なしには進めない場合、または
-破壊的、secret-sensitiveな操作に明示承認が必要な場合だけである。
+validationを繰り返す。Codexはstaging専用の対象と入力を実行直前に確認できれば、
+storage、rootfs、sysupgradeを含む検証を個別の承認待ちなく進める。
+prod、共有資源、対象不明のmutationはoperator確認を要する。secret値は表示しない。
+同じblockerが再現し、外部入力なしには進めない場合も停止する。
 
 ## 読む順番
 
@@ -95,7 +97,8 @@ secret、Terraform state、kubeconfig、raw operation log、desktop workload、s
 - repository design goalとして、tagless Ansibleはroutine convergenceだけを行う。storage partitioning、
   formatting、rootfs build、replacement、TFTP release switch、sysupgrade、bootstrap package install、k3s
   runtime storage初期化や再作成などのdestructive、high-blast-radius operationは、`never` tagまたは同等の
-  明示gateの下に置く。
+  明示gateの下に置く。これは実行対象を選ぶgateであり、staging専用と確認済みのCodex操作に
+  毎回のoperator承認を要求するものではない。
 - OpenWrt tagless applyでは、`bootstrap_python`、storage、rootfs、sysupgradeを`never` gateに置く。
   rootfs内のansible-pull unit、credential、varsだけを戻す場合は`pxe_ansible_pull` gateを使い、rootfs
   rebuildやTFTP switchと混ぜない。
