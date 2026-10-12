@@ -1,0 +1,85 @@
+# Opt-in O4: send only staging Pod container logs to the authenticated prod gateway.
+# The operator must create the fixed owner-only Secret before enabling this overlay.
+config:
+  processors:
+    batch/o4-prod-logs:
+      send_batch_size: 128
+      send_batch_max_size: 256
+      timeout: 2s
+  exporters:
+    otlphttp/prod-logs:
+      endpoint: ${env:PROD_LOKI_OTLP_BASE}
+      headers:
+        Authorization: Basic ${env:PROD_LOKI_BASIC_B64}
+      tls:
+        ca_file: /etc/otel/prod-loki-ca/ca.crt
+      timeout: 10s
+      sending_queue:
+        enabled: true
+        num_consumers: 1
+        queue_size: 32
+      retry_on_failure:
+        enabled: true
+        initial_interval: 1s
+        max_interval: 15s
+        max_elapsed_time: 1m
+  service:
+    pipelines:
+      logs:
+        receivers: [filelog/pods]
+        processors: [resource/environment, batch/o4-prod-logs]
+        exporters: [otlphttp/prod-logs]
+
+extraEnvs:
+  - name: PROD_LOKI_OTLP_BASE
+    valueFrom:
+      secretKeyRef:
+        name: staging-prod-loki-push
+        key: endpoint
+  - name: PROD_LOKI_BASIC_B64
+    valueFrom:
+      secretKeyRef:
+        name: staging-prod-loki-push
+        key: basic_authorization_b64
+
+# Helm replaces arrays. Keep the existing host mounts alongside the O4 CA.
+extraVolumes:
+  - name: varlog
+    hostPath:
+      path: /var/log
+      type: Directory
+  - name: host-proc
+    hostPath:
+      path: /proc
+      type: Directory
+  - name: host-sys
+    hostPath:
+      path: /sys
+      type: Directory
+  - name: host-run
+    hostPath:
+      path: /run
+      type: Directory
+  - name: prod-loki-ca
+    secret:
+      secretName: staging-prod-loki-push
+      items:
+        - key: ca.crt
+          path: ca.crt
+
+extraVolumeMounts:
+  - name: varlog
+    mountPath: /var/log
+    readOnly: true
+  - name: host-proc
+    mountPath: /host/proc
+    readOnly: true
+  - name: host-sys
+    mountPath: /host/sys
+    readOnly: true
+  - name: host-run
+    mountPath: /host/run
+    readOnly: true
+  - name: prod-loki-ca
+    mountPath: /etc/otel/prod-loki-ca
+    readOnly: true

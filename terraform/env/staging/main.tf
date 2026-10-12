@@ -14,11 +14,12 @@ module "observability_stack" {
   observability_namespace  = "observability-stg"
   tenant_id                = "staging"
 
-  values_base_dir         = local.values_base_dir
-  values_env_dir          = local.values_env_dir
-  values_site_dir         = var.site_values_dir
-  grafana_dashboard_files = local.grafana_dashboard_files
-  repo_root               = local.repo_root
+  values_base_dir                = local.values_base_dir
+  values_env_dir                 = local.values_env_dir
+  values_site_dir                = var.site_values_dir
+  o4_prod_container_logs_enabled = var.o4_prod_container_logs_enabled
+  grafana_dashboard_files        = local.grafana_dashboard_files
+  repo_root                      = local.repo_root
 
   grafana_load_balancer_ip                = var.grafana_load_balancer_ip
   trace_smoke_node_selector               = var.workload_node_selector

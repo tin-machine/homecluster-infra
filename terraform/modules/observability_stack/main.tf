@@ -319,11 +319,16 @@ resource "helm_release" "otel_collector" {
   namespace        = kubernetes_namespace.observability.metadata[0].name
   create_namespace = false
 
-  values = [
-    file("${var.values_base_dir}/values-otel-collector.yaml"),
-    file("${var.values_env_dir}/values-otel-collector.yaml"),
-    file("${var.values_site_dir}/values-otel-collector.yaml")
-  ]
+  values = concat(
+    [
+      file("${var.values_base_dir}/values-otel-collector.yaml"),
+      file("${var.values_env_dir}/values-otel-collector.yaml"),
+      file("${var.values_site_dir}/values-otel-collector.yaml"),
+    ],
+    var.o4_prod_container_logs_enabled ? [
+      file("${var.values_env_dir}/values-otel-collector-o4-prod-logs.yaml")
+    ] : [],
+  )
 
   depends_on = [
     helm_release.loki,
