@@ -64,3 +64,15 @@ O4 acceptanceはLoki Pod Readyだけで完了しない。stagingからのcontain
 - https://grafana.com/docs/loki/latest/operations/storage/retention/
 - https://grafana.com/docs/loki/latest/send-data/otel/
 - https://grafana.com/docs/loki/latest/reference/loki-http-api/
+
+## 第1目標とpush gateway source（2026-10-12）
+
+第1目標は、既存staging CollectorのPod container logをprod Lokiへ送信し、prod側から検索すること。operatorは既存staging Loki配送とprod O3-A履歴の継続を、この目標の必須条件から外した。上記のdual-write・履歴保全の記述は当時の計画であり、以後の判断ではこの更新を優先する。OpenWrt syslog、journal、4台目control-planeの収集、Grafana Loki datasourceは後続で扱う。
+
+`scripts/prod_o4_push_gateway_render.py` は、prod Loki backendの後段に追加する固定5件だけをrenderする。Nginx `1.30.5-alpine3.24`の単一PodがTLSとBasic認証を終端し、`POST /otlp/v1/logs`だけを内部Lokiへ転送する。clientのAuthorizationとtenant headerはLokiへ渡さない。NodePort `32443`は`externalTrafficPolicy: Local`に固定し、送信元IPv4 CIDRはowner-only JSON site file（schema 1、`staging_source_cidrs`、1～4個、RFC1918内の/24以上）からのみ取得する。manifest出力はowner `0700` directory内の`0600` fileを排他的に作る。認証値やCIDR実値を公開source、CI、標準出力へ出さない。
+
+固定名`prod-loki-push-gateway-credentials`のowner-only Secret（`tls.crt`、`tls.key`、`htpasswd`）は**別途live導入時の前提**であり、rendererはSecretを作らない。Secret、NodePort、DNS selector、stagingからの送信元IP、firewallは実機前にfresh read-onlyで照合する。追加NetworkPolicyはgateway ingressをsite CIDRに限定し、egressをLokiとkube-dnsに限定し、既存Loki ingressへgateway Podだけを加算する。NodePortでのsource IP保持とNetworkPolicy enforcementは実機acceptanceまで未確認。gatewayのTLS/auth負例、Loki到達、staging exporterからのPOST、prod LogQL検索も導入後に確認する。
+
+source-only gateway fixtureと隔離image smokeは実clusterへ接続しない。gatewayのlive導入にはsource-pinned fixed operationと別のoperator承認が必要で、backend PR mergeやsource CIだけでは実行しない。
+
+参照: [Kubernetes NodePort source IP](https://kubernetes.io/docs/tutorials/services/source-ip/)、[NGINX Basic認証](https://nginx.org/en/docs/http/ngx_http_auth_basic_module.html)、[NGINX TLS](https://nginx.org/en/docs/http/ngx_http_ssl_module.html)。
