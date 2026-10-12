@@ -1,6 +1,10 @@
 mimir:
   structuredConfig:
     multitenancy_enabled: true
+    ingest_storage:
+      enabled: false
+    ingester:
+      push_grpc_method_enabled: true
     usage_stats:
       enabled: false
     server:
@@ -44,7 +48,10 @@ global:
     app.kubernetes.io/instance: mimir
     app.kubernetes.io/part-of: observability
 
-nginx:
+kafka:
+  enabled: false
+
+gateway:
   enabled: false
 
 metaMonitoring:
