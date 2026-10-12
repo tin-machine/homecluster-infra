@@ -66,6 +66,12 @@ jobs:
       - name: Validate prod O3 alert rule source-only fixtures
         run: python3 -m unittest discover -s scripts -p 'test_prod_alert_rules_render.py' -v
 
+      - name: Validate prod O3-B Alertmanager Bot receiver fixtures
+        run: python3 -m unittest discover -s scripts -p 'test_prod_o3b_alertmanager_render.py' -v
+
+      - name: Validate isolated prod O3-B Alertmanager image config
+        run: python3 scripts/ci/check-prod-o3b-alertmanager-image.py
+
       - name: Validate prod O4 Loki backend source-only fixtures
         run: python3 -m unittest discover -s scripts -p 'test_prod_o4_loki_render.py' -v
 
