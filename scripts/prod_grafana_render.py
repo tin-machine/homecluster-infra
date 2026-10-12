@@ -18,6 +18,9 @@ ADMIN_SECRET = "prod-grafana-admin"
 CONFIG_NAME = "prod-grafana-provisioning"
 DATASOURCE_UID = "prod-prometheus"
 DASHBOARD_UID = "staging-outside-in"
+LOKI_DATASOURCE_UID = "prod-loki"
+LOG_DASHBOARD_UID = "staging-container-logs"
+STAGING_LOG_QUERY = '{service_name=~".+"} | environment="staging"'
 GRAFANA = "prod-grafana"
 PROMETHEUS = "prod-prometheus"
 
@@ -88,14 +91,44 @@ def _dashboard() -> dict:
     }
 
 
+def _logs_dashboard() -> dict:
+    datasource = {"type": "loki", "uid": LOKI_DATASOURCE_UID}
+    return {
+        "uid": LOG_DASHBOARD_UID, "title": "Staging container logs (prod Loki)",
+        "tags": ["staging", "logs", "homelab"],
+        "schemaVersion": 39, "version": 1, "editable": False,
+        "timezone": "browser", "refresh": "1m",
+        "time": {"from": "now-15m", "to": "now"},
+        "panels": [{
+            "id": 1, "title": "Staging Pod container logs", "type": "logs",
+            "datasource": datasource,
+            "targets": [{"refId": "A", "datasource": datasource,
+                         "expr": STAGING_LOG_QUERY, "queryType": "range"}],
+            "gridPos": {"x": 0, "y": 0, "w": 24, "h": 16},
+            "fieldConfig": {"defaults": {}, "overrides": []},
+            "options": {"showTime": True, "showLabels": False,
+                        "wrapLogMessage": True, "enableLogDetails": True,
+                        "sortOrder": "Descending"},
+        }],
+    }
+
+
 def build_manifest() -> dict:
     datasource = {
         "apiVersion": 1,
-        "datasources": [{
-            "name": "prod-prometheus", "uid": DATASOURCE_UID, "type": "prometheus",
-            "access": "proxy", "url": "http://prod-prometheus:9090",
-            "isDefault": True, "editable": False,
-        }],
+        "datasources": [
+            {
+                "name": "prod-prometheus", "uid": DATASOURCE_UID, "type": "prometheus",
+                "access": "proxy", "url": "http://prod-prometheus:9090",
+                "isDefault": True, "editable": False,
+            },
+            {
+                "name": "prod-loki", "uid": LOKI_DATASOURCE_UID, "type": "loki",
+                "access": "proxy", "url": "http://prod-loki:3100",
+                "isDefault": False, "editable": False,
+                "jsonData": {"maxLines": 500},
+            },
+        ],
     }
     provider = {
         "apiVersion": 1,
@@ -110,6 +143,7 @@ def build_manifest() -> dict:
         "datasource.yaml": _json(datasource),
         "dashboard-provider.yaml": _json(provider),
         "staging-overview.json": _json(_dashboard()),
+        "staging-logs.json": _json(_logs_dashboard()),
     }
     checksum = hashlib.sha256(_json(config).encode("utf-8")).hexdigest()
     container = {
@@ -157,7 +191,10 @@ def build_manifest() -> dict:
         {"name": "providers", "configMap": {
             "name": CONFIG_NAME, "items": [{"key": "dashboard-provider.yaml", "path": "provider.yaml"}]}},
         {"name": "dashboards", "configMap": {
-            "name": CONFIG_NAME, "items": [{"key": "staging-overview.json", "path": "staging-overview.json"}]}},
+            "name": CONFIG_NAME, "items": [
+                {"key": "staging-overview.json", "path": "staging-overview.json"},
+                {"key": "staging-logs.json", "path": "staging-logs.json"},
+            ]}},
         {"name": "data", "emptyDir": {"sizeLimit": "256Mi"}},
         {"name": "temp", "emptyDir": {"sizeLimit": "64Mi"}},
     ]
