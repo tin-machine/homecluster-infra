@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 BASE = ROOT / "clusters/homelab/apps/base/values-otel-collector.yaml"
 STAGING = ROOT / "clusters/homelab/apps/staging/values-otel-collector.yaml"
 OVERLAY = ROOT / "clusters/homelab/apps/staging/values-otel-collector-o4-prod-logs.yaml"
+JOURNAL = ROOT / "clusters/homelab/apps/staging/values-fluent-bit-journal.yaml"
 
 
 def merge_values(left: dict, right: dict) -> dict:
@@ -73,6 +74,27 @@ class O4StagingLogSenderTests(unittest.TestCase):
         self.assertIn('var.o4_prod_container_logs_enabled ? [', module_main)
         self.assertIn('file("${var.values_env_dir}/values-otel-collector-o4-prod-logs.yaml")',
                       module_main)
+
+    def test_journal_agent_uses_local_collector_and_four_node_placement(self):
+        overlay = yaml.safe_load(OVERLAY.read_text())
+        pipeline = overlay["config"]["service"]["pipelines"]["logs/journal"]
+        self.assertEqual(pipeline["receivers"], ["otlp"])
+        self.assertEqual(pipeline["exporters"], ["otlphttp/prod-logs"])
+        attributes = overlay["config"]["processors"]["resource/journal"]["attributes"]
+        self.assertIn({"key": "service.name", "value": "staging-journal", "action": "upsert"},
+                      attributes)
+        values = yaml.safe_load(JOURNAL.read_text())
+        self.assertEqual(values["tolerations"], [{"operator": "Exists", "effect": "NoSchedule"}])
+        volumes = {v["name"]: v for v in values["daemonSetVolumes"]}
+        self.assertEqual(volumes["journal"]["hostPath"],
+                         {"path": "/run/log/journal", "type": "Directory"})
+        self.assertNotIn("/var/log/containers", values["config"]["inputs"])
+        self.assertIn("Name systemd", values["config"]["inputs"])
+        self.assertIn("Name opentelemetry", values["config"]["outputs"])
+        self.assertIn("Port 4318", values["config"]["outputs"])
+        module = (ROOT / "terraform/modules/observability_stack/main.tf").read_text()
+        self.assertIn('resource "helm_release" "journal_agent"', module)
+        self.assertIn('count            = var.o4_prod_container_logs_enabled ? 1 : 0', module)
 
 
 if __name__ == "__main__":
