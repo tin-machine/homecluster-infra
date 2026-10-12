@@ -94,6 +94,9 @@ PVC/PV・既存TSDB・O1/O2/GrafanaリソースUIDを確認する。
 
 ## 通知側（後続O3 Step B）
 
+Bot tokenを使うAlertmanager source-only rendererの範囲は
+[prod O3-B Alertmanager source](prod-o3b-alertmanager.md) を参照する。
+
 通知にはprod側のAlertmanagerを選ぶ。受け口はprod Prometheusから
 同namespaceの限定TCP/9093で到達させる。Alertmanagerは
 `group_by: [alertname]`、`group_wait: 30s`、`group_interval: 5m`、
