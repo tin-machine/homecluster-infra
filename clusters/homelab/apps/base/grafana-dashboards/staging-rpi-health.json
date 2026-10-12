@@ -65,6 +65,66 @@
       ],
       "title": "k3s データ領域のマウント（1=存在）",
       "type": "timeseries"
+    },
+    {
+      "datasource": null,
+      "fieldConfig": {"defaults": {"unit": "short", "min": 0, "max": 1}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+      "id": 6,
+      "options": {"legend": {"displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi"}},
+      "targets": [
+        {"datasource": null, "editorMode": "code", "expr": "homecluster_rpi_throttle_state{service='stg-node-exporter',condition='undervoltage'}", "legendFormat": "{{node}} {{state}}", "range": true, "refId": "A"}
+      ],
+      "title": "電圧低下（1=検出）",
+      "type": "timeseries"
+    },
+    {
+      "datasource": null,
+      "fieldConfig": {"defaults": {"unit": "short", "min": 0, "max": 1}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24},
+      "id": 7,
+      "options": {"legend": {"displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi"}},
+      "targets": [
+        {"datasource": null, "editorMode": "code", "expr": "homecluster_rpi_throttle_state{service='stg-node-exporter',condition='throttled'}", "legendFormat": "{{node}} {{state}}", "range": true, "refId": "A"}
+      ],
+      "title": "スロットリング（1=検出）",
+      "type": "timeseries"
+    },
+    {
+      "datasource": null,
+      "fieldConfig": {"defaults": {"unit": "short", "min": 0}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 24},
+      "id": 8,
+      "options": {"legend": {"displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi"}},
+      "targets": [
+        {"datasource": null, "editorMode": "code", "expr": "homecluster_iscsi_sessions{service='stg-node-exporter'}", "legendFormat": "{{node}}", "range": true, "refId": "A"}
+      ],
+      "title": "iSCSI セッション数（SSD nodeは0）",
+      "type": "timeseries"
+    },
+    {
+      "datasource": null,
+      "fieldConfig": {"defaults": {"unit": "short", "min": 0, "max": 1}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 32},
+      "id": 9,
+      "options": {"legend": {"displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi"}},
+      "targets": [
+        {"datasource": null, "editorMode": "code", "expr": "homecluster_rpi_health_collection_success{service='stg-node-exporter'}", "legendFormat": "{{node}}", "range": true, "refId": "A"}
+      ],
+      "title": "ホスト指標収集（1=成功）",
+      "type": "timeseries"
+    },
+    {
+      "datasource": null,
+      "fieldConfig": {"defaults": {"unit": "s", "min": 0}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 32},
+      "id": 10,
+      "options": {"legend": {"displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi"}},
+      "targets": [
+        {"datasource": null, "editorMode": "code", "expr": "time() - homecluster_rpi_health_collected_at_seconds{service='stg-node-exporter'}", "legendFormat": "{{node}}", "range": true, "refId": "A"}
+      ],
+      "title": "前回収集からの経過秒数",
+      "type": "timeseries"
     }
   ],
   "schemaVersion": 39,
