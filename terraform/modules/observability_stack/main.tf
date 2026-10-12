@@ -339,6 +339,20 @@ resource "helm_release" "otel_collector" {
   ]
 }
 
+resource "helm_release" "journal_agent" {
+  count            = var.o4_prod_container_logs_enabled ? 1 : 0
+  name             = "${var.release_prefix}-journal-agent"
+  repository       = "https://fluent.github.io/helm-charts"
+  chart            = "fluent-bit"
+  version          = "0.58.3"
+  namespace        = kubernetes_namespace.observability.metadata[0].name
+  create_namespace = false
+
+  values = [file("${var.values_env_dir}/values-fluent-bit-journal.yaml")]
+
+  depends_on = [helm_release.otel_collector]
+}
+
 resource "kubernetes_cron_job_v1" "trace_smoke_producer" {
   metadata {
     name      = "${var.release_prefix}-trace-smoke-producer"

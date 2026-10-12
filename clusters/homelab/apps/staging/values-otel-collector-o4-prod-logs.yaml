@@ -12,6 +12,14 @@ config:
       send_batch_size: 128
       send_batch_max_size: 256
       timeout: 2s
+    resource/journal:
+      attributes:
+        - key: service.name
+          value: staging-journal
+          action: upsert
+        - key: host.name
+          from_attribute: _HOSTNAME
+          action: upsert
   exporters:
     otlphttp/prod-logs:
       endpoint: ${env:PROD_LOKI_OTLP_BASE}
@@ -38,6 +46,10 @@ config:
       "logs/openwrt":
         receivers: [syslog/openwrt]
         processors: [attributes/openwrt, resource/environment, batch/o4-prod-logs]
+        exporters: [otlphttp/prod-logs]
+      "logs/journal":
+        receivers: [otlp]
+        processors: [resource/environment, resource/journal, batch/o4-prod-logs]
         exporters: [otlphttp/prod-logs]
 
 extraEnvs:
