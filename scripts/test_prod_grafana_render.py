@@ -62,7 +62,7 @@ class GrafanaSourceTests(unittest.TestCase):
         cm = self.items[("ConfigMap", grafana.CONFIG_NAME)]
         data = cm["data"]
         self.assertEqual(set(data), {"datasource.yaml", "dashboard-provider.yaml",
-                                     "staging-overview.json"})
+                                     "staging-overview.json", "staging-logs.json"})
         ds = json.loads(data["datasource.yaml"])["datasources"][0]
         self.assertEqual(ds["url"], "http://prod-prometheus:9090")
         self.assertEqual(ds["uid"], grafana.DATASOURCE_UID)
@@ -84,6 +84,36 @@ class GrafanaSourceTests(unittest.TestCase):
             self.assertIn(metric, queries)
         self.assertIn('mountpoint="/"', queries)
         self.assertEqual(len({p["id"] for p in dashboard["panels"]}), 8)
+
+    def test_loki_datasource_and_fixed_log_search_dashboard(self) -> None:
+        data = self.items[("ConfigMap", grafana.CONFIG_NAME)]["data"]
+        datasources = json.loads(data["datasource.yaml"])["datasources"]
+        self.assertEqual(len(datasources), 2)
+        self.assertEqual(datasources[0]["uid"], grafana.DATASOURCE_UID)
+        self.assertTrue(datasources[0]["isDefault"])
+        self.assertEqual(datasources[1], {
+            "name": "prod-loki", "uid": grafana.LOKI_DATASOURCE_UID,
+            "type": "loki", "access": "proxy", "url": "http://prod-loki:3100",
+            "isDefault": False, "editable": False, "jsonData": {"maxLines": 500},
+        })
+        dashboard = json.loads(data["staging-logs.json"])
+        self.assertEqual(dashboard["uid"], grafana.LOG_DASHBOARD_UID)
+        self.assertFalse(dashboard["editable"])
+        self.assertEqual(dashboard["time"], {"from": "now-15m", "to": "now"})
+        self.assertEqual(len(dashboard["panels"]), 1)
+        panel = dashboard["panels"][0]
+        self.assertEqual(panel["type"], "logs")
+        self.assertEqual(panel["datasource"],
+                         {"type": "loki", "uid": grafana.LOKI_DATASOURCE_UID})
+        self.assertEqual(panel["targets"][0]["expr"], grafana.STAGING_LOG_QUERY)
+        self.assertEqual(panel["targets"][0]["queryType"], "range")
+        volumes = {v["name"]: v for v in
+                   self.items[("Deployment", grafana.GRAFANA)]
+                   ["spec"]["template"]["spec"]["volumes"]}
+        self.assertEqual(volumes["dashboards"]["configMap"]["items"], [
+            {"key": "staging-overview.json", "path": "staging-overview.json"},
+            {"key": "staging-logs.json", "path": "staging-logs.json"},
+        ])
 
     def test_checksum_rollout_and_ephemeral_database(self) -> None:
         dep = self.items[("Deployment", grafana.GRAFANA)]
