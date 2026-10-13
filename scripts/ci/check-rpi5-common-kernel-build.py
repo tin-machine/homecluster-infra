@@ -49,6 +49,25 @@ def validate_common_kernel_publish_contract(text: str) -> None:
     )
 
 
+def validate_egpu_archive_transfer_contract(text: str) -> None:
+    transfer = text.index("- name: rpi5 eGPU generation artifact archive を OpenWrt へ再開可能に転送")
+    checksum = text.index("- name: rpi5 eGPU generation artifact archive の OpenWrt 側 checksum を取得")
+    verify = text.index("- name: rpi5 eGPU generation artifact archive の OpenWrt 側 checksum を検証")
+    unpack = text.index("- name: rpi5 eGPU generation artifact archive を OpenWrt へ展開")
+    payload = text.index("- name: rpi5 eGPU generation artifact payload checksum を OpenWrt で検証")
+    cleanup = text.index("- name: 検証済み rpi5 eGPU generation archive の OpenWrt 側一時ファイルを削除")
+    if not transfer < checksum < verify < unpack < payload < cleanup:
+        raise AssertionError("eGPU archive transfer, verification, extraction, and cleanup order changed")
+    transfer_task = text[transfer:checksum]
+    for value in ("ansible.builtin.command:", "--partial", "--append-verify", "retries: 3", "delegate_to: localhost"):
+        require(transfer_task, value, f"resumable eGPU archive transfer {value}")
+    require(text[checksum:verify], "checksum_algorithm: sha256", "remote eGPU archive checksum")
+    require(text[verify:unpack], "lookup('ansible.builtin.file'", "controller manifest comparison")
+    unpack_task = text[unpack:payload]
+    require(unpack_task, "remote_src: true", "remote-only eGPU archive extraction")
+    require_not(unpack_task, "openwrt_rpi5_egpu_generation_artifact_controller_dir", "controller-side unarchive transfer")
+
+
 def validate_distcc_pre_role_default(defaults: str, bundle_playbook: str) -> None:
     # The playbook resolves distcc before include_role loads the role defaults.
     role_default = "rpi5_common_kernel_build_distcc_enabled: true"
@@ -226,6 +245,7 @@ def main() -> int:
     require(gate, "pxe_release_manifest_sha256", "PXE manifest hash")
     require(gate, "rpi5-common-kernel-gate-v2", "gate schema v2")
     validate_common_kernel_publish_contract(publish_tasks)
+    validate_egpu_archive_transfer_contract(publish_tasks)
     require(gate, "generic_kernel_payload_present", "published generic kernel presence gate")
     require(gate, "generic_kernel_payload_identical", "published generic kernel payload identity gate")
     require(gate, "generic_kernel_sha256_matches_manifest", "published generic kernel manifest hash gate")
