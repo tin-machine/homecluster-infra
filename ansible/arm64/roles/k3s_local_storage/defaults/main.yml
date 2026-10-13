@@ -25,4 +25,5 @@ k3s_local_storage_state_dir: "{{ k3s_local_storage_mountpoint }}/.state"
 k3s_local_storage_node_password_state_path: "{{ k3s_local_storage_state_dir }}/node-password"
 k3s_local_storage_server_ca_hash_state_path: "{{ k3s_local_storage_state_dir }}/server-ca-hash"
 k3s_local_storage_cluster_token_path: /etc/rancher/k3s/cluster-token
-k3s_local_storage_reset_identity_when_local_password_missing: true
+# PXE root overlay では local password が毎回消える。server datastore が永続化された構成では SSD 側を復元する。
+k3s_local_storage_reset_identity_when_local_password_missing: false

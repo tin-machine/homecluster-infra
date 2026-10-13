@@ -63,3 +63,9 @@ image cache pruning が必要な場合は、容量対策または registry 検�
 
 - control-plane datastore が安定して永続化され、boot boundary で identity mismatch が起きなくなった場合。
 - image cache 保持による stale image / registry drift の事故が増えた場合。
+
+## 2026-10-13 の見直し
+
+control-plane datastore は永続化された。PXE root overlay 上の `/etc/rancher/node/password` は reboot ごとに消えるが、server 側の node-password Secret は残る。この状態で local password の欠落だけを理由に SSD 上の identity を消すと、新しい password が生成され、既存 Secret に拒否される。
+
+`k3s_local_storage_reset_identity_when_local_password_missing` の既定値を `false` とし、SSD 上の password を復元する。server CA hash が変化した場合の identity reset は維持する。server datastore を再生成する運用では、server と agent の identity 整合を別途確認する。
