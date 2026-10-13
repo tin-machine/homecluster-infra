@@ -9,10 +9,10 @@
   tasks:
     - name: rpi5 common kernel distcc runtime policyを記録
       ansible.builtin.set_fact:
-        rpi5_common_kernel_distcc_requested: "{{ rpi5_common_kernel_build_distcc_enabled | default(false) | bool }}"
+        rpi5_common_kernel_distcc_requested: "{{ rpi5_common_kernel_build_distcc_enabled | default(true) | bool }}"
         rpi5_common_kernel_distcc_runtime_auto: >-
           {{
-            (rpi5_common_kernel_build_distcc_enabled | default(false) | bool)
+            (rpi5_common_kernel_build_distcc_enabled | default(true) | bool)
             and (rpi5_common_kernel_build_distcc_auto | default(true) | bool)
             and (rpi5_common_kernel_build_distcc_hosts | default('', true) | string | trim | length == 0)
           }}
