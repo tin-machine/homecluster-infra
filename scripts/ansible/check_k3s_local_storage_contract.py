@@ -42,6 +42,11 @@ def main() -> int:
         "k3s mount dependency drop-in name default is missing",
     )
     require(
+        "k3s_local_storage_reset_identity_when_local_password_missing: false" in defaults,
+        findings,
+        "persistent server の node password を維持するため、local password 欠落時の identity reset は既定で無効にする",
+    )
+    require(
         "k3s_local_storage_scrub_containerd_on_boot: false" in defaults
         and "k3s_local_storage_scrub_containerd_required_confirm: scrub-containerd-state" in defaults
         and "k3s_local_storage_containerd_dir: \"{{ k3s_local_storage_mountpoint }}/agent/containerd\"" in defaults,
