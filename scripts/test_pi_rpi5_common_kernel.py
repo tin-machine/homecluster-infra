@@ -42,6 +42,36 @@ REQUIRED_CONFIG_LINES = (
 )
 ROLLOUT_GENERATION_RUN = "20260801T000000Z-stg-generation-new"
 PREVIOUS_GENERATION_RUN = "20260731T000000Z-stg-generation-old"
+NORMALIZE_DTB = (
+    HERE.parent / "ansible/arm64/roles/rpi5_common_kernel_build/files/normalize_dtb.py"
+)
+
+
+class DeviceTreeNormalizationTests(unittest.TestCase):
+    def test_bootarg_is_removed_before_artifact_hash_and_second_run_is_stable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "bcm2712-rpi-5-b.dtb"
+            raw = bytes.fromhex("d00dfeed") + b"bootargs=cgroup_disable=memory quiet\0"
+            path.write_bytes(raw)
+            first = subprocess.run([sys.executable, str(NORMALIZE_DTB), str(path)], capture_output=True, text=True)
+            self.assertEqual(first.returncode, 0, first.stderr)
+            self.assertIn("status=patched", first.stdout)
+            normalized = path.read_bytes()
+            self.assertEqual(len(normalized), len(raw))
+            self.assertNotIn(b"cgroup_disable=memory", normalized)
+            second = subprocess.run([sys.executable, str(NORMALIZE_DTB), str(path)], capture_output=True, text=True)
+            self.assertEqual(second.returncode, 0, second.stderr)
+            self.assertIn("status=unchanged", second.stdout)
+            self.assertEqual(path.read_bytes(), normalized)
+
+    def test_multiple_bootarg_occurrences_fail_without_changing_dtb(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "bcm2712-rpi-5-b.dtb"
+            raw = bytes.fromhex("d00dfeed") + b"cgroup_disable=memory cgroup_disable=memory\0"
+            path.write_bytes(raw)
+            result = subprocess.run([sys.executable, str(NORMALIZE_DTB), str(path)], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 2)
+            self.assertEqual(path.read_bytes(), raw)
 
 
 class PhaseAcceptanceRouteTests(unittest.TestCase):
