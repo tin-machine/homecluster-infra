@@ -40,6 +40,8 @@ REQUIRED_CONFIG_LINES = (
     "CONFIG_IKCONFIG=y",
     "CONFIG_IKCONFIG_PROC=y",
 )
+ROLLOUT_GENERATION_RUN = "20260801T000000Z-stg-generation-new"
+PREVIOUS_GENERATION_RUN = "20260731T000000Z-stg-generation-old"
 
 
 class PhaseAcceptanceRouteTests(unittest.TestCase):
@@ -237,6 +239,16 @@ class GateFailureDiagnosticsTests(unittest.TestCase):
         self.assertEqual(playbook_ids, legacy.GATE_MODULE.ARTIFACT_CHECK_IDS)
 
 
+def test_full_fleet_targets_every_agent_without_canary_prerequisites(self):
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        agents = ["generic-a", "generic-b", "egpu-a"]
+        targets, selectors, phase = legacy.ROLLOUT_MODULE.target_policy(
+            root, "full_fleet", agents, "egpu-a", ROLLOUT_GENERATION_RUN
+        )
+        self.assertEqual((targets, selectors, phase), (agents, {}, "full_fleet"))
+
+
 def test_rollback_uses_only_recorded_previous_selectors(self):
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
@@ -248,6 +260,7 @@ def test_rollback_uses_only_recorded_previous_selectors(self):
                 "phase": "generic_canary",
                 "targets": ["generic-a"],
                 "acceptance_status": "fail",
+                "accepted_generation_run_id": ROLLOUT_GENERATION_RUN,
                 "rollback_recommended": True,
                 "previous_selector_by_node": previous,
             },
@@ -257,6 +270,7 @@ def test_rollback_uses_only_recorded_previous_selectors(self):
             "rollback_last_phase",
             ["generic-a", "generic-b", "egpu-a"],
             "egpu-a",
+            ROLLOUT_GENERATION_RUN,
         )
         self.assertEqual(targets, ["generic-a"])
         self.assertEqual(selectors, previous)
@@ -274,6 +288,7 @@ def test_rollback_rejects_failed_phase_without_recommendation(self):
                 "phase": "generic_canary",
                 "targets": ["generic-a"],
                 "acceptance_status": "fail",
+                "accepted_generation_run_id": ROLLOUT_GENERATION_RUN,
                 "rollback_recommended": False,
                 "previous_selector_by_node": previous,
             },
@@ -284,6 +299,7 @@ def test_rollback_rejects_failed_phase_without_recommendation(self):
                 "rollback_last_phase",
                 ["generic-a", "generic-b", "egpu-a"],
                 "egpu-a",
+                ROLLOUT_GENERATION_RUN,
             )
         self.assertEqual(context.exception.reason, "known_rollback_unavailable")
 
@@ -427,6 +443,62 @@ def test_generation_gate_uses_artifact_reference_not_stage_date_equality(self):
     self.assertNotIn("homecluster_common_kernel_gate_candidate_selector", gate_playbook)
 
 
+class RolloutGenerationScopedPolicyTests(unittest.TestCase):
+    def write_record(self, root: Path, phase: str, run_id: str, status: str) -> None:
+        directory = root / "rollout-phases"
+        directory.mkdir(exist_ok=True)
+        (directory / f"{phase}.json").write_text(
+            json.dumps(
+                {
+                    "phase": phase,
+                    "accepted_generation_run_id": run_id,
+                    "acceptance_status": status,
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    def test_previous_generation_full_fleet_does_not_block_new_rollout(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.write_record(root, "full_fleet", PREVIOUS_GENERATION_RUN, "pass")
+            targets, previous, phase = legacy.ROLLOUT_MODULE.target_policy(
+                root, "full_fleet", ["generic-a", "egpu-a"], "egpu-a", ROLLOUT_GENERATION_RUN
+            )
+            self.assertEqual((targets, previous, phase), (["generic-a", "egpu-a"], {}, "full_fleet"))
+
+    def test_current_generation_full_fleet_remains_idempotent(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.write_record(root, "full_fleet", ROLLOUT_GENERATION_RUN, "pass")
+            with self.assertRaises(legacy.ROLLOUT_MODULE.RolloutError) as caught:
+                legacy.ROLLOUT_MODULE.target_policy(
+                    root, "full_fleet", ["generic-a", "egpu-a"], "egpu-a", ROLLOUT_GENERATION_RUN
+                )
+            self.assertEqual(caught.exception.reason, "full_fleet_already_accepted")
+
+    def test_previous_generation_canary_cannot_satisfy_current_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.write_record(root, "generic_canary", PREVIOUS_GENERATION_RUN, "pass")
+            with self.assertRaises(legacy.ROLLOUT_MODULE.RolloutError) as caught:
+                legacy.ROLLOUT_MODULE.target_policy(
+                    root, "egpu_canary", ["generic-a", "egpu-a"], "egpu-a", ROLLOUT_GENERATION_RUN
+                )
+            self.assertEqual(caught.exception.reason, "generic_canary_gate_missing")
+
+    def test_previous_generation_failure_cannot_authorize_rollback(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.write_record(root, "full_fleet", PREVIOUS_GENERATION_RUN, "fail")
+            with self.assertRaises(legacy.ROLLOUT_MODULE.RolloutError) as caught:
+                legacy.ROLLOUT_MODULE.target_policy(
+                    root, "rollback_last_phase", ["generic-a", "egpu-a"], "egpu-a", ROLLOUT_GENERATION_RUN
+                )
+            self.assertEqual(caught.exception.reason, "known_rollback_unavailable")
+
+
+legacy.PolicyTests.test_full_fleet_targets_every_agent_without_canary_prerequisites = test_full_fleet_targets_every_agent_without_canary_prerequisites
 legacy.PolicyTests.test_rollback_uses_only_recorded_previous_selectors = test_rollback_uses_only_recorded_previous_selectors
 legacy.PolicyTests.test_rollback_rejects_failed_phase_without_recommendation = test_rollback_rejects_failed_phase_without_recommendation
 legacy.PrecheckPolicyTests.test_stage_date_alignment_accepts_match = test_build_and_pxe_release_dates_are_independent

@@ -375,6 +375,17 @@ def phase_record(root: Path, phase: str) -> dict[str, Any]:
         return {}
 
 
+def phase_record_for_generation(
+    root: Path, phase: str, generation_run_id: str
+) -> dict[str, Any]:
+    if SAFE_RUN_ID.fullmatch(generation_run_id) is None:
+        raise RolloutError("accepted_generation_run_id_invalid", "unknown")
+    record = phase_record(root, phase)
+    if record.get("accepted_generation_run_id") != generation_run_id:
+        return {}
+    return record
+
+
 def inventory_json(root: Path, inventory: Path) -> dict[str, Any]:
     completed = run(["ansible-inventory", "-i", inventory, "--list"], cwd=root, timeout=180)
     if completed.returncode != 0:
@@ -413,11 +424,12 @@ def target_policy(
     phase: str,
     agents: Sequence[str],
     egpu_target: str,
+    generation_run_id: str,
 ) -> tuple[list[str], dict[str, Any], str]:
-    generic = phase_record(root, "generic_canary")
-    egpu = phase_record(root, "egpu_canary")
-    fleet = phase_record(root, "fleet_rollout")
-    full_fleet = phase_record(root, "full_fleet")
+    generic = phase_record_for_generation(root, "generic_canary", generation_run_id)
+    egpu = phase_record_for_generation(root, "egpu_canary", generation_run_id)
+    fleet = phase_record_for_generation(root, "fleet_rollout", generation_run_id)
+    full_fleet = phase_record_for_generation(root, "full_fleet", generation_run_id)
     if phase == "full_fleet":
         if full_fleet.get("acceptance_status") == "pass":
             raise RolloutError("full_fleet_already_accepted")
@@ -450,7 +462,7 @@ def target_policy(
 
     failed: dict[str, Any] = {}
     for candidate in reversed(RUNTIME_PHASES):
-        value = phase_record(root, candidate)
+        value = phase_record_for_generation(root, candidate, generation_run_id)
         if value.get("acceptance_status") == "fail":
             failed = value
             break
@@ -748,6 +760,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 args.phase,
                 agents,
                 egpu_target,
+                str(accepted["generation_run_id"]),
             )
             if args.phase in RUNTIME_PHASES:
                 ensure_cluster_healthy(runbook)
@@ -988,7 +1001,13 @@ def run(
     return completed
 
 
-def target_policy(root: Path, phase: str, agents: Sequence[str], egpu_target: str) -> tuple[list[str], dict[str, Any], str]:
+def target_policy(
+    root: Path,
+    phase: str,
+    agents: Sequence[str],
+    egpu_target: str,
+    generation_run_id: str,
+) -> tuple[list[str], dict[str, Any], str]:
     global _CURRENT_ACTION, _LAST_FRESH_BOOT_STATUS, _LAST_KERNEL_ACCEPTANCE
     global _LAST_SELECTOR_CHANGED, _LAST_ROLLOUT_CONTEXT, _PREFLIGHT_ACCEPTANCE
     _CURRENT_ACTION = phase
@@ -999,11 +1018,11 @@ def target_policy(root: Path, phase: str, agents: Sequence[str], egpu_target: st
     _PREFLIGHT_ACCEPTANCE = None
 
     if phase != "rollback_last_phase":
-        return _original_target_policy(root, phase, agents, egpu_target)
+        return _original_target_policy(root, phase, agents, egpu_target, generation_run_id)
 
     failed: dict[str, Any] = {}
     for candidate in reversed(RUNTIME_PHASES):
-        value = phase_record(root, candidate)
+        value = phase_record_for_generation(root, candidate, generation_run_id)
         if value.get("acceptance_status") == "fail" and value.get("rollback_recommended") is True:
             failed = value
             break
