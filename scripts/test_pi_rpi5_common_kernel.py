@@ -9,6 +9,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 HERE = Path(__file__).resolve().parent
 LEGACY_TEST = HERE / "pi_rpi5_common_kernel_test_legacy.py"
@@ -186,6 +187,7 @@ class FullFleetAcceptanceTests(unittest.TestCase):
             root = Path(temporary) / "infra"
             runbook = Path(temporary) / "runbook"
             (runbook / "scripts").mkdir(parents=True)
+            (runbook / "scripts/pi-k3s-status").write_text("fixture\n", encoding="utf-8")
             (runbook / "scripts/pi-rpi5-egpu-llm-status").write_text("fixture\n", encoding="utf-8")
             module.run = fake_run
             try:
@@ -211,6 +213,111 @@ class FullFleetAcceptanceTests(unittest.TestCase):
             llm_environment["HOMECLUSTER_RPI5_03_EXPECTED_KERNEL_RELEASE"],
             "6.18.36-v8-homecluster+",
         )
+
+    def test_full_fleet_waits_for_cluster_and_llm_to_settle(self):
+        module = legacy.ROLLOUT_MODULE
+        original_run = module.run
+        status_calls = 0
+        llm_calls = 0
+
+        def fake_run(command, *, cwd, timeout, env=None):
+            nonlocal status_calls, llm_calls
+            values = [str(item) for item in command]
+            if values[0] == "ansible-playbook":
+                return subprocess.CompletedProcess(values, 0, "", "")
+            if any(value.endswith("pi-k3s-status") for value in values):
+                status_calls += 1
+                status = "converging" if status_calls == 1 else "healthy"
+                return subprocess.CompletedProcess(values, 0 if status == "healthy" else 1, json.dumps({"status": status}), "")
+            llm_calls += 1
+            llm_status = "unhealthy" if llm_calls == 1 else "healthy"
+            return subprocess.CompletedProcess(
+                values, 0,
+                f"llm_status={llm_status}\nllm_failed_check_ids=none\nllm_unknown_check_ids=none\n", "",
+            )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "infra"
+            runbook = Path(temporary) / "runbook"
+            (runbook / "scripts").mkdir(parents=True)
+            (runbook / "scripts/pi-k3s-status").write_text("fixture\n", encoding="utf-8")
+            (runbook / "scripts/pi-rpi5-egpu-llm-status").write_text("fixture\n", encoding="utf-8")
+            module.run = fake_run
+            try:
+                with patch.object(module.time, "sleep", return_value=None) as sleep:
+                    accepted, diagnostics = module.run_phase_acceptance(
+                        root, runbook, Path(temporary) / "inventory.yml", "full_fleet",
+                        ["generic-a", "generic-b", "egpu-a"],
+                        ["generic-a", "generic-b", "egpu-a"], "6.18.36-v8-homecluster+",
+                    )
+            finally:
+                module.run = original_run
+        self.assertTrue(accepted)
+        self.assertEqual(status_calls, 3)
+        self.assertEqual(llm_calls, 2)
+        self.assertEqual(sleep.call_count, 2)
+        self.assertIn("postboot_acceptance_attempts=3", diagnostics)
+        self.assertIn("llm_acceptance=pass", diagnostics)
+
+    def test_full_fleet_stops_after_bounded_cluster_convergence_wait(self):
+        module = legacy.ROLLOUT_MODULE
+        original_run = module.run
+        status_calls = 0
+
+        def fake_run(command, *, cwd, timeout, env=None):
+            nonlocal status_calls
+            values = [str(item) for item in command]
+            if values[0] == "ansible-playbook":
+                return subprocess.CompletedProcess(values, 0, "", "")
+            status_calls += 1
+            return subprocess.CompletedProcess(values, 1, json.dumps({"status": "converging", "issues": ["running_pods_not_ready"]}), "")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "infra"
+            runbook = Path(temporary) / "runbook"
+            (runbook / "scripts").mkdir(parents=True)
+            (runbook / "scripts/pi-k3s-status").write_text("fixture\n", encoding="utf-8")
+            (runbook / "scripts/pi-rpi5-egpu-llm-status").write_text("fixture\n", encoding="utf-8")
+            module.run = fake_run
+            try:
+                with patch.object(module.time, "sleep", return_value=None) as sleep:
+                    accepted, diagnostics = module.run_phase_acceptance(
+                        root, runbook, Path(temporary) / "inventory.yml", "full_fleet",
+                        ["generic-a", "generic-b", "egpu-a"],
+                        ["generic-a", "generic-b", "egpu-a"], "6.18.36-v8-homecluster+",
+                    )
+            finally:
+                module.run = original_run
+        self.assertFalse(accepted)
+        self.assertEqual(status_calls, 20)
+        self.assertEqual(sleep.call_count, 19)
+        self.assertIn("k3s_final_acceptance=fail", diagnostics)
+        self.assertIn("k3s_final_warning_issues=running_pods_not_ready", diagnostics)
+
+    def test_same_selector_failed_reacceptance_does_not_power_cycle(self):
+        module = legacy.ROLLOUT_MODULE
+        original_action = module._CURRENT_ACTION
+        original_selector_changed = module._LAST_SELECTOR_CHANGED
+        original_context = module._LAST_ROLLOUT_CONTEXT
+        module._CURRENT_ACTION = "full_fleet"
+        module._LAST_SELECTOR_CHANGED = False
+        module._LAST_ROLLOUT_CONTEXT = {
+            "root": Path("/tmp/infra-fixture"),
+            "inventory": Path("/tmp/inventory-fixture.yml"),
+            "targets": ["generic-a", "egpu-a"],
+            "exact_release": "6.18.36-v8-homecluster+",
+        }
+        try:
+            with patch.object(module, "run_phase_acceptance", return_value=(False, ["llm_acceptance=fail"])):
+                with patch.object(module, "_original_run_fresh_boot", side_effect=AssertionError("unexpected reboot")):
+                    with self.assertRaises(module.RolloutError) as raised:
+                        module.run_fresh_boot(Path("/tmp/runbook-fixture"))
+            self.assertEqual(raised.exception.reason, "same_selector_acceptance_failed")
+            self.assertEqual(raised.exception.status, "blocked")
+        finally:
+            module._CURRENT_ACTION = original_action
+            module._LAST_SELECTOR_CHANGED = original_selector_changed
+            module._LAST_ROLLOUT_CONTEXT = original_context
 
     def test_full_fleet_main_path_has_one_fresh_boot_call(self):
         source = legacy.ROLLOUT.read_text(encoding="utf-8")
