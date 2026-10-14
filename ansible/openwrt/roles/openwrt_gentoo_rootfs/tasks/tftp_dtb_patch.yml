@@ -13,6 +13,9 @@
             sys.exit(0)
         data = path.read_bytes()
         needle = b"cgroup_disable=memory"
+        if needle in data and path.is_symlink():
+            print("refuse to patch a shared release DTB through a host symlink", file=sys.stderr)
+            sys.exit(1)
         new_data = data.replace(needle, b" " * len(needle))
         if new_data != data:
             path.write_bytes(new_data)

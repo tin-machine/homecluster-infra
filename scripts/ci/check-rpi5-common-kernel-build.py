@@ -101,6 +101,7 @@ def main() -> int:
     rollout = read(ROOT / "scripts/pi-rpi5-common-kernel-rollout")
     publish_tasks = read(ROOT / "ansible/openwrt/playbooks/tasks/pxe_release_bundle_build_and_manifest.yml")
     rootfs_tasks = read(ROOT / "ansible/openwrt/roles/openwrt_gentoo_rootfs/tasks/portage_chroot.yml")
+    host_dtb_patch = read(ROOT / "ansible/openwrt/roles/openwrt_gentoo_rootfs/tasks/tftp_dtb_patch.yml")
 
     require(defaults, "rpi5_common_kernel_build_enabled: false", "disabled default")
     require(defaults, "rpi5_common_kernel_build_apply: false", "apply disabled default")
@@ -168,6 +169,13 @@ def main() -> int:
     require(tasks, '"${expected_release}"*', "NVIDIA module kernel release match")
     require(defaults, "  - modinfo", "modinfo required command")
     require(tasks, "rpi5_common_kernel_build_manifest_metadata", "manifest metadata fact")
+    normalize_index = tasks.index("DTB の bootargs を artifact 化前に正規化")
+    provenance_index = tasks.index("common kernel provenance hash を取得")
+    if not normalize_index < provenance_index:
+        raise AssertionError("DTB normalization must precede immutable artifact hashing")
+    require(tasks, "files/normalize_dtb.py", "build DTB normalization script")
+    require(host_dtb_patch, "path.is_symlink()", "shared release DTB mutation guard")
+    require(host_dtb_patch, "refuse to patch a shared release DTB", "shared release DTB failure reason")
     require(tasks, "page_size: 4096", "4K metadata")
     require(tasks, "va_bits: 48", "48-bit metadata")
 
