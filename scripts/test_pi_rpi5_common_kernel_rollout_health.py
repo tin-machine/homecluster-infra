@@ -190,7 +190,7 @@ class RolloutHealthTests(unittest.TestCase):
         self.assertTrue(record["selector_changed"])
         self.assertTrue(record["rollback_recommended"])
 
-    def test_phase_acceptance_keeps_cluster_health_as_warning(self):
+    def test_phase_acceptance_waits_then_rejects_blocked_cluster(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             runbook = root / "runbook"
@@ -213,19 +213,22 @@ class RolloutHealthTests(unittest.TestCase):
                 )
 
             with mock.patch.object(ROLLOUT_MODULE, "run", side_effect=fake_run):
-                accepted, diagnostics = ROLLOUT_MODULE.run_phase_acceptance(
-                    root,
-                    runbook,
-                    inventory,
-                    "generic_canary",
-                    ["generic-a"],
-                    ["generic-a", "egpu-a"],
-                    "6.18.36-v8-homecluster+",
-                )
-            self.assertTrue(accepted)
+                with mock.patch.object(ROLLOUT_MODULE.time, "sleep", return_value=None):
+                    accepted, diagnostics = ROLLOUT_MODULE.run_phase_acceptance(
+                        root,
+                        runbook,
+                        inventory,
+                        "generic_canary",
+                        ["generic-a"],
+                        ["generic-a", "egpu-a"],
+                        "6.18.36-v8-homecluster+",
+                    )
+            self.assertFalse(accepted)
             self.assertIn("phase_runtime_acceptance=pass", diagnostics)
             self.assertIn("k3s_final_observation=blocked", diagnostics)
             self.assertIn("k3s_final_warning_issues=non_running_pods", diagnostics)
+            self.assertIn("k3s_final_acceptance=fail", diagnostics)
+            self.assertEqual(len(calls), 21)
 
     def test_ansible_failure_diagnostics_parse_modern_error(self):
         output = """
