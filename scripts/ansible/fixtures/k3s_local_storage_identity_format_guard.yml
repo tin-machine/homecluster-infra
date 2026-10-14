@@ -1,0 +1,5 @@
+---
+- hosts: localhost
+  gather_facts: false
+  tasks:
+    - ansible.builtin.import_tasks: ../../../ansible/arm64/roles/k3s_local_storage/tasks/main.yml
