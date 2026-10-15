@@ -26,6 +26,21 @@
     - pxe_release_bundle
     - pxe_release_bundle_build
 
+- name: PXE release の Pi4/Pi5 DTB を manifest 前に正規化
+  ansible.builtin.script:
+    cmd: >-
+      {{ playbook_dir }}/../../arm64/roles/rpi5_common_kernel_build/files/normalize_dtb.py
+      /srv/gentoo/tftp-root/dates/{{ item.0.release }}/{{ item.1 }}
+  loop: "{{ pxe_release_bundle_build_items | product(['bcm2711-rpi-4-b.dtb', 'bcm2712-rpi-5-b.dtb']) | list }}"
+  loop_control:
+    label: "{{ item.0.release }}/{{ item.1 }}"
+  register: pxe_release_bundle_dtb_normalization
+  changed_when: "'status=patched' in pxe_release_bundle_dtb_normalization.stdout"
+  when: not (pxe_release_bundle_skip_build | default(false) | bool)
+  tags:
+    - pxe_release_bundle
+    - pxe_release_bundle_build
+
 - name: PXE shared lower rootfsからhost固有hostnameを削除
   ansible.builtin.file:
     path: "/srv/gentoo/{{ item.release }}/nfs/etc/hostname"
@@ -272,10 +287,67 @@
     - pxe_release_bundle
     - pxe_release_bundle_build
 
+- name: rpi5 eGPU generation artifact archive を OpenWrt へ再開可能に転送
+  ansible.builtin.command:
+    argv:
+      - rsync
+      - --archive
+      - --partial
+      - --append-verify
+      - --timeout=180
+      - --rsync-path=/usr/bin/rsync
+      - --rsh=ssh -o BatchMode=yes -o ControlMaster=no -o ControlPersist=0 -o ServerAliveInterval=30 -o ServerAliveCountMax=3
+      - "{{ openwrt_rpi5_egpu_generation_artifact_controller_dir }}/{{ pxe_release_bundle_rpi5_items[0].release }}/{{ openwrt_rpi5_egpu_generation_artifact_archive_path | basename }}"
+      - "{{ hostvars[inventory_hostname].ansible_user | default('root', true) }}@{{ hostvars[inventory_hostname].ansible_host }}:{{ openwrt_rpi5_egpu_generation_artifact_openwrt_dir }}/{{ pxe_release_bundle_rpi5_items[0].release }}/{{ openwrt_rpi5_egpu_generation_artifact_archive_path | basename }}"
+  delegate_to: localhost
+  connection: local
+  vars:
+    ansible_connection: local
+    ansible_remote_tmp: /tmp/.ansible-tmp
+  become: false
+  register: pxe_rpi5_egpu_archive_transfer
+  until: pxe_rpi5_egpu_archive_transfer.rc == 0
+  retries: 3
+  delay: 30
+  when:
+    - openwrt_rpi5_egpu_generation_enabled | default(false) | bool
+    - openwrt_rpi5_egpu_generation_artifact_bundle_enabled | default(false) | bool
+  tags:
+    - pxe_release_bundle
+    - pxe_release_bundle_build
+
+- name: rpi5 eGPU generation artifact archive の OpenWrt 側 checksum を取得
+  ansible.builtin.stat:
+    path: "{{ openwrt_rpi5_egpu_generation_artifact_openwrt_dir }}/{{ pxe_release_bundle_rpi5_items[0].release }}/{{ openwrt_rpi5_egpu_generation_artifact_archive_path | basename }}"
+    checksum_algorithm: sha256
+    get_attributes: false
+    get_mime: false
+  register: pxe_rpi5_egpu_archive_remote_stat
+  when:
+    - openwrt_rpi5_egpu_generation_enabled | default(false) | bool
+    - openwrt_rpi5_egpu_generation_artifact_bundle_enabled | default(false) | bool
+  tags:
+    - pxe_release_bundle
+    - pxe_release_bundle_build
+
+- name: rpi5 eGPU generation artifact archive の OpenWrt 側 checksum を検証
+  ansible.builtin.assert:
+    that:
+      - pxe_rpi5_egpu_archive_remote_stat.stat.isreg | default(false)
+      - pxe_rpi5_egpu_archive_remote_stat.stat.checksum | default('') == lookup('ansible.builtin.file', openwrt_rpi5_egpu_generation_artifact_controller_dir ~ '/' ~ pxe_release_bundle_rpi5_items[0].release ~ '/' ~ (openwrt_rpi5_egpu_generation_artifact_archive_sha256_path | basename)).split()[0]
+    fail_msg: "OpenWrt に転送した rpi5 eGPU archive の SHA-256 が controller の manifest と一致しません"
+  when:
+    - openwrt_rpi5_egpu_generation_enabled | default(false) | bool
+    - openwrt_rpi5_egpu_generation_artifact_bundle_enabled | default(false) | bool
+  tags:
+    - pxe_release_bundle
+    - pxe_release_bundle_build
+
 - name: rpi5 eGPU generation artifact archive を OpenWrt へ展開
   ansible.builtin.unarchive:
-    src: "{{ openwrt_rpi5_egpu_generation_artifact_controller_dir }}/{{ pxe_release_bundle_rpi5_items[0].release }}/{{ openwrt_rpi5_egpu_generation_artifact_archive_path | basename }}"
+    src: "{{ openwrt_rpi5_egpu_generation_artifact_openwrt_dir }}/{{ pxe_release_bundle_rpi5_items[0].release }}/{{ openwrt_rpi5_egpu_generation_artifact_archive_path | basename }}"
     dest: "{{ openwrt_rpi5_egpu_generation_artifact_openwrt_dir }}/{{ pxe_release_bundle_rpi5_items[0].release }}"
+    remote_src: true
     owner: root
     group: root
     mode: '0755'
@@ -293,6 +365,17 @@
       - -lc
       - "cd {{ openwrt_rpi5_egpu_generation_artifact_openwrt_dir }}/{{ pxe_release_bundle_rpi5_items[0].release }}/payload && sha256sum -c ../manifest.sha256"
   changed_when: false
+  when:
+    - openwrt_rpi5_egpu_generation_enabled | default(false) | bool
+    - openwrt_rpi5_egpu_generation_artifact_bundle_enabled | default(false) | bool
+  tags:
+    - pxe_release_bundle
+    - pxe_release_bundle_build
+
+- name: 検証済み rpi5 eGPU generation archive の OpenWrt 側一時ファイルを削除
+  ansible.builtin.file:
+    path: "{{ openwrt_rpi5_egpu_generation_artifact_openwrt_dir }}/{{ pxe_release_bundle_rpi5_items[0].release }}/{{ openwrt_rpi5_egpu_generation_artifact_archive_path | basename }}"
+    state: absent
   when:
     - openwrt_rpi5_egpu_generation_enabled | default(false) | bool
     - openwrt_rpi5_egpu_generation_artifact_bundle_enabled | default(false) | bool

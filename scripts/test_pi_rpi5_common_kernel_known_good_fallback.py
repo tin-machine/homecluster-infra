@@ -73,7 +73,7 @@ class SelectorConvergenceTests(unittest.TestCase):
         acceptance.assert_called_once()
         self.assertTrue(acceptance.call_args.kwargs["preflight"])
 
-    def test_aligned_but_runtime_not_accepted_still_fresh_boots(self) -> None:
+    def test_aligned_but_runtime_not_accepted_stops_without_fresh_boot(self) -> None:
         module._LAST_SELECTOR_CHANGED = False
         module._LAST_ROLLOUT_CONTEXT = {
             "root": Path("/fixture/infra"),
@@ -84,12 +84,14 @@ class SelectorConvergenceTests(unittest.TestCase):
         with patch.object(module, "run_phase_acceptance", return_value=(False, ["phase_runtime_acceptance=fail"])), patch.object(
             module,
             "_original_run_fresh_boot",
-            return_value=("20260913T000000Z", "pass"),
+            side_effect=AssertionError("fresh boot must not run"),
         ) as fresh_boot:
-            run_id, status = module.run_fresh_boot(Path("/fixture/runbook"))
+            with self.assertRaises(module.RolloutError) as raised:
+                module.run_fresh_boot(Path("/fixture/runbook"))
 
-        self.assertEqual((run_id, status), ("20260913T000000Z", "pass"))
-        fresh_boot.assert_called_once()
+        self.assertEqual(raised.exception.reason, "same_selector_acceptance_failed")
+        self.assertEqual(raised.exception.status, "blocked")
+        fresh_boot.assert_not_called()
 
     def test_no_reboot_acceptance_is_recorded_explicitly(self) -> None:
         selector = {"tftp_release": "20260828-rpi5", "rootfs_release": "20260828-rpi5"}
