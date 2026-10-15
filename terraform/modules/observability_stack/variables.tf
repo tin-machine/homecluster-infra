@@ -38,6 +38,12 @@ variable "values_site_dir" {
   description = "Absolute path to generated site-local values directory"
 }
 
+variable "o4_prod_container_logs_enabled" {
+  type        = bool
+  description = "Opt in to the staging Pod log exporter for the production Loki push gateway"
+  default     = false
+}
+
 variable "grafana_dashboard_files" {
   type        = list(string)
   description = "Dashboard file paths relative to repo root"

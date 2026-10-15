@@ -1,5 +1,8 @@
 mimir:
   structuredConfig:
+    limits:
+      max_global_series_per_user: 250000
+      compactor_blocks_retention_period: 7d
     blocks_storage:
       s3:
         bucket_name: stg-mimir-blocks

@@ -128,15 +128,16 @@ resource "helm_release" "github_actions_runner" {
     }
   })]
 
-  set_sensitive {
-    name  = "githubConfigUrl"
-    value = var.github_actions_runner_config_url
-  }
-
-  set_sensitive {
-    name  = "githubConfigSecret"
-    value = var.github_actions_runner_secret_name
-  }
+  set_sensitive = [
+    {
+      name  = "githubConfigUrl"
+      value = var.github_actions_runner_config_url
+    },
+    {
+      name  = "githubConfigSecret"
+      value = var.github_actions_runner_secret_name
+    }
+  ]
 
   cleanup_on_fail = true
   timeout         = 600

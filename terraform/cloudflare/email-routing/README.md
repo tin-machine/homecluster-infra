@@ -12,6 +12,11 @@ Phase 8B の初期 authority は次に限定します。
 - `cloudflare_email_routing_rule`: explicit literal/to rule
 - `cloudflare_email_routing_catch_all`: catch-all rule
 
+この root は zone apex を有効化するため、DNS resource の `name` は省略します。
+`name = var.zone_name` を渡すと API はサブドメイン指定として扱い、apex では HTTP 422 を返す場合があります。
+provider 5.26.0 の `name` は optional です。`zone_name` 入力は対象識別と適用後の DNS 確認に保持します。
+詳細は [upstream issue #5890](https://github.com/cloudflare/terraform-provider-cloudflare/issues/5890) を参照してください。
+
 `cloudflare_email_routing_address` は管理しません。destination address の登録、削除、verification は external operator prerequisite です。
 
 `cloudflare_email_routing_settings` も初期 managed resource にはしません。provider 5.26.0 は `support_subaddress` schema を追加しましたが、resource implementation は update を実装しておらず、Create/Delete は deprecated enable/disable API を使用します。Email Routing の enablement authority は正式な DNS endpoint を使う `cloudflare_email_routing_dns` に一本化します。settings/status/support_subaddress は当面 read-only inventory で観測します。
