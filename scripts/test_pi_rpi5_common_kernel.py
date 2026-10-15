@@ -72,7 +72,7 @@ class RuntimePrecheckDiagnosticsTests(unittest.TestCase):
 
     def test_openwrt_capacity_failure_reports_only_fixed_numbers(self):
         result = self.run_failure(
-            'fatal: [home-router]: FAILED! => {"stderr": '
+            'fatal: [storage-host]: FAILED! => {"stderr": '
             '"OpenWrt /srv capacity gate failed: available=100KiB required=120KiB", '
             '"private": "do-not-copy"}'
         )
@@ -85,7 +85,7 @@ class RuntimePrecheckDiagnosticsTests(unittest.TestCase):
         self.assertNotIn("do-not-copy", json.dumps(result))
 
     def test_unknown_runtime_failure_keeps_generic_reason_without_output(self):
-        result = self.run_failure("fatal: [home-router]: FAILED! secret=do-not-copy")
+        result = self.run_failure("fatal: [storage-host]: FAILED! secret=do-not-copy")
         self.assertEqual(result["reason"], "common_kernel_runtime_playbook_failed")
         self.assertEqual(result["diagnostics"], [])
         self.assertNotIn("do-not-copy", json.dumps(result))
