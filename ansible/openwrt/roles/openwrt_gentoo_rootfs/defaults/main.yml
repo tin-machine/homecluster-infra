@@ -161,6 +161,8 @@ openwrt_gentoo_ansible_pull_enabled: true
 openwrt_gentoo_ansible_pull_emerge_args: "--oneshot --quiet-build=y"
 openwrt_gentoo_ansible_pull_marker: "{{ openwrt_gentoo_rootfs_dir }}/.ansible_pull_installed"
 openwrt_gentoo_ansible_pull_roles: []
+# Generation build switch. Each client must also opt in independently.
+openwrt_gentoo_host_tailscale_enabled: false
 openwrt_gentoo_ansible_pull_role_dependencies: {}
 openwrt_gentoo_ansible_pull_env_group: env_prd
 openwrt_gentoo_ansible_pull_netrc_entries: []

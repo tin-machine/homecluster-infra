@@ -1,0 +1,4 @@
+---
+- name: Configure the opted-in persistent host daemon
+  ansible.builtin.include_tasks: configure.yml
+  when: host_tailscale_enabled | bool
