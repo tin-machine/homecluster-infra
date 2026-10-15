@@ -316,8 +316,8 @@ class FullFleetAcceptanceTests(unittest.TestCase):
             finally:
                 module.run = original_run
         self.assertFalse(accepted)
-        self.assertEqual(status_calls, 20)
-        self.assertEqual(sleep.call_count, 19)
+        self.assertEqual(status_calls, 60)
+        self.assertEqual(sleep.call_count, 59)
         self.assertIn("k3s_final_acceptance=fail", diagnostics)
         self.assertIn("k3s_final_warning_issues=running_pods_not_ready", diagnostics)
 
