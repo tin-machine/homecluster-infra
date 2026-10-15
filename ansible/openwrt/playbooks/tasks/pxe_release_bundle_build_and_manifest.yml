@@ -18,6 +18,30 @@
     openwrt_gentoo_rootfs_target_stages: []
     openwrt_gentoo_rootfs_include_base_candidate: true
     openwrt_gentoo_rootfs_candidate_fallback_to_base: true
+    # A paired build owns only its current release, not the host's historical
+    # initramfs catalog. The common-kernel/NVIDIA rebuild happens below after
+    # the exact module tree has been installed into the Pi5 release.
+    openwrt_gentoo_initramfs_builds: >-
+      {{
+        [{
+          'name': pxe_release_bundle_build_item.name ~ '-v8',
+          'rootfs_release': pxe_release_bundle_build_item.release,
+          'tftp_release': pxe_release_bundle_build_item.release,
+          'output_path': '/boot/initramfs-pxe-v8.img',
+          'tftp_path': 'initramfs-pxe-v8.img',
+          'kernel_version_glob': '*-v8+',
+          'kernel_version_exclude_glob': '*-rt+'
+        }]
+        + ([{
+          'name': 'rpi5-v8-16k',
+          'rootfs_release': pxe_release_bundle_build_item.release,
+          'tftp_release': pxe_release_bundle_build_item.release,
+          'output_path': '/boot/initramfs-pxe-v8-16k.img',
+          'tftp_path': 'initramfs-pxe-v8-16k.img',
+          'kernel_version_glob': '*-v8-16k+',
+          'kernel_version_exclude_glob': '*-rt+'
+        }] if pxe_release_bundle_build_item.name == 'rpi5' else [])
+      }}
     openwrt_pxe_hosts: []
     openwrt_pxe_hosts_effective_override: []
     openwrt_pxe_boots_effective_override: []

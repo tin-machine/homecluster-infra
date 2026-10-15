@@ -10,6 +10,8 @@ on:
       - 'ansible/openwrt/playbooks/pxe-release-bundle-staging.yml'
       - 'ansible/openwrt/playbooks/pxe-release-bundle-build.yml'
       - 'ansible/openwrt/playbooks/tasks/pxe_release_bundle_immutable_preflight.yml'
+      - 'ansible/openwrt/playbooks/tasks/pxe_release_bundle_build_and_manifest.yml'
+      - 'scripts/ansible/test_pxe_release_bundle_initramfs_scope.py'
       - 'ansible/openwrt/playbooks/tasks/rpi5_common_kernel_live_selectors.yml'
       - 'ansible/openwrt/playbooks/tasks/rpi5_common_kernel_live_selectors.yml'
       - 'ansible/openwrt/playbooks/rpi5-common-kernel-*.yml'
@@ -36,6 +38,8 @@ on:
       - 'ansible/openwrt/playbooks/pxe-release-bundle-staging.yml'
       - 'ansible/openwrt/playbooks/pxe-release-bundle-build.yml'
       - 'ansible/openwrt/playbooks/tasks/pxe_release_bundle_immutable_preflight.yml'
+      - 'ansible/openwrt/playbooks/tasks/pxe_release_bundle_build_and_manifest.yml'
+      - 'scripts/ansible/test_pxe_release_bundle_initramfs_scope.py'
       - 'ansible/openwrt/playbooks/rpi5-common-kernel-*.yml'
       - 'ansible/openwrt/roles/openwrt_rpi5_egpu_runtime_repair/**'
       - 'scripts/pi-rpi5-common-kernel-*'
@@ -88,6 +92,9 @@ jobs:
           python3 -m unittest discover -s scripts -p 'test_pi_rpi5_common_kernel_inspect.py' -v
           python3 -m unittest discover -s scripts -p 'test_pi_rpi5_common_kernel_rollout_health.py' -v
           python3 -m unittest discover -s scripts -p 'test_pi_rpi5_common_kernel_rollout_selector_resolution.py' -v
+
+      - name: Check paired release initramfs isolation
+        run: python3 -B scripts/ansible/test_pxe_release_bundle_initramfs_scope.py
 
       - name: Check Pi5 common kernel source contract
         run: python3 scripts/ci/check-rpi5-common-kernel-build.py
