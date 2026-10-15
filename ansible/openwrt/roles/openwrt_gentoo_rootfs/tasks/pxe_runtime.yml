@@ -1,4 +1,25 @@
 ---
+- name: Reject host enrollment credentials before writing PXE variables
+  ansible.builtin.assert:
+    that:
+      - (openwrt_gentoo_ansible_pull_group_vars_effective | default(openwrt_gentoo_ansible_pull_group_vars | default({}))) | host_tailscale_boot_vars_safe
+      - (openwrt_gentoo_ansible_pull_client_vars_effective | default([])) | host_tailscale_boot_vars_safe
+    fail_msg: Host Tailscale enrollment credentials must stay on the management machine.
+  no_log: true
+  tags: [always]
+
+- name: Configure optional independent host Tailscale boot
+  ansible.builtin.include_tasks:
+    file: host_tailscale.yml
+    apply:
+      tags: [pxe, pxe_ansible_pull]
+  vars:
+    openwrt_gentoo_ansible_pull_rootfs_dirs: "{{ openwrt_gentoo_pxe_rootfs_dirs | default(openwrt_gentoo_timesync_rootfs_dirs | default([openwrt_gentoo_rootfs_dir])) }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_ansible_pull_enabled | bool
+  tags: [pxe, pxe_ansible_pull]
+
 - name: 従来の ansible-pull スクリプトを削除
   ansible.builtin.file:
     path: "{{ item }}/usr/local/sbin/pxe-ansible-pull.sh"

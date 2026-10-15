@@ -1,0 +1,8 @@
+---
+# Invoked independently after storage; not imported from the k3s boot play.
+- name: Configure explicitly opted-in host Tailscale daemons
+  hosts: all
+  gather_facts: false
+  become: true
+  roles:
+    - host_tailscale

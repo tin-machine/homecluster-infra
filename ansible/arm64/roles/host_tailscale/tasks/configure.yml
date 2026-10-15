@@ -1,0 +1,81 @@
+---
+- name: Require a known environment and persistent block device
+  ansible.builtin.assert:
+    that:
+      - stage | default('') in ['stg', 'prod']
+      - host_tailscale_hostname is match('^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$')
+      - host_tailscale_storage_device is match('^/dev/[A-Za-z0-9_./:+-]+$')
+      - not (k3s_local_storage_force_format | default(false) | bool)
+      - not (k3s_local_storage_ephemeral_agent_data | default(false) | bool)
+
+- name: Require Tailscale preinstalled in the lower rootfs
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - /usr/bin/tailscale
+    - /usr/sbin/tailscaled
+  register: host_tailscale_binaries
+
+- name: Refuse a boot-time Portage install
+  ansible.builtin.assert:
+    that:
+      - item.stat.isreg | default(false)
+      - item.stat.executable | default(false)
+    fail_msg: Build a new lower rootfs with net-vpn/tailscale before enabling this host.
+  loop: "{{ host_tailscale_binaries.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Install the state and enrollment guard
+  ansible.builtin.copy:
+    src: host-tailscale.py
+    dest: /usr/local/sbin/homecluster-host-tailscale
+    owner: root
+    group: root
+    mode: '0755'
+  register: host_tailscale_helper
+
+- name: Create the host configuration directory
+  ansible.builtin.file:
+    path: /etc/homecluster
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Install non-secret host configuration
+  ansible.builtin.copy:
+    dest: /etc/homecluster/host-tailscale.json
+    owner: root
+    group: root
+    mode: '0600'
+    content: "{{ {'hostname': host_tailscale_hostname, 'device': host_tailscale_storage_device} | to_nice_json }}\n"
+  register: host_tailscale_configuration
+
+- name: Load the kernel TUN driver
+  ansible.builtin.command: /usr/sbin/modprobe tun
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Validate the exact mount before creating any state directory
+  ansible.builtin.command: /usr/local/sbin/homecluster-host-tailscale prepare
+  register: host_tailscale_prepare
+  changed_when: "(host_tailscale_prepare.stdout | from_json).get('changed', false)"
+  when: not ansible_check_mode
+
+- name: Install the storage-bound daemon unit
+  ansible.builtin.copy:
+    src: tailscaled.service
+    dest: /etc/systemd/system/tailscaled.service
+    owner: root
+    group: root
+    mode: '0644'
+  register: host_tailscale_unit
+
+- name: Start the independently managed daemon
+  ansible.builtin.systemd_service:
+    name: tailscaled.service
+    daemon_reload: "{{ host_tailscale_unit.changed }}"
+    enabled: false
+    state: "{{ 'restarted' if (host_tailscale_unit.changed or host_tailscale_helper.changed or host_tailscale_configuration.changed) else 'started' }}"
+  when: not ansible_check_mode
