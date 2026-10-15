@@ -15,6 +15,16 @@
     fail_msg: "k3s_local_storage_device / mountpoint / filesystem_type / mount_options を定義してください"
   when: k3s_local_storage_enabled | bool
 
+- name: node password の保存先を毎回 format しないことを検証
+  ansible.builtin.assert:
+    that:
+      - >-
+        not ((k3s_local_storage_node_password_sync_enabled | bool)
+        and ((k3s_local_storage_force_format | bool) or (k3s_local_storage_ephemeral_agent_data | bool)))
+    fail_msg: "node password 同期が有効な状態では k3s data-dir の毎回 format を許可しません。identity を保持する設定に変更してください"
+  when: k3s_local_storage_enabled | bool
+  tags: [k3s_identity_format_guard]
+
 - name: ephemeral agent data-dir は agent 専用に限定
   ansible.builtin.assert:
     that:
