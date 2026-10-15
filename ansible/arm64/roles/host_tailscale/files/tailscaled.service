@@ -1,0 +1,24 @@
+[Unit]
+Description=Persistent host Tailscale daemon
+Wants=network-online.target
+After=network-online.target homecluster-storage.service var-lib-rancher-k3s.mount
+BindsTo=var-lib-rancher-k3s.mount
+ConditionPathIsMountPoint=/var/lib/rancher/k3s
+StartLimitIntervalSec=300
+StartLimitBurst=3
+
+[Service]
+Type=notify
+UMask=0077
+ExecStartPre=/usr/sbin/modprobe tun
+ExecStartPre=/usr/local/sbin/homecluster-host-tailscale prepare
+ExecStart=/usr/sbin/tailscaled --statedir=/var/lib/rancher/k3s/.homecluster-host-state/tailscale --state=/var/lib/rancher/k3s/.homecluster-host-state/tailscale/tailscaled.state --socket=/run/tailscale/tailscaled.sock
+ExecStopPost=/usr/sbin/tailscaled --cleanup
+RuntimeDirectory=tailscale
+RuntimeDirectoryMode=0700
+Restart=on-failure
+RestartSec=15
+TimeoutStartSec=60
+
+# The independent setup service starts this unit after storage, each boot.
+# Do not enable the vendor multi-user.target symlink before storage exists.

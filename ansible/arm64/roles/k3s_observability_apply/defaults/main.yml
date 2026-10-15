@@ -32,7 +32,8 @@ k3s_observability_apply_wait_timeout_secs: 900
 k3s_observability_apply_retry_secs: 5
 k3s_observability_apply_post_ready_settle_secs: 60
 k3s_observability_apply_metallb_crd_wait_timeout_secs: 300
-k3s_observability_apply_metallb_ready_wait_timeout_secs: 600
+# Cold boot image pulls can outlast the initial 10-minute speaker rollout window.
+k3s_observability_apply_metallb_ready_wait_timeout_secs: 2700
 k3s_observability_apply_cert_manager_ready_wait_timeout_secs: 600
 k3s_observability_apply_expected_ready_nodes: 1
 k3s_observability_apply_pod_settle_enabled: false

@@ -17,10 +17,11 @@ OPENWRT_GROUP = "openwrt"
 
 
 class PrecheckError(RuntimeError):
-    def __init__(self, reason: str, status: str = "blocked") -> None:
+    def __init__(self, reason: str, status: str = "blocked", diagnostics: Sequence[str] = ()) -> None:
         super().__init__(reason)
         self.reason = reason
         self.status = status
+        self.diagnostics = list(diagnostics)
 
 
 def run(command: Sequence[str | Path], *, cwd: Path, timeout: int = 900, env: Mapping[str, str] | None = None) -> subprocess.CompletedProcess[str]:
@@ -198,6 +199,21 @@ def runtime_checks(root: Path, inventory: Path) -> tuple[str, list[str]]:
         timeout=1200,
     )
     if completed.returncode != 0:
+        capacity = re.search(
+            r"OpenWrt /srv capacity gate failed: available=([0-9]+)KiB required=([0-9]+)KiB",
+            completed.stdout + completed.stderr,
+        )
+        if capacity is not None:
+            available, required = (int(value) for value in capacity.groups())
+            if 0 <= available < required <= (1 << 63) - 1:
+                raise PrecheckError(
+                    "openwrt_srv_capacity_insufficient",
+                    diagnostics=(
+                        f"openwrt_srv_available_kib={available}",
+                        f"openwrt_srv_required_kib={required}",
+                        f"openwrt_srv_shortfall_kib={required - available}",
+                    ),
+                )
         raise PrecheckError("common_kernel_runtime_playbook_failed")
     return "not_required_for_generation", ["runtime_playbook=pass", "k3s_gate=deferred_to_rollout"]
 
@@ -257,7 +273,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "reason": error.reason,
             "cluster_status": "unknown",
             "source_only": args.source_only,
-            "diagnostics": [],
+            "diagnostics": error.diagnostics,
         }
     if args.json:
         print(json.dumps(result, ensure_ascii=False, sort_keys=True, separators=(",", ":")))

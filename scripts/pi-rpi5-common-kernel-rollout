@@ -943,6 +943,10 @@ _CURRENT_ACTION = ""
 _LAST_FRESH_BOOT_STATUS = ""
 _LAST_KERNEL_ACCEPTANCE: bool | None = None
 _LAST_SELECTOR_CHANGED: bool | None = None
+POSTBOOT_ACCEPTANCE_DEFAULT_MAX_ATTEMPTS = 20
+POSTBOOT_ACCEPTANCE_POD_READINESS_MAX_ATTEMPTS = 60
+POSTBOOT_ACCEPTANCE_DEFAULT_TIMEOUT_SECONDS = 20 * 60
+POSTBOOT_ACCEPTANCE_TIMEOUT_SECONDS = 60 * 60
 _LAST_ROLLOUT_CONTEXT: dict[str, Any] = {}
 _PREFLIGHT_ACCEPTANCE: tuple[bool, list[str]] | None = None
 _PRE_ROLLOUT_CLUSTER_STATUS = "not_checked"
@@ -1170,9 +1174,10 @@ def _run_phase_acceptance_impl(
     final_status = "unknown"
     final_issues: list[str] = []
     llm_status = "not_checked"
-    deadline = time.monotonic() + 20 * 60
+    # Cold boot image pulls can take 45-60 minutes before every Running Pod is Ready.
+    started_at = time.monotonic()
     accepted_postboot = False
-    for attempt in range(1, 21):
+    for attempt in range(1, POSTBOOT_ACCEPTANCE_POD_READINESS_MAX_ATTEMPTS + 1):
         observed = run(["bash", status_helper, "--json"], cwd=runbook, timeout=90)
         try:
             value = json.loads(observed.stdout)
@@ -1181,6 +1186,19 @@ def _run_phase_acceptance_impl(
         final_status = str(value.get("status", "unknown")) if isinstance(value, dict) else "unknown"
         issues = value.get("issues", []) if isinstance(value, dict) else []
         final_issues = [str(item) for item in issues[:10]] if isinstance(issues, list) else []
+        pod_readiness_only = (
+            final_status == "converging" and isinstance(issues, list) and bool(issues)
+            and all(issue == "running_pods_not_ready" for issue in issues)
+        )
+        max_attempts = (
+            POSTBOOT_ACCEPTANCE_POD_READINESS_MAX_ATTEMPTS
+            if pod_readiness_only
+            else POSTBOOT_ACCEPTANCE_DEFAULT_MAX_ATTEMPTS
+        )
+        deadline = started_at + (
+            POSTBOOT_ACCEPTANCE_TIMEOUT_SECONDS if pod_readiness_only
+            else POSTBOOT_ACCEPTANCE_DEFAULT_TIMEOUT_SECONDS
+        )
         if observed.returncode == 0 and final_status == "healthy":
             if phase in {"egpu_canary", "full_fleet"}:
                 llm = run(
@@ -1205,7 +1223,7 @@ def _run_phase_acceptance_impl(
                 accepted_postboot = True
                 break
         remaining = deadline - time.monotonic()
-        if attempt == 20 or remaining <= 0:
+        if attempt >= max_attempts or remaining <= 0:
             break
         time.sleep(min(60, remaining))
     if not accepted_postboot:
