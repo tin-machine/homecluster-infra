@@ -49,6 +49,33 @@ NORMALIZE_DTB = (
 
 
 class DeviceTreeNormalizationTests(unittest.TestCase):
+    def test_pi4_check_mode_rejects_unnormalized_dtb_without_writing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "bcm2711-rpi-4-b.dtb"
+            raw = bytes.fromhex("d00dfeed") + b"bootargs=cgroup_disable=memory quiet\0"
+            path.write_bytes(raw)
+            check = subprocess.run(
+                [sys.executable, str(NORMALIZE_DTB), "--check", str(path)],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(check.returncode, 1)
+            self.assertIn("dtb_not_normalized", check.stderr)
+            self.assertEqual(path.read_bytes(), raw)
+            normalized = subprocess.run(
+                [sys.executable, str(NORMALIZE_DTB), str(path)],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(normalized.returncode, 0, normalized.stderr)
+            accepted = subprocess.run(
+                [sys.executable, str(NORMALIZE_DTB), "--check", str(path)],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(accepted.returncode, 0, accepted.stderr)
+            self.assertNotIn(b"cgroup_disable=memory", path.read_bytes())
+
     def test_bootarg_is_removed_before_artifact_hash_and_second_run_is_stable(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "bcm2712-rpi-5-b.dtb"
