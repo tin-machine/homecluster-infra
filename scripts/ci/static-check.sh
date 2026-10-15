@@ -328,6 +328,7 @@ if command -v python3 >/dev/null 2>&1; then
   python3 scripts/ansible/convert_openwrt_package_task.py --self-test
   if command -v ansible-playbook >/dev/null 2>&1; then
     python3 -B scripts/ansible/test_k3s_local_storage_identity_format_guard.py
+    python3 -B scripts/ansible/test_pxe_release_bundle_initramfs_scope.py
   else
     echo "ansible-playbook not found; skipping k3s identity format guard fixture"
   fi
