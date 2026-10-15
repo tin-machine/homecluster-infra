@@ -1,0 +1,17 @@
+---
+- name: Require the storage stage for optional host Tailscale
+  ansible.builtin.assert:
+    that:
+      - openwrt_gentoo_homecluster_unit_chain_enabled | bool
+      - openwrt_gentoo_homecluster_unit_chain_start_enabled | bool
+    fail_msg: Host Tailscale requires the base/storage domain unit chain.
+  when: openwrt_gentoo_host_tailscale_enabled | bool
+
+- name: Configure the independent host boot path in each lower rootfs
+  ansible.builtin.include_tasks:
+    file: host_tailscale_rootfs.yml
+    apply:
+      tags: [pxe, pxe_ansible_pull]
+  loop: "{{ openwrt_gentoo_ansible_pull_rootfs_dirs }}"
+  loop_control:
+    loop_var: host_tailscale_rootfs

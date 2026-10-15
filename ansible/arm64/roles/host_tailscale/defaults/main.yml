@@ -1,0 +1,4 @@
+---
+host_tailscale_enabled: false
+host_tailscale_hostname: ""
+host_tailscale_storage_device: "{{ k3s_local_storage_device | default('') }}"
