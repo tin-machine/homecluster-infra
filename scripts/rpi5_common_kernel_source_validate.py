@@ -20,6 +20,8 @@ _GIT_REVISION = re.compile(r"^[0-9a-f]{40}$")
 _MAX_OUTPUT_BYTES = 64 * 1024
 
 SOURCE_PATHS = (
+    Path("scripts/ansible/test_pxe_release_bundle_initramfs_scope.py"),
+    Path("ansible/openwrt/roles/openwrt_gentoo_rootfs/tasks/initramfs.yml"),
     Path("ansible/arm64/playbooks/rpi5-egpu-nvidia-artifact-bundle.yml"),
     Path("ansible/arm64/roles/rpi5_common_kernel_build/defaults/main.yml"),
     Path("ansible/arm64/roles/rpi5_common_kernel_build/tasks/main.yml"),
@@ -53,6 +55,10 @@ SOURCE_PATHS = (
 )
 
 CHECKS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "paired-release-initramfs-scope",
+        (sys.executable, "-B", "scripts/ansible/test_pxe_release_bundle_initramfs_scope.py"),
+    ),
     (
         "common-kernel-build-contract",
         (sys.executable, "scripts/ci/check-rpi5-common-kernel-build.py"),

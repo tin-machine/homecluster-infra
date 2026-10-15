@@ -140,6 +140,14 @@ repair は独立して mount と解除を行う。互換 binpkg がない場合�
 
 gpkg signature verificationのtrust anchorは`/usr/bin/getuto`を正とする。roleは空の`/etc/portage/gnupg`を先に作らず、手動の`gpg --recv-keys`も使わない。`getuto`の初回初期化がlocal trust key、release keyのlocal signature、trust databaseを作成したことを`mykeyid`と`trustdb.gpg`でfail-closedに確認する。verification user/groupはGentooのprivilege-drop defaultを維持する。
 
+## Paired release の initramfs
+
+paired release build は、各 build item の rootfs / TFTP release に限定して標準 firmware 用 initramfs を生成する。
+Pi4 は v8、Pi5 は v8 と v8-16k を対象にし、host inventory の `openwrt_gentoo_initramfs_builds` に残る
+過去 release の定義を継承しない。旧 rootfs が削除済みでも、新世代の build が旧 path を要求したり変更したりしないためである。
+共通カーネル / NVIDIA 用の Pi5 initramfs は、対象 release に exact module tree を配置した後の既存処理で再生成する。
+通常の role 単体実行では、外部 inventory の initramfs 定義を引き続き使う。
+
 ## ARM64 host role live input
 
 ARM64 host role でも、network exposure を変える値は外部 inventory を正とする。
