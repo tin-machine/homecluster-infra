@@ -49,6 +49,39 @@ def validate_common_kernel_publish_contract(text: str) -> None:
     )
 
 
+def validate_egpu_archive_transfer_contract(text: str) -> None:
+    transfer = text.index("- name: rpi5 eGPU generation artifact archive を OpenWrt へ再開可能に転送")
+    checksum = text.index("- name: rpi5 eGPU generation artifact archive の OpenWrt 側 checksum を取得")
+    verify = text.index("- name: rpi5 eGPU generation artifact archive の OpenWrt 側 checksum を検証")
+    unpack = text.index("- name: rpi5 eGPU generation artifact archive を OpenWrt へ展開")
+    payload = text.index("- name: rpi5 eGPU generation artifact payload checksum を OpenWrt で検証")
+    cleanup = text.index("- name: 検証済み rpi5 eGPU generation archive の OpenWrt 側一時ファイルを削除")
+    if not transfer < checksum < verify < unpack < payload < cleanup:
+        raise AssertionError("eGPU archive transfer, verification, extraction, and cleanup order changed")
+    transfer_task = text[transfer:checksum]
+    for value in ("ansible.builtin.command:", "--partial", "--append-verify", "retries: 3", "delegate_to: localhost"):
+        require(transfer_task, value, f"resumable eGPU archive transfer {value}")
+    require(text[checksum:verify], "checksum_algorithm: sha256", "remote eGPU archive checksum")
+    require(text[verify:unpack], "lookup('ansible.builtin.file'", "controller manifest comparison")
+    unpack_task = text[unpack:payload]
+    require(unpack_task, "remote_src: true", "remote-only eGPU archive extraction")
+    require_not(unpack_task, "openwrt_rpi5_egpu_generation_artifact_controller_dir", "controller-side unarchive transfer")
+
+
+def validate_distcc_pre_role_default(defaults: str, bundle_playbook: str) -> None:
+    # The playbook resolves distcc before include_role loads the role defaults.
+    role_default = "rpi5_common_kernel_build_distcc_enabled: true"
+    require(defaults, role_default, "role distcc enabled default")
+    pre_role_default = "rpi5_common_kernel_build_distcc_enabled | default(true) | bool"
+    if bundle_playbook.count(pre_role_default) != 2:
+        raise AssertionError("pre-role distcc policy must match the enabled role default in both expressions")
+    require_not(
+        bundle_playbook,
+        "rpi5_common_kernel_build_distcc_enabled | default(false)",
+        "pre-role distcc disabled default",
+    )
+
+
 def main() -> int:
     defaults = read(BUILD_ROLE / "defaults/main.yml")
     tasks = read(BUILD_ROLE / "tasks/main.yml")
@@ -68,6 +101,7 @@ def main() -> int:
     rollout = read(ROOT / "scripts/pi-rpi5-common-kernel-rollout")
     publish_tasks = read(ROOT / "ansible/openwrt/playbooks/tasks/pxe_release_bundle_build_and_manifest.yml")
     rootfs_tasks = read(ROOT / "ansible/openwrt/roles/openwrt_gentoo_rootfs/tasks/portage_chroot.yml")
+    host_dtb_patch = read(ROOT / "ansible/openwrt/roles/openwrt_gentoo_rootfs/tasks/tftp_dtb_patch.yml")
 
     require(defaults, "rpi5_common_kernel_build_enabled: false", "disabled default")
     require(defaults, "rpi5_common_kernel_build_apply: false", "apply disabled default")
@@ -76,6 +110,7 @@ def main() -> int:
     require(defaults, "/var/lib/rancher/k3s/kernel-build", "local SSD work root")
     require(defaults, "rpi5_common_kernel_build_distcc_enabled: true", "distcc enabled default")
     require(defaults, "Plain distcc only", "plain distcc policy")
+    validate_distcc_pre_role_default(defaults, bundle_playbook)
 
     require(tasks, "kernel/configs.o", "local generated config object prebuild")
     require_not(tasks, "make\n      - kernel/config_data.gz", "direct config data prebuild target")
@@ -134,6 +169,13 @@ def main() -> int:
     require(tasks, '"${expected_release}"*', "NVIDIA module kernel release match")
     require(defaults, "  - modinfo", "modinfo required command")
     require(tasks, "rpi5_common_kernel_build_manifest_metadata", "manifest metadata fact")
+    normalize_index = tasks.index("DTB の bootargs を artifact 化前に正規化")
+    provenance_index = tasks.index("common kernel provenance hash を取得")
+    if not normalize_index < provenance_index:
+        raise AssertionError("DTB normalization must precede immutable artifact hashing")
+    require(tasks, "files/normalize_dtb.py", "build DTB normalization script")
+    require(host_dtb_patch, "path.is_symlink()", "shared release DTB mutation guard")
+    require(host_dtb_patch, "refuse to patch a shared release DTB", "shared release DTB failure reason")
     require(tasks, "page_size: 4096", "4K metadata")
     require(tasks, "va_bits: 48", "48-bit metadata")
 
@@ -211,6 +253,7 @@ def main() -> int:
     require(gate, "pxe_release_manifest_sha256", "PXE manifest hash")
     require(gate, "rpi5-common-kernel-gate-v2", "gate schema v2")
     validate_common_kernel_publish_contract(publish_tasks)
+    validate_egpu_archive_transfer_contract(publish_tasks)
     require(gate, "generic_kernel_payload_present", "published generic kernel presence gate")
     require(gate, "generic_kernel_payload_identical", "published generic kernel payload identity gate")
     require(gate, "generic_kernel_sha256_matches_manifest", "published generic kernel manifest hash gate")
@@ -249,12 +292,22 @@ def main() -> int:
     require(gate, "nvidia_dtb_sha256_matches_manifest", "NVIDIA DTB manifest hash gate")
     require(publish_tasks, "dest: kernel_2712.img", "Pi5 default kernel common-kernel publish")
     require(publish_tasks, "dest: bcm2712-rpi-5-b.dtb", "generic Pi5 DTB common-kernel publish")
+    release_normalize = publish_tasks.index("PXE release の Pi4/Pi5 DTB を manifest 前に正規化")
+    release_manifest = publish_tasks.index("PXE release bundle artifact と manifest を検証")
+    if not release_normalize < release_manifest:
+        raise AssertionError("all release DTBs must be normalized before manifest acceptance")
+    require(publish_tasks, "product(['bcm2711-rpi-4-b.dtb', 'bcm2712-rpi-5-b.dtb'])", "Pi4/Pi5 release DTB normalization")
     require(rollout_playbook, "homecluster_common_kernel_accepted_pi5_default_kernel_path", "accepted Pi5 default kernel path")
     require(rollout_playbook, "homecluster_common_kernel_accepted_nvidia_kernel_path", "accepted NVIDIA TFTP kernel path")
     require(rollout_playbook, "homecluster_common_kernel_accepted_nvidia_payload_path", "accepted NVIDIA payload path")
     require(rollout_playbook, "homecluster_common_kernel_accepted_generic_dtb_path", "accepted generic DTB path")
     require(rollout_playbook, "homecluster_common_kernel_accepted_nvidia_dtb_path", "accepted NVIDIA DTB path")
     require(rollout_playbook, "homecluster_common_kernel_accepted_boot_artifact_stats.results[9].stat.isdir", "accepted exact module tree gate")
+    release_dtb_gate = rollout_playbook.index("selector変更前に全release DTB正規化を検証")
+    selector_snapshot = rollout_playbook.index("Pi5 common kernel live selector snapshotを取得")
+    if not release_dtb_gate < selector_snapshot:
+        raise AssertionError("release DTB gate must precede selector mutation")
+    require(rollout_playbook, "--check /srv/gentoo/tftp-root/dates/", "read-only release DTB gate")
     require(rollout_playbook, "rpi5_common_kernel_live_selectors.yml", "rollout live selector authority")
     require(selector_inspect, "rpi5_common_kernel_live_selectors.yml", "inspection live selector authority")
     require(live_selector_task, 'readlink "$host_dir/kernel8.img"', "live TFTP selector read")

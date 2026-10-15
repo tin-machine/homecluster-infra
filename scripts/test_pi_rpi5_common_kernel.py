@@ -9,6 +9,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 HERE = Path(__file__).resolve().parent
 LEGACY_TEST = HERE / "pi_rpi5_common_kernel_test_legacy.py"
@@ -40,6 +41,65 @@ REQUIRED_CONFIG_LINES = (
     "CONFIG_IKCONFIG=y",
     "CONFIG_IKCONFIG_PROC=y",
 )
+ROLLOUT_GENERATION_RUN = "20260801T000000Z-stg-generation-new"
+PREVIOUS_GENERATION_RUN = "20260731T000000Z-stg-generation-old"
+NORMALIZE_DTB = (
+    HERE.parent / "ansible/arm64/roles/rpi5_common_kernel_build/files/normalize_dtb.py"
+)
+
+
+class DeviceTreeNormalizationTests(unittest.TestCase):
+    def test_pi4_check_mode_rejects_unnormalized_dtb_without_writing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "bcm2711-rpi-4-b.dtb"
+            raw = bytes.fromhex("d00dfeed") + b"bootargs=cgroup_disable=memory quiet\0"
+            path.write_bytes(raw)
+            check = subprocess.run(
+                [sys.executable, str(NORMALIZE_DTB), "--check", str(path)],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(check.returncode, 1)
+            self.assertIn("dtb_not_normalized", check.stderr)
+            self.assertEqual(path.read_bytes(), raw)
+            normalized = subprocess.run(
+                [sys.executable, str(NORMALIZE_DTB), str(path)],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(normalized.returncode, 0, normalized.stderr)
+            accepted = subprocess.run(
+                [sys.executable, str(NORMALIZE_DTB), "--check", str(path)],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(accepted.returncode, 0, accepted.stderr)
+            self.assertNotIn(b"cgroup_disable=memory", path.read_bytes())
+
+    def test_bootarg_is_removed_before_artifact_hash_and_second_run_is_stable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "bcm2712-rpi-5-b.dtb"
+            raw = bytes.fromhex("d00dfeed") + b"bootargs=cgroup_disable=memory quiet\0"
+            path.write_bytes(raw)
+            first = subprocess.run([sys.executable, str(NORMALIZE_DTB), str(path)], capture_output=True, text=True)
+            self.assertEqual(first.returncode, 0, first.stderr)
+            self.assertIn("status=patched", first.stdout)
+            normalized = path.read_bytes()
+            self.assertEqual(len(normalized), len(raw))
+            self.assertNotIn(b"cgroup_disable=memory", normalized)
+            second = subprocess.run([sys.executable, str(NORMALIZE_DTB), str(path)], capture_output=True, text=True)
+            self.assertEqual(second.returncode, 0, second.stderr)
+            self.assertIn("status=unchanged", second.stdout)
+            self.assertEqual(path.read_bytes(), normalized)
+
+    def test_multiple_bootarg_occurrences_fail_without_changing_dtb(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "bcm2712-rpi-5-b.dtb"
+            raw = bytes.fromhex("d00dfeed") + b"cgroup_disable=memory cgroup_disable=memory\0"
+            path.write_bytes(raw)
+            result = subprocess.run([sys.executable, str(NORMALIZE_DTB), str(path)], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 2)
+            self.assertEqual(path.read_bytes(), raw)
 
 
 class PhaseAcceptanceRouteTests(unittest.TestCase):
@@ -154,6 +214,7 @@ class FullFleetAcceptanceTests(unittest.TestCase):
             root = Path(temporary) / "infra"
             runbook = Path(temporary) / "runbook"
             (runbook / "scripts").mkdir(parents=True)
+            (runbook / "scripts/pi-k3s-status").write_text("fixture\n", encoding="utf-8")
             (runbook / "scripts/pi-rpi5-egpu-llm-status").write_text("fixture\n", encoding="utf-8")
             module.run = fake_run
             try:
@@ -179,6 +240,111 @@ class FullFleetAcceptanceTests(unittest.TestCase):
             llm_environment["HOMECLUSTER_RPI5_03_EXPECTED_KERNEL_RELEASE"],
             "6.18.36-v8-homecluster+",
         )
+
+    def test_full_fleet_waits_for_cluster_and_llm_to_settle(self):
+        module = legacy.ROLLOUT_MODULE
+        original_run = module.run
+        status_calls = 0
+        llm_calls = 0
+
+        def fake_run(command, *, cwd, timeout, env=None):
+            nonlocal status_calls, llm_calls
+            values = [str(item) for item in command]
+            if values[0] == "ansible-playbook":
+                return subprocess.CompletedProcess(values, 0, "", "")
+            if any(value.endswith("pi-k3s-status") for value in values):
+                status_calls += 1
+                status = "converging" if status_calls == 1 else "healthy"
+                return subprocess.CompletedProcess(values, 0 if status == "healthy" else 1, json.dumps({"status": status}), "")
+            llm_calls += 1
+            llm_status = "unhealthy" if llm_calls == 1 else "healthy"
+            return subprocess.CompletedProcess(
+                values, 0,
+                f"llm_status={llm_status}\nllm_failed_check_ids=none\nllm_unknown_check_ids=none\n", "",
+            )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "infra"
+            runbook = Path(temporary) / "runbook"
+            (runbook / "scripts").mkdir(parents=True)
+            (runbook / "scripts/pi-k3s-status").write_text("fixture\n", encoding="utf-8")
+            (runbook / "scripts/pi-rpi5-egpu-llm-status").write_text("fixture\n", encoding="utf-8")
+            module.run = fake_run
+            try:
+                with patch.object(module.time, "sleep", return_value=None) as sleep:
+                    accepted, diagnostics = module.run_phase_acceptance(
+                        root, runbook, Path(temporary) / "inventory.yml", "full_fleet",
+                        ["generic-a", "generic-b", "egpu-a"],
+                        ["generic-a", "generic-b", "egpu-a"], "6.18.36-v8-homecluster+",
+                    )
+            finally:
+                module.run = original_run
+        self.assertTrue(accepted)
+        self.assertEqual(status_calls, 3)
+        self.assertEqual(llm_calls, 2)
+        self.assertEqual(sleep.call_count, 2)
+        self.assertIn("postboot_acceptance_attempts=3", diagnostics)
+        self.assertIn("llm_acceptance=pass", diagnostics)
+
+    def test_full_fleet_stops_after_bounded_cluster_convergence_wait(self):
+        module = legacy.ROLLOUT_MODULE
+        original_run = module.run
+        status_calls = 0
+
+        def fake_run(command, *, cwd, timeout, env=None):
+            nonlocal status_calls
+            values = [str(item) for item in command]
+            if values[0] == "ansible-playbook":
+                return subprocess.CompletedProcess(values, 0, "", "")
+            status_calls += 1
+            return subprocess.CompletedProcess(values, 1, json.dumps({"status": "converging", "issues": ["running_pods_not_ready"]}), "")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "infra"
+            runbook = Path(temporary) / "runbook"
+            (runbook / "scripts").mkdir(parents=True)
+            (runbook / "scripts/pi-k3s-status").write_text("fixture\n", encoding="utf-8")
+            (runbook / "scripts/pi-rpi5-egpu-llm-status").write_text("fixture\n", encoding="utf-8")
+            module.run = fake_run
+            try:
+                with patch.object(module.time, "sleep", return_value=None) as sleep:
+                    accepted, diagnostics = module.run_phase_acceptance(
+                        root, runbook, Path(temporary) / "inventory.yml", "full_fleet",
+                        ["generic-a", "generic-b", "egpu-a"],
+                        ["generic-a", "generic-b", "egpu-a"], "6.18.36-v8-homecluster+",
+                    )
+            finally:
+                module.run = original_run
+        self.assertFalse(accepted)
+        self.assertEqual(status_calls, 20)
+        self.assertEqual(sleep.call_count, 19)
+        self.assertIn("k3s_final_acceptance=fail", diagnostics)
+        self.assertIn("k3s_final_warning_issues=running_pods_not_ready", diagnostics)
+
+    def test_same_selector_failed_reacceptance_does_not_power_cycle(self):
+        module = legacy.ROLLOUT_MODULE
+        original_action = module._CURRENT_ACTION
+        original_selector_changed = module._LAST_SELECTOR_CHANGED
+        original_context = module._LAST_ROLLOUT_CONTEXT
+        module._CURRENT_ACTION = "full_fleet"
+        module._LAST_SELECTOR_CHANGED = False
+        module._LAST_ROLLOUT_CONTEXT = {
+            "root": Path("/tmp/infra-fixture"),
+            "inventory": Path("/tmp/inventory-fixture.yml"),
+            "targets": ["generic-a", "egpu-a"],
+            "exact_release": "6.18.36-v8-homecluster+",
+        }
+        try:
+            with patch.object(module, "run_phase_acceptance", return_value=(False, ["llm_acceptance=fail"])):
+                with patch.object(module, "_original_run_fresh_boot", side_effect=AssertionError("unexpected reboot")):
+                    with self.assertRaises(module.RolloutError) as raised:
+                        module.run_fresh_boot(Path("/tmp/runbook-fixture"))
+            self.assertEqual(raised.exception.reason, "same_selector_acceptance_failed")
+            self.assertEqual(raised.exception.status, "blocked")
+        finally:
+            module._CURRENT_ACTION = original_action
+            module._LAST_SELECTOR_CHANGED = original_selector_changed
+            module._LAST_ROLLOUT_CONTEXT = original_context
 
     def test_full_fleet_main_path_has_one_fresh_boot_call(self):
         source = legacy.ROLLOUT.read_text(encoding="utf-8")
@@ -237,6 +403,16 @@ class GateFailureDiagnosticsTests(unittest.TestCase):
         self.assertEqual(playbook_ids, legacy.GATE_MODULE.ARTIFACT_CHECK_IDS)
 
 
+def test_full_fleet_targets_every_agent_without_canary_prerequisites(self):
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        agents = ["generic-a", "generic-b", "egpu-a"]
+        targets, selectors, phase = legacy.ROLLOUT_MODULE.target_policy(
+            root, "full_fleet", agents, "egpu-a", ROLLOUT_GENERATION_RUN
+        )
+        self.assertEqual((targets, selectors, phase), (agents, {}, "full_fleet"))
+
+
 def test_rollback_uses_only_recorded_previous_selectors(self):
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
@@ -248,6 +424,7 @@ def test_rollback_uses_only_recorded_previous_selectors(self):
                 "phase": "generic_canary",
                 "targets": ["generic-a"],
                 "acceptance_status": "fail",
+                "accepted_generation_run_id": ROLLOUT_GENERATION_RUN,
                 "rollback_recommended": True,
                 "previous_selector_by_node": previous,
             },
@@ -257,6 +434,7 @@ def test_rollback_uses_only_recorded_previous_selectors(self):
             "rollback_last_phase",
             ["generic-a", "generic-b", "egpu-a"],
             "egpu-a",
+            ROLLOUT_GENERATION_RUN,
         )
         self.assertEqual(targets, ["generic-a"])
         self.assertEqual(selectors, previous)
@@ -274,6 +452,7 @@ def test_rollback_rejects_failed_phase_without_recommendation(self):
                 "phase": "generic_canary",
                 "targets": ["generic-a"],
                 "acceptance_status": "fail",
+                "accepted_generation_run_id": ROLLOUT_GENERATION_RUN,
                 "rollback_recommended": False,
                 "previous_selector_by_node": previous,
             },
@@ -284,6 +463,7 @@ def test_rollback_rejects_failed_phase_without_recommendation(self):
                 "rollback_last_phase",
                 ["generic-a", "generic-b", "egpu-a"],
                 "egpu-a",
+                ROLLOUT_GENERATION_RUN,
             )
         self.assertEqual(context.exception.reason, "known_rollback_unavailable")
 
@@ -427,6 +607,62 @@ def test_generation_gate_uses_artifact_reference_not_stage_date_equality(self):
     self.assertNotIn("homecluster_common_kernel_gate_candidate_selector", gate_playbook)
 
 
+class RolloutGenerationScopedPolicyTests(unittest.TestCase):
+    def write_record(self, root: Path, phase: str, run_id: str, status: str) -> None:
+        directory = root / "rollout-phases"
+        directory.mkdir(exist_ok=True)
+        (directory / f"{phase}.json").write_text(
+            json.dumps(
+                {
+                    "phase": phase,
+                    "accepted_generation_run_id": run_id,
+                    "acceptance_status": status,
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    def test_previous_generation_full_fleet_does_not_block_new_rollout(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.write_record(root, "full_fleet", PREVIOUS_GENERATION_RUN, "pass")
+            targets, previous, phase = legacy.ROLLOUT_MODULE.target_policy(
+                root, "full_fleet", ["generic-a", "egpu-a"], "egpu-a", ROLLOUT_GENERATION_RUN
+            )
+            self.assertEqual((targets, previous, phase), (["generic-a", "egpu-a"], {}, "full_fleet"))
+
+    def test_current_generation_full_fleet_remains_idempotent(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.write_record(root, "full_fleet", ROLLOUT_GENERATION_RUN, "pass")
+            with self.assertRaises(legacy.ROLLOUT_MODULE.RolloutError) as caught:
+                legacy.ROLLOUT_MODULE.target_policy(
+                    root, "full_fleet", ["generic-a", "egpu-a"], "egpu-a", ROLLOUT_GENERATION_RUN
+                )
+            self.assertEqual(caught.exception.reason, "full_fleet_already_accepted")
+
+    def test_previous_generation_canary_cannot_satisfy_current_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.write_record(root, "generic_canary", PREVIOUS_GENERATION_RUN, "pass")
+            with self.assertRaises(legacy.ROLLOUT_MODULE.RolloutError) as caught:
+                legacy.ROLLOUT_MODULE.target_policy(
+                    root, "egpu_canary", ["generic-a", "egpu-a"], "egpu-a", ROLLOUT_GENERATION_RUN
+                )
+            self.assertEqual(caught.exception.reason, "generic_canary_gate_missing")
+
+    def test_previous_generation_failure_cannot_authorize_rollback(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.write_record(root, "full_fleet", PREVIOUS_GENERATION_RUN, "fail")
+            with self.assertRaises(legacy.ROLLOUT_MODULE.RolloutError) as caught:
+                legacy.ROLLOUT_MODULE.target_policy(
+                    root, "rollback_last_phase", ["generic-a", "egpu-a"], "egpu-a", ROLLOUT_GENERATION_RUN
+                )
+            self.assertEqual(caught.exception.reason, "known_rollback_unavailable")
+
+
+legacy.PolicyTests.test_full_fleet_targets_every_agent_without_canary_prerequisites = test_full_fleet_targets_every_agent_without_canary_prerequisites
 legacy.PolicyTests.test_rollback_uses_only_recorded_previous_selectors = test_rollback_uses_only_recorded_previous_selectors
 legacy.PolicyTests.test_rollback_rejects_failed_phase_without_recommendation = test_rollback_rejects_failed_phase_without_recommendation
 legacy.PrecheckPolicyTests.test_stage_date_alignment_accepts_match = test_build_and_pxe_release_dates_are_independent
