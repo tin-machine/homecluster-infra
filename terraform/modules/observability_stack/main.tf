@@ -125,7 +125,7 @@ resource "helm_release" "prometheus" {
   name             = local.prometheus_release
   repository       = "https://prometheus-community.github.io/helm-charts"
   chart            = "prometheus"
-  version          = "29.34.0"
+  version          = "29.35.0"
   namespace        = kubernetes_namespace.observability.metadata[0].name
   create_namespace = false
 
@@ -159,7 +159,7 @@ resource "helm_release" "kube_state_metrics" {
   name             = local.kube_state_metrics_release
   repository       = "https://prometheus-community.github.io/helm-charts"
   chart            = "kube-state-metrics"
-  version          = "6.3.0"
+  version          = "6.4.2"
   namespace        = kubernetes_namespace.observability.metadata[0].name
   create_namespace = false
 
@@ -284,7 +284,7 @@ resource "helm_release" "grafana" {
   name             = local.grafana_release
   repository       = "https://grafana.github.io/helm-charts"
   chart            = "grafana"
-  version          = "8.6.2"
+  version          = "8.15.0"
   namespace        = kubernetes_namespace.observability.metadata[0].name
   create_namespace = false
   timeout          = 900
