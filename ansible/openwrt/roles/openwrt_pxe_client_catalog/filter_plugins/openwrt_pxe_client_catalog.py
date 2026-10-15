@@ -675,6 +675,19 @@ def _build_generated_client(
             ansible_pull_group_vars["role_terraform_stg"] = merged_terraform_vars
 
     role_extra_vars: dict[str, Any] = {}
+    if _as_bool(hv.get("host_tailscale_enabled", False)):
+        if not _as_bool(hv.get("k3s_local_storage_enabled", False)) or any(
+            _as_bool(hv.get(key, False)) for key in (
+                "k3s_local_storage_force_format", "k3s_local_storage_ephemeral_agent_data"
+            )
+        ):
+            raise ValueError("host Tailscale requires persistent node storage")
+        # Explicit public configuration only; never copy the enrollment key.
+        role_extra_vars["host_tailscale"] = {
+            "host_tailscale_enabled": True,
+            "host_tailscale_hostname": hv.get("host_tailscale_hostname", ""),
+            "host_tailscale_storage_device": hv.get("k3s_local_storage_device", ""),
+        }
     if "base" in role_names:
         base_vars = _build_base_vars(hv, cfg)
         if base_vars:
@@ -747,11 +760,23 @@ def _build_generated_client(
 
     for role_name, role_vars in extra_vars_cfg.items():
         role_name_text = _clean_string(role_name)
+        if role_name_text == "host_tailscale":
+            raise ValueError("host Tailscale boot configuration must use allow-listed host variables")
         if not role_name_text or not isinstance(role_vars, Mapping):
             continue
         current = role_extra_vars.get(role_name_text, {})
         merged, _ = _merge_nested_mapping(current, role_vars)
         role_extra_vars[role_name_text] = merged
+
+    if "host_tailscale" in role_extra_vars:
+        for storage_role in ("k3s_stg_storage", "k3s_prd_storage"):
+            storage_vars = role_extra_vars.get(storage_role, {})
+            if any(_as_bool(storage_vars.get(key, False)) for key in (
+                "k3s_local_storage_force_format", "k3s_local_storage_ephemeral_agent_data"
+            )):
+                raise ValueError("host Tailscale cannot use destructive storage overrides")
+            if storage_vars and storage_vars.get("k3s_local_storage_device", "") != role_extra_vars["host_tailscale"]["host_tailscale_storage_device"]:
+                raise ValueError("host Tailscale device must match the effective storage role")
 
     for role_name in sorted(role_extra_vars.keys()):
         if not isinstance(role_extra_vars[role_name], Mapping):

@@ -422,6 +422,16 @@
         - rpi_eeprom
         - rpi_wireless
 
+    - name: Allow the opted-in ARM64 Tailscale package
+      ansible.builtin.copy:
+        dest: "{{ openwrt_gentoo_rootfs_dir }}/etc/portage/package.accept_keywords/host-tailscale"
+        content: "net-vpn/tailscale ~arm64\n"
+        owner: root
+        group: root
+        mode: '0644'
+      when: openwrt_gentoo_host_tailscale_enabled | bool
+      tags: [gentoo_packages]
+
     - name: package.use ディレクトリを作成 (k3s base baseline / rpi wireless)
       ansible.builtin.file:
         path: "{{ openwrt_gentoo_rootfs_dir }}/etc/portage/package.use"
@@ -758,6 +768,7 @@
             ]
             + ((openwrt_gentoo_rpi_eeprom_packages | default([])) if (openwrt_gentoo_rpi_eeprom_enabled | bool) else [])
             + ((openwrt_gentoo_rpi_wireless_packages | default([])) if (openwrt_gentoo_rpi_wireless_enabled | bool) else [])
+            + (['net-vpn/tailscale'] if (openwrt_gentoo_host_tailscale_enabled | bool) else [])
           }}
       tags:
         - gentoo_packages

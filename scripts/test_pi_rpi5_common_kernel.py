@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import importlib.util
+import importlib.machinery
+import io
 import json
 import os
 import re
@@ -46,6 +48,47 @@ PREVIOUS_GENERATION_RUN = "20260731T000000Z-stg-generation-old"
 NORMALIZE_DTB = (
     HERE.parent / "ansible/arm64/roles/rpi5_common_kernel_build/files/normalize_dtb.py"
 )
+PRECHECK_SCRIPT = HERE / "pi-rpi5-common-kernel-precheck"
+precheck_spec = importlib.util.spec_from_loader(
+    "pi_rpi5_common_kernel_precheck_test",
+    importlib.machinery.SourceFileLoader("pi_rpi5_common_kernel_precheck_test", str(PRECHECK_SCRIPT)),
+)
+assert precheck_spec and precheck_spec.loader
+precheck = importlib.util.module_from_spec(precheck_spec)
+precheck_spec.loader.exec_module(precheck)
+
+
+class RuntimePrecheckDiagnosticsTests(unittest.TestCase):
+    def run_failure(self, output: str) -> dict[str, object]:
+        captured = io.StringIO()
+        completed = subprocess.CompletedProcess(["ansible-playbook"], 2, stdout=output, stderr="")
+        with (
+            patch.object(precheck, "source_checks", return_value=[]),
+            patch.object(precheck, "run", return_value=completed),
+            patch("sys.stdout", captured),
+        ):
+            self.assertEqual(precheck.main(["--json"]), 2)
+        return json.loads(captured.getvalue())
+
+    def test_openwrt_capacity_failure_reports_only_fixed_numbers(self):
+        result = self.run_failure(
+            'fatal: [storage-host]: FAILED! => {"stderr": '
+            '"OpenWrt /srv capacity gate failed: available=100KiB required=120KiB", '
+            '"private": "do-not-copy"}'
+        )
+        self.assertEqual(result["reason"], "openwrt_srv_capacity_insufficient")
+        self.assertEqual(result["diagnostics"], [
+            "openwrt_srv_available_kib=100",
+            "openwrt_srv_required_kib=120",
+            "openwrt_srv_shortfall_kib=20",
+        ])
+        self.assertNotIn("do-not-copy", json.dumps(result))
+
+    def test_unknown_runtime_failure_keeps_generic_reason_without_output(self):
+        result = self.run_failure("fatal: [storage-host]: FAILED! secret=do-not-copy")
+        self.assertEqual(result["reason"], "common_kernel_runtime_playbook_failed")
+        self.assertEqual(result["diagnostics"], [])
+        self.assertNotIn("do-not-copy", json.dumps(result))
 
 
 class DeviceTreeNormalizationTests(unittest.TestCase):

@@ -1,0 +1,72 @@
+---
+# Only a management-machine push with both --tags and an exact --limit enrolls.
+- name: Enroll one persistent Tailscale host
+  hosts: all
+  gather_facts: false
+  become: true
+  serial: 1
+  any_errors_fatal: true
+  tags: [never, host_tailscale_enroll]
+  tasks:
+    - name: Require explicit enrollment tag and one exact host
+      ansible.builtin.assert:
+        that:
+          - "'host_tailscale_enroll' in ansible_run_tags"
+          - ansible_play_hosts_all | length == 1
+          - ansible_limit | default('') == inventory_hostname
+          - ansible_connection | default('ssh') != 'local'
+          - stage | default('') in ['stg', 'prod']
+          - host_tailscale_enabled | default(false) | bool
+
+    - name: Read only the bounded backend state
+      ansible.builtin.command: /usr/local/sbin/homecluster-host-tailscale status
+      register: host_tailscale_backend
+      changed_when: false
+      check_mode: false
+
+    - name: Enroll only a logged-out host
+      when:
+        - not ansible_check_mode
+        - (host_tailscale_backend.stdout | from_json).backend_state in ['NeedsLogin', 'NoState']
+      block:
+        - name: Require a one-off host enrollment credential
+          ansible.builtin.assert:
+            that:
+              - host_tailscale_auth_key | default('') | string | length > 0
+          no_log: true
+
+        - name: Allocate a private volatile credential file
+          ansible.builtin.tempfile:
+            path: /run
+            prefix: host-tailscale-auth-
+            state: file
+          register: host_tailscale_key_file
+          no_log: true
+
+        - name: Write the credential without logging or diff
+          ansible.builtin.copy:
+            dest: "{{ host_tailscale_key_file.path }}"
+            content: "{{ host_tailscale_auth_key }}"
+            owner: root
+            group: root
+            mode: '0600'
+          no_log: true
+          diff: false
+
+        - name: Register using only the credential file path
+          ansible.builtin.command:
+            argv:
+              - /usr/local/sbin/homecluster-host-tailscale
+              - enroll
+              - --key-file
+              - "{{ host_tailscale_key_file.path }}"
+          register: host_tailscale_enrollment
+          changed_when: "(host_tailscale_enrollment.stdout | from_json).get('changed', false)"
+          no_log: true
+      always:
+        - name: Remove the credential after success or failure
+          ansible.builtin.file:
+            path: "{{ host_tailscale_key_file.path }}"
+            state: absent
+          when: host_tailscale_key_file.path is defined
+          no_log: true
