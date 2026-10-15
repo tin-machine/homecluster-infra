@@ -1,0 +1,215 @@
+---
+# Add one inventory-defined iSCSI target while preserving existing tgt sessions.
+# This playbook intentionally never invokes /etc/init.d/tgt reload or restart.
+- name: Add one production iSCSI target online
+  hosts: openwrt
+  gather_facts: false
+  become: false
+  vars:
+    # Matches openwrt_iscsi_target role defaults without importing a runtime role.
+    openwrt_iscsi_target_iothreads: 2
+  pre_tasks:
+    - name: Require an append-only target definition
+      ansible.builtin.assert:
+        that:
+          - openwrt_iscsi_target_enabled | bool
+          - pxe_prod_iscsi_sparse_backing | default(false) | bool
+          - openwrt_iscsi_targets | length > 1
+          - openwrt_iscsi_targets[-1].name == pxe_prod_iscsi_target_name | default('')
+          - openwrt_iscsi_targets[-1].size_gib | int > 0
+          - openwrt_iscsi_targets[-1].client_ip | default('') | length > 0
+          - openwrt_iscsi_targets[-1].initiator_iqn | default('') | length > 0
+          - openwrt_iscsi_targets[-1].backing_file is match('^/srv/iscsi/[A-Za-z0-9._-]+$')
+        fail_msg: Supply the last inventory target as a sparse production target.
+      no_log: true
+
+    - name: Require the existing target service to be running
+      ansible.builtin.command: /etc/init.d/tgt status
+      register: pxe_prod_iscsi_service
+      changed_when: false
+      check_mode: false
+      failed_when: pxe_prod_iscsi_service.rc != 0 or 'running' not in pxe_prod_iscsi_service.stdout
+
+    - name: Record the target service process before the addition
+      ansible.builtin.command: pidof tgtd
+      register: pxe_prod_iscsi_original_pid
+      changed_when: false
+      check_mode: false
+      failed_when: pxe_prod_iscsi_original_pid.rc != 0 or pxe_prod_iscsi_original_pid.stdout | trim == ''
+
+    - name: Read the current target service thread setting
+      ansible.builtin.command: uci -q get tgt.tgt.iothreads
+      register: pxe_prod_iscsi_original_iothreads
+      changed_when: false
+      check_mode: false
+
+    - name: Require the existing thread setting to remain unchanged
+      ansible.builtin.assert:
+        that:
+          - pxe_prod_iscsi_original_iothreads.stdout | int == openwrt_iscsi_target_iothreads
+        fail_msg: Existing tgt thread setting differs from the managed template.
+
+    - name: Read live target identities
+      ansible.builtin.shell: >-
+        tgtadm --lld iscsi --mode target --op show |
+        awk '$1 == "Target" { print $3 }'
+      args:
+        executable: /bin/ash
+      register: pxe_prod_iscsi_existing_iqns
+      changed_when: false
+      check_mode: false
+      no_log: true
+
+    - name: Refuse a changed or incomplete existing target set
+      ansible.builtin.assert:
+        that:
+          - pxe_prod_iscsi_existing_iqns.stdout_lines | length == openwrt_iscsi_targets | length - 1
+          - pxe_prod_iscsi_existing_iqns.stdout_lines == (openwrt_iscsi_targets[:-1] | map(attribute='target_iqn') | list)
+        fail_msg: Live target identities must match the unchanged inventory prefix.
+      no_log: true
+
+    - name: Check the new backing file
+      ansible.builtin.stat:
+        path: "{{ openwrt_iscsi_targets[-1].backing_file }}"
+      register: pxe_prod_iscsi_backing
+      no_log: true
+
+    - name: Refuse an unexpected existing backing file
+      ansible.builtin.assert:
+        that:
+          - not (pxe_prod_iscsi_backing.stat.exists | default(false)) or (pxe_prod_iscsi_backing.stat.size | int == openwrt_iscsi_targets[-1].size_gib | int * 1073741824)
+        fail_msg: The new backing file already exists with an unexpected size.
+      no_log: true
+
+  tasks:
+    - name: Create the new sparse backing file
+      ansible.builtin.shell: |
+        set -eu
+        target="{{ openwrt_iscsi_targets[-1].backing_file }}"
+        if [ -e "$target" ]; then
+          exit 0
+        fi
+        dd if=/dev/zero of="$target" bs=1M count=0 seek={{ openwrt_iscsi_targets[-1].size_gib | int * 1024 }}
+      args:
+        executable: /bin/ash
+        creates: "{{ openwrt_iscsi_targets[-1].backing_file }}"
+      no_log: true
+
+    - name: Create only the new live target
+      ansible.builtin.command:
+        argv:
+          - tgtadm
+          - --lld
+          - iscsi
+          - --mode
+          - target
+          - --op
+          - new
+          - --tid
+          - "{{ openwrt_iscsi_targets | length }}"
+          - --targetname
+          - "{{ openwrt_iscsi_targets[-1].target_iqn }}"
+      when: not ansible_check_mode
+      no_log: true
+
+    - name: Attach the new backing file as LUN 1
+      ansible.builtin.command:
+        argv:
+          - tgtadm
+          - --lld
+          - iscsi
+          - --mode
+          - logicalunit
+          - --op
+          - new
+          - --tid
+          - "{{ openwrt_iscsi_targets | length }}"
+          - --lun
+          - '1'
+          - --backing-store
+          - "{{ openwrt_iscsi_targets[-1].backing_file }}"
+          - --device-type
+          - disk
+          - --bstype
+          - rdwr
+      when: not ansible_check_mode
+      no_log: true
+
+    - name: Restrict the new target to its client IP
+      ansible.builtin.command:
+        argv:
+          - tgtadm
+          - --lld
+          - iscsi
+          - --mode
+          - target
+          - --op
+          - bind
+          - --tid
+          - "{{ openwrt_iscsi_targets | length }}"
+          - --initiator-address
+          - "{{ openwrt_iscsi_targets[-1].client_ip }}"
+      when: not ansible_check_mode
+      no_log: true
+
+    - name: Restrict the new target to its initiator IQN
+      ansible.builtin.command:
+        argv:
+          - tgtadm
+          - --lld
+          - iscsi
+          - --mode
+          - target
+          - --op
+          - bind
+          - --tid
+          - "{{ openwrt_iscsi_targets | length }}"
+          - --initiator-name
+          - "{{ openwrt_iscsi_targets[-1].initiator_iqn }}"
+      when: not ansible_check_mode
+      no_log: true
+
+    - name: Persist the full target catalog without restarting tgt
+      ansible.builtin.template:
+        src: ../roles/openwrt_iscsi_target/templates/tgtd.conf.j2
+        dest: /etc/config/tgt
+        owner: root
+        group: root
+        mode: '0644'
+      no_log: true
+
+    - name: Verify the persisted configuration parses
+      ansible.builtin.command: uci -q show tgt
+      register: pxe_prod_iscsi_uci
+      changed_when: false
+      check_mode: false
+      no_log: true
+      when: not ansible_check_mode
+
+    - name: Verify all targets remain online in the original order
+      ansible.builtin.shell: >-
+        tgtadm --lld iscsi --mode target --op show |
+        awk '$1 == "Target" { print $3 }'
+      args:
+        executable: /bin/ash
+      register: pxe_prod_iscsi_final_iqns
+      changed_when: false
+      check_mode: false
+      no_log: true
+      when: not ansible_check_mode
+
+    - name: Record the target service process after the addition
+      ansible.builtin.command: pidof tgtd
+      register: pxe_prod_iscsi_final_pid
+      changed_when: false
+      check_mode: false
+      when: not ansible_check_mode
+
+    - name: Require the full target set after the online addition
+      ansible.builtin.assert:
+        that:
+          - pxe_prod_iscsi_final_pid.stdout == pxe_prod_iscsi_original_pid.stdout
+          - pxe_prod_iscsi_final_iqns.stdout_lines == (openwrt_iscsi_targets | map(attribute='target_iqn') | list)
+        fail_msg: Target service process or online target set changed unexpectedly.
+      no_log: true
+      when: not ansible_check_mode

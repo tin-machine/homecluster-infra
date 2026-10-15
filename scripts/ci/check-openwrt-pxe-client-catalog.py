@@ -179,6 +179,51 @@ def test_k3s_stg_storage_vars() -> None:
     ]
 
 
+def test_k3s_production_server_and_storage_vars() -> None:
+    module = load_filter_module()
+    hostvars = {
+        "prod-node": {
+            "ansible_host": "192.0.2.30",
+            "k3s_release_version": "v1.35.4+k3s1",
+            "k3s_iscsi_session_enabled": True,
+            "k3s_iscsi_session_portal": "192.0.2.100",
+            "k3s_iscsi_session_target_iqn": "iqn.2026-10.example:prod-node",
+            "k3s_iscsi_session_initiator_iqn": "iqn.2026-10.example:initiator",
+            "k3s_iscsi_session_device_path": "/dev/disk/by-path/ip-192.0.2.100:3260-iscsi-iqn.2026-10.example:prod-node-lun-1",
+            "k3s_local_storage_enabled": True,
+            "k3s_local_storage_device": "/dev/disk/by-path/ip-192.0.2.100:3260-iscsi-iqn.2026-10.example:prod-node-lun-1-part1",
+            "openwrt_pxe_client": {
+                "enabled": True,
+                "router": "router1",
+                "stage": "prod",
+                "roles": ["base", "k3s_prd_storage", "k3s_prd_server"],
+                "overlay": {"id": "prod-node"},
+            },
+        }
+    }
+    result = module.build_openwrt_pxe_client_catalog(
+        hostvars, {"all": ["prod-node"]}, "router1"
+    )
+    client_vars = {
+        (item["overlay_id"], item["role"]): item["vars"]
+        for item in result["generated_ansible_pull_client_vars"]
+    }
+    storage = client_vars[("prod-node", "k3s_prd_storage")]
+    server = client_vars[("prod-node", "k3s_prd_server")]
+    assert storage["k3s_iscsi_session_enabled"] is True
+    assert storage["k3s_local_storage_enabled"] is True
+    assert storage["k3s_local_storage_device"].endswith("-part1")
+    assert storage["k3s_local_storage_node_password_sync_enabled"] is False
+    assert "k3s_server" not in storage
+    assert server["k3s_release_version"] == "v1.35.4+k3s1"
+    assert server["k3s_build_cluster"] is False
+    assert server["k3s_control_node"] is True
+    assert server["k3s_flannel_backend"] == "vxlan"
+    assert server["k3s_flannel_mtu"] == 1400
+    assert server["k3s_server"]["node-ip"] == "192.0.2.30"
+    assert "k3s_iscsi_session_target_iqn" in server
+
+
 def test_host_specific_tftp_artifacts() -> None:
     module = load_filter_module()
     hostvars = {
@@ -264,6 +309,7 @@ def test_picoclaw_base_vars_are_host_scoped() -> None:
 
 def main() -> None:
     test_k3s_stg_storage_vars()
+    test_k3s_production_server_and_storage_vars()
     test_host_specific_tftp_artifacts()
     test_picoclaw_base_vars_are_host_scoped()
     print("openwrt_pxe_client_catalog checks ok")

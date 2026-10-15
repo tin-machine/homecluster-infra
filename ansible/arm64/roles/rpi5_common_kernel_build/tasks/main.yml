@@ -275,6 +275,15 @@
   changed_when: true
   when: rpi5_common_kernel_build_enabled | bool
 
+- name: rpi5 common kernel DTB の bootargs を artifact 化前に正規化
+  ansible.builtin.script:
+    cmd: "{{ role_path }}/files/normalize_dtb.py {{ rpi5_common_kernel_build_device_tree_path | quote }}"
+  args:
+    executable: python3
+  register: rpi5_common_kernel_build_dtb_normalization
+  changed_when: "'status=patched' in rpi5_common_kernel_build_dtb_normalization.stdout"
+  when: rpi5_common_kernel_build_enabled | bool
+
 - name: rpi5 common kernel modules staging を作成
   ansible.builtin.shell: |
     set -euo pipefail

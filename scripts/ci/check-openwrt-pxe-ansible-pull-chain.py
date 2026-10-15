@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import os
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -348,6 +350,31 @@ def test_homecluster_stage_wrapper_template() -> None:
         )
 
 
+def test_homecluster_stage_wrapper_selects_production_roles() -> None:
+    source = read_text(HOMECLUSTER_STAGE_WRAPPER)
+    source = source.replace(
+        'exec /usr/local/sbin/pxe-ansible-pull-wrapper.sh "${role}"',
+        'printf "selected=%s\\n" "${role}"',
+    )
+    cases = (
+        ("prod", "base,k3s_prd_storage,k3s_prd_server", "storage", "selected=k3s_prd_storage"),
+        ("prod", "base,k3s_prd_storage,k3s_prd_server", "k3s-converge", "selected=k3s_prd_server"),
+        ("stg", "base,k3s_stg_storage,k3s_stg_server", "storage", "selected=k3s_stg_storage"),
+        ("stg", "base,k3s_stg_storage,k3s_stg_server", "k3s-converge", "selected=k3s_stg_server"),
+        ("prod", "base,k3s_stg_storage,k3s_stg_server", "k3s-converge", ""),
+    )
+    for stage, roles, step, expected in cases:
+        result = subprocess.run(
+            ["/bin/sh", "-c", source, "stage-wrapper", step],
+            env={**os.environ, "STAGE": stage, "ROLES": roles},
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert result.returncode == 0, (stage, step, result.stderr)
+        assert result.stdout.strip() == expected, (stage, step, result.stdout)
+
+
 def test_homecluster_stage_unit_template() -> None:
     text = read_text(HOMECLUSTER_STAGE_UNIT_TEMPLATE)
 
@@ -517,6 +544,7 @@ def main() -> None:
     test_dependency_override_template()
     test_on_success_template()
     test_homecluster_stage_wrapper_template()
+    test_homecluster_stage_wrapper_selects_production_roles()
     test_homecluster_stage_unit_template()
     test_homecluster_unit_chain_is_not_direct_enabled()
     test_homecluster_unit_chain_adr_contract()

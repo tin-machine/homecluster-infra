@@ -309,6 +309,7 @@ if command -v python3 >/dev/null 2>&1; then
   python3 -m py_compile scripts/ci/check-rpi5-common-kernel-identity-status.py
   python3 -m py_compile scripts/ci/check-pxe-standard-source-validate.py
   python3 -m py_compile scripts/ci/check-openwrt-srv-ext4-preflight.py
+  python3 -m py_compile scripts/ansible/test_k3s_local_storage_identity_format_guard.py
   python3 -m py_compile scripts/github-actions-runner-acceptance.py
   python3 -m py_compile scripts/ci/check-github-actions-arc-observability.py
   python3 -m py_compile .agents/skills/homecluster-ansible-implementer/scripts/check_opencode_session_export.py
@@ -324,6 +325,11 @@ if command -v python3 >/dev/null 2>&1; then
   python3 scripts/github-actions-runner-acceptance.py --self-test
   python3 scripts/ci/check-github-actions-arc-observability.py
   python3 scripts/ansible/convert_openwrt_package_task.py --self-test
+  if command -v ansible-playbook >/dev/null 2>&1; then
+    python3 -B scripts/ansible/test_k3s_local_storage_identity_format_guard.py
+  else
+    echo "ansible-playbook not found; skipping k3s identity format guard fixture"
+  fi
   .agents/skills/homecluster-ansible-implementer/scripts/check_opencode_session_export.py --self-test
   .agents/skills/homecluster-openwrt-package-boundary-auditor/scripts/check_openwrt_package_boundaries.py --self-test
   .agents/skills/homecluster-openwrt-postupgrade-check/scripts/check_openwrt_postupgrade_source_contract.py --self-test
