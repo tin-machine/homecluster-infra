@@ -1,4 +1,7 @@
 mode: daemonset
+# Collector 0.102 still supplies the Loki exporter used by the staging pipeline.
+# Validate chart updates against this image until that exporter is migrated.
+rewriteDeprecatedComponentNames: false
 image:
   repository: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib
   tag: 0.102.1

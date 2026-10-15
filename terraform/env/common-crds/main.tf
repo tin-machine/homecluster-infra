@@ -27,7 +27,7 @@ resource "helm_release" "metallb" {
   repository = "https://metallb.github.io/metallb"
   chart      = "metallb"
   namespace  = kubernetes_namespace.metallb.metadata[0].name
-  version    = "0.14.5"
+  version    = "0.16.1"
 
   set = [
     {
@@ -37,6 +37,10 @@ resource "helm_release" "metallb" {
   ]
 
   values = [yamlencode({
+    # Retain the current FRR backend when charts default to FRR-K8s.
+    frrk8s = {
+      enabled = false
+    }
     controller = {
       nodeSelector = var.addon_node_selector
       livenessProbe = {

@@ -2,6 +2,15 @@ deploymentMode: Distributed
 
 loki:
   auth_enabled: false
+  # Chart 5.48 no longer supplies placeholder bucket names.
+  storage:
+    type: s3
+    bucketNames:
+      chunks: loki
+      ruler: loki-ruler
+    s3:
+      s3ForcePathStyle: true
+      insecure: true
   server:
     log_level: info
   schemaConfig:
