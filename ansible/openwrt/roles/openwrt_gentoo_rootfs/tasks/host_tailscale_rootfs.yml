@@ -1,0 +1,80 @@
+---
+- name: Install the opted-in boot path
+  when: openwrt_gentoo_host_tailscale_enabled | bool
+  block:
+    - name: Inspect the preinstalled lower-rootfs binaries
+      ansible.builtin.stat:
+        path: "{{ host_tailscale_rootfs }}{{ item }}"
+      loop: [/usr/bin/tailscale, /usr/sbin/tailscaled]
+      register: host_tailscale_lower_binaries
+
+    - name: Require a completed package build before installing boot hooks
+      ansible.builtin.assert:
+        that:
+          - item.stat.isreg | default(false)
+          - item.stat.executable | default(false)
+        fail_msg: Build net-vpn/tailscale into this new lower rootfs first.
+      loop: "{{ host_tailscale_lower_binaries.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Check that shared lower rootfs has no machine state
+      ansible.builtin.stat:
+        path: "{{ host_tailscale_rootfs }}{{ item }}"
+      loop:
+        - /var/lib/tailscale/tailscaled.state
+        - /var/lib/rancher/k3s/.homecluster-host-state/tailscale/tailscaled.state
+      register: host_tailscale_lower_states
+      no_log: true
+
+    - name: Refuse replication of machine identity through the lower rootfs
+      ansible.builtin.assert:
+        that: not (item.stat.exists | default(false))
+      loop: "{{ host_tailscale_lower_states.results }}"
+      no_log: true
+
+    - name: Create the local helper directory
+      ansible.builtin.file:
+        path: "{{ host_tailscale_rootfs }}/usr/local/sbin"
+        state: directory
+        mode: '0755'
+
+    - name: Create the storage wants directory
+      ansible.builtin.file:
+        path: "{{ host_tailscale_rootfs }}/etc/systemd/system/homecluster-storage.service.wants"
+        state: directory
+        mode: '0755'
+
+    - name: Install the independent setup service
+      ansible.builtin.copy:
+        src: homecluster-host-tailscale.service
+        dest: "{{ host_tailscale_rootfs }}/etc/systemd/system/homecluster-host-tailscale.service"
+        mode: '0644'
+
+    - name: Install the independent setup runner
+      ansible.builtin.copy:
+        src: host-tailscale-boot.py
+        dest: "{{ host_tailscale_rootfs }}/usr/local/sbin/homecluster-host-tailscale-boot"
+        mode: '0755'
+
+    - name: Start optional setup alongside the storage success path
+      ansible.builtin.file:
+        src: ../homecluster-host-tailscale.service
+        dest: "{{ host_tailscale_rootfs }}/etc/systemd/system/homecluster-storage.service.wants/homecluster-host-tailscale.service"
+        state: link
+        force: true
+
+    - name: Prevent vendor auto-start before storage validation
+      ansible.builtin.file:
+        path: "{{ host_tailscale_rootfs }}/etc/systemd/system/multi-user.target.wants/tailscaled.service"
+        state: absent
+
+- name: Remove the optional boot path when the generation disables it
+  ansible.builtin.file:
+    path: "{{ host_tailscale_rootfs }}{{ item }}"
+    state: absent
+  loop:
+    - /etc/systemd/system/homecluster-storage.service.wants/homecluster-host-tailscale.service
+    - /etc/systemd/system/homecluster-host-tailscale.service
+    - /usr/local/sbin/homecluster-host-tailscale-boot
+  when: not (openwrt_gentoo_host_tailscale_enabled | bool)
