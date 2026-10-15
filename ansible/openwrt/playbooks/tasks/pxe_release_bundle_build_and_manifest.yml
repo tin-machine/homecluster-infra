@@ -26,6 +26,21 @@
     - pxe_release_bundle
     - pxe_release_bundle_build
 
+- name: PXE release の Pi4/Pi5 DTB を manifest 前に正規化
+  ansible.builtin.script:
+    cmd: >-
+      {{ playbook_dir }}/../../arm64/roles/rpi5_common_kernel_build/files/normalize_dtb.py
+      /srv/gentoo/tftp-root/dates/{{ item.0.release }}/{{ item.1 }}
+  loop: "{{ pxe_release_bundle_build_items | product(['bcm2711-rpi-4-b.dtb', 'bcm2712-rpi-5-b.dtb']) | list }}"
+  loop_control:
+    label: "{{ item.0.release }}/{{ item.1 }}"
+  register: pxe_release_bundle_dtb_normalization
+  changed_when: "'status=patched' in pxe_release_bundle_dtb_normalization.stdout"
+  when: not (pxe_release_bundle_skip_build | default(false) | bool)
+  tags:
+    - pxe_release_bundle
+    - pxe_release_bundle_build
+
 - name: PXE shared lower rootfsからhost固有hostnameを削除
   ansible.builtin.file:
     path: "/srv/gentoo/{{ item.release }}/nfs/etc/hostname"
