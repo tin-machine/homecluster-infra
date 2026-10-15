@@ -56,6 +56,8 @@ config:
         level: info
       metrics:
         level: basic
+        readers: null
+        address: ${env:MY_POD_IP}:8888
     pipelines:
       logs:
         receivers: [filelog/pods]

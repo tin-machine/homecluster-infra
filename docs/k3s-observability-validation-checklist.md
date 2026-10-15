@@ -50,6 +50,41 @@ site がこれらの値を変える場合、この checklist を編集せず sit
 - cluster には動作する LoadBalancer 実装と StorageClass がある。
 - public CI はこの checklist を実行しない。これは local または private operator validation 専用である。
 
+## Helm 更新前の設定互換性
+
+既存の `static-check` CI は cluster に接続せず、公開 values と合成 credential で
+MetalLB、Loki、Collector を描画し、Loki と Collector の実バイナリで設定を検証する。
+ローカルでは `bash scripts/ci/check-staging-helm-compat.sh` で公式配布を一時 directory に取得し、
+checksum を確認して同じ検証を行える。既に Chart archive と検証用 binary がある場合は次を使う。
+
+```bash
+python3 scripts/ci/check-staging-helm-compat.py \
+  --charts-dir /path/to/chart-archives \
+  --collector-binary /path/to/otelcol-contrib \
+  --loki-binary /path/to/loki-linux-amd64
+```
+
+現在の互換性の境界は次の通り。
+
+- MetalLB 0.16.1 は `frrk8s.enabled=false` で既存の FRR 方式を維持する。
+  FRR-K8s への移行は含めない。metrics は HTTPS に変わるため、独自の scrape 設定がある場合は
+  TLS と認証も確認する。公開 values は MetalLB の scrape annotations を有効にしていない。
+- Loki Chart 5.48.0 / Loki 2.9.6 は、既存の chunks / ruler bucket、S3 endpoint、
+  `boltdb-shipper` / v12 と index prefix を維持する。Chart の common storage にも同じ
+  credentials を sensitive binding で渡す。schema 移行や既存データの移動は行わない。
+  site values が保存先を上書きする場合は `loki.storage` と既存 `storage_config` を揃える。
+- Collector Chart 0.175.0 は、既存の Loki exporter を使う Collector 0.102.1 と組み合わせる。
+  component 名の自動変換を無効にし、内部 metrics を従来の `address` 設定に固定する。
+  通常構成と O4 overlay の両方を検証する。これは Chart の互換更新であり、Collector 本体の
+  更新ではない。本体更新は Loki exporter の移行と一緒に扱う。
+
+これらの互換修正と version 更新は同時に取り込む。旧 Collector Chart は新しい互換設定キーを拒否する。
+CI 成功は live acceptance を意味しない。適用時には Terraform plan の置換・削除、PVC identity、
+旧ログの参照、新規ログの到着、metrics / traces、BGP / VIP 到達性を別途確認する。
+
+上流の変更理由は [MetalLB release notes](https://metallb.io/release-notes/#version-0-16-0) と
+[Collector Chart の更新手順](https://github.com/open-telemetry/opentelemetry-helm-charts/blob/opentelemetry-collector-0.175.0/charts/opentelemetry-collector/UPGRADING.md) を参照する。
+
 ## Kubernetes health 確認
 
 まずこれを実行する。secret 値を出力しないこと。

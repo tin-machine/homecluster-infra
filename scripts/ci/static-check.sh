@@ -340,6 +340,12 @@ else
   echo "python3 not found; skipping py_compile"
 fi
 
+print_section "staging Helm configuration compatibility"
+case "${RUN_STAGING_HELM_COMPAT:-${GITHUB_ACTIONS:-0}}" in
+  1|true) bash scripts/ci/check-staging-helm-compat.sh ;;
+  *) echo "set RUN_STAGING_HELM_COMPAT=1 to validate staging Helm configs with release binaries" ;;
+esac
+
 print_section "optional ansible syntax"
 if [ "${RUN_ANSIBLE_SYNTAX:-0}" = "1" ]; then
   run_ansible_entrypoints \

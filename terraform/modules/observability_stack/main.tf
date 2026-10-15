@@ -69,7 +69,7 @@ resource "helm_release" "loki" {
   name             = local.loki_release
   repository       = "https://grafana.github.io/helm-charts"
   chart            = "loki"
-  version          = "5.45.0"
+  version          = "5.48.0"
   namespace        = kubernetes_namespace.observability.metadata[0].name
   create_namespace = false
 
@@ -88,6 +88,14 @@ resource "helm_release" "loki" {
     {
       name  = "loki.storage_config.aws.access_key_id"
       value = local.loki_objectstore_access_key
+    },
+    {
+      name  = "loki.storage.s3.accessKeyId"
+      value = local.loki_objectstore_access_key
+    },
+    {
+      name  = "loki.storage.s3.secretAccessKey"
+      value = local.loki_objectstore_secret_key
     },
     {
       name  = "loki.storage_config.aws.secret_access_key"
@@ -315,7 +323,7 @@ resource "helm_release" "otel_collector" {
   name             = local.otel_collector_release
   repository       = "https://open-telemetry.github.io/opentelemetry-helm-charts"
   chart            = "opentelemetry-collector"
-  version          = "0.93.1"
+  version          = "0.175.0"
   namespace        = kubernetes_namespace.observability.metadata[0].name
   create_namespace = false
 
