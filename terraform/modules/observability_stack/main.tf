@@ -159,7 +159,7 @@ resource "helm_release" "kube_state_metrics" {
   name             = local.kube_state_metrics_release
   repository       = "https://prometheus-community.github.io/helm-charts"
   chart            = "kube-state-metrics"
-  version          = "6.3.0"
+  version          = "6.4.2"
   namespace        = kubernetes_namespace.observability.metadata[0].name
   create_namespace = false
 
