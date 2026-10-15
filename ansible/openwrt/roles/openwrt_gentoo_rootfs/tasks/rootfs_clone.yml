@@ -129,7 +129,8 @@
 
     # kubelet の runtime state は共有 lower rootfs へ持ち越さない。
     rm -rf "${tmp}/var/lib/kubelet"
-    install -d -m 0750 "${tmp}/var/lib/kubelet"
+    mkdir -p "${tmp}/var/lib/kubelet"
+    chmod 0750 "${tmp}/var/lib/kubelet"
 
     if [ -f "${src_release_dir}/.stage3_applied" ]; then
       cp -p "${src_release_dir}/.stage3_applied" "${dest_release_dir}/.stage3_applied"

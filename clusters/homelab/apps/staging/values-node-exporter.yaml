@@ -10,3 +10,14 @@ podLabels:
 service:
   labels:
     environment: staging
+extraArgs:
+  - --collector.processes
+  - --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($|/)
+  - --collector.filesystem.fs-types-exclude=^(autofs|binfmt_misc|cgroup|debugfs|fusectl|proc|pstore|securityfs|sysfs|tracefs)$
+  - --collector.textfile.directory=/run/homecluster-node-exporter
+extraHostVolumeMounts:
+  - name: rpi-health-textfile
+    hostPath: /run/homecluster-node-exporter
+    type: DirectoryOrCreate
+    mountPath: /run/homecluster-node-exporter
+    readOnly: true

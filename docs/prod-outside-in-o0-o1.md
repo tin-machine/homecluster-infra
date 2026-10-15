@@ -1,0 +1,335 @@
+# Production outside-in monitoring MVP (O0/O1)
+
+Status: source-only candidate; no runtime apply, credentials, or private inventory.
+
+This public mechanism is for a small, stable **production k3s** cluster to observe a
+separate, experimental **staging k3s** cluster. It deliberately does not install
+the existing staging Terraform observability stack. That stack also contains
+Mimir, Loki, Tempo, object storage, and additional controllers, which are not
+needed to start detecting the staging API's failure.
+
+## O0 — discovery required before operator-authorized deployment
+
+Gather the following **read-only** observations using existing private operator
+entrypoints. Do not copy resulting hostnames, IP addresses, kubeconfigs, bearer
+tokens, Terraform state, or full output into this public repository.
+
+| Surface | Observation and decision |
+| --- | --- |
+| Production identity | Confirm current deployment context identifies the intended production cluster and the server is Ready; use the existing k3s status authority for staging rather than creating a second mutation path. |
+| Storage | Verify the production datastore mount is persistent and stable; inspect node capacity and DiskPressure. No storage reformat, target reload, or LUN login changes. |
+| Staging API | Determine externally reachable HTTPS API address, certificate SAN, CA trust, and whether unauthenticated GET /readyz is allowed. Record only the approved private target in the private site input. |
+| Staging node probes | Determine whether TCP port 9100 is actually reachable from the production Pod network. Absence is not an excuse to change staging exporters in this PR: leave tcp_targets empty. |
+| Routing and policy | Confirm Pod-source egress, DNS, port 6443 or 443, and required allowlisted CIDRs. Check the k3s network-policy controller is enforcing NetworkPolicy before trusting it as a security boundary. |
+| Workloads | Note existing Prometheus/OTel/exporter ownership on staging without changing existing scrape, Services, chart values, or state. |
+| Images | Confirm both pinned image tags have arm64 manifests and that the production registry route can pull them. |
+| Apply ownership | Identify the existing approved private production apply entrypoint; do not run the rendered output through the staging Terraform apply process. |
+
+The source inventory shows that the existing public
+`terraform/modules/observability_stack` is staging-oriented. The
+`terraform/env/production` directory is intentionally a placeholder.
+This MVP therefore renders standalone Kubernetes objects that an authorized
+private production deployment workflow can review and apply separately.
+
+## Optional staging API readiness authentication (source-only, no rollout)
+
+Kubernetes v1.34+ supports endpoint-scoped anonymous authentication using an
+`AuthenticationConfiguration`. A controlled staging-only opt-in is implemented
+by the public Ansible `k3s_networking` role:
+
+```yaml
+# Set this only for the selected staging k3s server in private inventory,
+# after source review and operator-authorized maintenance planning.
+k3s_stg_readyz_anonymous_enabled: true
+# Pin the same release selected by k3s_server_install_config; the public
+# staging group vars default to false, which is intentionally rejected.
+k3s_release_version: v1.36.5+k3s1
+```
+
+The default is **false**. This public source change alone does not change a live
+API server. Enabling the setting also requires an **explicitly pinned**
+`k3s_release_version` in private inventory. The public staging group default
+`k3s_release_version: false` is deliberately **rejected** for this opt-in:
+do not guess a new release or inspect the currently selected `k3s` symlink
+when the upcoming release might differ.
+
+The staging server playbook now **asserts and captures the effective
+inventory/run-input `k3s_release_version` in `pre_tasks`, before
+`xanmanning.k3s` can replace `false` with a channel-resolved release via
+`set_fact`. Both pre-tasks explicitly carry `k3s_networking` tags, so
+`--tags k3s_networking` cannot skip the early provenance check. The
+`k3s_networking` role then compares the saved original pin against its
+effective release *after* the upstream role. An unsupported, missing or
+upstream-rewritten release fails **before either authn file is written**.
+
+The same `k3s_networking` role validates the selected release as v1.34+
+and directly inspects and runs `<install-dir>/k3s-<pinned-release> --version`.
+The versioned file must exist, be regular and executable, and report **the
+same release**. The command is read-only (`changed_when: false`,
+`check_mode: false`) and does not rely on a symlink created later by
+`k3s_server_install_config`.
+
+A **networking-only tagged run** does not invoke the later server-install
+role that would update `/usr/local/bin/k3s`. For that case, the role
+also checks with `stat(follow=false)` that the live `k3s` symlink points
+to the exact validated versioned file; a missing/stale/non-symlink link
+fails before authn configuration. Full staging convergence may let the
+server-install role repoint the link afterward; if its tag is explicitly
+skipped, the live-link check is still required. This preserves the
+difference between a full two-role convergence and a partial tagged
+operation, including in `--check` mode.
+
+On initial PXE or check-mode runs when the intended downloaded binary is
+not yet available, this safety check intentionally **fails closed**, rather
+than writing an authentication flag for an unverified release. First
+converge/download the pinned binary through the existing owner, then retry
+the staging-only opt-in. The two generated files are:
+
+- `/etc/rancher/k3s/authentication-stg-readyz.yaml`:
+  `anonymous.enabled=true`, with **only** `conditions: [{path: /readyz}]`.
+- `/etc/rancher/k3s/config.yaml`: an additional
+  `kube-apiserver-arg: [authentication-config=/etc/rancher/k3s/authentication-stg-readyz.yaml]`
+  when the opt-in is enabled.
+
+In the staging site playbook, `k3s_defer_service_restart=true`, so writing
+the files does **not** restart the running k3s API server. An operator-controlled
+restart or cold boot is required before this setting takes effect. On PXE
+overlay-root nodes, both files must be recreated by the Ansible convergence
+path at every boot **before** the k3s server starts. Confirm the
+`authentication-config` file survives that sequence in the *effective* overlay
+and that the effective flags do not also include `--anonymous-auth=false`.
+Do not deploy only the config-file reference without its target file.
+
+This does **not** intentionally grant anonymous access to `/api` or `/apis`.
+Authentication and authorization are separate: where the existing upstream
+`system:public-info-viewer` ClusterRoleBinding already grants
+`system:unauthenticated` read access to `GET /readyz`, **do not create
+another RBAC binding**. Verify the effective binding read-only and check
+the following with TLS CA and SAN verification *after* the authorized restart:
+
+- Anonymous HTTPS `GET /readyz` must yield HTTP 200 with body `ok`.
+- Anonymous HTTPS `GET /api` and `GET /apis` must be rejected (normally 401).
+- An authenticated operator client and all existing staging workloads still
+  behave as before; staging node readiness returns to the pre-change baseline.
+
+If this fails, keep the endpoint-scoped gate; do not replace it with globally
+enabled anonymous authentication or skip TLS verification. No client key or
+token is used for this proposed readiness probe; the CA Secret remains a
+**server certificate trust** input on the production Blackbox side.
+
+The staging authentication change is **staging server only**. Production k3s,
+Secret delivery, the outside-in renderer, and its admission are separately
+reviewed stages before O1 apply.
+
+Reference:
+
+- [Kubernetes authentication](https://kubernetes.io/docs/reference/access-authn-authz/authentication/)
+- [K3s API server implementation](https://github.com/k3s-io/k3s/blob/v1.36.5%2Bk3s1/pkg/daemons/control/server.go)
+
+## O1 — minimal deployed components
+
+The renderer is `scripts/prod_outside_in_render.py`.
+It creates a Kubernetes List containing:
+
+- A dedicated `observability-prod` namespace.
+- One **Blackbox Exporter** Deployment / ClusterIP Service; HTTP `/readyz`
+  probes demand TLS verification, status 200, and response body `ok`.
+- One small **Prometheus** Deployment / ClusterIP Service, scraping the
+  exporter every 30 seconds plus its own health metrics.
+- One `local-path` PersistentVolumeClaim (`prod-prometheus-data`, `4Gi`,
+  `ReadWriteOnce`) for Prometheus TSDB. The production node's local-path
+  backing directory must be on its iSCSI ext4 mount; the claim, generated PV,
+  and non-root write access are runtime acceptance gates.
+- ConfigMaps for the Blackbox modules and Prometheus target list. Each relevant
+  Deployment Pod template includes a SHA-256 annotation calculated from the
+  exact rendered ConfigMap content. Changing a target recreates the Prometheus
+  Pod; changing Blackbox probe modules recreates the Blackbox Pod. Identical
+  inputs produce identical annotations and do not cause needless rollouts.
+  Automatic Prometheus reload is **not** assumed or enabled.
+- Prometheus uses `/-/ready` for readiness (query-serving readiness) and
+  `/-/healthy` for liveness. These endpoints intentionally differ.
+- Ingress/egress NetworkPolicies scoped to the two Pods and explicitly
+  declared narrow destination CIDRs. DNS is allowed on port 53;
+  egress probing is confined to TCP 443, 6443 and 9100.
+- Prometheus retains data for 7 days or 2GB of TSDB blocks and mounts the
+  claim at `/prometheus`. `4Gi` is a storage request, not a quota; retention
+  does not strictly bound WAL, head, or compaction space. Monitor actual use
+  and DiskPressure because the TSDB shares the iSCSI filesystem with the
+  production k3s datastore. A ConfigMap checksum rollout keeps the same PVC.
+  If the operator rotates only the *contents* of an existing CA Secret without
+  changing its name, the checksum does not change; coordinate an explicit
+  Blackbox Pod rollout after such Secret rotation.
+
+The Deployment service accounts do not mount Kubernetes API tokens. Services
+use ClusterIP only. No ingress, nodeport, load balancer, API credentials,
+staging mutation, collector reconfiguration, alerting, or dashboard is
+created. A PV is provisioned only when the approved PVC binds. NetworkPolicy
+enforcement must be independently verified: manifest
+existence alone does not prove traffic isolation.
+
+## Site input contract (private; never commit)
+
+Prepare a JSON file outside source control, owned by the operator with mode
+0600. This example uses documentation-only domain names and address ranges;
+replace all values after the O0 discovery.
+
+```json
+{
+  "api_targets": [
+    {"name": "staging-api", "target": "https://api.lab.example.invalid:6443/readyz"}
+  ],
+  "tcp_targets": [],
+  "egress_cidrs": ["198.51.100.0/24"],
+  "api_ca_secret": null
+}
+```
+
+- `api_targets`: 1–4 approved HTTPS `/readyz` URLs on port 443 or
+  6443, no credentials, query strings, or redirects. An API that denies
+  unauthenticated requests blocks the current module until a separately
+  authorized, **/readyz-only anonymous authentication** configuration is
+  confirmed on staging. Never globally open unrelated API endpoints or
+  disable TLS verification to bypass this check.
+- `tcp_targets`: optional 0–8 `host:9100` targets, only if O0 confirmed
+  the host/port is reachable and the node exporter protocol matches.
+- `egress_cidrs`: 1–12 IPv4 networks, all with prefix length at least /24.
+  Keep them as narrow as the actual observed target IPs allow (prefer /32).
+  Targets resolving outside these ranges will fail to probe when the
+  NetworkPolicy controller enforces the policy.
+- `api_ca_secret`: optional name of a **pre-existing** Kubernetes Secret
+  in the namespace, containing key `ca.crt`. Create and own the Secret
+  through the private credentials workflow. No CA value is accepted by the
+  renderer or stored in the public repo.
+- No bearer tokens or credentials are supported in the initial MVP.
+
+The renderer rejects unknown fields, broad CIDRs, unsafe output paths,
+HTTP downgrades, unexpected ports, duplicate target names, and missing APIs.
+It does not discover or guess staging addresses.
+
+## Render and source validation
+
+After preparing the private site input:
+
+```bash
+python3 scripts/prod_outside_in_render.py \
+  --site-config /path/to/operator-private/site.json \
+  --validate-only
+
+# The following directory must already exist, be operator-owned, and mode 0700.
+python3 scripts/prod_outside_in_render.py \
+  --site-config /path/to/operator-private/site.json \
+  --output /path/to/operator-private/rendered/prod-outside-in.json
+
+# Source/client-side validation only; no cluster changes:
+kubectl apply --dry-run=client --validate=false \
+  -f /path/to/operator-private/rendered/prod-outside-in.json
+```
+
+The output file is created with mode 0600 and must not already exist.
+Never send the rendered output to GitHub, a public CI log, or an artifact.
+Kubernetes-specific validation, registry image pull, and the apply
+controller's policy remain a separate acceptance.
+
+Fixture-only tests (no k3s, network, credentials, or image pull required):
+
+```bash
+python3 -m unittest discover -s scripts -p 'test_prod_outside_in*.py' -v
+```
+
+## O2 source-only extension: direct staging node metrics (not yet applied)
+
+The O1 four-key site input still produces **exactly the same ten resources**,
+including unchanged Blackbox jobs and Prometheus egress NetworkPolicy. O2 can
+be prepared independently by adding an optional fifth key `metrics_targets`
+to the owner-only site input (omission or `[]` disables direct scraping):
+
+```json
+{
+  "api_targets": [
+    {"name": "staging-api", "target": "https://api.lab.example.invalid:6443/readyz"}
+  ],
+  "tcp_targets": [],
+  "egress_cidrs": ["198.51.100.0/24"],
+  "api_ca_secret": null,
+  "metrics_targets": [
+    {"name": "stg-node-1", "target": "node1.lab.example.invalid:9100"}
+  ]
+}
+```
+
+- `metrics_targets`: at most four **explicit** approved node-exporter
+  `host:9100` endpoints; no URL scheme, paths, credentials, other ports, IPv6,
+  or broad/unsafe endpoint defaults. Duplicate names and endpoints fail.
+  Names become `node_name` labels. The private operator must inspect the
+  actual 4 staging nodes and verify each scrape target before live update;
+  O1's existing three TCP reachability probes are not sufficient evidence
+  of successful direct node metrics collection.
+- The opt-in `staging-node-exporter` Prometheus job directly scrapes `/metrics`
+  over HTTP every 60 seconds, with a 10-second timeout, fixed 2,000-sample
+  limit per scrape and metric-name allowlist for basic CPU, memory,
+  filesystem, load, uptime and network I/O. Do **not** confuse
+  `probe_success` from Blackbox with Prometheus `up` for a direct scrape.
+- Only when `metrics_targets` is nonempty, Prometheus egress NetworkPolicy
+  adds TCP/9100 to the existing explicit private `egress_cidrs`.
+  Blackbox egress, O1 scrape jobs, Service, PVC, images, permissions,
+  Pod security and retention stay unchanged. This extension uses the
+  **same ten resource identities** and a checksum-driven `Recreate`
+  rollout of the existing Prometheus Deployment when the ConfigMap changes.
+  The operator must verify CIDRs cover every approved real target; DNS
+  resolution and SNAT still require live acceptance.
+- **No runtime update mechanism is added here.** The existing private
+  `prod-observability.apply-initial` operation is create-only and cannot
+  update a deployed O1. A separate reviewed controller reconcile/update
+  operation, or an explicitly authorized bounded one-off update, must be
+  accepted before any live O2 mutation. Do not use the source PR or its
+  CI success as permission for `kubectl apply`.
+- O2 completion additionally needs a small production Grafana with a
+  verified Prometheus datasource/dashboard and four-node real metrics,
+  along with post-update TSDB/PVC history continuity. Grafana is not
+  included in this source-only change; avoid expanding the O1 renderer
+  resource allowlist before choosing its private mutation owner.
+
+## Disposable negative-probe acceptance
+
+`scripts/prod_outside_in_negative_acceptance.py` renders a fixed three-object
+List: one ConfigMap, one Pod running the same pinned Prometheus image, and one
+NetworkPolicy that lets this Pod scrape the existing production Blackbox
+Exporter. Its only target is unreachable loopback HTTPS. It contains no site
+input or credentials, has bounded CPU, memory, and temporary `emptyDir`, and
+does not match the production Prometheus Service selector. The existing
+Prometheus configuration and Deployment remain unchanged.
+
+An operator may render the List to a local file, review the identities,
+server-dry-run it, create it temporarily, query that Pod for
+`probe_success=0` and `up=1`, then delete exactly the same List. This tests
+the scrape-versus-probe distinction in the production cluster using the
+existing Blackbox path. It does **not** prove that the existing Prometheus
+instance has collected a negative series. Source merge itself creates no
+Kubernetes resources.
+
+## Operator review / runtime acceptance (not done by this PR)
+
+1. Approve the exact rendered resource set and destinations via the existing
+    private production mutation authority, not staging Terraform.
+2. Compare prod/stg readiness and the prod datastore mount before/after.
+3. Verify only the intended namespace and two Pods are added; verify CPU,
+    memory, TSDB space, and DNS/NetworkPolicy behavior.
+4. Query Prometheus on the prod side for
+    `probe_success{job="staging-api"}`,
+    `probe_duration_seconds`, and the self `up` series.
+    A real healthy readiness response should produce `probe_success=1`.
+    A failed probe should produce `probe_success=0` with an independent
+    Prometheus scrape `up=1`. A scrape failure (`up=0`) is different.
+5. Use a **test target** to simulate failure. Do not stop/restart the actual
+    staging API, k3s, OpenWrt target daemon, or any iSCSI connection.
+6. Confirm metrics collection continues within prod when staging probes fail;
+    verify that existing TSDB series survive a Prometheus Pod recreation and
+    that the PVC is on the intended iSCSI ext4 filesystem.
+7. Only then expand into O2 Grafana and node metrics; O3 alerts and O4 logs
+    follow independently.
+
+## References
+
+- [Prometheus Blackbox Exporter configuration](https://github.com/prometheus/blackbox_exporter/blob/master/CONFIGURATION.md)
+- [Prometheus configuration](https://prometheus.io/docs/prometheus/latest/configuration/configuration/)
+- [Kubernetes NetworkPolicy](https://kubernetes.io/docs/concepts/services-networking/network-policies/)

@@ -1,0 +1,58 @@
+---
+# Fork an accepted Pi 5 PXE release before making production-only rootfs edits.
+# The staging source and all live host selectors remain unchanged.
+- name: Clone a Pi 5 PXE release for production
+  hosts: openwrt
+  gather_facts: false
+  become: false
+  pre_tasks:
+    - name: Validate the paired release names
+      ansible.builtin.assert:
+        that:
+          - pxe_prod_source_release | default('') is match('^[0-9]{8}-rpi5$')
+          - pxe_prod_dest_release | default('') == (pxe_prod_source_release | default('') | regex_replace('-rpi5$', '-prod-rpi5'))
+        fail_msg: Supply a Pi 5 source and the same-date production destination.
+
+    - name: Check source and destination release paths
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - "/srv/gentoo/{{ pxe_prod_source_release }}/nfs"
+        - "/srv/gentoo/tftp-root/dates/{{ pxe_prod_source_release }}"
+        - "/srv/gentoo/tftp-root/dates/{{ pxe_prod_dest_release }}"
+      register: pxe_prod_clone_paths
+
+    - name: Require an existing source and a new TFTP destination
+      ansible.builtin.assert:
+        that:
+          - pxe_prod_clone_paths.results[0].stat.isdir | default(false)
+          - pxe_prod_clone_paths.results[1].stat.isdir | default(false)
+          - not (pxe_prod_clone_paths.results[2].stat.exists | default(false))
+        fail_msg: The source release must exist and the destination TFTP release must be unused.
+
+  tasks:
+    - name: Clone the lower rootfs with identity cleanup
+      ansible.builtin.include_role:
+        name: openwrt_gentoo_rootfs
+        tasks_from: rootfs_clone
+      vars:
+        openwrt_gentoo_rootfs_clone_enabled: true
+        openwrt_gentoo_rootfs_clones:
+          - name: production-pi5
+            src_release: "{{ pxe_prod_source_release }}"
+            dest_release: "{{ pxe_prod_dest_release }}"
+
+    - name: Clone TFTP artifacts without changing the source
+      ansible.builtin.shell: |
+        set -euo pipefail
+        source_dir="/srv/gentoo/tftp-root/dates/{{ pxe_prod_source_release }}"
+        target_dir="/srv/gentoo/tftp-root/dates/{{ pxe_prod_dest_release }}"
+        temporary_dir="${target_dir}.clone.$$"
+        mkdir "${temporary_dir}"
+        trap 'rm -rf "${temporary_dir}"' EXIT HUP INT TERM
+        rsync -a "${source_dir}/" "${temporary_dir}/"
+        mv "${temporary_dir}" "${target_dir}"
+        trap - EXIT HUP INT TERM
+      args:
+        executable: /bin/ash
+        creates: "/srv/gentoo/tftp-root/dates/{{ pxe_prod_dest_release }}"

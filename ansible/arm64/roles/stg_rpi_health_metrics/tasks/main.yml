@@ -1,0 +1,81 @@
+---
+- name: Install Raspberry Pi firmware utility
+  become: true
+  ansible.builtin.package:
+    name: dev-embedded/raspberrypi-utils
+    state: present
+
+- name: Create node-exporter textfile directory
+  become: true
+  ansible.builtin.file:
+    path: /run/homecluster-node-exporter
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Create local collector executable directory
+  become: true
+  ansible.builtin.file:
+    path: /usr/local/libexec
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Install Raspberry Pi health collector
+  become: true
+  ansible.builtin.copy:
+    src: homecluster-rpi-health-metrics.py
+    dest: /usr/local/libexec/homecluster-rpi-health-metrics.py
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Install Raspberry Pi health collection service
+  become: true
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/homecluster-rpi-health-metrics.service
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      [Unit]
+      Description=Collect Raspberry Pi and iSCSI health metrics
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/bin/python3 /usr/local/libexec/homecluster-rpi-health-metrics.py
+
+- name: Install Raspberry Pi health collection timer
+  become: true
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/homecluster-rpi-health-metrics.timer
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      [Unit]
+      Description=Collect Raspberry Pi and iSCSI health metrics every 30 seconds
+
+      [Timer]
+      OnBootSec=15s
+      OnUnitActiveSec=30s
+      Unit=homecluster-rpi-health-metrics.service
+
+      [Install]
+      WantedBy=timers.target
+
+- name: Enable Raspberry Pi health collection timer
+  become: true
+  ansible.builtin.systemd:
+    name: homecluster-rpi-health-metrics.timer
+    daemon_reload: true
+    enabled: true
+    state: started
+
+- name: Collect initial Raspberry Pi health sample
+  become: true
+  ansible.builtin.systemd:
+    name: homecluster-rpi-health-metrics.service
+    state: started

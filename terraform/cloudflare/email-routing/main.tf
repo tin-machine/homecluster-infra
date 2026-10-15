@@ -1,6 +1,6 @@
 resource "cloudflare_email_routing_dns" "zone" {
+  # Apex enablement omits name; the API interprets an explicit name as a subdomain.
   zone_id = var.zone_id
-  name    = var.zone_name
 
   lifecycle {
     prevent_destroy = true

@@ -100,3 +100,9 @@ kubelet-arg:
 {% endif %}
 flannel-backend: {{ k3s_flannel_backend }}
 flannel-mtu: {{ k3s_flannel_mtu }}
+{% if k3s_stg_readyz_anonymous_enabled | default(false) | bool %}
+# Endpoint-scoped anonymous authentication is intentionally staging-server-only.
+# Preserve kube-apiserver's default anonymous-auth=false elsewhere.
+kube-apiserver-arg:
+  - authentication-config=/etc/rancher/k3s/authentication-stg-readyz.yaml
+{% endif %}
