@@ -316,6 +316,7 @@ if command -v python3 >/dev/null 2>&1; then
   python3 -m py_compile .agents/skills/homecluster-openwrt-package-boundary-auditor/scripts/check_openwrt_package_boundaries.py
   python3 -m py_compile .agents/skills/homecluster-openwrt-postupgrade-check/scripts/check_openwrt_postupgrade_source_contract.py
   python3 scripts/ci/check-openwrt-pxe-client-catalog.py
+  python3 scripts/ci/check-host-tailscale.py
   python3 scripts/ci/check-k3s-converge-contract.py
   python3 scripts/ci/check-openwrt-pxe-ansible-pull-chain.py
   python3 scripts/ci/check-pxe-release-identity-status.py

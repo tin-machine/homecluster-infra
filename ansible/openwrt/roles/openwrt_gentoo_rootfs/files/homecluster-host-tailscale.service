@@ -1,0 +1,13 @@
+[Unit]
+Description=Independent host Tailscale setup after persistent storage
+After=homecluster-storage.service
+ConditionPathExists=/run/dhcp/role.env
+ConditionPathIsMountPoint=/var/lib/rancher/k3s
+
+[Service]
+Type=oneshot
+EnvironmentFile=/run/dhcp/role.env
+ExecStart=/usr/bin/flock /run/ansible-pull.lock /usr/local/sbin/homecluster-host-tailscale-boot
+TimeoutStartSec=20min
+UMask=0077
+# No OnSuccess/Requires links into the k3s or Terraform convergence chain.
