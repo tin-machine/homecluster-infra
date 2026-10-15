@@ -97,8 +97,9 @@ variable "catch_all" {
   })
 
   validation {
-    condition     = trimspace(var.catch_all.name) != "" && length(var.catch_all.name) <= 256
-    error_message = "catch_all.name must be non-empty and no longer than 256 characters."
+    # An existing Cloudflare catch-all can have an empty name after import.
+    condition     = (var.catch_all.name == "" || trimspace(var.catch_all.name) != "") && length(var.catch_all.name) <= 256
+    error_message = "catch_all.name must be empty or non-whitespace and no longer than 256 characters."
   }
 
   validation {
