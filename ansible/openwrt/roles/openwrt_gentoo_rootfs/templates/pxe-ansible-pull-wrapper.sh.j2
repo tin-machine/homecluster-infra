@@ -301,6 +301,52 @@ token_file_is_usable() {
   [ "${age}" -le "${K3S_STG_AGENT_TOKEN_MAX_AGE_SECS}" ]
 }
 
+# Optional evidence of checkout HEAD just after a successful ansible-pull.
+# The flock-serialized wrapper does not pin code before execution.
+read_boot_id() {
+  cat /proc/sys/kernel/random/boot_id 2>/dev/null || true
+}
+
+record_post_pull_identity() {
+  receipt_rc="$1"
+  receipt_path="$(state_file_for_role "${ROLE}")"
+  receipt_path="${receipt_path%.env}.post-pull.env"
+  rm -f "${receipt_path}" || return 1
+  [ "${receipt_rc}" = "0" ] || return 0
+  [ "${CURRENT_STEP}" = "complete" ] || return 0
+  case "${STAGE:-}" in stg|staging) ;; *) return 0 ;; esac
+  [ "${BRANCH:-}" = "stg" ] || return 0
+  [ -d "${DEST}/.git" ] || return 0
+  case "${ROLE}" in ""|*[!A-Za-z0-9_.@-]*) return 0 ;; esac
+
+  receipt_boot="$(read_boot_id)"
+  receipt_head="$(git -C "${DEST}" rev-parse --verify 'HEAD^{commit}' 2>/dev/null || true)"
+  printf '%s\n' "${receipt_boot}" |
+    grep -Eq '^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$' || return 0
+  printf '%s\n' "${receipt_head}" |
+    grep -Eq '^[0-9a-f]{40}$' || return 0
+  receipt_time="$(now_epoch)"
+  case "${receipt_time}" in ""|*[!0-9]*) return 0 ;; esac
+
+  receipt_tmp="${receipt_path}.tmp.$$"
+  if (
+    umask 0077
+    {
+      printf '%s\n' 'SCHEMA=1'
+      printf 'ROLE=%s\n' "${ROLE}"
+      printf 'STAGE=%s\n' "${STAGE}"
+      printf 'BRANCH=%s\n' "${BRANCH}"
+      printf 'BOOT_ID=%s\n' "${receipt_boot}"
+      printf 'CHECKOUT_HEAD_AFTER_SUCCESS=%s\n' "${receipt_head}"
+      printf 'RECORDED_AT_EPOCH=%s\n' "${receipt_time}"
+    } > "${receipt_tmp}" &&
+    mv -f "${receipt_tmp}" "${receipt_path}"
+  ); then
+    return 0
+  fi
+  rm -f "${receipt_tmp}" || true
+  return 1
+}
 log_state() {
   rc="$1"
   elapsed="$2"
@@ -332,6 +378,7 @@ finish() {
     end_ts="$(now_epoch)"
     elapsed=$(( end_ts - START_TS ))
     log_state "${rc}" "${elapsed}"
+    record_post_pull_identity "${rc}" || true
     if should_notify "${rc}"; then
       SLACK_NOTIFY_AGGREGATE=1 /usr/local/sbin/pxe-slack-notify.sh "${ROLE}" || true
     fi
