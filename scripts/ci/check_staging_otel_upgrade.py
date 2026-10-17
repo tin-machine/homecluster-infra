@@ -69,18 +69,20 @@ def contract(before, after):
     require(a["metadata"]["name"] == b["metadata"]["name"], "DaemonSet renamed")
     require(a["spec"]["selector"] == b["spec"]["selector"], "immutable selector changed")
     pods = [d["spec"]["template"]["spec"] for d in (a, b)]
-    for field in ("serviceAccountName", "nodeSelector", "tolerations", "hostNetwork", "hostPID"):
+    for field in ("serviceAccountName", "nodeSelector", "tolerations"):
         require(pods[0].get(field) == pods[1].get(field), f"Pod {field} changed")
+    for field in ("hostNetwork", "hostPID"):
+        require(pods[0].get(field, False) == pods[1].get(field, False), f"Pod {field} changed")
     for pod in pods:
         require(len(pod["containers"]) == 1, "unexpected sidecar")
     containers = [pod["containers"][0] for pod in pods]
     for container in containers:
         require(container["image"] == IMAGE, "Collector application pin changed")
     for field in ("command", "args", "resources", "securityContext", "volumeMounts", "ports"):
-        require(containers[0].get(field) == containers[1].get(field), f"container {field} changed")
+        require(containers[0].get(field) == containers[1].get(field), f"container {field} changed: {containers[0].get(field)!r} -> {containers[1].get(field)!r}")
     require(pods[0]["volumes"] == pods[1]["volumes"], "config/host/CA volume changed")
     old_env, new_env = ({e["name"]: e for e in c["env"]} for c in containers)
-    require(all(new_env.get(k) == v for k, v in old_env.items()), "existing environment/Secret changed")
+    require(all(new_env.get(k) == v for k, v in old_env.items()), f"existing environment/Secret changed: {old_env!r} -> {new_env!r}")
     # Additions are allowed only for the chart's Kubernetes downward API metadata.
     for name in new_env.keys() - old_env.keys():
         require(name.startswith("OTEL_K8S_") and "fieldRef" in new_env[name].get("valueFrom", {}),
@@ -93,7 +95,7 @@ def contract(before, after):
             # Application protocol hints do not change traffic routing.
             protocol = port.pop("appProtocol", None)
             require(protocol in (None, "grpc", "http"), "unexpected appProtocol")
-    require(services[0] == services[1], "Service routing changed")
+    require(services[0] == services[1], f"Service routing changed: {services!r}")
     old_config, new_config = active_config(relay(before)), active_config(relay(after))
     require(old_config == new_config,
             f"active Collector config changed:\n{yaml.safe_dump(old_config)}\n->\n{yaml.safe_dump(new_config)}")

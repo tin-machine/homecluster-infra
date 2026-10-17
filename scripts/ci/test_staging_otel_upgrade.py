@@ -100,6 +100,18 @@ class CollectorChartTest(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     contract(old, new)
 
+    def test_omitted_false_host_flags_are_equivalent(self):
+        old, new = fixture(), fixture()
+        pod = new[0]["spec"]["template"]["spec"]
+        pod.update(hostPID=False, hostNetwork=False)
+        contract(old, new)
+        for field in ("hostPID", "hostNetwork"):
+            with self.subTest(field=field):
+                pod[field] = True
+                with self.assertRaises(ValueError):
+                    contract(old, new)
+                pod[field] = False
+
     def test_app_protocol_hint_allowed(self):
         old, new = fixture(), fixture()
         new[2]["spec"]["ports"][0]["appProtocol"] = "http"
