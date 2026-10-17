@@ -37,6 +37,12 @@ resource "helm_release" "metallb" {
   ]
 
   values = [yamlencode({
+    # Keep the existing FRR sidecar; migrate to FRR-K8s separately.
+    # MetalLB 0.16 enables FRR-K8s by default, mutually exclusive with FRR.
+    frrk8s = {
+      enabled  = false
+      external = false
+    }
     controller = {
       nodeSelector = var.addon_node_selector
       livenessProbe = {
