@@ -26,6 +26,17 @@ APPS = ROOT / "clusters/homelab/apps"
 SENTINEL = "grafana-upgrade-ci-sentinel"
 
 
+class HelmLoader(yaml.SafeLoader):
+    """Accept Helm's unquoted '=' scalar used by Grafana notification matchers."""
+
+
+HelmLoader.add_constructor("tag:yaml.org,2002:value", HelmLoader.construct_scalar)
+
+
+def load_config(text: str):
+    return yaml.load(text, Loader=HelmLoader)
+
+
 def require(condition: bool, message: str) -> None:
     if not condition:
         raise ValueError(message)
@@ -126,9 +137,9 @@ def validate_contract(old: list[dict], new: list[dict]) -> None:
     require(old_files.keys() == new_files.keys(), "provisioning mounts changed")
     for path in old_files:
         if path.endswith(".yaml"):
-            require(yaml.safe_load(old_files[path]) == yaml.safe_load(new_files[path]),
+            require(load_config(old_files[path]) == load_config(new_files[path]),
                     f"provisioning changed during Helm rendering: {path}")
-    sources = yaml.safe_load(new_files["/etc/grafana/provisioning/datasources/datasources.yaml"])["datasources"]
+    sources = load_config(new_files["/etc/grafana/provisioning/datasources/datasources.yaml"])["datasources"]
     require({s["uid"] for s in sources} == {"mimir", "prometheus", "loki", "tempo"}, "datasource set changed")
     require(all(re.fullmatch(r"[A-Za-z0-9_-]{1,40}", s["uid"]) for s in sources), "invalid datasource UID")
     require([s["uid"] for s in sources if s.get("isDefault")] == ["mimir"], "default datasource changed")
@@ -198,7 +209,7 @@ class GrafanaProcess:
             host.chmod(0o644)
             args += ["--volume", f"{host}:{path}:ro"]
             if path.endswith(".yaml"):
-                config = yaml.safe_load(text)
+                config = load_config(text)
                 for provider in config.get("providers", []):
                     dashboard_paths.append(provider["options"]["path"])
         require(len(dashboard_paths) == 1, "expected one dashboard provider")

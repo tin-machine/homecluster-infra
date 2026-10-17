@@ -8,7 +8,7 @@ import unittest
 import yaml
 
 from check_staging_grafana_upgrade import (
-    check_dashboards, memory_bytes, validate_contract,
+    check_dashboards, load_config, memory_bytes, validate_contract,
 )
 
 
@@ -38,6 +38,12 @@ def manifests():
 
 
 class ContractTest(unittest.TestCase):
+    def test_helm_notification_matcher_scalar(self):
+        self.assertEqual(load_config("object_matchers:\n- [scope, =, openwrt-security]"),
+                         {"object_matchers": [["scope", "=", "openwrt-security"]]})
+        with self.assertRaises(yaml.constructor.ConstructorError):
+            load_config("value: !unknown-tag nope")
+
     def test_unchanged_contract(self):
         old = manifests()
         validate_contract(old, copy.deepcopy(old))
