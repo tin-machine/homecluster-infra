@@ -11,29 +11,34 @@ service:
     app.kubernetes.io/component: traces
     app.kubernetes.io/part-of: observability
     environment: staging
-resources:
-  requests:
-    cpu: 100m
-    memory: 256Mi
-  limits:
-    memory: 512Mi
 tempo:
+  # The chart reads tempo.resources, not the top-level resources key.
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
+  memBallastSizeMbs: 0
+  extraEnv:
+    - name: GOMEMLIMIT
+      value: 400MiB
   storage:
     trace:
       local:
         path: /var/tempo/traces
-  distributor:
-    receivers:
-      otlp:
-        protocols:
-          grpc:
-            endpoint: 0.0.0.0:4317
-            tls:
-              enabled: false
-          http:
-            endpoint: 0.0.0.0:4318
-            tls:
-              enabled: false
+      # Retain the stable format; do not opt into the 2.9 vParquet5 previews.
+      block:
+        version: vParquet4
+  # Helm maps tempo.receivers into distributor.receivers in tempo.yaml.
+  # Omit tls entirely for plaintext OTLP; tls.enabled is not a receiver option.
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
 persistence:
   size: 20Gi
   annotations:
