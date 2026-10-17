@@ -106,9 +106,30 @@ def contract(old: list[dict], new: list[dict]) -> None:
     require({d["metadata"]["name"] for d in old if d.get("kind") == "CustomResourceDefinition"} <= crds.keys(), "CRD removed")
     for version in crds["bgppeers.metallb.io"]["spec"]["versions"]:
         props = version["schema"]["openAPIV3Schema"]["properties"]["spec"]["properties"]
+        if version["name"] == "v1beta2":
+            require(props.get("dualStackAddressFamily", {}).get("default") is False,
+                    "BGPPeer address-family default changed; review migration")
         for key in ("myASN", "peerASN", "localASN"):
             if key in props:
                 require(props[key]["format"] == "int64", f"invalid ASN schema: {version['name']}/{key}")
+
+
+def assert_identities(before: dict, after: dict) -> None:
+    """Keep UIDs/CR specs strict except the reviewed new IPv4 peer default.
+
+    New CRDs add dualStackAddressFamily=false when reading an existing peer.
+    This fixture intentionally exercises IPv4 only. Do not silently ignore
+    other defaults, explicit values, or UID changes.
+    """
+    require(before.keys() == after.keys(), "tracked resource set changed")
+    for key in before:
+        a, b = copy.deepcopy(before[key]), after[key]
+        require(a["uid"] == b["uid"], f"resource recreated: {key}")
+        if key.startswith("BGPPeer/") and "dualStackAddressFamily" not in a["spec"]:
+            if b["spec"].get("dualStackAddressFamily") is False:
+                a["spec"]["dualStackAddressFamily"] = False
+                print(f"Reviewed CRD default: {key} dualStackAddressFamily=false", flush=True)
+        require(a == b, f"resource configuration changed: {key}: {a!r} -> {b!r}")
 
 
 def assert_session(document: dict, node_ip: str) -> None:
@@ -256,7 +277,8 @@ def main() -> None:
                     run(*kube, "rollout", "status", "deployment/upgrade-echo", "--timeout=180s")
                 eventually(traffic)
                 current = identity()
-                require(identities is None or current == identities, "upgrade recreated workloads/CRDs/CRs/Service")
+                if identities is not None:
+                    assert_identities(identities, current)
                 identities = current
                 print(f"PASS: {label}; established BGP, learned /32, VIP HTTP, resource UIDs", flush=True)
             run(*kube, "create", "serviceaccount", "metrics-reader")
@@ -281,7 +303,7 @@ def main() -> None:
             run(*kube, "rollout", "restart", "daemonset/metallb-speaker")
             run(*kube, "rollout", "status", "daemonset/metallb-speaker", "--timeout=180s")
             eventually(traffic)
-            require(identity() == identities, "restart changed identities")
+            assert_identities(identities, identity())
             print("PASS: speaker restart reestablished BGP and VIP HTTP without reallocation", flush=True)
         except Exception:
             for command in (["docker", "logs", "--tail", "80", PEER],

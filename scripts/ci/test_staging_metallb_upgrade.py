@@ -5,7 +5,7 @@ from pathlib import Path
 import tempfile
 from unittest.mock import patch
 import unittest
-from check_staging_metallb_upgrade import VIP, assert_route, assert_session, contract, evaluate, resource
+from check_staging_metallb_upgrade import VIP, assert_identities, assert_route, assert_session, contract, evaluate, resource
 
 
 def docs():
@@ -19,6 +19,7 @@ def docs():
                 "containers": containers, "hostNetwork": component == "speaker", "nodeSelector": {"kubernetes.io/os": "linux"},
                 "tolerations": [], "serviceAccountName": component}}}})
     schema = {"properties": {"spec": {"properties": {k: {"format": "int64"} for k in ("myASN", "peerASN", "localASN")}}}}
+    schema["properties"]["spec"]["properties"]["dualStackAddressFamily"] = {"type": "boolean", "default": False}
     result.append({"kind": "CustomResourceDefinition", "metadata": {"name": "bgppeers.metallb.io"},
                    "spec": {"versions": [{"name": "v1beta2", "schema": {"openAPIV3Schema": schema}}]}})
     result.append({"kind": "Service", "metadata": {"name": "webhook"}, "spec": {"ports": [{"port": 443}]}})
@@ -79,6 +80,39 @@ class MetalLBTest(unittest.TestCase):
                     props["myASN"]["format"] = "int32"
                 with self.assertRaises(ValueError):
                     contract(old, new)
+
+    def test_reviewed_peer_default_preserves_identity_without_mutation(self):
+        before = {"BGPPeer/openwrt": {"uid": "same", "spec": {"myASN": 64520}}}
+        after = copy.deepcopy(before)
+        after["BGPPeer/openwrt"]["spec"]["dualStackAddressFamily"] = False
+        saved = copy.deepcopy(before)
+        assert_identities(before, after)
+        self.assertEqual(saved, before)
+        assert_identities(after, copy.deepcopy(after))
+
+    def test_unreviewed_identity_changes_are_rejected(self):
+        for change in ("uid", "address-family", "other-spec", "missing", "different-kind", "removed-default", "changed-default"):
+            with self.subTest(change=change):
+                before = {"BGPPeer/openwrt": {"uid": "same", "spec": {"myASN": 64520}}}
+                after = copy.deepcopy(before)
+                after["BGPPeer/openwrt"]["spec"]["dualStackAddressFamily"] = False
+                if change == "uid":
+                    after["BGPPeer/openwrt"]["uid"] = "different"
+                elif change == "address-family":
+                    after["BGPPeer/openwrt"]["spec"]["dualStackAddressFamily"] = True
+                elif change == "other-spec":
+                    after["BGPPeer/openwrt"]["spec"]["myASN"] = 64522
+                elif change == "missing":
+                    after = {}
+                elif change == "different-kind":
+                    before["IPAddressPool/pool"] = before.pop("BGPPeer/openwrt")
+                    after["IPAddressPool/pool"] = after.pop("BGPPeer/openwrt")
+                elif change == "removed-default":
+                    before, after = after, before
+                else:
+                    before["BGPPeer/openwrt"]["spec"]["dualStackAddressFamily"] = True
+                with self.assertRaises(ValueError):
+                    assert_identities(before, after)
 
     def test_established_session_is_required(self):
         node = "192.0.2.2"
