@@ -122,6 +122,17 @@ class BundleManifestStatusTests(unittest.TestCase):
         self.write()
         self.assertEqual(self.snapshot()["status"], "unknown")
 
+    def test_unhashable_nested_generation_does_not_raise_or_expose_private_data(self):
+        self.document["required_tftp_paths"][0]["generation"] = ["rpi4"]
+        self.write()
+        self.assertEqual(self.snapshot()["reason"], "manifest_contract_invalid")
+        self.document = manifest()
+        self.document["markers"][0]["generation"] = {"untrusted": "secret"}
+        self.write()
+        result = self.snapshot()
+        self.assertEqual(result["status"], "unknown")
+        self.assertNotIn("secret", json.dumps(result))
+
     def test_markers_wrong_type_or_release_fail(self):
         self.document["markers"][0]["artifact_type"] = "write-action"
         self.write()
