@@ -79,6 +79,27 @@ def _manifest(value: Any, date: str) -> dict[str, str] | None:
         or any(not isinstance(x, str) for x in value["target_stages"])
     ):
         return None
+    for entry in value["required_tftp_paths"]:
+        if (
+            not isinstance(entry, dict)
+            or set(entry) != {"generation", "release", "path"}
+            or entry["generation"] not in expected
+            or entry["release"] != expected[entry["generation"]]
+            or not isinstance(entry["path"], str)
+            or not 0 < len(entry["path"]) <= 256
+        ):
+            return None
+    for entry in value["markers"]:
+        if (
+            not isinstance(entry, dict)
+            or set(entry) != {"artifact_type", "generation", "release", "marker_path"}
+            or entry["artifact_type"] not in ("rootfs", "tftp")
+            or entry["generation"] not in expected
+            or entry["release"] != expected[entry["generation"]]
+            or not isinstance(entry["marker_path"], str)
+            or len(entry["marker_path"]) > 256
+        ):
+            return None
     return expected
 
 
