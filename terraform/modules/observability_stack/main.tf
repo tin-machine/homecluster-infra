@@ -90,6 +90,14 @@ resource "helm_release" "loki" {
       value = local.loki_objectstore_access_key
     },
     {
+      name  = "loki.storage.s3.accessKeyId"
+      value = local.loki_objectstore_access_key
+    },
+    {
+      name  = "loki.storage.s3.secretAccessKey"
+      value = local.loki_objectstore_secret_key
+    },
+    {
       name  = "loki.storage_config.aws.secret_access_key"
       value = local.loki_objectstore_secret_key
     },

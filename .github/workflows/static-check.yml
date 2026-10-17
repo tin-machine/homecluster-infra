@@ -49,6 +49,9 @@ jobs:
         shell: bash
         run: bash scripts/ci/check-kubernetes-namespace-metadata.sh
 
+      - name: Validate staging Loki rendered storage and binary config
+        run: bash scripts/ci/check-staging-loki-compat.sh
+
       - name: Validate convergence monitor status
         shell: bash
         run: bash .agents/skills/homecluster-convergence-monitor/scripts/test-pi-k3s-status.sh
