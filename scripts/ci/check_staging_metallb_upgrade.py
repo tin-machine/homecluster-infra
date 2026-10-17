@@ -111,6 +111,11 @@ def contract(old: list[dict], new: list[dict]) -> None:
                 require(props[key]["format"] == "int64", f"invalid ASN schema: {version['name']}/{key}")
 
 
+def assert_session(document: dict, node_ip: str) -> None:
+    peer = document.get("ipv4Unicast", {}).get("peers", {}).get(node_ip, {})
+    require(peer.get("state") == "Established", "BGP peer is not Established")
+
+
 def assert_route(document: dict, node_ip: str) -> None:
     routes = document.get("routes", {}).get(f"{VIP}/32", [])
     require(any(r.get("valid") and r.get("bestpath") and
@@ -149,9 +154,17 @@ def main() -> None:
         node_ip = ip("metallb-upgrade-ci-control-plane")
         (root / "daemons").write_text('zebra=yes\nbgpd=yes\nvtysh_enable=yes\nzebra_options=" -A 127.0.0.1 -s 90000000"\nbgpd_options=" -A 127.0.0.1"\n')
         (root / "frr.conf").write_text(f"frr defaults traditional\nlog stdout\nrouter bgp 64521\n bgp router-id 192.0.2.1\n no bgp ebgp-requires-policy\n neighbor {node_ip} remote-as 64520\n address-family ipv4 unicast\n  neighbor {node_ip} activate\n exit-address-family\n")
+        (root / "vtysh.conf").write_text("service integrated-vtysh-config\n")
+        # This FRR build requests SYS_ADMIN during privilege initialization.
+        # It is granted only to the disposable peer, not household workloads.
         run("docker", "run", "-d", "--name", PEER, "--network", "kind", "--cap-add", "NET_ADMIN", "--cap-add", "NET_RAW",
+            "--cap-add", "SYS_ADMIN", "-v", f"{root / 'vtysh.conf'}:/etc/frr/vtysh.conf:ro",
             "-v", f"{root / 'daemons'}:/etc/frr/daemons:ro", "-v", f"{root / 'frr.conf'}:/etc/frr/frr.conf:ro", FRR)
         try:
+            def peer_ready():
+                summary = json.loads(run("docker", "exec", PEER, "vtysh", "-c", "show bgp summary json"))
+                require(node_ip in summary.get("ipv4Unicast", {}).get("peers", {}), "test peer config is not loaded")
+            eventually(peer_ready, timeout=60)
             variables = {"addon_node_selector": {}, "metallb_tolerate_control_plane": True,
                          "metallb_address_pool": ["192.0.2.240/32"], "metallb_namespace": NAMESPACE,
                          "metallb_bgp_address_pool": [f"{VIP}/32"], "metallb_bgp_my_asn": 64520,
@@ -215,6 +228,8 @@ def main() -> None:
                     result[f"{kind}/{name}"] = value
                 return result
             def traffic():
+                summary = json.loads(run("docker", "exec", PEER, "vtysh", "-c", "show bgp summary json"))
+                assert_session(summary, node_ip)
                 table = json.loads(run("docker", "exec", PEER, "vtysh", "-c", "show bgp ipv4 unicast json"))
                 assert_route(table, node_ip)
                 route = json.loads(run("docker", "exec", PEER, "ip", "-j", "route", "get", VIP))

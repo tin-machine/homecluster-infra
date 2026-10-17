@@ -5,7 +5,7 @@ from pathlib import Path
 import tempfile
 from unittest.mock import patch
 import unittest
-from check_staging_metallb_upgrade import VIP, assert_route, contract, evaluate, resource
+from check_staging_metallb_upgrade import VIP, assert_route, assert_session, contract, evaluate, resource
 
 
 def docs():
@@ -79,6 +79,15 @@ class MetalLBTest(unittest.TestCase):
                     props["myASN"]["format"] = "int32"
                 with self.assertRaises(ValueError):
                     contract(old, new)
+
+    def test_established_session_is_required(self):
+        node = "192.0.2.2"
+        assert_session({"ipv4Unicast": {"peers": {node: {"state": "Established"}}}}, node)
+        for state in ("Idle", "Active", "Connect", "OpenSent", "OpenConfirm", "", None):
+            with self.subTest(state=state), self.assertRaises(ValueError):
+                assert_session({"ipv4Unicast": {"peers": {node: {"state": state}}}}, node)
+        with self.assertRaises(ValueError):
+            assert_session({}, node)
 
     def test_only_valid_best_route_to_the_node_passes(self):
         node = "192.0.2.2"
