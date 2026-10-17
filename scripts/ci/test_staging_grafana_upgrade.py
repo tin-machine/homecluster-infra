@@ -25,12 +25,14 @@ def manifests():
     return [
         {"kind": "Deployment", "metadata": {"name": "stg-grafana"}, "spec": {
             "replicas": 1, "strategy": {"type": "Recreate"}, "selector": {"matchLabels": {"app": "grafana"}},
-            "template": {"spec": {"containers": [{"name": "grafana", "env": env, "volumeMounts": mounts}],
+            "template": {"spec": {"containers": [{"name": "grafana", "env": env, "volumeMounts": mounts,
+                "ports": [{"name": "grafana", "containerPort": 3000}]}],
                 "volumes": [{"name": "config", "configMap": {"name": "config"}},
                             {"name": "storage", "persistentVolumeClaim": {"claimName": "stg-grafana"}}]}}}},
         {"kind": "PersistentVolumeClaim", "metadata": {"name": "stg-grafana"},
          "spec": {"accessModes": ["ReadWriteOnce"], "storageClassName": "nfs-client", "resources": {"requests": {"storage": "5Gi"}}}},
-        {"kind": "Service", "metadata": {"name": "stg-grafana"}, "spec": {"selector": {"app": "grafana"}}},
+        {"kind": "Service", "metadata": {"name": "stg-grafana"}, "spec": {"selector": {"app": "grafana"},
+            "ports": [{"port": 80, "targetPort": 3000, "protocol": "TCP"}]}},
         {"kind": "ConfigMap", "metadata": {"name": "config"}, "data": data},
     ]
 
@@ -39,6 +41,28 @@ class ContractTest(unittest.TestCase):
     def test_unchanged_contract(self):
         old = manifests()
         validate_contract(old, copy.deepcopy(old))
+
+    def test_named_service_port_is_equivalent(self):
+        old, new = manifests(), manifests()
+        new[2]["spec"]["ports"][0]["targetPort"] = "grafana"
+        validate_contract(old, new)
+        self.assertEqual(new[2]["spec"]["ports"][0]["targetPort"], "grafana")
+
+    def test_bad_service_port_rejected(self):
+        for change in ("missing-name", "different-port", "service-selector", "external-port"):
+            with self.subTest(change=change):
+                old, new = manifests(), manifests()
+                new[2]["spec"]["ports"][0]["targetPort"] = "grafana"
+                if change == "missing-name":
+                    new[2]["spec"]["ports"][0]["targetPort"] = "missing"
+                elif change == "different-port":
+                    new[0]["spec"]["template"]["spec"]["containers"][0]["ports"][0]["containerPort"] = 4000
+                elif change == "service-selector":
+                    new[2]["spec"]["selector"] = {"app": "other"}
+                else:
+                    new[2]["spec"]["ports"][0]["port"] = 81
+                with self.assertRaises(ValueError):
+                    validate_contract(old, new)
 
     def test_destructive_changes_rejected(self):
         for mutation in ("replicas", "rolling", "selector", "pvc", "claim", "secret", "datasource"):

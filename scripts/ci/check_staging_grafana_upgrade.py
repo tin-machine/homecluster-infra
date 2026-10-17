@@ -8,6 +8,7 @@ communication are deliberately outside this test's scope.
 from __future__ import annotations
 
 import base64
+import copy
 import json
 from pathlib import Path
 import re
@@ -31,8 +32,10 @@ def require(condition: bool, message: str) -> None:
 
 
 def run(*args: str, timeout: int = 180) -> str:
-    result = subprocess.run(args, check=True, text=True, stdout=subprocess.PIPE,
+    result = subprocess.run(args, text=True, stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE, timeout=timeout)
+    if result.returncode:
+        raise RuntimeError(f"{args[0]} failed ({result.returncode}): {result.stderr[-3000:]}")
     return result.stdout
 
 
@@ -81,6 +84,21 @@ def render(version: str, repository: str) -> list[dict]:
     return [d for d in yaml.safe_load_all(result) if d]
 
 
+def service_spec(items: list[dict]) -> dict:
+    """Compare resolved ports: chart 10 replaces numeric targetPort with a name."""
+    spec = copy.deepcopy(one(items, "Service")["spec"])
+    declared = grafana(one(items, "Deployment")).get("ports", [])
+    for port in spec.get("ports", []):
+        target = port.get("targetPort", port["port"])
+        protocol = port.get("protocol", "TCP")
+        matches = [p for p in declared if p.get("protocol", "TCP") == protocol and
+                   (p.get("name") == target if isinstance(target, str)
+                    else p["containerPort"] == target)]
+        require(len(matches) == 1, f"Service target does not resolve to Grafana: {target}")
+        port["targetPort"] = matches[0]["containerPort"]
+    return spec
+
+
 def validate_contract(old: list[dict], new: list[dict]) -> None:
     old_dep, new_dep = one(old, "Deployment"), one(new, "Deployment")
     require(new_dep["spec"]["replicas"] == 1, "SQLite requires one Grafana replica")
@@ -91,7 +109,9 @@ def validate_contract(old: list[dict], new: list[dict]) -> None:
     for kind in ("PersistentVolumeClaim", "Service"):
         before, after = one(old, kind), one(new, kind)
         require(before["metadata"]["name"] == after["metadata"]["name"], f"{kind} renamed")
-        require(before["spec"] == after["spec"], f"{kind} spec changed")
+        before_spec = service_spec(old) if kind == "Service" else before["spec"]
+        after_spec = service_spec(new) if kind == "Service" else after["spec"]
+        require(before_spec == after_spec, f"{kind} spec changed: {before_spec} -> {after_spec}")
     for deployment in (old_dep, new_dep):
         env = {e["name"]: e for e in grafana(deployment)["env"]}
         for suffix, key in (("USER", "admin-user"), ("PASSWORD", "admin-password")):
@@ -182,6 +202,20 @@ class GrafanaProcess:
                 for provider in config.get("providers", []):
                     dashboard_paths.append(provider["options"]["path"])
         require(len(dashboard_paths) == 1, "expected one dashboard provider")
+        pod = one(self.documents, "Deployment")["spec"]["template"]["spec"]
+        volumes = {v["name"]: v for v in pod["volumes"]}
+        # Mirror writable emptyDirs (notably Grafana 12's search index) using
+        # disposable disk directories. Dashboard files are mounted separately.
+        for index, mount in enumerate(container["volumeMounts"]):
+            if "emptyDir" not in volumes[mount["name"]]:
+                continue
+            path = mount["mountPath"]
+            if any(Path(path) == Path(p) or Path(path) in Path(p).parents for p in dashboard_paths):
+                continue
+            host = self.directory / f"emptydir-{index}"
+            host.mkdir()
+            host.chmod(0o777)  # Disposable public-data fixture; no privileged chown.
+            args += ["--volume", f"{host}:{path}"]
         args += ["--volume", f"{self.dashboards}:{dashboard_paths[0]}:ro"]
         for env in container["env"]:
             if "value" in env:
@@ -223,7 +257,7 @@ class GrafanaProcess:
             try:
                 if self.api("/api/health").get("database") == "ok":
                     return
-            except (subprocess.SubprocessError, json.JSONDecodeError):
+            except (RuntimeError, subprocess.SubprocessError, json.JSONDecodeError):
                 pass
             time.sleep(2)
         raise ValueError("Grafana did not become healthy within 180 seconds")
