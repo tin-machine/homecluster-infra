@@ -43,6 +43,10 @@ jobs:
           RUN_TERRAFORM_VALIDATE: "1"
         run: bash scripts/ci/static-check.sh
 
+      - name: Validate Namespace metadata with the locked Kubernetes provider
+        shell: bash
+        run: bash scripts/ci/check-kubernetes-namespace-metadata.sh
+
       - name: Validate convergence monitor status
         shell: bash
         run: bash .agents/skills/homecluster-convergence-monitor/scripts/test-pi-k3s-status.sh
