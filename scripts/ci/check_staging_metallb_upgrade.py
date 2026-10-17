@@ -65,7 +65,7 @@ def evaluate(expression: str, variables: dict, directory: Path):
     """Let Terraform evaluate real HCL; do not approximate conditionals in Python."""
     directory.mkdir()
     declarations = "\n".join(f'variable "{name}" {{}}' for name in variables)
-    (directory / "main.tf").write_text(declarations + f"\nlocals {{ result = {expression}\n}}\n")
+    (directory / "main.tf").write_text(declarations + f"\nlocals {{\n  result = {expression}\n}}\n")
     (directory / "fixture.auto.tfvars.json").write_text(json.dumps(variables))
     output = run("terraform", "console", "-no-color", data="jsonencode(local.result)\n", cwd=directory)
     return json.loads(json.loads(output))
@@ -268,6 +268,12 @@ def main() -> None:
             eventually(traffic)
             require(identity() == identities, "restart changed identities")
             print("PASS: speaker restart reestablished BGP and VIP HTTP without reallocation", flush=True)
+        except Exception:
+            for command in (["docker", "logs", "--tail", "80", PEER],
+                            ["docker", "exec", PEER, "vtysh", "-c", "show bgp summary json"],
+                            ["docker", "exec", PEER, "vtysh", "-c", "show bgp ipv4 unicast json"]):
+                subprocess.run(command, timeout=30, check=False)
+            raise
         finally:
             subprocess.run(["docker", "rm", "-f", PEER], capture_output=True, timeout=30, check=False)
 

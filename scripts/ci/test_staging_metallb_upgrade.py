@@ -1,7 +1,11 @@
 """Offline negative fixtures for the actual-HCL / BGP upgrade check."""
 import copy
+import json
+from pathlib import Path
+import tempfile
+from unittest.mock import patch
 import unittest
-from check_staging_metallb_upgrade import VIP, assert_route, contract, resource
+from check_staging_metallb_upgrade import VIP, assert_route, contract, evaluate, resource
 
 
 def docs():
@@ -22,6 +26,14 @@ def docs():
 
 
 class MetalLBTest(unittest.TestCase):
+    def test_multiline_hcl_wrapper(self):
+        # The live CI also evaluates this with the pinned Terraform binary.
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp) / "expression"
+            with patch("check_staging_metallb_upgrade.run", return_value=json.dumps('{"ok": true}')):
+                self.assertEqual(evaluate("{\n ok = true\n}", {}, directory), {"ok": True})
+            self.assertIn("locals {\n  result = {\n", (directory / "main.tf").read_text())
+
     def test_contract_does_not_mutate(self):
         old, new = docs(), docs()
         saved = copy.deepcopy(new)
