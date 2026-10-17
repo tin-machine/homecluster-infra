@@ -105,9 +105,12 @@ class NodeSnapshotTests(unittest.TestCase):
         self.assertEqual(self.inspect()["reason"], "boot_identity_invalid")
 
     def test_boot_changed_during_inspection(self):
-        with mock.patch.object(Path, "read_text", autospec=True, side_effect=[
-            ID + "\n", "100.0 1000.0\n", "ffffffff-e89b-12d3-a456-426614174000\n",
-        ]):
+        with (
+            mock.patch.object(probe, "_state", return_value="completed"),
+            mock.patch.object(Path, "read_text", autospec=True, side_effect=[
+                ID + "\n", "100.0 1000.0\n", "ffffffff-e89b-12d3-a456-426614174000\n",
+            ]),
+        ):
             self.assertEqual(self.inspect()["reason"], "boot_identity_changed")
 
     def test_git_missing_or_invalid_remains_unknown(self):
