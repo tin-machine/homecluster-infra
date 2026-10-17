@@ -83,6 +83,7 @@ def _manifest(value: Any, date: str) -> dict[str, str] | None:
         if (
             not isinstance(entry, dict)
             or set(entry) != {"generation", "release", "path"}
+            or not isinstance(entry["generation"], str)
             or entry["generation"] not in expected
             or entry["release"] != expected[entry["generation"]]
             or not isinstance(entry["path"], str)
@@ -94,10 +95,11 @@ def _manifest(value: Any, date: str) -> dict[str, str] | None:
             not isinstance(entry, dict)
             or set(entry) != {"artifact_type", "generation", "release", "marker_path"}
             or entry["artifact_type"] not in ("rootfs", "tftp")
+            or not isinstance(entry["generation"], str)
             or entry["generation"] not in expected
             or entry["release"] != expected[entry["generation"]]
             or not isinstance(entry["marker_path"], str)
-            or len(entry["marker_path"]) > 256
+            or not 0 < len(entry["marker_path"]) <= 256
         ):
             return None
     return expected
