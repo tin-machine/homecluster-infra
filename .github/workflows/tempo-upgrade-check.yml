@@ -20,8 +20,6 @@ jobs:
   tempo-upgrade:
     runs-on: ubuntu-latest
     timeout-minutes: 25
-    env:
-      KUBECONFIG: ${{ runner.temp }}/tempo-upgrade-ci.kubeconfig
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -32,6 +30,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          echo "KUBECONFIG=${RUNNER_TEMP}/tempo-upgrade-ci.kubeconfig" >> "${GITHUB_ENV}"
           tools="${RUNNER_TEMP}/tempo-upgrade-tools"
           mkdir -p "${tools}"
           curl -fsSL --retry 3 https://get.helm.sh/helm-v3.19.0-linux-amd64.tar.gz -o "${tools}/helm.tar.gz"
