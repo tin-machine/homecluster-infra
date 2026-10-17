@@ -43,7 +43,7 @@ run "registry_namespace_metadata" {
       "app.kubernetes.io/name"     = "registry"
       "app.kubernetes.io/instance" = "registry-fixture"
       "app.kubernetes.io/part-of"  = "registry-stack"
-      environment                 = "staging"
+      environment                  = "staging"
     })
     error_message = "The real provider must preserve registry Namespace label strings."
   }

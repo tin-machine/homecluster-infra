@@ -27,7 +27,7 @@ run "arc_runner_disabled_security_lab_metadata" {
 
   plan_options {
     refresh = false
-    target  = [
+    target = [
       kubernetes_namespace_v1.github_actions_runners,
       kubernetes_namespace_v1.security_lab,
     ]
@@ -48,7 +48,7 @@ run "arc_runner_disabled_security_lab_metadata" {
       "app.kubernetes.io/name"     = "security-lab"
       "app.kubernetes.io/instance" = "security-lab"
       "app.kubernetes.io/part-of"  = "security-monitoring"
-      environment                 = "staging"
+      environment                  = "staging"
     })
     error_message = "The real provider must preserve security-lab Namespace label strings."
   }
@@ -83,7 +83,7 @@ run "arc_runner_metadata" {
       "app.kubernetes.io/name"     = "github-actions-runner"
       "app.kubernetes.io/instance" = "homecluster-stg-ci"
       "app.kubernetes.io/part-of"  = "ci-stack"
-      environment                 = "staging"
+      environment                  = "staging"
     })
     error_message = "The real provider must preserve all ARC runner Namespace label strings."
   }

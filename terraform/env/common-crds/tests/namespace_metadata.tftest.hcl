@@ -49,7 +49,7 @@ run "arc_controller_metadata" {
       "app.kubernetes.io/name"     = "actions-runner-controller"
       "app.kubernetes.io/instance" = "shared-arc-controller"
       "app.kubernetes.io/part-of"  = "ci-stack"
-      environment                 = "shared"
+      environment                  = "shared"
     })
     error_message = "The real provider must preserve all ARC controller Namespace label strings."
   }
