@@ -57,6 +57,9 @@ jobs:
       - name: Validate fixed PXE node lineage read-only evidence
         run: python3 -m unittest discover -s scripts -p 'test_pxe_node_lineage_status.py' -v
 
+      - name: Validate post-pull revision receipts
+        run: python3 -m unittest discover -s scripts -p 'test_pxe_post_pull_receipt.py' -v
+
       - name: Validate SQLite encrypted backup fixtures
         run: python3 -m unittest discover -s scripts -p 'test_k3s_sqlite_backup.py' -v
 
