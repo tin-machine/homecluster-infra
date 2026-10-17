@@ -22,10 +22,20 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - name: Install Helm
-        uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
-        with:
-          version: v3.19.0
+      - name: Install checksum-pinned Helm
+        shell: bash
+        run: |
+          set -euo pipefail
+          helm_version="v3.19.0"
+          archive="helm-${helm_version}-linux-amd64.tar.gz"
+          sha256="a7f81ce08007091b86d8bd696eb4d86b8d0f2e1b9f6c714be62f82f96a594496"
+          install_dir="${RUNNER_TEMP}/grafana-ci-helm"
+          mkdir -p "${install_dir}"
+          curl --fail --silent --show-error --location \
+            "https://get.helm.sh/${archive}" --output "${install_dir}/${archive}"
+          printf '%s  %s\n' "${sha256}" "${install_dir}/${archive}" | sha256sum --check --strict -
+          tar -xzf "${install_dir}/${archive}" -C "${install_dir}"
+          printf '%s\n' "${install_dir}/linux-amd64" >> "${GITHUB_PATH}"
       - name: Install YAML parser
         run: python3 -m pip install PyYAML==6.0.3
       - name: Validate negative fixtures
