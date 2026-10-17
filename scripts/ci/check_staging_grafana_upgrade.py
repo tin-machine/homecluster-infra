@@ -231,6 +231,9 @@ class GrafanaProcess:
         for env in container["env"]:
             if "value" in env:
                 args += ["--env", f"{env['name']}={env['value']}"]
+            elif env["name"] == "POD_IP" and env.get("valueFrom", {}).get("fieldRef", {}).get("fieldPath") == "status.podIP":
+                # The isolated Docker network has only the loopback interface.
+                args += ["--env", "POD_IP=127.0.0.1"]
             elif "resourceFieldRef" in env.get("valueFrom", {}):
                 field = env["valueFrom"]["resourceFieldRef"]
                 require(field["resource"] == "limits.memory" and str(field.get("divisor", "1")) == "1",
@@ -238,7 +241,7 @@ class GrafanaProcess:
                 args += ["--env", f"{env['name']}={memory_bytes(container['resources']['limits']['memory'])}"]
             else:
                 require(env["name"] in {"GF_SECURITY_ADMIN_USER", "GF_SECURITY_ADMIN_PASSWORD"},
-                        "unexpected non-literal Grafana environment input")
+                        f"unexpected non-literal Grafana environment input: {env['name']}")
         # The real datasource/alert definitions are still loaded, but networkless
         # CI must not evaluate alerts or fetch optional plugins from the internet.
         overrides = {"GF_SECURITY_ADMIN_USER": "upgrade-ci",
