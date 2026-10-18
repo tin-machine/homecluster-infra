@@ -2,7 +2,6 @@
 """Synthetic boot-wrapper regression harness: local Git and mocked external tools."""
 
 import json
-import os
 from pathlib import Path
 import re
 import subprocess
@@ -16,7 +15,7 @@ SOURCE = (
 
 
 class WrapperFixture(unittest.TestCase):
-    def run_wrapper(self, *, move_branch):
+    def run_wrapper(self, *, move_branch, stage="stg", expect_blocked=False):
         with tempfile.TemporaryDirectory(
             prefix="homecluster-boot-pin-fixture-"
         ) as name:
@@ -25,11 +24,7 @@ class WrapperFixture(unittest.TestCase):
             repo.mkdir()
             bins.mkdir()
             state.mkdir()
-            env = {
-                k: v
-                for k, v in os.environ.items()
-                if not k.startswith(("GIT_", "ANSIBLE_", "SOPS_", "SSH_"))
-            }
+            env = {"LANG": "C.UTF-8"}
             env.update(
                 HOME=str(root / "home"),
                 GIT_CONFIG_NOSYSTEM="1",
@@ -74,7 +69,7 @@ class WrapperFixture(unittest.TestCase):
                 NEXT_SHA=after if move_branch else before,
                 REPO_URL=repo.as_uri(),
                 DEST=str(root / "checkout"),
-                STAGE="stg",
+                STAGE=stage,
                 BRANCH="stg",
                 ROLES="base",
                 OVERLAY_ID="synthetic-fixture",
@@ -130,6 +125,11 @@ with open(os.environ['TRACE'],'a') as out: out.write(json.dumps({'head':head,'ar
                 capture_output=True,
                 timeout=30,
             )
+            if expect_blocked:
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse((root / "checkout").exists())
+                self.assertFalse((root / "trace.jsonl").exists())
+                return
             self.assertEqual(result.returncode, 0, result.stderr[-1000:])
             self.assertEqual((root / "initial-head").read_text().strip(), before)
             calls = [
@@ -153,6 +153,11 @@ with open(os.environ['TRACE'],'a') as out: out.write(json.dumps({'head':head,'ar
         # This baseline documents why initial checkout alone does not pin execution.
         # Pinned mode must later demonstrate that it still executes A in this case.
         self.run_wrapper(move_branch=True)
+
+    def test_wrong_or_unknown_stage_stops_before_checkout(self):
+        for stage in ("prod", "unknown"):
+            with self.subTest(stage=stage):
+                self.run_wrapper(move_branch=False, stage=stage, expect_blocked=True)
 
 
 if __name__ == "__main__":
