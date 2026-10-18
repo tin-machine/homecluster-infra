@@ -243,6 +243,40 @@ class SourcePinTests(unittest.TestCase):
         )
         self.assertFalse(hasattr(pin, "subprocess"))
 
+    def test_valid_json_byte_boundary_and_utf16_rejection(self):
+        raw = declaration()
+        padded = raw + b" " * (4096 - len(raw))
+        self.assertEqual(
+            pin.decode_declaration(padded, stage="stg")["declaration_sha256"],
+            hashlib.sha256(padded).hexdigest(),
+        )
+        for invalid in (padded + b" ", raw.decode().encode("utf-16")):
+            with self.assertRaises(ValueError):
+                pin.decode_declaration(invalid, stage="stg")
+
+    def test_excessive_json_nesting_is_a_validation_error(self):
+        with self.assertRaises(ValueError):
+            pin.decode_declaration(b"[" * 1100 + b"]" * 1100, stage="stg")
+
+    def test_legacy_stat_failure_is_not_absence(self):
+        for failure in (PermissionError("fixture-only"), OSError("fixture-only")):
+            with mock.patch.object(Path, "lstat", side_effect=failure):
+                with self.assertRaises((ValueError, OSError)):
+                    pin.resolve(mode="legacy", stage="stg")
+
+    def test_cli_io_errors_are_sanitized(self):
+        for failure in (
+            PermissionError("fixture-sensitive-value"),
+            OSError("fixture-sensitive-value"),
+        ):
+            output, error = io.StringIO(), io.StringIO()
+            with mock.patch.object(
+                pin, "resolve", side_effect=failure
+            ), contextlib.redirect_stdout(output), contextlib.redirect_stderr(error):
+                self.assertEqual(pin.main(["--mode", "pinned", "--stage", "stg"]), 2)
+            self.assertEqual(output.getvalue(), "")
+            self.assertEqual(error.getvalue().strip(), "source_pin_invalid")
+
 
 if __name__ == "__main__":
     unittest.main()
