@@ -42,6 +42,7 @@
         mode: '0644'
       loop:
         - pxe_artifact_fingerprint.py
+        - pxe_producer_receipt_contract.py
         - pxe_producer_receipt.py
 
     - name: 最終manifestとPi4 Pi5完成artifactを測定してimmutable receiptを発行

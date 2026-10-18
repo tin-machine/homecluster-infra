@@ -8,144 +8,29 @@ of its checkout and inventory use. Content hashes are not issuer authentication.
 from __future__ import annotations
 
 import argparse
-from contextlib import contextmanager
 from datetime import datetime, timezone
 import hashlib
 import json
 import os
 from pathlib import Path
 import re
-import stat
 import sys
 import uuid
 
 from pxe_artifact_fingerprint import fingerprint_tree
+from pxe_producer_receipt_contract import (
+    SCHEMA, GENERATIONS, MAX_RECEIPT, MAX_TFTP_FILE,
+    _string, _date, _object, _json, _canonical, _receipt_id,
+    _directory, _file, _required_path, _validate_window, validate_receipt,
+)
 
 ROOT = Path("/srv/gentoo")
-SCHEMA = "homecluster-pxe-producer-receipt-v1"
-DOMAIN = b"homecluster-pxe-producer-receipt-v1\x00"
-GENERATIONS = ("rpi4", "rpi5")
 MANIFEST_KEYS = {"schema", "policy", "bundle_date", "releases", "target_hosts",
                  "target_stages", "required_tftp_paths", "markers", "metadata"}
-RECEIPT_KEYS = {"schema", "scope", "environment", "build_id", "generation_profile",
-                "bundle_date", "infra_generation_revision", "artifact_manifest_sha256",
-                "source_declarations", "artifacts", "capture_window", "receipt_id"}
-MAX_RECEIPT = 256 * 1024
-MAX_TFTP_FILE = 2 * 1024 * 1024 * 1024
-
-
-def _string(value, pattern):
-    if type(value) is not str or re.fullmatch(pattern, value, flags=re.ASCII) is None:
-        raise ValueError("invalid producer identity")
-    return value
-
-
-def _date(value):
-    _string(value, r"[0-9]{8}")
-    datetime.strptime(value, "%Y%m%d")
-    return value
-
-
-def _timestamp(value):
-    _string(value, r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
-    datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
-    return value
 
 
 def _now():
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def _object(value, keys):
-    if type(value) is not dict or set(value) != keys:
-        raise ValueError("invalid producer object")
-    return value
-
-
-def _json(raw):
-    def reject_constant(_value):
-        raise ValueError("invalid JSON constant")
-
-    def pairs(items):
-        result = {}
-        for key, value in items:
-            if key in result:
-                raise ValueError("duplicate JSON key")
-            result[key] = value
-        return result
-    return json.loads(raw, object_pairs_hook=pairs, parse_constant=reject_constant)
-
-
-def _canonical(value):
-    return json.dumps(value, sort_keys=True, separators=(",", ":"),
-                      ensure_ascii=True, allow_nan=False).encode("ascii")
-
-
-def _receipt_id(value):
-    payload = {key: item for key, item in value.items() if key != "receipt_id"}
-    return "sha256:" + hashlib.sha256(DOMAIN + _canonical(payload)).hexdigest()
-
-
-def _identity(info):
-    return (info.st_dev, info.st_ino, info.st_mode, info.st_size, info.st_uid,
-            info.st_gid, info.st_mtime_ns, info.st_ctime_ns)
-
-
-@contextmanager
-def _directory(path):
-    path = Path(path).absolute()
-    if ".." in path.parts:
-        raise ValueError("invalid producer path")
-    descriptors, bindings = [], []
-    try:
-        current = os.open("/", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-        descriptors.append(current)
-        for part in path.parts[1:]:
-            before = os.stat(part, dir_fd=current, follow_symlinks=False)
-            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=current)
-            descriptors.append(child)
-            if _identity(before) != _identity(os.fstat(child)):
-                raise ValueError("producer directory changed")
-            bindings.append((current, part, before))
-            current = child
-        yield current
-        for parent, name, before in bindings:
-            after = os.stat(name, dir_fd=parent, follow_symlinks=False)
-            if (before.st_dev, before.st_ino, before.st_mode) != (after.st_dev, after.st_ino, after.st_mode):
-                raise ValueError("producer directory binding changed")
-    finally:
-        for descriptor in reversed(descriptors):
-            os.close(descriptor)
-
-
-def _file(path, limit, *, digest_only=False):
-    with _directory(path.parent) as parent:
-        descriptor = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
-        try:
-            before = os.fstat(descriptor)
-            if not stat.S_ISREG(before.st_mode) or not 0 < before.st_size <= limit:
-                raise ValueError("invalid producer input file")
-            digest, chunks, size = hashlib.sha256(), [], 0
-            while chunk := os.read(descriptor, min(1024 * 1024, limit + 1 - size)):
-                size += len(chunk)
-                if size > limit:
-                    raise ValueError("producer input exceeds budget")
-                digest.update(chunk)
-                if not digest_only:
-                    chunks.append(chunk)
-            if (size != before.st_size or _identity(before) != _identity(os.fstat(descriptor))
-                    or _identity(before) != _identity(os.stat(path.name, dir_fd=parent, follow_symlinks=False))):
-                raise ValueError("producer input changed")
-            return (digest.hexdigest(), size) if digest_only else b"".join(chunks)
-        finally:
-            os.close(descriptor)
-
-
-def _required_path(value):
-    _string(value, r"[A-Za-z0-9][A-Za-z0-9._/-]{0,511}")
-    if any(part in ("", ".", "..") for part in value.split("/")):
-        raise ValueError("unsafe required artifact path")
-    return value
 
 
 def _manifest(raw, date):
@@ -200,12 +85,6 @@ def _required_files(root, names):
             digest, size = _file(path, MAX_TFTP_FILE, digest_only=True)
             result.append({"path": name, "type": "regular", "sha256": digest, "size": size})
     return result
-
-
-def _validate_window(value):
-    window = _object(value, {"started_at", "finished_at"})
-    if _timestamp(window["started_at"]) > _timestamp(window["finished_at"]):
-        raise ValueError("producer clock moved backwards")
 
 
 def _publish(path, value):
@@ -266,14 +145,14 @@ def produce(*, bundle_date, build_id, infra_revision, generation_profile):
              "capture_window": {"started_at": started, "finished_at": _now()}}
     _validate_window(value["capture_window"])
     value["receipt_id"] = _receipt_id(value)
+    validate_receipt(value)
     status = "written"
     try:
         existing_raw = _file(destination, MAX_RECEIPT)
     except FileNotFoundError:
         existing_raw = None
     if existing_raw is not None:
-        existing = _object(_json(existing_raw), RECEIPT_KEYS)
-        _validate_window(existing["capture_window"])
+        existing = validate_receipt(_json(existing_raw))
         expected = {**value, "capture_window": existing["capture_window"]}
         expected["receipt_id"] = _receipt_id(expected)
         if existing_raw != _canonical(expected) + b"\n":
