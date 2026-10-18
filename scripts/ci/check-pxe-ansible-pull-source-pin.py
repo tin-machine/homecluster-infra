@@ -253,7 +253,9 @@ raise SystemExit(int(os.environ['ANSIBLE_RC']))
             self.assertIn("CHECKOUT_HEAD_AFTER_SUCCESS=" + expected, receipt)
 
     def test_legacy_stationary_branch(self):
-        self.run_wrapper(move_branch=False)
+        for extra_vars in (False, True):
+            with self.subTest(extra_vars=extra_vars):
+                self.run_wrapper(move_branch=False, extra_vars=extra_vars)
 
     def test_legacy_branch_moves_between_checkout_and_ansible(self):
         # This baseline documents why initial checkout alone does not pin execution.
