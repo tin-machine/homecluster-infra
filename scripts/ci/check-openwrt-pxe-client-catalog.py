@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib.util
+import copy
 from pathlib import Path
 
 
@@ -214,6 +215,7 @@ def test_k3s_production_server_and_storage_vars() -> None:
     assert storage["k3s_local_storage_enabled"] is True
     assert storage["k3s_local_storage_device"].endswith("-part1")
     assert storage["k3s_local_storage_node_password_sync_enabled"] is False
+    assert storage["k3s_local_storage_allow_format"] is True
     assert "k3s_server" not in storage
     assert server["k3s_release_version"] == "v1.35.4+k3s1"
     assert server["k3s_build_cluster"] is False
@@ -307,11 +309,76 @@ def test_picoclaw_base_vars_are_host_scoped() -> None:
     assert ("plain-node", "base") not in client_vars
 
 
+def test_staging_persistent_server_format_boundary() -> None:
+    module = load_filter_module()
+    base = {
+        "ansible_host": "192.0.2.10",
+        "k3s_local_storage_enabled": True,
+        "k3s_local_storage_device": "/dev/disk/by-id/fixture-part1",
+        "openwrt_pxe_client": {
+            "enabled": True, "router": "router1", "stage": "stg",
+            "roles": ["base", "k3s_stg_storage", "k3s_stg_server"],
+        },
+    }
+
+    def build(host):
+        result = module.build_openwrt_pxe_client_catalog(
+            {"fixture-server": host}, {"all": ["fixture-server"]}, "router1"
+        )
+        return {item["role"]: item["vars"] for item in result["ansible_pull_client_vars"]}
+
+    flags = (
+        "k3s_local_storage_allow_format",
+        "k3s_local_storage_force_format",
+        "k3s_local_storage_ephemeral_agent_data",
+    )
+    for role, values in build(base).items():
+        if role in {"k3s_stg_storage", "k3s_stg_server"}:
+            assert all(values.get(key) is False for key in flags), role
+
+    # Existing explicit persistent settings remain valid, including manual vars.
+    safe = copy.deepcopy(base)
+    safe.update({key: False for key in flags})
+    safe_vars = {"k3s_local_storage_enabled": True, **{key: False for key in flags}}
+    for generated in (True, False):
+        host = copy.deepcopy(safe)
+        host["openwrt_pxe_client"]["ansible_pull"] = {
+            "k3s_stg_storage_vars_enabled": generated,
+            "extra_vars": {"k3s_stg_storage": safe_vars},
+        }
+        assert all(build(host)["k3s_stg_storage"][key] is False for key in flags)
+
+    # Host input and the manual client-vars path must both reject format intent.
+    for key in flags:
+        host = copy.deepcopy(safe)
+        host[key] = True
+        try:
+            build(host)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"persistent server accepted host flag: {key}")
+        for role in ("k3s_stg_storage", "k3s_stg_server"):
+            for unsafe in (True, "true", 1):
+                host = copy.deepcopy(safe)
+                host["openwrt_pxe_client"]["ansible_pull"] = {
+                    f"{role}_vars_enabled": False,
+                    "extra_vars": {role: {**safe_vars, key: unsafe}},
+                }
+                try:
+                    build(host)
+                except ValueError:
+                    pass
+                else:
+                    raise AssertionError(f"persistent server accepted manual flag: {role}/{key}")
+
+
 def main() -> None:
     test_k3s_stg_storage_vars()
     test_k3s_production_server_and_storage_vars()
     test_host_specific_tftp_artifacts()
     test_picoclaw_base_vars_are_host_scoped()
+    test_staging_persistent_server_format_boundary()
     print("openwrt_pxe_client_catalog checks ok")
 
 
