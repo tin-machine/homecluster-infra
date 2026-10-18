@@ -27,7 +27,7 @@ DOMAIN = b"homecluster-pxe-artifact-tree-v1\x00"
 FIXED_NS = 1700000000123456789
 
 
-def oracle(root: Path) -> dict:
+def oracle(root: Path, *, stat_reader=None) -> dict:
     """Independent small-tree oracle, deliberately unsuitable for production races."""
     records = []
     links = {}
@@ -35,7 +35,7 @@ def oracle(root: Path) -> dict:
 
     def visit(path: Path, relative: bytes):
         nonlocal logical_bytes
-        info = path.lstat()
+        info = path.lstat() if stat_reader is None else stat_reader(path)
         attrs = [
             [os.fsencode(name).hex(), os.getxattr(path, name, follow_symlinks=False).hex()]
             for name in sorted(os.listxattr(path, follow_symlinks=False), key=os.fsencode)
@@ -229,7 +229,11 @@ class ArtifactFingerprintTests(unittest.TestCase):
                 return actual_open(path, *args, **kwargs)
 
             with self.subTest(kind=kind), mock.patch.object(fingerprint.os, "stat", side_effect=device_stat), mock.patch.object(fingerprint.os, "open", side_effect=no_device_open):
-                self.assertEqual(self.measure(), oracle(self.root))
+                # Path.lstat may call os.lstat directly (including Python 3.14).
+                # Feed the synthetic device metadata to the independent oracle
+                # too; otherwise it incorrectly expects a regular file payload.
+                self.assertEqual(self.measure(), oracle(
+                    self.root, stat_reader=lambda path: device_stat(path, follow_symlinks=False)))
 
     def test_budget_exhaustion_and_bad_budgets_fail_closed(self):
         (self.root / "file").write_bytes(b"12345")
@@ -302,6 +306,67 @@ class ArtifactFingerprintTests(unittest.TestCase):
         mountinfo.write_text(f"1 0 8:1 / {self.root} rw - ext4 /dev/fixture rw\n")
         with mock.patch.object(fingerprint, "MOUNTINFO", mountinfo):
             self.assertEqual(self.measure(), oracle(self.root))
+
+    def test_xattr_count_and_byte_budgets_fail_closed(self):
+        with mock.patch.object(fingerprint.os, "listxattr", return_value=[f"user.x{i}" for i in range(65)]):
+            with self.assertRaises(ValueError):
+                self.measure()
+        with mock.patch.object(fingerprint.os, "listxattr", return_value=["user.fixture"]), mock.patch.object(
+                fingerprint.os, "getxattr", return_value=b"x" * 262145):
+            with self.assertRaises(ValueError):
+                self.measure()
+
+    def test_deep_tree_is_rejected_with_bounded_traversal(self):
+        current = self.root
+        for _ in range(129):
+            current = current / "d"
+            current.mkdir()
+        with self.assertRaises(ValueError):
+            self.measure()
+
+    def test_replaced_regular_file_cannot_redirect_read_outside_tree(self):
+        target = self.root / "file"
+        target.write_bytes(b"inside")
+        outside = self.base / "external"
+        outside.write_bytes(b"outside")
+        actual_open = os.open
+        changed = False
+
+        def replacing_open(path, flags, *args, **kwargs):
+            nonlocal changed
+            if os.fsdecode(path) == "file" and not changed:
+                changed = True
+                target.unlink()
+                target.symlink_to(outside)
+            return actual_open(path, flags, *args, **kwargs)
+
+        with mock.patch.object(fingerprint.os, "open", side_effect=replacing_open):
+            with self.assertRaises(ValueError):
+                self.measure()
+        self.assertTrue(changed)
+
+    def test_mount_topology_change_is_not_ignored(self):
+        mountinfo = self.base / "mountinfo"
+        raw = "1 0 8:1 / / rw - ext4 /dev/fixture rw\n"
+        mountinfo.write_text(raw)
+        (self.root / "file").write_bytes(b"fixture")
+        actual_read = os.read
+
+        def changing_read(fd, amount):
+            mountinfo.write_text(raw + "2 1 8:2 / /unrelated rw - ext4 /dev/other rw\n")
+            return actual_read(fd, amount)
+
+        with mock.patch.object(fingerprint, "MOUNTINFO", mountinfo), mock.patch.object(
+                fingerprint.os, "read", side_effect=changing_read):
+            with self.assertRaises(ValueError):
+                self.measure()
+
+    def test_unknown_mount_escapes_and_trailing_garbage_are_rejected(self):
+        for raw in ("1 0 8:1 / /bad\\777 rw - ext4 /dev/fixture rw\n",
+                    "1 0 8:1 / / rw - ext4 /dev/fixture rw extra\n",
+                    "1 0 8:1 / / rw - ext4 /dev/fixture rw\n\n"):
+            with self.subTest(raw=raw), self.assertRaises(ValueError):
+                fingerprint.parse_mountinfo(raw)
 
 
 if __name__ == "__main__":
