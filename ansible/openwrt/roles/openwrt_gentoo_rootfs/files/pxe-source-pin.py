@@ -173,7 +173,7 @@ def resolve(*, mode: str, stage: str) -> dict[str, str]:
         # not a regular file, nothing).
         try:
             st = SOURCE_PATH.lstat()
-        except OSError:
+        except FileNotFoundError:
             return {"mode": "legacy"}
         raise ValueError("SOURCE_PATH exists; cannot use legacy mode")
 
@@ -224,7 +224,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     try:
         result = resolve(mode=args.mode, stage=args.stage)
-    except ValueError:
+    except (ValueError, OSError):
         return _die(_ERR_MSG)
 
     if result["mode"] == "legacy":

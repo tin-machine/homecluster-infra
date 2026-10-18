@@ -27,6 +27,7 @@ class WrapperFixture(unittest.TestCase):
         ansible_rc=0,
         extra_vars=False,
         branch_override=None,
+        existing_checkout=False,
     ):
         with tempfile.TemporaryDirectory(
             prefix="homecluster-boot-pin-fixture-"
@@ -84,11 +85,16 @@ class WrapperFixture(unittest.TestCase):
                 DEST=str(root / "checkout"),
                 STAGE=stage,
                 BRANCH=branch_override or ("main" if stage == "prod" else "stg"),
-                MUTATE_TRACKED="1" if mutate_tracked else "0",
+                MUTATE_TRACKED=str(mutate_tracked) if isinstance(mutate_tracked, str) else ("1" if mutate_tracked else "0"),
                 ANSIBLE_RC=str(ansible_rc),
                 ROLES="base",
                 OVERLAY_ID="synthetic-fixture",
             )
+            if existing_checkout:
+                subprocess.run(
+                    ["git", "clone", "--branch", "stg", repo.as_uri(), str(root / "checkout")],
+                    env=env, check=True, capture_output=True,
+                )
 
             def executable(name, text):
                 path = bins / name
@@ -105,7 +111,16 @@ set -eu
 # Advance the origin after the wrapper's initial checkout.
 git -C "$DEST" rev-parse HEAD > "$INITIAL_TRACE"
 git -C "$ORIGIN" update-ref "refs/heads/$BRANCH" "$NEXT_SHA"
-if [ "$MUTATE_TRACKED" = 1 ]; then printf 'modified\n' >> "$DEST/revision.txt"; fi
+case "$MUTATE_TRACKED" in
+  1|staged)
+    printf 'modified\n' >> "$DEST/revision.txt"
+    if [ "$MUTATE_TRACKED" = staged ]; then git -C "$DEST" add revision.txt; fi
+    ;;
+  head)
+    git -C "$DEST" fetch origin "$BRANCH"
+    git -C "$DEST" reset --hard FETCH_HEAD
+    ;;
+esac
 """,
             )
             pull = executable(
@@ -264,6 +279,9 @@ raise SystemExit(int(os.environ['ANSIBLE_RC']))
     def test_pinned_stationary_branch_and_extra_vars(self):
         self.run_wrapper(move_branch=False, mode="pinned", extra_vars=True)
 
+    def test_pinned_existing_checkout_keeps_declared_source(self):
+        self.run_wrapper(move_branch=True, mode="pinned", existing_checkout=True)
+
     def test_pinned_missing_invalid_or_other_environment_stops(self):
         for case in ("missing", "malformed", "wrong_environment", "unavailable"):
             with self.subTest(case=case):
@@ -277,9 +295,11 @@ raise SystemExit(int(os.environ['ANSIBLE_RC']))
         )
 
     def test_tracked_source_change_after_galaxy_is_rejected(self):
-        self.run_wrapper(
-            move_branch=True, mode="pinned", mutate_tracked=True, expect_blocked=True
-        )
+        for mutation in (True, "staged", "head"):
+            with self.subTest(mutation=mutation):
+                self.run_wrapper(
+                    move_branch=True, mode="pinned", mutate_tracked=mutation, expect_blocked=True
+                )
 
     def test_pinned_ansible_failure_is_preserved_without_success_receipt(self):
         self.run_wrapper(move_branch=True, mode="pinned", ansible_rc=7)
