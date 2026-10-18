@@ -16,6 +16,7 @@ import yaml
 FILES = Path(__file__).resolve().parents[2] / "ansible/openwrt/roles/openwrt_gentoo_rootfs/files"
 sys.path.insert(0, str(FILES))
 import pxe_producer_receipt as producer
+import pxe_producer_receipt_contract as contract
 
 DATE = "20261018"
 ARGS = {"bundle_date": DATE, "build_id": "fixture-build", "infra_revision": "a" * 40,
@@ -66,6 +67,127 @@ class ProducerTests(unittest.TestCase):
         with self.assertRaises((ValueError, OSError)):
             self.run_producer(**overrides)
         self.assertFalse(self.output.exists())
+
+    def read_receipt(self, date=DATE):
+        with mock.patch.object(contract, "ROOT", self.root):
+            return contract.read_receipt(date)
+
+    def test_reader_roundtrip_is_historical_and_does_not_measure_current_trees(self):
+        published = self.run_producer()
+        original = self.output.read_bytes()
+        (self.tftp() / "kernel8.img").write_bytes(b"changed after measurement")
+        with mock.patch.object(producer, "fingerprint_tree", side_effect=AssertionError("reader must not hash trees")):
+            receipt, digest = self.read_receipt()
+        self.assertEqual(digest, published["receipt_sha256"])
+        self.assertEqual(receipt, json.loads(original))
+        self.assertEqual(self.output.read_bytes(), original)
+
+    def test_reader_rejects_semantic_tampering_even_with_new_receipt_hash(self):
+        self.run_producer()
+        self.output.chmod(0o600)  # Deliberately corrupt a synthetic immutable receipt.
+        original = json.loads(self.output.read_bytes())
+        cases = [(("environment",), "prod"), (("schema",), "other"), (("scope",), "accepted"),
+                 (("bundle_date",), "20260230"), (("generation_profile",), "prod"),
+                 (("source_declarations", "rpi4"), "b" * 64),
+                 (("artifacts", "rpi4", "rootfs", "entries"), True),
+                 (("artifacts", "rpi4", "rootfs", "regular_file_bytes"), -1),
+                 (("artifacts", "rpi4", "tftp", "algorithm"), "unknown"),
+                 (("artifacts", "rpi5", "tftp", "digest"), "A" * 64),
+                 (("capture_window", "started_at"), "2099-01-01T00:00:00Z"),
+                 (("extra",), "must-not-be-exported")]
+        for keys, value in cases:
+            with self.subTest(keys=keys):
+                receipt = deepcopy(original)
+                current = receipt
+                for key in keys[:-1]:
+                    current = current[key]
+                current[keys[-1]] = value
+                receipt["receipt_id"] = contract._receipt_id(receipt)
+                self.output.write_bytes(contract._canonical(receipt) + b"\n")
+                with self.assertRaises(ValueError):
+                    self.read_receipt()
+
+    def test_reader_rejects_missing_unsafe_duplicate_or_unsorted_required_artifacts(self):
+        self.run_producer()
+        self.output.chmod(0o600)
+        original = json.loads(self.output.read_bytes())
+        for mode in ("missing", "traversal", "duplicate", "unsorted", "boolean-size", "other-directory"):
+            with self.subTest(mode=mode):
+                receipt = deepcopy(original)
+                required = receipt["artifacts"]["rpi4"]["required_tftp"]
+                if mode == "missing":
+                    required.pop(0)
+                elif mode == "traversal":
+                    required[0]["path"] = "../outside"
+                elif mode == "duplicate":
+                    required.append(required[0])
+                elif mode == "unsorted":
+                    required.reverse()
+                elif mode == "boolean-size":
+                    required[0]["size"] = True
+                else:
+                    required[0] = {"path": required[0]["path"], "type": "directory"}
+                receipt["receipt_id"] = contract._receipt_id(receipt)
+                self.output.write_bytes(contract._canonical(receipt) + b"\n")
+                with self.assertRaises(ValueError):
+                    self.read_receipt()
+
+    def test_reader_rejects_noncanonical_and_invalid_json_without_rewriting(self):
+        self.run_producer()
+        self.output.chmod(0o600)
+        receipt = json.loads(self.output.read_bytes())
+        for raw in (json.dumps(receipt, indent=2).encode(), b'{"schema":1,"schema":1}', b'{"value":NaN}',
+                    b"x" * (contract.MAX_RECEIPT + 1)):
+            self.output.write_bytes(raw)
+            with self.assertRaises(ValueError):
+                self.read_receipt()
+            self.assertEqual(self.output.read_bytes(), raw)
+
+    def test_reader_never_follows_symlink_or_blocks_on_fifo(self):
+        self.run_producer()
+        target = self.root / "private-input"
+        target.write_text("must-not-be-output")
+        self.output.unlink()
+        self.output.symlink_to(target)
+        with self.assertRaises((OSError, ValueError)):
+            self.read_receipt()
+        self.output.unlink()
+        os.mkfifo(self.output)
+        with self.assertRaises(ValueError):
+            self.read_receipt()
+
+    def run_reader_cli(self, *args):
+        source = (FILES / "pxe_producer_receipt_contract.py").read_text().replace(
+            'ROOT = Path("/srv/gentoo")', 'ROOT = Path(' + repr(str(self.root)) + ')')
+        return subprocess.run([sys.executable, "-", *args], input=source, capture_output=True, text=True,
+                              cwd=self.root, env={"PATH": os.environ["PATH"]}, timeout=10)
+
+    def test_standalone_reader_cli_has_fixed_scope_and_bounded_missing_result(self):
+        self.run_producer()
+        result = self.run_reader_cli("--bundle-date", DATE)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        value = json.loads(result.stdout)
+        self.assertEqual(value["scope"], "stored_producer_receipt_not_current_artifact_verification")
+        self.assertEqual(value["receipt_sha256"], hashlib.sha256(self.output.read_bytes()).hexdigest())
+        self.assertLessEqual(value["capture_started_at"], value["capture_finished_at"])
+        self.assertNotIn("must-not-be-copied", result.stdout)
+        self.assertNotIn(str(self.root), result.stdout)
+        result = self.run_reader_cli("--bundle-date", "20261019")
+        self.assertEqual(result.returncode, 3)
+        value = json.loads(result.stdout)
+        self.assertEqual(value["reason"], "producer_receipt_missing")
+        self.assertIsNone(value["receipt"])
+
+    def test_standalone_reader_rejects_arbitrary_path_and_future_measurement(self):
+        result = self.run_reader_cli("--bundle-date", "../other")
+        self.assertEqual(result.returncode, 3)
+        result = self.run_reader_cli("--bundle-date", DATE, "--root", "/other")
+        self.assertEqual(result.returncode, 2)
+        with mock.patch.object(producer, "_now", return_value="2099-01-01T00:00:00Z"):
+            self.run_producer()
+        result = self.run_reader_cli("--bundle-date", DATE)
+        self.assertEqual(result.returncode, 3)
+        self.assertIsNone(json.loads(result.stdout)["receipt"])
 
     def test_complete_pair_binds_actual_manifest_declarations_and_trees(self):
         result = self.run_producer()
@@ -222,6 +344,7 @@ class ProducerTests(unittest.TestCase):
         (copied / "tasks/producer_receipt.yml").write_text(yaml.safe_dump(transform(tasks)))
         shutil.copy(role / "defaults/main.yml", copied / "defaults/main.yml")
         shutil.copy(FILES / "pxe_artifact_fingerprint.py", copied / "files/pxe_artifact_fingerprint.py")
+        shutil.copy(FILES / "pxe_producer_receipt_contract.py", copied / "files/pxe_producer_receipt_contract.py")
         source = (FILES / "pxe_producer_receipt.py").read_text()
         self.assertEqual(source.count('ROOT = Path("/srv/gentoo")'), 1)
         (copied / "files/pxe_producer_receipt.py").write_text(source.replace(
