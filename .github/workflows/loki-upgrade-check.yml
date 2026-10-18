@@ -46,7 +46,18 @@ jobs:
         run: python3 -m unittest discover -s scripts/ci -p 'test_staging_loki_upgrade.py' -v
       - name: Create disposable Kubernetes 1.36
         run: |
-          kind create cluster --name loki-upgrade-ci --kubeconfig "${KUBECONFIG}" --wait 120s \
+          # Gateway rolling updates require separate nodes for old/new pods.
+          # Keep chart anti-affinity intact and provide two schedulable workers.
+          cat > "${RUNNER_TEMP}/loki-upgrade-kind.yaml" <<'YAML'
+          kind: Cluster
+          apiVersion: kind.x-k8s.io/v1alpha4
+          nodes:
+            - role: control-plane
+            - role: worker
+            - role: worker
+          YAML
+          kind create cluster --name loki-upgrade-ci --kubeconfig "${KUBECONFIG}" --wait 180s \
+            --config "${RUNNER_TEMP}/loki-upgrade-kind.yaml" \
             --image kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed
           docker cp loki-upgrade-ci-control-plane:/usr/bin/kubectl "${RUNNER_TEMP}/loki-upgrade-tools/kubectl"
           chmod +x "${RUNNER_TEMP}/loki-upgrade-tools/kubectl"
@@ -57,6 +68,7 @@ jobs:
         run: |
           kubectl --context kind-loki-upgrade-ci get pods,pvc -A -o wide || true
           kubectl --context kind-loki-upgrade-ci -n observability-stg describe pods || true
+          kubectl --context kind-loki-upgrade-ci -n observability-stg get events --sort-by=.lastTimestamp || true
           kubectl --context kind-loki-upgrade-ci -n observability-stg logs statefulset/loki-write -c loki --tail=100 || true
           kubectl --context kind-loki-upgrade-ci -n observability-stg logs statefulset/loki-backend -c loki --tail=100 || true
       - name: Delete disposable cluster
