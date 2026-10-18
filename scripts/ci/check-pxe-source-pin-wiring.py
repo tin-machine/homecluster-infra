@@ -37,7 +37,10 @@ class WiringTests(unittest.TestCase):
                 if stale:
                     target = destination / "etc/ansible-pull/source-declaration.json"
                     target.parent.mkdir(parents=True)
-                    target.write_bytes(b'{"stale": true}\n')
+                    if stale == "symlink":
+                        target.symlink_to("missing-declaration.json")
+                    else:
+                        target.write_bytes(b'{"stale": true}\n')
             copied = root / "roles/openwrt_gentoo_rootfs"
             for directory in ("defaults", "files", "tasks", "templates"):
                 (copied / directory).mkdir(parents=True)
@@ -117,10 +120,14 @@ class WiringTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 for destination in roots:
                     target = destination / "etc/ansible-pull/source-declaration.json"
-                    if stale:
+                    if stale == "symlink":
+                        self.assertTrue(target.is_symlink())
+                        self.assertEqual(os.readlink(target), "missing-declaration.json")
+                    elif stale:
                         self.assertEqual(target.read_bytes(), b'{"stale": true}\n')
                     else:
-                        self.assertFalse(target.exists())
+                        self.assertFalse(os.path.lexists(target))
+                    self.assertFalse((destination / "usr/local/libexec/pxe-source-pin.py").exists())
                 return
             self.assertEqual(
                 result.returncode, 0, result.stdout[-2500:] + result.stderr[-1000:]
@@ -177,6 +184,9 @@ class WiringTests(unittest.TestCase):
     def test_legacy_does_not_silently_delete_old_pin(self):
         self.run_role(mode="legacy", stale=True, expect_ok=False)
 
+    def test_legacy_rejects_dangling_declaration_symlink(self):
+        self.run_role(mode="legacy", stale="symlink", expect_ok=False)
+
     def test_bad_identity_never_writes_declaration(self):
         cases = [
             {"openwrt_gentoo_ansible_pull_source_mode": "auto"},
@@ -184,6 +194,11 @@ class WiringTests(unittest.TestCase):
             {"openwrt_gentoo_ansible_pull_source_build_id": "../escape"},
             {"openwrt_gentoo_ansible_pull_source_environment": "production"},
             {"openwrt_gentoo_ansible_pull_env_group": "env_prd"},
+            {"openwrt_gentoo_ansible_pull_source_revision": True},
+            {"openwrt_gentoo_ansible_pull_source_revision": "a" * 40 + "\n"},
+            {"openwrt_gentoo_ansible_pull_source_build_id": 123},
+            {"openwrt_gentoo_ansible_pull_source_build_id": "valid\n"},
+            {"openwrt_gentoo_ansible_pull_source_build_id": "a" * 129},
         ]
         for change in cases:
             with self.subTest(change=change):
@@ -194,6 +209,8 @@ class WiringTests(unittest.TestCase):
         self.assertEqual(
             defaults.get("openwrt_gentoo_ansible_pull_source_mode"), "legacy"
         )
+        for name in ("environment", "revision", "build_id"):
+            self.assertEqual(defaults.get("openwrt_gentoo_ansible_pull_source_" + name), "")
         def walk(tasks):
             for task in tasks:
                 yield task
