@@ -1,0 +1,62 @@
+---
+- name: 完成したstaging artifactのproducer receiptを発行
+  when: openwrt_gentoo_release_producer_enabled | bool
+  tags:
+    - pxe_release_bundle
+    - pxe_release_bundle_build
+  block:
+    - name: Producerの固定staging scopeとsource宣言を検証
+      ansible.builtin.assert:
+        that:
+          - pxe_release_bundle_stage | default('') in ['stg', 'staging']
+          - openwrt_gentoo_ansible_pull_source_mode == 'pinned'
+          - openwrt_gentoo_ansible_pull_source_environment == 'staging'
+          - openwrt_gentoo_release_bundle_manifest_dir == '/srv/gentoo/releases'
+          - openwrt_gentoo_release_producer_generation_profile is string
+          - openwrt_gentoo_release_producer_generation_profile in ['standard', 'rpi5-common-kernel']
+          - openwrt_gentoo_ansible_pull_source_revision is string
+          - openwrt_gentoo_ansible_pull_source_revision is match('^[0-9a-f]{40}\Z')
+          - openwrt_gentoo_ansible_pull_source_build_id is string
+          - openwrt_gentoo_ansible_pull_source_build_id is match('^[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z')
+          - pxe_release_bundle_effective_date is string
+          - pxe_release_bundle_effective_date is match('^[0-9]{8}\Z')
+        fail_msg: producer receiptには固定staging scopeと検証済みsource宣言が必要です
+
+    - name: Producer helperとreceiptの固定配置先を作成
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      loop:
+        - /usr/local/libexec/homecluster-pxe-producer
+        - /srv/gentoo/releases/producer
+
+    - name: Producer helperをartifact測定対象外へ配置
+      ansible.builtin.copy:
+        src: "{{ item }}"
+        dest: "/usr/local/libexec/homecluster-pxe-producer/{{ item }}"
+        owner: root
+        group: root
+        mode: '0644'
+      loop:
+        - pxe_artifact_fingerprint.py
+        - pxe_producer_receipt.py
+
+    - name: 最終manifestとPi4 Pi5完成artifactを測定してimmutable receiptを発行
+      ansible.builtin.command:
+        argv:
+          - python3
+          - /usr/local/libexec/homecluster-pxe-producer/pxe_producer_receipt.py
+          - --bundle-date
+          - "{{ pxe_release_bundle_effective_date }}"
+          - --build-id
+          - "{{ openwrt_gentoo_ansible_pull_source_build_id }}"
+          - --infra-revision
+          - "{{ openwrt_gentoo_ansible_pull_source_revision }}"
+          - --generation-profile
+          - "{{ openwrt_gentoo_release_producer_generation_profile }}"
+      register: openwrt_gentoo_release_producer_result
+      changed_when: (openwrt_gentoo_release_producer_result.stdout | from_json).status == 'written'
+      when: not ansible_check_mode

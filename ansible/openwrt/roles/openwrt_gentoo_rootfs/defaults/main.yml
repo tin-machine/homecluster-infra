@@ -28,6 +28,9 @@ openwrt_gentoo_release_bundle_require_artifacts: true
 openwrt_gentoo_release_bundle_manifest_enabled: true
 openwrt_gentoo_release_bundle_manifest_dir: /srv/gentoo/releases
 openwrt_gentoo_release_bundle_manifest_metadata: {}
+# Explicit staging integration only; legacy build paths remain inactive.
+openwrt_gentoo_release_producer_enabled: false
+openwrt_gentoo_release_producer_generation_profile: ""
 openwrt_gentoo_release_bundle_marker_enabled: true
 openwrt_gentoo_release_bundle_rootfs_marker_name: ".release_bundle_rootfs"
 openwrt_gentoo_release_bundle_tftp_marker_name: ".release_bundle_tftp"
