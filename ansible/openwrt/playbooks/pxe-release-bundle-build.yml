@@ -23,3 +23,16 @@
   tasks:
     - name: PXE release bundle build と manifest 検証を実行
       ansible.builtin.import_tasks: tasks/pxe_release_bundle_build_and_manifest.yml
+
+    - name: 最終build artifactのproducer receiptを発行
+      ansible.builtin.include_role:
+        name: openwrt_gentoo_rootfs
+        tasks_from: producer_receipt
+        apply:
+          tags:
+            - pxe_release_bundle
+            - pxe_release_bundle_build
+      when: openwrt_gentoo_release_producer_enabled | default(false) | bool
+      tags:
+        - pxe_release_bundle
+        - pxe_release_bundle_build
