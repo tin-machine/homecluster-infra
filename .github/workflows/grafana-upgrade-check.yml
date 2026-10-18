@@ -1,0 +1,44 @@
+name: grafana-upgrade-check
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/grafana-upgrade-check.yml'
+      - 'scripts/ci/*staging_grafana_upgrade.py'
+      - 'terraform/modules/observability_stack/**'
+      - 'clusters/homelab/apps/base/values-grafana.yaml'
+      - 'clusters/homelab/apps/staging/values-grafana.yaml'
+      - 'clusters/homelab/apps/base/grafana-dashboards/**'
+
+permissions:
+  contents: read
+
+jobs:
+  grafana-upgrade:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Install checksum-pinned Helm
+        shell: bash
+        run: |
+          set -euo pipefail
+          helm_version="v3.19.0"
+          archive="helm-${helm_version}-linux-amd64.tar.gz"
+          sha256="a7f81ce08007091b86d8bd696eb4d86b8d0f2e1b9f6c714be62f82f96a594496"
+          install_dir="${RUNNER_TEMP}/grafana-ci-helm"
+          mkdir -p "${install_dir}"
+          curl --fail --silent --show-error --location \
+            "https://get.helm.sh/${archive}" --output "${install_dir}/${archive}"
+          printf '%s  %s\n' "${sha256}" "${install_dir}/${archive}" | sha256sum --check --strict -
+          tar -xzf "${install_dir}/${archive}" -C "${install_dir}"
+          printf '%s\n' "${install_dir}/linux-amd64" >> "${GITHUB_PATH}"
+      - name: Install YAML parser
+        run: python3 -m pip install PyYAML==6.0.3
+      - name: Validate negative fixtures
+        run: python3 -m unittest discover -s scripts/ci -p 'test_staging_grafana_upgrade.py' -v
+      - name: Validate rendered contract and isolated SQLite upgrade
+        run: python3 scripts/ci/check_staging_grafana_upgrade.py
