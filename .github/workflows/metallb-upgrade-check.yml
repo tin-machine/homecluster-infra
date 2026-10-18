@@ -1,0 +1,83 @@
+name: metallb-upgrade-check
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/metallb-upgrade-check.yml'
+      - 'scripts/ci/*staging_metallb_upgrade.py'
+      - 'terraform/env/common-crds/**'
+      - 'terraform/env/common-addons/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: metallb-upgrade-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  metallb-upgrade:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Old CRDs use int32 with a uint32 maximum, rejected by 1.36.
+          - scenario: upgrade-1.35
+            image: kindest/node:v1.35.8@sha256:07b2536e30b803ed61d1677a79df6115f798ce64c80f9e22f6ed45afd09323c0
+            args: ''
+          - scenario: fresh-1.36
+            image: kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed
+            args: '--fresh'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Install checksum-pinned tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          tools="${RUNNER_TEMP}/metallb-upgrade-tools"
+          mkdir -p "${tools}"
+          echo "KUBECONFIG=${RUNNER_TEMP}/metallb-upgrade-ci.kubeconfig" >> "${GITHUB_ENV}"
+          curl -fsSL --retry 3 https://get.helm.sh/helm-v3.19.0-linux-amd64.tar.gz -o "${tools}/helm.tar.gz"
+          echo "a7f81ce08007091b86d8bd696eb4d86b8d0f2e1b9f6c714be62f82f96a594496  ${tools}/helm.tar.gz" | sha256sum --check --strict -
+          tar -xzf "${tools}/helm.tar.gz" -C "${tools}"
+          mv "${tools}/linux-amd64/helm" "${tools}/helm"
+          curl -fsSL --retry 3 https://github.com/kubernetes-sigs/kind/releases/download/v0.33.0/kind-linux-amd64 -o "${tools}/kind"
+          echo "aee6151561422756b764a4ae28e7f44cda5af5a9eead3cc9985112b1de8d8e0d  ${tools}/kind" | sha256sum --check --strict -
+          chmod +x "${tools}/kind"
+          curl -fsSL --retry 3 https://releases.hashicorp.com/terraform/1.16.4/terraform_1.16.4_linux_amd64.zip -o "${tools}/terraform.zip"
+          echo "dc94af0eef1147718ad7c8daea792ed199e3e0492eec180d0adafa2a65a879df  ${tools}/terraform.zip" | sha256sum --check --strict -
+          unzip -q "${tools}/terraform.zip" -d "${tools}"
+          echo "${tools}" >> "${GITHUB_PATH}"
+          python3 -m pip install PyYAML==6.0.3
+      - name: Test invalid fixtures
+        run: python3 -m unittest discover -s scripts/ci -p 'test_staging_metallb_upgrade.py' -v
+      - name: Create disposable cluster
+        env:
+          NODE_IMAGE: ${{ matrix.image }}
+        run: |
+          kind create cluster --name metallb-upgrade-ci --kubeconfig "${KUBECONFIG}" --wait 120s --image "${NODE_IMAGE}"
+          docker cp metallb-upgrade-ci-control-plane:/usr/bin/kubectl "${RUNNER_TEMP}/metallb-upgrade-tools/kubectl"
+          chmod +x "${RUNNER_TEMP}/metallb-upgrade-tools/kubectl"
+      - name: Verify real BGP and VIP traffic
+        env:
+          TEST_ARGS: ${{ matrix.args }}
+        run: python3 scripts/ci/check_staging_metallb_upgrade.py --kubeconfig "${KUBECONFIG}" ${TEST_ARGS}
+      - name: Diagnose disposable cluster failure
+        if: failure()
+        run: |
+          kubectl --context kind-metallb-upgrade-ci -n metallb-system get pods,svc -o wide || true
+          kubectl --context kind-metallb-upgrade-ci -n metallb-system describe pods || true
+          kubectl --context kind-metallb-upgrade-ci -n metallb-system logs deployment/metallb-controller --tail=100 || true
+          kubectl --context kind-metallb-upgrade-ci -n metallb-system logs daemonset/metallb-speaker -c speaker --tail=100 || true
+          kubectl --context kind-metallb-upgrade-ci -n metallb-system logs daemonset/metallb-speaker -c frr --tail=100 || true
+      - name: Delete disposable resources
+        if: always()
+        run: |
+          docker rm -f metallb-upgrade-peer 2>/dev/null || true
+          if command -v kind >/dev/null; then kind delete cluster --name metallb-upgrade-ci; fi

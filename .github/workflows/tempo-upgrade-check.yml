@@ -1,0 +1,66 @@
+name: tempo-upgrade-check
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/tempo-upgrade-check.yml'
+      - 'scripts/ci/*staging_tempo_upgrade.py'
+      - 'terraform/modules/observability_stack/**'
+      - 'clusters/homelab/apps/base/values-tempo.yaml'
+      - 'clusters/homelab/apps/staging/values-tempo.yaml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tempo-upgrade-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  tempo-upgrade:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Install checksum-pinned Helm and kind
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "KUBECONFIG=${RUNNER_TEMP}/tempo-upgrade-ci.kubeconfig" >> "${GITHUB_ENV}"
+          tools="${RUNNER_TEMP}/tempo-upgrade-tools"
+          mkdir -p "${tools}"
+          curl -fsSL --retry 3 https://get.helm.sh/helm-v3.19.0-linux-amd64.tar.gz -o "${tools}/helm.tar.gz"
+          echo "a7f81ce08007091b86d8bd696eb4d86b8d0f2e1b9f6c714be62f82f96a594496  ${tools}/helm.tar.gz" | sha256sum --check --strict -
+          tar -xzf "${tools}/helm.tar.gz" -C "${tools}"
+          mv "${tools}/linux-amd64/helm" "${tools}/helm"
+          curl -fsSL --retry 3 https://github.com/kubernetes-sigs/kind/releases/download/v0.33.0/kind-linux-amd64 -o "${tools}/kind"
+          echo "aee6151561422756b764a4ae28e7f44cda5af5a9eead3cc9985112b1de8d8e0d  ${tools}/kind" | sha256sum --check --strict -
+          chmod +x "${tools}/kind"
+          echo "${tools}" >> "${GITHUB_PATH}"
+          python3 -m pip install PyYAML==6.0.3
+      - name: Test invalid fixtures
+        run: python3 -m unittest discover -s scripts/ci -p 'test_staging_tempo_upgrade.py' -v
+      - name: Create disposable Kubernetes 1.36
+        run: |
+          kind create cluster --name tempo-upgrade-ci --kubeconfig "${KUBECONFIG}" --wait 120s \
+            --image kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed
+          docker cp tempo-upgrade-ci-control-plane:/usr/bin/kubectl "${RUNNER_TEMP}/tempo-upgrade-tools/kubectl"
+          chmod +x "${RUNNER_TEMP}/tempo-upgrade-tools/kubectl"
+      - name: Verify Helm upgrade and persisted old/new traces
+        run: python3 scripts/ci/check_staging_tempo_upgrade.py --kubeconfig "${KUBECONFIG}"
+      - name: Diagnose failure in disposable cluster
+        if: failure()
+        run: |
+          kubectl --context kind-tempo-upgrade-ci get pods,pvc -A -o wide || true
+          kubectl --context kind-tempo-upgrade-ci -n observability-stg describe pods || true
+          kubectl --context kind-tempo-upgrade-ci -n observability-stg logs statefulset/stg-tempo --tail=100 || true
+      - name: Delete disposable cluster
+        if: always()
+        run: |
+          if command -v kind >/dev/null; then
+            kind delete cluster --name tempo-upgrade-ci
+          fi

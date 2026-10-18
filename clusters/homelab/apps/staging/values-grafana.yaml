@@ -1,3 +1,7 @@
+# One SQLite database on the existing PVC: stop the old Grafana before schema migration.
+replicas: 1
+deploymentStrategy:
+  type: Recreate
 podLabels:
   app.kubernetes.io/name: grafana
   app.kubernetes.io/instance: stg-grafana
