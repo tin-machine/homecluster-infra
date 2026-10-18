@@ -110,18 +110,23 @@ def main():
             assert claim["spec"]["resources"]["requests"]["storage"] == size
         path = directory / "loki.yaml"
         path.write_text(yaml.safe_dump(config))
-        assert "2.9.6" in run([str(args.loki_binary), "--version"])
+        images = {c["image"] for o in objects
+                  for c in o.get("spec", {}).get("template", {}).get("spec", {}).get("containers", [])
+                  if c["name"] == "loki"}
+        assert images == {"docker.io/grafana/loki:3.6.11"}, "review binary validation when the rendered image changes"
+        assert "3.6.11" in run([str(args.loki_binary), "--version"])
+        assert config["limits_config"]["allow_structured_metadata"] is False
+        assert "shared_store" not in config["storage_config"]["boltdb_shipper"]
         run([str(args.loki_binary), f"-config.file={path}", "-verify-config=true"])
-        negative = copy.deepcopy(values)
-        for value in negative:
-            value["loki"].pop("storage")
+        negative = copy.deepcopy(config)
+        negative["storage_config"]["boltdb_shipper"]["shared_store"] = "aws"
+        path.write_text(yaml.safe_dump(negative))
         try:
-            render("loki", version, "stg-loki", "observability-stg",
-                   negative, args, directory)
+            run([str(args.loki_binary), f"-config.file={path}", "-verify-config=true"])
         except RuntimeError as error:
-            assert "bucketNames" in str(error)
+            assert "shared_store" in str(error)
         else:
-            raise AssertionError("missing bucket names did not fail")
+            raise AssertionError("removed shared_store option did not fail")
         print("PASS Loki: existing S3 buckets/schema/credentials retained, binary config valid")
 
 

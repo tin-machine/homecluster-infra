@@ -22,8 +22,6 @@ loki:
       region: homelab
       s3forcepathstyle: true
       insecure: true
-    boltdb_shipper:
-      shared_store: aws
   rulerConfig:
     storage:
       s3:
