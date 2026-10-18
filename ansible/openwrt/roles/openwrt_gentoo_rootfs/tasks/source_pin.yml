@@ -1,0 +1,77 @@
+---
+- name: Validate ansible-pull source mode
+  ansible.builtin.assert:
+    that:
+      - openwrt_gentoo_ansible_pull_source_mode in ['legacy', 'pinned']
+    fail_msg: The ansible-pull source mode must be legacy or pinned.
+
+- name: Validate pinned staging source before writing rootfs files
+  ansible.builtin.assert:
+    that:
+      - openwrt_gentoo_ansible_pull_source_environment == 'staging'
+      - openwrt_gentoo_ansible_pull_env_group == 'env_stg'
+      - openwrt_gentoo_ansible_pull_source_revision is string
+      - openwrt_gentoo_ansible_pull_source_revision is match('^[0-9a-f]{40}\Z')
+      - openwrt_gentoo_ansible_pull_source_build_id is string
+      - openwrt_gentoo_ansible_pull_source_build_id is match('^[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z')
+    fail_msg: Pinned source requires a staging identity, a full revision and a bounded build ID.
+  when: openwrt_gentoo_ansible_pull_source_mode == 'pinned'
+
+- name: Inspect legacy rootfs declarations without following symlinks
+  ansible.builtin.stat:
+    path: "{{ item }}/etc/ansible-pull/source-declaration.json"
+    follow: false
+    get_checksum: false
+    get_mime: false
+    get_attributes: false
+  loop: "{{ openwrt_gentoo_ansible_pull_rootfs_dirs }}"
+  register: openwrt_gentoo_ansible_pull_legacy_declarations
+  when: openwrt_gentoo_ansible_pull_source_mode == 'legacy'
+
+- name: Reject legacy mode on any previously pinned rootfs
+  ansible.builtin.assert:
+    that:
+      - not item.stat.exists
+    fail_msg: A source declaration already exists; legacy mode must not remove or ignore it.
+  loop: "{{ openwrt_gentoo_ansible_pull_legacy_declarations.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: openwrt_gentoo_ansible_pull_source_mode == 'legacy'
+
+- name: Create source reader directories
+  ansible.builtin.file:
+    path: "{{ item }}/usr/local/libexec"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop: "{{ openwrt_gentoo_ansible_pull_rootfs_dirs }}"
+
+- name: Install source reader for pinned and legacy boots
+  ansible.builtin.copy:
+    src: pxe-source-pin.py
+    dest: "{{ item }}/usr/local/libexec/pxe-source-pin.py"
+    owner: root
+    group: root
+    mode: '0755'
+  loop: "{{ openwrt_gentoo_ansible_pull_rootfs_dirs }}"
+
+- name: Create pinned source declaration directories
+  ansible.builtin.file:
+    path: "{{ item }}/etc/ansible-pull"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop: "{{ openwrt_gentoo_ansible_pull_rootfs_dirs }}"
+  when: openwrt_gentoo_ansible_pull_source_mode == 'pinned'
+
+- name: Write the same source declaration to each pinned rootfs
+  ansible.builtin.copy:
+    content: "{{ {'schema': 'homecluster-pxe-source-declaration-v1', 'environment': openwrt_gentoo_ansible_pull_source_environment, 'build_id': openwrt_gentoo_ansible_pull_source_build_id, 'infra_revision': openwrt_gentoo_ansible_pull_source_revision} | to_json }}\n"
+    dest: "{{ item }}/etc/ansible-pull/source-declaration.json"
+    owner: root
+    group: root
+    mode: '0644'
+  loop: "{{ openwrt_gentoo_ansible_pull_rootfs_dirs }}"
+  when: openwrt_gentoo_ansible_pull_source_mode == 'pinned'

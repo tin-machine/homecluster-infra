@@ -8,6 +8,7 @@ ROLE="${ROLE_ARG:-${ROLE:-}}"
 REPO_URL="${REPO_URL:-}"
 BRANCH="${BRANCH:-}"
 DEST="${DEST:-}"
+SOURCE_MODE="{{ openwrt_gentoo_ansible_pull_source_mode | default('legacy') }}"
 INVENTORY_PATH="/etc/ansible-pull/inventory.ini"
 STATE_DIR="/run/ansible-pull"
 RUNTIME_INVENTORY="${STATE_DIR}/inventory.ini"
@@ -302,7 +303,7 @@ token_file_is_usable() {
 }
 
 # Optional evidence of checkout HEAD just after a successful ansible-pull.
-# The flock-serialized wrapper does not pin code before execution.
+# Legacy evidence remains a post-success observation, not proof of a source pin.
 read_boot_id() {
   cat /proc/sys/kernel/random/boot_id 2>/dev/null || true
 }
@@ -402,6 +403,24 @@ trap finish EXIT
 
 CURRENT_STEP="branch_resolve"
 resolve_branch
+CURRENT_STEP="source_pin"
+source_pin="$(/usr/local/libexec/pxe-source-pin.py --mode "${SOURCE_MODE}" --stage "${STAGE:-}")"
+[ "$(printf '%s\n' "${source_pin}" | wc -l)" -eq 1 ] || exit 2
+IFS=' ' read -r pin_mode pin_revision pin_build_id pin_digest pin_extra <<EOF
+${source_pin}
+EOF
+[ -z "${pin_extra}" ] && [ "${pin_mode}" = "${SOURCE_MODE}" ] || exit 2
+case "${pin_mode}" in
+  legacy)
+    [ "${pin_revision} ${pin_build_id} ${pin_digest}" = '- - -' ] || exit 2
+    ;;
+  pinned)
+    printf '%s\n' "${pin_revision}" | grep -Eq '^[0-9a-f]{40}$' || exit 2
+    printf '%s\n' "${pin_digest}" | grep -Eq '^[0-9a-f]{64}$' || exit 2
+    printf '%s\n' "${pin_build_id}" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$' || exit 2
+    ;;
+  *) exit 2 ;;
+esac
 CURRENT_STEP="runtime_inventory"
 write_runtime_inventory
 CURRENT_STEP="role_extra_vars"
@@ -426,7 +445,22 @@ fi
 
 CURRENT_STEP="prepare_dest"
 mkdir -p "${DEST}"
-if [ ! -d "${DEST}/.git" ]; then
+if [ "${SOURCE_MODE}" = pinned ]; then
+  DEST="$(cd "${DEST}" && pwd -P)"
+  if [ ! -d "${DEST}/.git" ]; then
+    CURRENT_STEP="git_init"
+    git init "${DEST}"
+    git -C "${DEST}" remote add origin "${REPO_URL}"
+  fi
+  CURRENT_STEP="git_fetch_pin"
+  git -C "${DEST}" fetch --depth 1 origin "${pin_revision}"
+  if [ -d "${DEST}/ansible/arm64/roles/xanmanning.k3s" ]; then
+    CURRENT_STEP="cleanup_old_galaxy_roles"
+    rm -rf "${DEST}/ansible/arm64/roles/xanmanning.k3s"
+  fi
+  CURRENT_STEP="git_reset_pin"
+  git -C "${DEST}" reset --hard "${pin_revision}"
+elif [ ! -d "${DEST}/.git" ]; then
   CURRENT_STEP="git_clone"
   git clone --depth 1 --branch "${BRANCH}" "${REPO_URL}" "${DEST}"
 else
@@ -452,19 +486,23 @@ HOME="${GALAXY_ROLE_HOME}" /usr/bin/ansible-galaxy install -r "${ARM64_PLAYBOOK_
 CURRENT_STEP="ansible_galaxy_collections"
 /usr/bin/ansible-galaxy collection install -r "${ARM64_PLAYBOOK_DIR}/requirements.yml"
 
-CURRENT_STEP="ansible_pull"
-if [ -n "${EXTRA_VARS_FILE}" ]; then
-  /usr/bin/ansible-pull -U "${REPO_URL}" -C "${BRANCH}" -d "${DEST}" \
-    -i "${RUNTIME_INVENTORY}" -c local --limit "${ROLE}" \
-    -e "overlay_id=${OVERLAY_ID:-unknown}" -e "role=${ROLE}" \
-    -e "roles=${ROLES:-${ROLE}}" -e "stage=${STAGE:-unknown}" \
-    -e "@${EXTRA_VARS_FILE}" \
-    "${ARM64_PLAYBOOK_REL}/site.yml"
+if [ "${SOURCE_MODE}" = pinned ]; then
+  CURRENT_STEP="verify_source_pin"
+  [ "$(git -C "${DEST}" rev-parse --verify 'HEAD^{commit}')" = "${pin_revision}" ] || exit 2
+  git -C "${DEST}" diff --quiet --exit-code
+  git -C "${DEST}" diff --cached --quiet --exit-code
+  set -- /usr/bin/ansible-playbook
+  selected_playbook="${ARM64_PLAYBOOK_DIR}/site.yml"
 else
-  /usr/bin/ansible-pull -U "${REPO_URL}" -C "${BRANCH}" -d "${DEST}" \
-    -i "${RUNTIME_INVENTORY}" -c local --limit "${ROLE}" \
-    -e "overlay_id=${OVERLAY_ID:-unknown}" -e "role=${ROLE}" \
-    -e "roles=${ROLES:-${ROLE}}" -e "stage=${STAGE:-unknown}" \
-    "${ARM64_PLAYBOOK_REL}/site.yml"
+  set -- /usr/bin/ansible-pull -U "${REPO_URL}" -C "${BRANCH}" -d "${DEST}"
+  selected_playbook="${ARM64_PLAYBOOK_REL}/site.yml"
 fi
+set -- "$@" -i "${RUNTIME_INVENTORY}" -c local --limit "${ROLE}" \
+  -e "overlay_id=${OVERLAY_ID:-unknown}" -e "role=${ROLE}" \
+  -e "roles=${ROLES:-${ROLE}}" -e "stage=${STAGE:-unknown}"
+if [ -n "${EXTRA_VARS_FILE}" ]; then
+  set -- "$@" -e "@${EXTRA_VARS_FILE}"
+fi
+CURRENT_STEP="ansible_pull"
+"$@" "${selected_playbook}"
 CURRENT_STEP="complete"

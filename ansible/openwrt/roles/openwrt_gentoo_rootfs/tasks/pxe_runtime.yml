@@ -41,6 +41,16 @@
     - pxe_ansible_pull
     - pxe_timesync
 
+- name: Install ansible-pull source declaration and reader
+  ansible.builtin.include_tasks:
+    file: source_pin.yml
+    apply:
+      tags: [pxe, pxe_ansible_pull]
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_ansible_pull_enabled | bool
+  tags: [pxe, pxe_ansible_pull]
+
 - name: ansible-pull repo URL を検証
   ansible.builtin.assert:
     that:

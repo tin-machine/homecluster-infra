@@ -325,6 +325,10 @@ if command -v python3 >/dev/null 2>&1; then
   python3 scripts/ci/check-host-tailscale.py
   python3 scripts/ci/check-k3s-converge-contract.py
   python3 scripts/ci/check-openwrt-pxe-ansible-pull-chain.py
+  python3 scripts/ci/check-pxe-ansible-pull-source-pin.py
+  python3 scripts/ci/check-pxe-source-pin.py
+  python3 scripts/ci/check-pxe-source-pin-wiring.py
+  python3 -m unittest discover -s scripts -p 'test_pxe_post_pull_receipt.py'
   python3 scripts/ci/check-pxe-release-identity-status.py
   python3 scripts/ci/check-pxe-standard-source-validate.py
   python3 scripts/ci/check-rpi5-common-kernel-identity-status.py
