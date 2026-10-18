@@ -6,10 +6,10 @@ tools_dir="$(mktemp -d)"
 trap 'rm -rf "${tools_dir}"' EXIT
 cd "${tools_dir}"
 curl -fLsS https://get.helm.sh/helm-v3.17.3-linux-amd64.tar.gz -o helm.tar.gz
-curl -fLsS https://github.com/grafana/loki/releases/download/v2.9.6/loki-linux-amd64.zip -o loki.zip
+curl -fLsS https://github.com/grafana/loki/releases/download/v3.6.11/loki-linux-amd64.zip -o loki.zip
 sha256sum --check --strict <<'CHECKSUMS'
 ee88b3c851ae6466a3de507f7be73fe94d54cbf2987cbaa3d1a3832ea331f2cd  helm.tar.gz
-4d083365dc2c843de5d836cc836cf49e391eb1174f77a40bfd4a26a74ba3173e  loki.zip
+e87959e3d7f32ae3e6a74704d71f5721d51c7558ff42614a7a0c85b5da2a9c9d  loki.zip
 CHECKSUMS
 tar -xzf helm.tar.gz
 install linux-amd64/helm ./helm
