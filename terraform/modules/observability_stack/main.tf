@@ -90,6 +90,14 @@ resource "helm_release" "loki" {
       value = local.loki_objectstore_access_key
     },
     {
+      name  = "loki.storage.s3.accessKeyId"
+      value = local.loki_objectstore_access_key
+    },
+    {
+      name  = "loki.storage.s3.secretAccessKey"
+      value = local.loki_objectstore_secret_key
+    },
+    {
       name  = "loki.storage_config.aws.secret_access_key"
       value = local.loki_objectstore_secret_key
     },
@@ -108,7 +116,7 @@ resource "helm_release" "tempo" {
   name             = local.tempo_release
   repository       = "https://grafana.github.io/helm-charts"
   chart            = "tempo"
-  version          = "1.23.3"
+  version          = "1.24.4"
   namespace        = kubernetes_namespace.observability.metadata[0].name
   create_namespace = false
 
@@ -142,7 +150,7 @@ resource "helm_release" "node_exporter" {
   name             = local.node_exporter_release
   repository       = "https://prometheus-community.github.io/helm-charts"
   chart            = "prometheus-node-exporter"
-  version          = "4.47.3"
+  version          = "4.59.0"
   namespace        = kubernetes_namespace.observability.metadata[0].name
   create_namespace = false
 
@@ -284,7 +292,7 @@ resource "helm_release" "grafana" {
   name             = local.grafana_release
   repository       = "https://grafana.github.io/helm-charts"
   chart            = "grafana"
-  version          = "8.15.0"
+  version          = "10.5.15"
   namespace        = kubernetes_namespace.observability.metadata[0].name
   create_namespace = false
   timeout          = 900
@@ -315,7 +323,7 @@ resource "helm_release" "otel_collector" {
   name             = local.otel_collector_release
   repository       = "https://open-telemetry.github.io/opentelemetry-helm-charts"
   chart            = "opentelemetry-collector"
-  version          = "0.93.1"
+  version          = "0.175.0"
   namespace        = kubernetes_namespace.observability.metadata[0].name
   create_namespace = false
 

@@ -1,16 +1,31 @@
 variable "environment" {
   type        = string
   description = "Environment label value"
+
+  validation {
+    condition     = var.environment != null
+    error_message = "environment must not be null because it is used in Namespace labels."
+  }
 }
 
 variable "namespace" {
   type        = string
   description = "Namespace for the registry"
+
+  validation {
+    condition     = var.namespace != null
+    error_message = "namespace must not be null because it is used in the Namespace name and labels."
+  }
 }
 
 variable "namespace_app_name" {
   type        = string
   description = "app.kubernetes.io/name label for the namespace"
+
+  validation {
+    condition     = var.namespace_app_name != null
+    error_message = "namespace_app_name must not be null because it is used in Namespace labels."
+  }
 }
 
 variable "name" {
@@ -21,6 +36,11 @@ variable "name" {
 variable "part_of" {
   type        = string
   description = "app.kubernetes.io/part-of label for registry resources"
+
+  validation {
+    condition     = var.part_of != null
+    error_message = "part_of must not be null because it is used in Namespace labels."
+  }
 }
 
 variable "image" {

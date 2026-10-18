@@ -41,7 +41,16 @@ jobs:
         shell: bash
         env:
           RUN_TERRAFORM_VALIDATE: "1"
-        run: bash scripts/ci/static-check.sh
+        run: |
+          terraform fmt -check -diff -recursive
+          bash scripts/ci/static-check.sh
+
+      - name: Validate Namespace metadata with the locked Kubernetes provider
+        shell: bash
+        run: bash scripts/ci/check-kubernetes-namespace-metadata.sh
+
+      - name: Validate staging Loki rendered storage and binary config
+        run: bash scripts/ci/check-staging-loki-compat.sh
 
       - name: Validate convergence monitor status
         shell: bash
@@ -53,6 +62,18 @@ jobs:
 
       - name: Validate common-kernel rollout health diagnostics
         run: python3 -m unittest discover -s scripts -p 'test_pi_rpi5_common_kernel_rollout_health.py' -v
+
+      - name: Validate fixed PXE bundle manifest digest
+        run: python3 -m unittest discover -s scripts -p 'test_pxe_bundle_manifest_readonly_status.py' -v
+
+      - name: Validate fixed PXE node lineage read-only evidence
+        run: python3 -m unittest discover -s scripts -p 'test_pxe_node_lineage_status.py' -v
+
+      - name: Validate post-pull revision receipts
+        run: python3 -m unittest discover -s scripts -p 'test_pxe_post_pull_receipt.py' -v
+
+      - name: Validate fixed read-only post-pull receipt reader
+        run: python3 -m unittest discover -s scripts -p 'test_pxe_post_pull_receipt_status.py' -v
 
       - name: Validate SQLite encrypted backup fixtures
         run: python3 -m unittest discover -s scripts -p 'test_k3s_sqlite_backup.py' -v

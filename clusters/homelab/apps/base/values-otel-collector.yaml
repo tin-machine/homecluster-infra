@@ -3,6 +3,18 @@ image:
   repository: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib
   tag: 0.102.1
   pullPolicy: IfNotPresent
+
+# Chart-only upgrade: keep the pinned Collector's component names and telemetry.
+# Remove these compatibility settings together with a tested application upgrade.
+rewriteDeprecatedComponentNames: false
+config:
+  service:
+    telemetry:
+      resource: null
+      metrics:
+        readers: null
+        address: ${env:MY_POD_IP}:8888
+
 serviceAccount:
   create: true
 service:
