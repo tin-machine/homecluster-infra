@@ -336,6 +336,30 @@ def test_staging_persistent_server_format_boundary() -> None:
         if role in {"k3s_stg_storage", "k3s_stg_server"}:
             assert all(values.get(key) is False for key in flags), role
 
+    # Disabling generation or omitting manual flags must not restore role defaults.
+    for roles in (["k3s_stg_server"], ["k3s_stg_storage", "k3s_stg_server"]):
+        host = copy.deepcopy(base)
+        host["openwrt_pxe_client"]["roles"] = roles
+        host["openwrt_pxe_client"]["ansible_pull"] = {
+            "k3s_stg_storage_vars_enabled": False,
+            "k3s_stg_server_vars_enabled": False,
+            "extra_vars": {role: {"k3s_local_storage_enabled": True} for role in roles},
+        }
+        before = copy.deepcopy(host)
+        values = build(host)
+        assert set(values) == set(roles)
+        assert all(values[role][key] is False for role in roles for key in flags)
+        assert host == before, "catalog changed the original host input"
+
+    # Explicit initialization/ephemeral intent still belongs to prod and agents.
+    for roles in (["k3s_prd_storage", "k3s_prd_server"], ["k3s_stg_storage", "k3s_stg_agent"]):
+        host = copy.deepcopy(base)
+        host.update({key: True for key in flags})
+        host["openwrt_pxe_client"]["roles"] = roles
+        host["openwrt_pxe_client"]["stage"] = "prod" if "k3s_prd_server" in roles else "stg"
+        values = build(host)
+        assert all(values[role][key] is True for role in roles for key in flags)
+
     # Existing explicit persistent settings remain valid, including manual vars.
     safe = copy.deepcopy(base)
     safe.update({key: False for key in flags})
