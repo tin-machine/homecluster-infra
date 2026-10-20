@@ -110,6 +110,17 @@ class HelmMetadataTests(unittest.TestCase):
                 self.assertEqual(value["status"], "unknown")
                 self.assertNotIn("SECRET", json.dumps(value))
 
+    def test_missing_or_non_string_revision_label_is_unknown(self) -> None:
+        for label in (None, 2, ["2"]):
+            with self.subTest(label=label):
+                record = item("observability-stg", "loki", "deployed", "2")
+                if label is None:
+                    del record["metadata"]["labels"]["version"]
+                else:
+                    record["metadata"]["labels"]["version"] = label
+                self.value = response([record])
+                self.assertEqual(self.observe()["status"], "unknown")
+
     def test_missing_boot_or_failed_metadata_fetch_is_unknown(self) -> None:
         self.boot.unlink()
         self.assertEqual(self.observe()["status"], "unknown")

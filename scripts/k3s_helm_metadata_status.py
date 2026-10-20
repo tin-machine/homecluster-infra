@@ -160,7 +160,8 @@ def _parse(value: dict) -> tuple[list[dict], int, int, int]:
         namespace, name = metadata.get("namespace"), labels.get("name")
         status, revision_text = labels.get("status"), labels.get("version")
         if (NAME.fullmatch(namespace) is None or NAME.fullmatch(name) is None
-                or status not in STATUSES or not revision_text.isascii()
+                or status not in STATUSES or not isinstance(revision_text, str)
+                or not revision_text.isascii()
                 or not revision_text.isdigit() or not 1 <= len(revision_text) <= 6):
             raise ValueError("metadata identity invalid")
         revision = int(revision_text)
