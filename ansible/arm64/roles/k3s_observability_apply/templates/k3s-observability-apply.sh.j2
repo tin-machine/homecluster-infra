@@ -90,11 +90,16 @@ for marker in .homecluster-bundle-id .homecluster-infra-revision; do
     exit 1
   fi
 done
+if [ ! -s "${SITE_INPUT_DIR}/.homecluster-inventory-revision" ]; then
+  echo "required site input inventory revision marker is missing" >&2
+  exit 1
+fi
 
 INFRA_BUNDLE_ID="$(cat "${INFRA_SOURCE_DIR}/.homecluster-bundle-id")"
 SITE_INPUT_BUNDLE_ID="$(cat "${SITE_INPUT_DIR}/.homecluster-bundle-id")"
 INFRA_REVISION="$(cat "${INFRA_SOURCE_DIR}/.homecluster-infra-revision")"
 SITE_INPUT_INFRA_REVISION="$(cat "${SITE_INPUT_DIR}/.homecluster-infra-revision")"
+SITE_INPUT_INVENTORY_REVISION="$(cat "${SITE_INPUT_DIR}/.homecluster-inventory-revision")"
 STAGED_WRAPPER_CONTRACT_PATH="${INFRA_SOURCE_DIR}/ansible/arm64/roles/k3s_observability_apply/files/apply-contract-version"
 
 if [ "${INFRA_BUNDLE_ID}" != "${SITE_INPUT_BUNDLE_ID}" ]; then
@@ -104,6 +109,19 @@ fi
 
 if [ "${INFRA_REVISION}" != "${SITE_INPUT_INFRA_REVISION}" ]; then
   echo "infra revisions do not match across the bundle" >&2
+  exit 1
+fi
+
+if ! printf '%s\n' "${INFRA_REVISION}" | grep -Eq '^[0-9a-f]{40}$' ||
+   ! printf '%s\n' "${SITE_INPUT_INVENTORY_REVISION}" | grep -Eq '^[0-9a-f]{40}$'; then
+  echo "invalid source revision in staged Terraform bundle" >&2
+  exit 1
+fi
+EXPECTED_BUNDLE_ID="$(printf '%s-%s' \
+  "$(printf '%s' "${INFRA_REVISION}" | cut -c1-12)" \
+  "$(printf '%s' "${SITE_INPUT_INVENTORY_REVISION}" | cut -c1-12)")"
+if [ "${INFRA_BUNDLE_ID}" != "${EXPECTED_BUNDLE_ID}" ]; then
+  echo "Terraform bundle ID does not match full source revisions" >&2
   exit 1
 fi
 
@@ -390,6 +408,14 @@ if ! printf '%s\n' "${INFRA_REVISION}" | grep -Eq '^[0-9a-f]{40}$'; then
   echo "invalid Terraform infra revision for completion receipt" >&2
   exit 1
 fi
+if [ "$(cat "${INFRA_SOURCE_DIR}/.homecluster-bundle-id")" != "${INFRA_BUNDLE_ID}" ] ||
+   [ "$(cat "${SITE_INPUT_DIR}/.homecluster-bundle-id")" != "${INFRA_BUNDLE_ID}" ] ||
+   [ "$(cat "${INFRA_SOURCE_DIR}/.homecluster-infra-revision")" != "${INFRA_REVISION}" ] ||
+   [ "$(cat "${SITE_INPUT_DIR}/.homecluster-infra-revision")" != "${INFRA_REVISION}" ] ||
+   [ "$(cat "${SITE_INPUT_DIR}/.homecluster-inventory-revision")" != "${SITE_INPUT_INVENTORY_REVISION}" ]; then
+  echo "Terraform bundle markers changed during apply" >&2
+  exit 1
+fi
 APPLY_BOOT_ID="$(cat /proc/sys/kernel/random/boot_id)"
 if ! printf '%s\n' "${APPLY_BOOT_ID}" | grep -Eq '^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$'; then
   echo "invalid boot identity for Terraform completion receipt" >&2
@@ -411,6 +437,7 @@ if ! (
     printf 'BOOT_ID=%s\n' "${APPLY_BOOT_ID}"
     printf 'BUNDLE_ID=%s\n' "${INFRA_BUNDLE_ID}"
     printf 'INFRA_REVISION=%s\n' "${INFRA_REVISION}"
+    printf 'INVENTORY_REVISION=%s\n' "${SITE_INPUT_INVENTORY_REVISION}"
     printf 'APPLIED_AT_EPOCH=%s\n' "${APPLIED_AT_EPOCH}"
   } > "${DONE_TMP}" &&
   chmod 0600 "${DONE_TMP}" &&
