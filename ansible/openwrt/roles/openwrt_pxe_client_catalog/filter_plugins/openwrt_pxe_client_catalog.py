@@ -323,6 +323,20 @@ def _option_value_for_client(
     return ",".join(parts)
 
 
+def _persistent_stg_storage_vars(values: Mapping[str, Any]) -> dict[str, Any]:
+    """Keep normal persistent-server boots away from destructive role defaults."""
+    result = dict(values)
+    for key in (
+        "k3s_local_storage_allow_format",
+        "k3s_local_storage_force_format",
+        "k3s_local_storage_ephemeral_agent_data",
+    ):
+        if _as_bool(result.get(key, False)):
+            raise ValueError(f"persistent staging server cannot enable {key}")
+        result[key] = False
+    return result
+
+
 def _build_k3s_local_storage_vars(
     hv: Mapping[str, Any],
     default_ephemeral_agent_data: bool,
@@ -654,6 +668,8 @@ def _build_generated_client(
         ansible_pull_group_vars = {}
 
     role_names = [_clean_string(item) for item in roles if _clean_string(item)]
+    persistent_stg_server = "k3s_stg_server" in role_names
+    stg_storage_hv = _persistent_stg_storage_vars(hv) if persistent_stg_server else hv
     ansible_pull_client_vars: list[dict[str, Any]] = []
     extra_vars_cfg = ansible_pull_cfg.get("extra_vars")
     if not isinstance(extra_vars_cfg, Mapping):
@@ -704,7 +720,7 @@ def _build_generated_client(
     ):
         role_extra_vars["k3s_stg_server"] = _build_k3s_stg_server_vars(
             hostname,
-            hv,
+            stg_storage_hv,
             cfg,
             overlay_id,
         )
@@ -722,7 +738,7 @@ def _build_generated_client(
         ansible_pull_cfg.get("k3s_stg_storage_vars_enabled", True)
     ):
         role_extra_vars["k3s_stg_storage"] = _build_k3s_local_storage_vars(
-            hv,
+            stg_storage_hv,
             default_ephemeral_agent_data=False,
             default_node_password_sync_enabled=(
                 False if "k3s_stg_server" in role_names else None
@@ -767,6 +783,13 @@ def _build_generated_client(
         current = role_extra_vars.get(role_name_text, {})
         merged, _ = _merge_nested_mapping(current, role_vars)
         role_extra_vars[role_name_text] = merged
+
+    if persistent_stg_server:
+        for role_name in ("k3s_stg_storage", "k3s_stg_server"):
+            if role_name in role_names:
+                role_extra_vars[role_name] = _persistent_stg_storage_vars(
+                    role_extra_vars.get(role_name, {})
+                )
 
     if "host_tailscale" in role_extra_vars:
         for storage_role in ("k3s_stg_storage", "k3s_prd_storage"):

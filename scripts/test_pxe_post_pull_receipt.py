@@ -122,13 +122,14 @@ class PostPullReceiptTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0)
             self.assertFalse(marker.exists())
 
-    def test_keeps_existing_ansible_invocation_and_status_semantics(self) -> None:
+    def test_keeps_receipt_status_and_schema_semantics(self) -> None:
         text = self.wrapper
         self.assertIn('record_post_pull_identity "${rc}" || true', text)
         self.assertIn('log_state "${rc}" "${elapsed}"', text)
         self.assertIn('exit "${rc}"', text)
-        self.assertEqual(text.count("/usr/bin/ansible-pull -U"), 2)
-        self.assertIn('-C "${BRANCH}" -d "${DEST}"', text)
+        # Invocation behavior, with/without extra-vars, is exercised by
+        # ci/check-pxe-ansible-pull-source-pin.py. Command spelling/count is
+        # not a receipt invariant: argv construction now shares one call.
         self.assertIn("post-pull.env", text)
         self.assertNotIn("EXECUTED_REVISION=", text)
         checked = subprocess.run(
