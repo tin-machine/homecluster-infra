@@ -28,6 +28,9 @@ openwrt_gentoo_release_bundle_require_artifacts: true
 openwrt_gentoo_release_bundle_manifest_enabled: true
 openwrt_gentoo_release_bundle_manifest_dir: /srv/gentoo/releases
 openwrt_gentoo_release_bundle_manifest_metadata: {}
+# Explicit staging integration only; legacy build paths remain inactive.
+openwrt_gentoo_release_producer_enabled: false
+openwrt_gentoo_release_producer_generation_profile: ""
 openwrt_gentoo_release_bundle_marker_enabled: true
 openwrt_gentoo_release_bundle_rootfs_marker_name: ".release_bundle_rootfs"
 openwrt_gentoo_release_bundle_tftp_marker_name: ".release_bundle_tftp"
@@ -158,6 +161,11 @@ openwrt_gentoo_official_binhost_packages: []
 
 # ansible-pull 自動実行設定
 openwrt_gentoo_ansible_pull_enabled: true
+# Existing builds remain legacy until the generation launcher supplies a pin.
+openwrt_gentoo_ansible_pull_source_mode: legacy
+openwrt_gentoo_ansible_pull_source_environment: ""
+openwrt_gentoo_ansible_pull_source_revision: ""
+openwrt_gentoo_ansible_pull_source_build_id: ""
 openwrt_gentoo_ansible_pull_emerge_args: "--oneshot --quiet-build=y"
 openwrt_gentoo_ansible_pull_marker: "{{ openwrt_gentoo_rootfs_dir }}/.ansible_pull_installed"
 openwrt_gentoo_ansible_pull_roles: []

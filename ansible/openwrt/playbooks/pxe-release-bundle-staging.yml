@@ -276,3 +276,16 @@
           - "{{ pxe_release_bundle_stage }}"
       tags:
         - pxe_release_bundle
+
+    - name: 最終staging artifactのproducer receiptを発行
+      ansible.builtin.include_role:
+        name: openwrt_gentoo_rootfs
+        tasks_from: producer_receipt
+        apply:
+          tags:
+            - pxe_release_bundle
+            - pxe_release_bundle_build
+      when: openwrt_gentoo_release_producer_enabled | default(false) | bool
+      tags:
+        - pxe_release_bundle
+        - pxe_release_bundle_build
