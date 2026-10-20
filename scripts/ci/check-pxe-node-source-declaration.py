@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import importlib.util
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -41,7 +42,8 @@ class DeclarationTests(unittest.TestCase):
         self.file.chmod(0o644)
 
     def observe(self):
-        return mod.snapshot(boot_path=self.boot, declaration_path=self.file, now=NOW)
+        return mod.snapshot(boot_path=self.boot, declaration_path=self.file,
+                            now=NOW, expected_uid=os.getuid())
 
     def test_fixed_declaration_is_partial_not_execution_attestation(self):
         value = self.observe()
@@ -77,6 +79,11 @@ class DeclarationTests(unittest.TestCase):
         self.file.symlink_to(target)
         self.assertEqual(self.observe()["status"], "unknown")
 
+    def test_unexpected_owner_is_unknown(self):
+        self.assertEqual(mod.snapshot(boot_path=self.boot, declaration_path=self.file,
+                                      now=NOW, expected_uid=os.getuid() + 1)["status"],
+                         "unknown")
+
     def test_boot_change_and_invalid_time_are_unknown(self):
         class ChangingBoot:
             count = 0
@@ -84,11 +91,13 @@ class DeclarationTests(unittest.TestCase):
                 self.count += 1
                 return BOOT if self.count == 1 else "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
         self.assertEqual(mod.snapshot(boot_path=ChangingBoot(),
-                                      declaration_path=self.file, now=NOW)["reason"],
+                                      declaration_path=self.file, now=NOW,
+                                      expected_uid=os.getuid())["reason"],
                          "boot_identity_changed")
         self.assertEqual(mod.snapshot(boot_path=self.boot,
                                       declaration_path=self.file,
-                                      now=datetime(2026, 10, 20))["reason"],
+                                      now=datetime(2026, 10, 20),
+                                      expected_uid=os.getuid())["reason"],
                          "observation_time_invalid")
 
 
