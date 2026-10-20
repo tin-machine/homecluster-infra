@@ -34,11 +34,12 @@ def unknown(reason: str) -> dict:
             "observed_at": None}
 
 
-def _declaration(path: Path) -> tuple[dict, str]:
+def _declaration(path: Path, *, expected_uid: int = 0) -> tuple[dict, str]:
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     try:
         info = os.fstat(fd)
-        if (not stat.S_ISREG(info.st_mode) or not 0 < info.st_size <= MAX_BYTES
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != expected_uid
+                or not 0 < info.st_size <= MAX_BYTES
                 or info.st_mode & 0o022):
             raise ValueError("declaration metadata invalid")
         raw = os.read(fd, MAX_BYTES + 1)
@@ -69,13 +70,14 @@ def _declaration(path: Path) -> tuple[dict, str]:
 
 def snapshot(*, boot_path: Path = BOOT_ID,
              declaration_path: Path = DECLARATION,
-             now: datetime | None = None) -> dict:
+             now: datetime | None = None,
+             expected_uid: int = 0) -> dict:
     """Fixture paths are internal only; the CLI always uses fixed paths."""
     try:
         first = boot_path.read_text(encoding="ascii").strip()
         if BOOT.fullmatch(first) is None:
             return unknown("boot_identity_invalid")
-        value, digest = _declaration(declaration_path)
+        value, digest = _declaration(declaration_path, expected_uid=expected_uid)
         second = boot_path.read_text(encoding="ascii").strip()
         if second != first:
             return unknown("boot_identity_changed")
