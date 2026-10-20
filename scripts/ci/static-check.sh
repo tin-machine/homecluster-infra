@@ -327,6 +327,7 @@ if command -v python3 >/dev/null 2>&1; then
   python3 scripts/ci/check-openwrt-pxe-ansible-pull-chain.py
   python3 scripts/ci/check-pxe-ansible-pull-source-pin.py
   python3 scripts/ci/check-pxe-source-pin.py
+  python3 scripts/ci/check-pxe-node-source-declaration.py
   python3 scripts/ci/check-pxe-source-pin-wiring.py
   python3 scripts/ci/check-pxe-artifact-fingerprint.py
   python3 scripts/ci/check-pxe-producer-receipt.py
