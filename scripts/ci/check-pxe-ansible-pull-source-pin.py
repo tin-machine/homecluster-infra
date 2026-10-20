@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Synthetic boot-wrapper regression harness: local Git and mocked external tools."""
 
+import hashlib
 import json
 from pathlib import Path
 from jinja2 import Environment, StrictUndefined
+import stat
 import subprocess
 import tempfile
 import unittest
@@ -28,6 +30,7 @@ class WrapperFixture(unittest.TestCase):
         extra_vars=False,
         branch_override=None,
         existing_checkout=False,
+        post_execution_mutation="",
     ):
         with tempfile.TemporaryDirectory(
             prefix="homecluster-boot-pin-fixture-"
@@ -87,6 +90,8 @@ class WrapperFixture(unittest.TestCase):
                 BRANCH=branch_override or ("main" if stage == "prod" else "stg"),
                 MUTATE_TRACKED=str(mutate_tracked) if isinstance(mutate_tracked, str) else ("1" if mutate_tracked else "0"),
                 ANSIBLE_RC=str(ansible_rc),
+                POST_EXECUTION_MUTATION=post_execution_mutation,
+                DECLARATION_FILE=str(root / "etc/ansible-pull/source-declaration.json"),
                 ROLES="base",
                 OVERLAY_ID="synthetic-fixture",
             )
@@ -144,6 +149,10 @@ import json, os, subprocess, sys
 head=subprocess.check_output(['git','-C',os.environ['DEST'],'rev-parse','HEAD'],text=True).strip()
 with open(os.environ['TRACE'],'a') as out:
  out.write(json.dumps({'head':head,'args':sys.argv[1:],'kind':'playbook'})+'\\n')
+if os.environ['POST_EXECUTION_MUTATION'] == 'tracked':
+ with open(os.path.join(os.environ['DEST'],'revision.txt'),'a') as out: out.write('changed after execution\\n')
+if os.environ['POST_EXECUTION_MUTATION'] == 'declaration':
+ with open(os.environ['DECLARATION_FILE'],'a') as out: out.write(' ')
 raise SystemExit(int(os.environ['ANSIBLE_RC']))
 """,
             )
@@ -217,6 +226,7 @@ raise SystemExit(int(os.environ['ANSIBLE_RC']))
                 ):
                     self.assertFalse((root / "checkout").exists())
                 self.assertFalse((root / "trace.jsonl").exists())
+                self.assertFalse((state / "ansible-pull/base.pinned-execution.env").exists())
                 return
             self.assertEqual(result.returncode, ansible_rc, result.stderr[-1000:])
             self.assertEqual((root / "initial-head").read_text().strip(), before)
@@ -242,15 +252,39 @@ raise SystemExit(int(os.environ['ANSIBLE_RC']))
                 )
             if ansible_rc:
                 self.assertFalse((state / "ansible-pull/base.post-pull.env").exists())
+                self.assertFalse((state / "ansible-pull/base.pinned-execution.env").exists())
                 return
             self.assertEqual(
                 calls[0]["args"][calls[0]["args"].index("--limit") + 1], "base"
             )
             if stage == "prod":
                 self.assertFalse((state / "ansible-pull/base.post-pull.env").exists())
+                self.assertFalse((state / "ansible-pull/base.pinned-execution.env").exists())
                 return
             receipt = (state / "ansible-pull/base.post-pull.env").read_text()
             self.assertIn("CHECKOUT_HEAD_AFTER_SUCCESS=" + expected, receipt)
+            execution = state / "ansible-pull/base.pinned-execution.env"
+            if post_execution_mutation:
+                self.assertFalse(execution.exists())
+            elif mode == "pinned":
+                self.assertEqual(stat.S_IMODE(execution.stat().st_mode), 0o600)
+                values = dict(line.split("=", 1) for line in execution.read_text().splitlines())
+                self.assertEqual(values["SCHEMA"], "1")
+                self.assertEqual(
+                    values["EVIDENCE_SCOPE"],
+                    "pinned_playbook_success_not_role_task_attested",
+                )
+                self.assertEqual(values["ROLE"], "base")
+                self.assertEqual(values["BOOT_ID"], "123e4567-e89b-12d3-a456-426614174000")
+                self.assertEqual(values["BUILD_ID"], "20261018T000000Z-fixture-build-1")
+                self.assertEqual(values["PIN_REVISION"], before)
+                self.assertEqual(values["CHECKOUT_HEAD_AFTER_SUCCESS"], before)
+                self.assertEqual(
+                    values["DECLARATION_SHA256"],
+                    hashlib.sha256(declaration_path.read_bytes()).hexdigest(),
+                )
+            else:
+                self.assertFalse(execution.exists())
 
     def test_legacy_stationary_branch(self):
         for extra_vars in (False, True):
@@ -305,6 +339,13 @@ raise SystemExit(int(os.environ['ANSIBLE_RC']))
 
     def test_pinned_ansible_failure_is_preserved_without_success_receipt(self):
         self.run_wrapper(move_branch=True, mode="pinned", ansible_rc=7)
+
+    def test_pinned_success_with_changed_input_does_not_emit_execution_receipt(self):
+        for mutation in ("tracked", "declaration"):
+            with self.subTest(mutation=mutation):
+                self.run_wrapper(
+                    move_branch=True, mode="pinned", post_execution_mutation=mutation,
+                )
 
 
 if __name__ == "__main__":
