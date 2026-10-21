@@ -18,6 +18,10 @@ def fixture():
         "limits_config": {"retention_period": "168h"},
     }
     workload = {"kind": "StatefulSet", "metadata": {"name": "loki-write"}, "spec": {"selector": {"matchLabels": {"component": "write"}}, "replicas": 1, "serviceName": "loki-write-headless", "volumeClaimTemplates": [{"metadata": {"name": "data"}, "spec": {"storageClassName": "nfs-client"}}]}}
+    memberlist_labels = {"app.kubernetes.io/instance": "stg-loki",
+                         "app.kubernetes.io/name": "loki",
+                         "app.kubernetes.io/part-of": "memberlist"}
+    workload["spec"]["template"] = {"metadata": {"labels": copy.deepcopy(memberlist_labels)}}
     service = {"kind": "Service", "metadata": {"name": "query-scheduler-discovery"}, "spec": {"selector": {"component": "backend"}, "ports": [{"name": "grpc", "port": 9095, "targetPort": "grpc"}]}}
     old = [workload, service, {"kind": "ConfigMap", "metadata": {"name": "loki"}, "data": {"config.yaml": yaml.safe_dump(before_config)}}]
     new = copy.deepcopy(old)
@@ -26,12 +30,30 @@ def fixture():
     after_config["storage_config"]["boltdb_shipper"].pop("shared_store")
     after_config["limits_config"]["allow_structured_metadata"] = False
     new[2]["data"]["config.yaml"] = yaml.safe_dump(after_config)
+    memberlist = [
+        {"kind": "Deployment", "metadata": {"name": "loki-read"},
+         "spec": {"template": {"metadata": {"labels": copy.deepcopy(memberlist_labels)}}}},
+        {"kind": "StatefulSet", "metadata": {"name": "loki-backend"},
+         "spec": {"template": {"metadata": {"labels": copy.deepcopy(memberlist_labels)}}}},
+        {"kind": "Service", "metadata": {"name": "loki-memberlist"},
+         "spec": {"selector": copy.deepcopy(memberlist_labels), "ports": [{"name": "tcp", "port": 7946}]}},
+    ]
+    old.extend(copy.deepcopy(memberlist))
+    new.extend(copy.deepcopy(memberlist))
     return old, new
 
 
 class LokiUpgradeContractTest(unittest.TestCase):
     def test_reviewed_compatibility_changes_pass(self):
         contract(*fixture())
+
+    def test_read_excluded_from_memberlist_fails(self):
+        old, new = fixture()
+        read = next(item for item in new if item["kind"] == "Deployment"
+                    and item["metadata"]["name"] == "loki-read")
+        read["spec"]["template"]["metadata"]["labels"]["app.kubernetes.io/part-of"] = "observability"
+        with self.assertRaisesRegex(ValueError, "loki-read: memberlist service excludes workload"):
+            contract(old, new)
 
     def test_identity_pvc_and_service_regressions_fail(self):
         for mutation in ("name", "pvc", "selector", "replicas", "workload", "service"):

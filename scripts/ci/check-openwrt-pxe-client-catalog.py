@@ -127,6 +127,7 @@ def test_k3s_stg_storage_vars() -> None:
     agent = client_vars[("k3s_stg_agent1", "k3s_stg_agent")]
 
     assert server["k3s_server"]["data-dir"] == "/var/lib/rancher/k3s"
+    assert server["k3s_server"]["write-kubeconfig-mode"] == "0600"
     assert server["k3s_server"]["node-taint"] == [
         "example.com/control-plane-only=true:NoSchedule"
     ]
@@ -223,6 +224,7 @@ def test_k3s_production_server_and_storage_vars() -> None:
     assert server["k3s_flannel_backend"] == "vxlan"
     assert server["k3s_flannel_mtu"] == 1400
     assert server["k3s_server"]["node-ip"] == "192.0.2.30"
+    assert server["k3s_server"]["write-kubeconfig-mode"] == "0644"
     assert "k3s_iscsi_session_target_iqn" in server
 
 
