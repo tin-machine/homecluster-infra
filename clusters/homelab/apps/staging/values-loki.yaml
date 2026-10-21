@@ -44,7 +44,7 @@ read:
     app.kubernetes.io/name: loki
     app.kubernetes.io/instance: stg-loki
     app.kubernetes.io/component: read
-    app.kubernetes.io/part-of: observability
+    app.kubernetes.io/part-of: memberlist
     environment: staging
   service:
     labels:

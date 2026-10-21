@@ -73,6 +73,12 @@ def contract(old, new):
     scheduler = services_before.pop(("Service", "query-scheduler-discovery"))
     services_before[("Service", "loki-query-scheduler-discovery")] = scheduler
     require(services_before.keys() == services_after.keys(), "Service identity changed")
+    memberlist_selector = services_after[("Service", "loki-memberlist")]["spec"]["selector"]
+    for name, kind in (("loki-read", "Deployment"), ("loki-write", "StatefulSet"),
+                       ("loki-backend", "StatefulSet")):
+        labels = after[(kind, name)]["spec"]["template"]["metadata"]["labels"]
+        require(all(labels.get(key) == value for key, value in memberlist_selector.items()),
+                f"{name}: memberlist service excludes workload")
     for key, previous in services_before.items():
         for field in ("type", "selector", "ports", "clusterIP", "publishNotReadyAddresses"):
             a, b = copy.deepcopy(previous["spec"].get(field)), copy.deepcopy(services_after[key]["spec"].get(field))
@@ -120,6 +126,17 @@ def prepare(root):
         rendered.append(docs)
         releases.append((label, str(chart), flags))
     contract(*rendered)
+    excluded_read = copy.deepcopy(rendered[1])
+    next(d for d in excluded_read if d.get("kind") == "Deployment"
+         and d["metadata"]["name"] == "loki-read")["spec"]["template"]["metadata"]["labels"][
+             "app.kubernetes.io/part-of"] = "observability"
+    try:
+        contract(rendered[0], excluded_read)
+    except ValueError as error:
+        require(str(error) == "loki-read: memberlist service excludes workload",
+                "memberlist exclusion rejected for an unrelated reason")
+    else:
+        raise ValueError("Loki read memberlist exclusion was not rejected")
     print("PASS: topology, selectors, PVCs, public routes, S3 credentials/buckets and v12 schema retained", flush=True)
     return releases
 
