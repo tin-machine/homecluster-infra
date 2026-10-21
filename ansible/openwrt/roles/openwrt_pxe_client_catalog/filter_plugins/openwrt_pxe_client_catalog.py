@@ -460,6 +460,8 @@ def _build_k3s_stg_server_vars(
     hv: Mapping[str, Any],
     cfg: Mapping[str, Any],
     overlay_id: str,
+    *,
+    kubeconfig_mode: str = "0600",
 ) -> dict[str, Any]:
     node_ip = _clean_string(
         _first_present(
@@ -479,7 +481,7 @@ def _build_k3s_stg_server_vars(
             "tls-san": [item for item in (node_ip, node_name) if item],
             "snapshotter": "native",
             "data-dir": "/var/lib/rancher/k3s",
-            "write-kubeconfig-mode": "0644",
+            "write-kubeconfig-mode": kubeconfig_mode,
         },
     }
     node_taints = hv.get("k3s_server_node_taints")
@@ -752,6 +754,7 @@ def _build_generated_client(
             hv,
             cfg,
             overlay_id,
+            kubeconfig_mode="0644",
         )
         role_extra_vars["k3s_prd_server"].update(
             {

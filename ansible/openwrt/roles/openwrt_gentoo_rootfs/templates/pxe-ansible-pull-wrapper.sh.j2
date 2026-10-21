@@ -348,6 +348,57 @@ record_post_pull_identity() {
   rm -f "${receipt_tmp}" || true
   return 1
 }
+
+# This receipt is narrower than post-pull observation: only the pinned path
+# verifies the checkout before invoking ansible-playbook. A failed run or a
+# declaration/checkout change leaves no execution-success receipt.
+record_pinned_execution_identity() {
+  execution_rc="$1"
+  execution_path="$(state_file_for_role "${ROLE}")"
+  execution_path="${execution_path%.env}.pinned-execution.env"
+  rm -f "${execution_path}" || return 1
+  [ "${execution_rc}" = "0" ] && [ "${CURRENT_STEP}" = "complete" ] || return 0
+  [ "${SOURCE_MODE}" = pinned ] && [ "${pin_mode:-}" = pinned ] || return 0
+  case "${STAGE:-}" in stg|staging) ;; *) return 0 ;; esac
+  [ "${BRANCH:-}" = stg ] || return 0
+  case "${ROLE}" in ""|*[!A-Za-z0-9_.@-]*) return 0 ;; esac
+  printf '%s\n' "${pin_revision}" | grep -Eq '^[0-9a-f]{40}$' || return 0
+  printf '%s\n' "${pin_build_id}" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$' || return 0
+  printf '%s\n' "${pin_digest}" | grep -Eq '^[0-9a-f]{64}$' || return 0
+  [ "$(/usr/local/libexec/pxe-source-pin.py --mode pinned --stage "${STAGE}")" = "${source_pin}" ] || return 0
+  execution_head="$(git -C "${DEST}" rev-parse --verify 'HEAD^{commit}' 2>/dev/null || true)"
+  [ "${execution_head}" = "${pin_revision}" ] || return 0
+  git -C "${DEST}" diff --quiet --exit-code || return 0
+  git -C "${DEST}" diff --cached --quiet --exit-code || return 0
+  execution_boot="$(read_boot_id)"
+  printf '%s\n' "${execution_boot}" |
+    grep -Eq '^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$' || return 0
+  execution_time="$(now_epoch)"
+  case "${execution_time}" in ""|*[!0-9]*) return 0 ;; esac
+
+  execution_tmp="${execution_path}.tmp.$$"
+  if (
+    umask 0077
+    {
+      printf '%s\n' 'SCHEMA=1'
+      printf 'ROLE=%s\n' "${ROLE}"
+      printf 'STAGE=%s\n' "${STAGE}"
+      printf 'BRANCH=%s\n' "${BRANCH}"
+      printf 'BOOT_ID=%s\n' "${execution_boot}"
+      printf '%s\n' 'EVIDENCE_SCOPE=pinned_playbook_success_not_role_task_attested'
+      printf 'BUILD_ID=%s\n' "${pin_build_id}"
+      printf 'PIN_REVISION=%s\n' "${pin_revision}"
+      printf 'DECLARATION_SHA256=%s\n' "${pin_digest}"
+      printf 'CHECKOUT_HEAD_AFTER_SUCCESS=%s\n' "${execution_head}"
+      printf 'RECORDED_AT_EPOCH=%s\n' "${execution_time}"
+    } > "${execution_tmp}" &&
+    mv -f "${execution_tmp}" "${execution_path}"
+  ); then
+    return 0
+  fi
+  rm -f "${execution_tmp}" || true
+  return 1
+}
 log_state() {
   rc="$1"
   elapsed="$2"
@@ -380,6 +431,7 @@ finish() {
     elapsed=$(( end_ts - START_TS ))
     log_state "${rc}" "${elapsed}"
     record_post_pull_identity "${rc}" || true
+    record_pinned_execution_identity "${rc}" || true
     if should_notify "${rc}"; then
       SLACK_NOTIFY_AGGREGATE=1 /usr/local/sbin/pxe-slack-notify.sh "${ROLE}" || true
     fi
