@@ -78,6 +78,27 @@
   when:
     - openwrt_gentoo_enabled | bool
     - openwrt_gentoo_tftp_fetch_firmware | bool
+    - not (openwrt_gentoo_copy_rpi_modules | bool)
+  tags:
+    - tftp
+    - tftp-firmware
+    - tftp-overlays
+
+- name: TFTP overlay ファイルを modules と同じ checkout から配置
+  ansible.builtin.copy:
+    src: "{{ openwrt_gentoo_firmware_checkout_dir }}/boot/{{ item }}"
+    dest: "{{ openwrt_gentoo_tftp_dir }}/{{ item }}"
+    remote_src: true
+    mode: '0644'
+  loop:
+    - overlays/overlay_map.dtb
+    - overlays/bcm2712d0.dtbo
+  loop_control:
+    label: "{{ item }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_tftp_fetch_firmware | bool
+    - openwrt_gentoo_copy_rpi_modules | bool
   tags:
     - tftp
     - tftp-firmware
