@@ -302,6 +302,7 @@ if command -v python3 >/dev/null 2>&1; then
   python3 -m py_compile scripts/ci/check-k3s-converge-contract.py
   python3 -m py_compile scripts/ci/check-openwrt-gentoo-binary-preseed.py
   python3 -m py_compile scripts/ci/check-openwrt-pxe-ansible-pull-chain.py
+  python3 -m py_compile scripts/ci/check-rpi-firmware-snapshot.py
   python3 -m py_compile scripts/pxe_bundle_manifest_readonly_status.py
   python3 -m py_compile scripts/test_pxe_bundle_manifest_readonly_status.py
   python3 -m py_compile scripts/pxe_node_lineage_status.py
@@ -346,6 +347,7 @@ if command -v python3 >/dev/null 2>&1; then
   python3 scripts/ci/check-github-actions-arc-observability.py
   python3 scripts/ansible/convert_openwrt_package_task.py --self-test
   if command -v ansible-playbook >/dev/null 2>&1; then
+    python3 -B scripts/ci/check-rpi-firmware-snapshot.py
     python3 -B scripts/ansible/test_k3s_local_storage_identity_format_guard.py
     python3 -B scripts/ansible/test_pxe_release_bundle_initramfs_scope.py
   else

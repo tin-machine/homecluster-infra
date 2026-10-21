@@ -34,6 +34,30 @@
   when:
     - openwrt_gentoo_enabled | bool
     - openwrt_gentoo_tftp_fetch_firmware | bool
+    - not (openwrt_gentoo_copy_rpi_modules | bool)
+    - openwrt_gentoo_tftp_firmware_dir | default('') | string | trim | length > 0
+  tags:
+    - tftp
+    - tftp-firmware
+
+- name: TFTP firmware ファイルを modules と同じ checkout から配置
+  ansible.builtin.copy:
+    src: "{{ openwrt_gentoo_firmware_checkout_dir }}/boot/{{ item }}"
+    dest: "{{ openwrt_gentoo_tftp_dir }}/{{ openwrt_gentoo_tftp_firmware_dir }}/{{ item }}"
+    remote_src: true
+    mode: '0644'
+  loop:
+    - start4.elf
+    - start.elf
+    - fixup4.dat
+    - fixup.dat
+    - bootcode.bin
+  loop_control:
+    label: "{{ item }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_tftp_fetch_firmware | bool
+    - openwrt_gentoo_copy_rpi_modules | bool
     - openwrt_gentoo_tftp_firmware_dir | default('') | string | trim | length > 0
   tags:
     - tftp
@@ -75,6 +99,26 @@
   until: tftp_kernel_get_url is succeeded
   when:
     - openwrt_gentoo_enabled | bool
+    - not (openwrt_gentoo_copy_rpi_modules | bool)
+  tags:
+    - tftp
+    - tftp-kernel
+
+- name: TFTP kernel ファイルを modules と同じ checkout から配置
+  ansible.builtin.copy:
+    src: "{{ openwrt_gentoo_firmware_checkout_dir }}/boot/{{ item }}"
+    dest: "{{ openwrt_gentoo_tftp_dir }}/{{ item }}"
+    remote_src: true
+    mode: '0644'
+  loop:
+    - kernel8.img
+    - kernel8_rt.img
+    - kernel_2712.img
+  loop_control:
+    label: "{{ item }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_copy_rpi_modules | bool
   tags:
     - tftp
     - tftp-kernel
@@ -96,6 +140,25 @@
   until: tftp_dtb_get_url is succeeded
   when:
     - openwrt_gentoo_enabled | bool
+    - not (openwrt_gentoo_copy_rpi_modules | bool)
+  tags:
+    - tftp
+    - tftp-dtb
+
+- name: TFTP DTB ファイルを modules と同じ checkout から配置
+  ansible.builtin.copy:
+    src: "{{ openwrt_gentoo_firmware_checkout_dir }}/boot/{{ item }}"
+    dest: "{{ openwrt_gentoo_tftp_dir }}/{{ item }}"
+    remote_src: true
+    mode: '0644'
+  loop:
+    - bcm2711-rpi-4-b.dtb
+    - bcm2712-rpi-5-b.dtb
+  loop_control:
+    label: "{{ item }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_copy_rpi_modules | bool
   tags:
     - tftp
     - tftp-dtb
