@@ -38,6 +38,11 @@ run "workspace_storage_and_identity" {
   }
 
   assert {
+    condition     = kubernetes_persistent_volume_claim_v1.state.wait_until_bound == false
+    error_message = "The PVC must not wait for binding before its consumer Deployment exists."
+  }
+
+  assert {
     condition     = kubernetes_deployment_v1.this.spec[0].strategy[0].type == "Recreate"
     error_message = "A shared NAS home must not be used by two rollout replicas."
   }
