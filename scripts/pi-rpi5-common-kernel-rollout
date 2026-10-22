@@ -25,6 +25,8 @@ SAFE_RUN_ID = re.compile(r"^[0-9]{8}T[0-9]{6}Z-[A-Za-z0-9._-]+$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 EXPECTED_ACCEPTED_RUN_ENV = "HOMECLUSTER_RPI5_COMMON_KERNEL_EXPECTED_ACCEPTED_RUN_ID"
 EXPECTED_ACCEPTED_SHA_ENV = "HOMECLUSTER_RPI5_COMMON_KERNEL_EXPECTED_ACCEPTED_SHA256"
+DEPLOYMENT_ATTEMPT_ENV = "HOMECLUSTER_PXE_DEPLOYMENT_ATTEMPT_ID"
+DEPLOYMENT_ATTEMPT_ID = re.compile(r"^deployment-[0-9a-f]{32}$")
 KERNEL_RELEASE = re.compile(r"^.+-v8-homecluster\+$")
 SELECTOR = re.compile(r"^[0-9]{8}-rpi5$")
 TASK_LINE = re.compile(r"^TASK \[(.+?)\](?:\s+\*+)?$")
@@ -196,7 +198,15 @@ def workflow_root() -> Path:
 class ProgressWriter:
     """Bounded operator hint; the terminal JSON remains the result authority."""
 
-    def __init__(self, root: Path, action: str) -> None:
+    def __init__(
+        self, root: Path, action: str, *, generation_run_id: str = "", deployment_attempt_id: str = ""
+    ) -> None:
+        if generation_run_id and SAFE_RUN_ID.fullmatch(generation_run_id) is None:
+            raise RolloutError("rollout_progress_generation_run_id_invalid")
+        if deployment_attempt_id and (
+            DEPLOYMENT_ATTEMPT_ID.fullmatch(deployment_attempt_id) is None or not generation_run_id
+        ):
+            raise RolloutError("rollout_progress_deployment_attempt_id_invalid")
         self.path = root / "progress/current.json"
         self.started = time.monotonic()
         self.lock = threading.RLock()
@@ -207,6 +217,8 @@ class ProgressWriter:
             "schema": 1,
             "workflow": "rpi5-common-kernel-rollout",
             "attempt_id": f"{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}-{secrets.token_hex(4)}",
+            "generation_run_id": generation_run_id,
+            "deployment_attempt_id": deployment_attempt_id,
             "action": action,
             "started_at": now,
             "elapsed_seconds": 0,
@@ -723,7 +735,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         else:
             if os.environ.get("HOMECLUSTER_RPI5_COMMON_KERNEL_ROLLOUT_APPLY") != "1":
                 raise RolloutError("missing_HOMECLUSTER_RPI5_COMMON_KERNEL_ROLLOUT_APPLY")
-            _PROGRESS = ProgressWriter(workflow_root(), args.phase)
+            _PROGRESS = ProgressWriter(
+                workflow_root(), args.phase,
+                generation_run_id=os.environ.get(EXPECTED_ACCEPTED_RUN_ENV, ""),
+                deployment_attempt_id=os.environ.get(DEPLOYMENT_ATTEMPT_ENV, ""),
+            )
             _PROGRESS.start()
             progress_started = True
             _PROGRESS.transition("selector_inspection", "rollout_preflight", "started")

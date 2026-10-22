@@ -409,10 +409,20 @@
       changed_when: false
       no_log: true
 
+    - name: Pi5 common kernel PXE host releaseを解決
+      ansible.builtin.include_role:
+        name: openwrt_gentoo_rootfs
+        tasks_from: pxe_host_releases
+      when: homecluster_common_kernel_selector_change_required | bool
+      tags:
+        - pxe_tftp_switch
+
+    # 受入済みreleaseの内容は不変。selectorを持つhost directoryだけを更新する。
+    # tftp_switch全体はbase releaseのoverlay/date configも再配置してしまう。
     - name: Pi5 common kernel fixed PXE selectorを適用
       ansible.builtin.include_role:
         name: openwrt_gentoo_rootfs
-        tasks_from: tftp_switch
+        tasks_from: tftp_hosts
       when: homecluster_common_kernel_selector_change_required | bool
       tags:
         - pxe_tftp_switch

@@ -317,9 +317,22 @@ def main() -> int:
     require_not(rollout_playbook, "Pi5 common kernel current PXE releaseをstage dateから解決", "inventory-derived rollout current selector")
     manifest_gate_index = rollout_playbook.index("accepted PXE manifest driftを拒否")
     selector_plan_index = rollout_playbook.index("rollback可能なpre-mutation planをcontrollerへ保存")
+    selector_release_index = rollout_playbook.index("Pi5 common kernel PXE host releaseを解決")
     selector_apply_index = rollout_playbook.index("fixed PXE selectorを適用")
-    if not manifest_gate_index < selector_plan_index < selector_apply_index:
+    if not manifest_gate_index < selector_plan_index < selector_release_index < selector_apply_index:
         raise AssertionError("accepted content identity must be verified before selector mutation planning/apply")
+    require(
+        rollout_playbook[selector_release_index:selector_apply_index],
+        "tasks_from: pxe_host_releases",
+        "paired host release resolution before selector apply",
+    )
+    selector_apply_end = rollout_playbook.index("Pi5 common kernel applied selectorを検証")
+    require(
+        rollout_playbook[selector_apply_index:selector_apply_end],
+        "tasks_from: tftp_hosts",
+        "host-directory-only selector apply",
+    )
+    require_not(rollout_playbook, "tasks_from: tftp_switch", "shared release rewrite during rollout")
 
     print("rpi5 common kernel build contract ok")
     return 0
