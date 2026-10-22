@@ -13,7 +13,7 @@
           - groups['rpi5_egpu_artifact_bundle'] | default([]) | length == 1
           - inventory_hostname == groups['rpi5_egpu_artifact_bundle'][0]
           - rpi5_common_kernel_build_stage | default('') == 'stg'
-          - rpi5_common_kernel_build_work_root | default('') == '/var/lib/rancher/k3s/kernel-build'
+          - rpi5_common_kernel_build_work_root | default('/var/lib/rancher/k3s/kernel-build') == '/var/lib/rancher/k3s/kernel-build'
           - homecluster_cleanup_candidate | default('') is match('^[0-9]{8}-rpi5-homecluster$')
           - homecluster_cleanup_accepted | default('') is match('^[0-9]{8}-rpi5-homecluster$')
           - homecluster_cleanup_rollback | default('') is match('^[0-9]{8}-rpi5-homecluster$')
