@@ -364,17 +364,15 @@ class FullFleetAcceptanceTests(unittest.TestCase):
         self.assertIn("k3s_final_acceptance=fail", diagnostics)
         self.assertIn("k3s_final_warning_issues=running_pods_not_ready", diagnostics)
 
-    def test_extended_wait_is_limited_to_pod_readiness_with_original_failure_deadline(self):
+    def test_one_hour_wait_applies_to_all_nonhealthy_cluster_snapshots(self):
         module = legacy.ROLLOUT_MODULE
         cases = [
-            ("blocked", ["running_pods_not_ready"], 1, False),
-            ("unknown", [], 1, False),
-            ("converging", ["running_pods_not_ready", "node_not_ready"], 1, False),
-            ("converging", ["running_pods_not_ready"] * 10 + ["node_not_ready"], 1, False),
-            ("healthy", [], 0, False),
-            ("converging", ["running_pods_not_ready"], 1, True),
+            ("blocked", ["node_pressure"]),
+            ("unknown", []),
+            ("converging", ["non_running_pods", "running_pods_not_ready"]),
+            ("converging", ["running_pods_not_ready"]),
         ]
-        for status, issues, returncode, should_extend in cases:
+        for status, issues in cases:
             with self.subTest(status=status, issues=issues), tempfile.TemporaryDirectory() as temporary:
                 runbook = Path(temporary) / "runbook"
                 (runbook / "scripts").mkdir(parents=True)
@@ -389,11 +387,11 @@ class FullFleetAcceptanceTests(unittest.TestCase):
                         return subprocess.CompletedProcess(values, 0, "", "")
                     if any(value.endswith("pi-k3s-status") for value in values):
                         status_calls += 1
-                        return subprocess.CompletedProcess(values, returncode, json.dumps({"status": status, "issues": issues}), "")
+                        return subprocess.CompletedProcess(values, 1, json.dumps({"status": status, "issues": issues}), "")
                     return subprocess.CompletedProcess(values, 1, "llm_status=unhealthy\n", "")
 
-                # First observation finishes at 20 minutes; only Pod readiness may continue.
-                clock_values = [0, 1200] + [3600] * 100
+                # Every nonhealthy status continues at 20 minutes and stops at 60 minutes.
+                clock_values = [0, 1200, 3600]
                 with patch.object(module, "run", side_effect=fake_run), \
                         patch.object(module.time, "monotonic", side_effect=clock_values), \
                         patch.object(module.time, "sleep") as sleep:
@@ -402,8 +400,49 @@ class FullFleetAcceptanceTests(unittest.TestCase):
                         ["generic-a"], ["generic-a"], "6.18.36-v8-homecluster+",
                     )
                 self.assertFalse(accepted)
-                self.assertEqual(status_calls, 2 if should_extend else 1)
-                self.assertEqual(sleep.call_count, 1 if should_extend else 0)
+                self.assertEqual(status_calls, 2)
+                self.assertEqual(sleep.call_count, 1)
+
+    def test_mixed_pod_issues_can_recover_after_twenty_minutes(self):
+        module = legacy.ROLLOUT_MODULE
+        with tempfile.TemporaryDirectory() as temporary:
+            runbook = Path(temporary) / "runbook"
+            (runbook / "scripts").mkdir(parents=True)
+            for helper in ("pi-k3s-status", "pi-rpi5-egpu-llm-status"):
+                (runbook / "scripts" / helper).write_text("fixture\n")
+            status_calls = 0
+
+            def fake_run(command, *, cwd, timeout, env=None):
+                nonlocal status_calls
+                values = [str(item) for item in command]
+                if values[0] == "ansible-playbook":
+                    return subprocess.CompletedProcess(values, 0, "", "")
+                if any(value.endswith("pi-k3s-status") for value in values):
+                    status_calls += 1
+                    if status_calls == 1:
+                        return subprocess.CompletedProcess(values, 1, json.dumps({
+                            "status": "converging",
+                            "issues": ["non_running_pods", "running_pods_not_ready"],
+                        }), "")
+                    return subprocess.CompletedProcess(values, 0, json.dumps({"status": "healthy", "issues": []}), "")
+                return subprocess.CompletedProcess(
+                    values, 0,
+                    "llm_status=healthy\nllm_failed_check_ids=none\nllm_unknown_check_ids=none\n", "",
+                )
+
+            with patch.object(module, "run", side_effect=fake_run), \
+                    patch.object(module.time, "monotonic", side_effect=[0, 1200]), \
+                    patch.object(module.time, "sleep") as sleep:
+                accepted, diagnostics = module._run_phase_acceptance_impl(
+                    Path(temporary), runbook, Path(temporary) / "inventory.yml", "full_fleet",
+                    ["generic-a"], ["generic-a"], "6.18.36-v8-homecluster+",
+                )
+
+            self.assertTrue(accepted)
+            self.assertEqual(status_calls, 2)
+            self.assertEqual(sleep.call_count, 1)
+            self.assertIn("postboot_acceptance_attempts=2", diagnostics)
+            self.assertIn("k3s_final_observation=healthy", diagnostics)
 
     def test_same_selector_failed_reacceptance_does_not_power_cycle(self):
         module = legacy.ROLLOUT_MODULE
