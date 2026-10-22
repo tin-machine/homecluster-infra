@@ -28,6 +28,9 @@ resource "kubernetes_storage_class_v1" "state" {
 }
 
 resource "kubernetes_persistent_volume_claim_v1" "state" {
+  # WaitForFirstConsumer cannot bind until the dependent Deployment schedules.
+  wait_until_bound = false
+
   metadata {
     name      = "${var.name}-state"
     namespace = kubernetes_namespace_v1.this.metadata[0].name
