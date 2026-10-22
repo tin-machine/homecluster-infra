@@ -230,6 +230,45 @@ class RolloutHealthTests(unittest.TestCase):
             self.assertIn("k3s_final_acceptance=fail", diagnostics)
             self.assertEqual(len(calls), 61)
 
+    def test_phase_acceptance_waits_for_llm_after_cluster_is_healthy(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            runbook = self.runbook(root / "runbook")
+            (runbook / "scripts/pi-rpi5-egpu-llm-status").write_text("#!/usr/bin/env bash\n", encoding="utf-8")
+            inventory = root / "inventory.yml"
+            inventory.write_text("all: {}\n", encoding="utf-8")
+            llm_attempts = 0
+
+            def fake_run(command, *, cwd, timeout, env=None):
+                nonlocal llm_attempts
+                if str(command[0]).endswith("ansible-playbook"):
+                    return subprocess.CompletedProcess(command, 0, "", "")
+                if Path(command[1]).name == "pi-k3s-status":
+                    return self.completed("healthy", 0, nodes_ready=4, nodes_total=4, issues=[])
+                llm_attempts += 1
+                if llm_attempts == 1:
+                    return subprocess.CompletedProcess(command, 1, "llm_status=failed\n", "")
+                return subprocess.CompletedProcess(
+                    command, 0,
+                    "llm_status=healthy\nllm_failed_check_ids=none\nllm_unknown_check_ids=none\n", "",
+                )
+
+            with (
+                mock.patch.object(ROLLOUT_MODULE, "run", side_effect=fake_run),
+                mock.patch.object(ROLLOUT_MODULE.time, "sleep", return_value=None),
+                mock.patch.object(ROLLOUT_MODULE, "_PREFLIGHT_ACCEPTANCE", None),
+                mock.patch.object(ROLLOUT_MODULE, "_PROGRESS", None),
+            ):
+                accepted, diagnostics = ROLLOUT_MODULE.run_phase_acceptance(
+                    root, runbook, inventory, "full_fleet", ["egpu-a"], ["egpu-a"],
+                    "6.18.36-v8-homecluster+",
+                )
+            self.assertTrue(accepted)
+            self.assertEqual(llm_attempts, 2)
+            self.assertIn("phase_runtime_acceptance=pass", diagnostics)
+            self.assertIn("postboot_acceptance_attempts=2", diagnostics)
+            self.assertIn("llm_acceptance=pass", diagnostics)
+
     def test_ansible_failure_diagnostics_parse_modern_error(self):
         output = """
 TASK [Pi5 common kernel target selector存在を検証] ********
