@@ -50,6 +50,12 @@ resource "kubernetes_persistent_volume_claim_v1" "state" {
 }
 
 resource "kubernetes_deployment_v1" "this" {
+  # The first ARM64 image pull can outlast the provider's 10-minute default.
+  timeouts {
+    create = "60m"
+    update = "60m"
+  }
+
   metadata {
     name      = var.name
     namespace = kubernetes_namespace_v1.this.metadata[0].name
@@ -57,7 +63,8 @@ resource "kubernetes_deployment_v1" "this" {
   }
 
   spec {
-    replicas = 1
+    replicas                  = 1
+    progress_deadline_seconds = 3600
 
     strategy {
       type = "Recreate"
