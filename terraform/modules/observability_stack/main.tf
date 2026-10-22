@@ -133,7 +133,7 @@ resource "helm_release" "prometheus" {
   name             = local.prometheus_release
   repository       = "https://prometheus-community.github.io/helm-charts"
   chart            = "prometheus"
-  version          = "29.35.0"
+  version          = "29.36.1"
   namespace        = kubernetes_namespace.observability.metadata[0].name
   create_namespace = false
 
@@ -184,7 +184,7 @@ resource "helm_release" "mimir" {
   name             = local.mimir_release
   repository       = "https://grafana.github.io/helm-charts"
   chart            = "mimir-distributed"
-  version          = "6.2.0"
+  version          = "6.2.1"
   namespace        = kubernetes_namespace.observability.metadata[0].name
   create_namespace = false
   timeout          = 900
@@ -323,7 +323,7 @@ resource "helm_release" "otel_collector" {
   name             = local.otel_collector_release
   repository       = "https://open-telemetry.github.io/opentelemetry-helm-charts"
   chart            = "opentelemetry-collector"
-  version          = "0.175.0"
+  version          = "0.175.1"
   namespace        = kubernetes_namespace.observability.metadata[0].name
   create_namespace = false
 

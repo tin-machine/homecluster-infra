@@ -90,6 +90,16 @@
     - k3s_stg_readyz_anonymous_enabled | bool
     - k3s_stg_readyz_verify_effective_link | bool
 
+- name: networking-only 実行で不足するinterface factsを取得
+  ansible.builtin.setup:
+    gather_subset:
+      - '!all'
+      - network
+  check_mode: false
+  when:
+    - k3s_flannel_iface | default('', true) | string | trim | length == 0
+    - ansible_facts.get('default_ipv4', {}).get('interface', '') | length == 0
+
 - name: 判定用変数を準備
   ansible.builtin.set_fact:
     k3s_wifi_backend_resolved: "{{ k3s_wifi_backend | default('networkmanager', true) | string | trim }}"
@@ -105,6 +115,13 @@
       }}
     k3s_flannel_iface_resolved: "{{ k3s_flannel_iface | default(ansible_facts.get('default_ipv4', {}).get('interface', ''), true) | string | trim }}"
     k3s_wifi_iface_resolved: "{{ k3s_wifi_interface | default((k3s_flannel_iface | default(ansible_facts.get('default_ipv4', {}).get('interface', ''), true)), true) | string | trim }}"
+
+- name: networking interfaceの解決を検証
+  ansible.builtin.assert:
+    that:
+      - k3s_flannel_iface_resolved | length > 0
+      - not (k3s_wifi_manage | bool) or (k3s_wifi_iface_resolved | length > 0)
+    fail_msg: interface factsが無いため空のWi-Fi/Flannel設定を配置できません
 
 - name: systemd サービス情報を取得
   become: true

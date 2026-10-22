@@ -66,6 +66,60 @@ variable "registry_enabled" {
   default     = false
 }
 
+variable "cli_workspace_enabled" {
+  type        = bool
+  description = "Opt in to a single staging CLI workspace after image, NAS, and node preflight."
+  default     = false
+}
+
+variable "cli_workspace_image" {
+  type        = string
+  description = "Validated ARM64 CLI image pinned by sha256 digest."
+  default     = ""
+}
+
+variable "cli_workspace_node_name" {
+  type        = string
+  description = "Staging node holding the retained local state volume."
+  default     = ""
+}
+
+variable "cli_workspace_nas_server" {
+  type        = string
+  description = "Site-local NAS NFS server."
+  default     = ""
+}
+
+variable "cli_workspace_nas_export_path" {
+  type        = string
+  description = "Existing NAS export root; no new home is provisioned."
+  default     = ""
+}
+
+variable "cli_workspace_nas_home_subpath" {
+  type        = string
+  description = "One existing home directory below the NAS export root."
+  default     = ""
+}
+
+variable "cli_workspace_user_name" {
+  type        = string
+  description = "Unix account name mapped to the existing NAS home."
+  default     = ""
+}
+
+variable "cli_workspace_user_id" {
+  type        = number
+  description = "Existing NAS home owner UID."
+  default     = 0
+}
+
+variable "cli_workspace_group_id" {
+  type        = number
+  description = "Existing NAS home owner GID."
+  default     = 0
+}
+
 variable "registry_namespace" {
   type        = string
   description = "Namespace for staging local registry resources"
