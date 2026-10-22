@@ -228,7 +228,7 @@ class RolloutHealthTests(unittest.TestCase):
             self.assertIn("k3s_final_observation=blocked", diagnostics)
             self.assertIn("k3s_final_warning_issues=non_running_pods", diagnostics)
             self.assertIn("k3s_final_acceptance=fail", diagnostics)
-            self.assertEqual(len(calls), 21)
+            self.assertEqual(len(calls), 61)
 
     def test_ansible_failure_diagnostics_parse_modern_error(self):
         output = """
