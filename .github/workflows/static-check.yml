@@ -49,6 +49,12 @@ jobs:
         shell: bash
         run: bash scripts/ci/check-kubernetes-namespace-metadata.sh
 
+      - name: Validate CLI workspace retained storage and image pin
+        shell: bash
+        run: |
+          terraform -chdir=terraform/env/staging init -backend=false -input=false -lockfile=readonly
+          terraform -chdir=terraform/env/staging test -filter=tests/cli_workspace.tftest.hcl -no-color
+
       - name: Validate staging Loki rendered storage and binary config
         run: bash scripts/ci/check-staging-loki-compat.sh
 
