@@ -24,6 +24,39 @@ spec.loader.exec_module(rollout)
 
 
 class ProgressTests(unittest.TestCase):
+    def test_progress_binds_generation_and_deployment_attempt(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            generation = "20261021T232512Z-stg-generation-1708165"
+            deployment = "deployment-" + "a" * 32
+            writer = rollout.ProgressWriter(
+                Path(temporary), "full_fleet",
+                generation_run_id=generation, deployment_attempt_id=deployment,
+            )
+            with redirect_stderr(StringIO()):
+                writer.start()
+                writer.transition("fresh_boot", "common_kernel_fresh_boot", "started")
+                writer.finish("pass")
+            progress = json.loads(writer.path.read_text(encoding="utf-8"))
+            self.assertEqual(progress["generation_run_id"], generation)
+            self.assertEqual(progress["deployment_attempt_id"], deployment)
+            self.assertEqual(progress["phase"], "terminal")
+
+    def test_progress_rejects_malformed_or_unpaired_binding(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for generation, deployment in (
+                ("../other", ""),
+                ("", "deployment-" + "a" * 32),
+                ("20261021T232512Z-stg-generation-1708165", "deployment-bad"),
+            ):
+                with self.subTest(generation=generation, deployment=deployment):
+                    with self.assertRaises(rollout.RolloutError):
+                        rollout.ProgressWriter(
+                            root, "full_fleet", generation_run_id=generation,
+                            deployment_attempt_id=deployment,
+                        )
+            self.assertFalse((root / "progress/current.json").exists())
+
     def test_atomic_private_sidecar_and_heartbeat_preserve_transition(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             writer = rollout.ProgressWriter(Path(temporary), "full_fleet")
@@ -59,6 +92,8 @@ class ProgressTests(unittest.TestCase):
                 "XDG_STATE_HOME": temporary,
                 "HOMECLUSTER_RPI5_COMMON_KERNEL_ROLLOUT_APPLY": "1",
                 "HOMECLUSTER_ANSIBLE_INVENTORY": str(Path(temporary) / "missing-inventory.yml"),
+                rollout.EXPECTED_ACCEPTED_RUN_ENV: "20261021T232512Z-stg-generation-1708165",
+                rollout.DEPLOYMENT_ATTEMPT_ENV: "deployment-" + "b" * 32,
             }
             with mock.patch.dict(os.environ, env), redirect_stdout(stdout), redirect_stderr(stderr):
                 code = rollout.main(["--json", "--phase", "full_fleet"])
@@ -71,6 +106,8 @@ class ProgressTests(unittest.TestCase):
             self.assertTrue(progress["terminal"])
             self.assertEqual(progress["status"], "blocked")
             self.assertFalse(progress["mutation_started"])
+            self.assertEqual(progress["generation_run_id"], env[rollout.EXPECTED_ACCEPTED_RUN_ENV])
+            self.assertEqual(progress["deployment_attempt_id"], env[rollout.DEPLOYMENT_ATTEMPT_ENV])
             self.assertIn("phase=accepted", stderr.getvalue())
             self.assertEqual(len(stdout.getvalue().splitlines()), 1)
 
