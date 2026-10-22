@@ -8,7 +8,7 @@ PLAYBOOK = HERE.parent / "ansible/openwrt/playbooks/rpi5-common-kernel-rollout.y
 
 
 class RolloutSelectorResolutionContractTests(unittest.TestCase):
-    def test_stage_release_is_resolved_before_current_selector_validation(self) -> None:
+    def test_live_selector_is_read_before_stage_resolution_and_apply(self) -> None:
         text = PLAYBOOK.read_text(encoding="utf-8")
         live_snapshot = text.index("live selector snapshotを取得")
         current_selector = text.index("target current selectorをlive snapshotから設定")
@@ -16,6 +16,7 @@ class RolloutSelectorResolutionContractTests(unittest.TestCase):
         source_path_resolution = text.index("selector source pathを解決")
         source_artifact_validation = text.index("selector source artifactを検証")
         pre_mutation_plan = text.index("pre-mutation plan")
+        stage_resolution = text.index("PXE host releaseを解決")
         mutation = text.index("fixed PXE selectorを適用")
         live_selector = text.index("OpenWrt live selectorを検証")
         applied_result = text.index("selector apply resultをcontrollerへ保存")
@@ -25,11 +26,12 @@ class RolloutSelectorResolutionContractTests(unittest.TestCase):
         self.assertLess(selector_validation, source_path_resolution)
         self.assertLess(source_path_resolution, source_artifact_validation)
         self.assertLess(source_artifact_validation, pre_mutation_plan)
-        self.assertLess(pre_mutation_plan, mutation)
+        self.assertLess(pre_mutation_plan, stage_resolution)
+        self.assertLess(stage_resolution, mutation)
         self.assertLess(mutation, live_selector)
         self.assertLess(live_selector, applied_result)
         self.assertIn("tasks/rpi5_common_kernel_live_selectors.yml", text)
-        self.assertNotIn("tasks_from: pxe_host_releases", text)
+        self.assertNotIn("tasks_from: pxe_host_releases", text[:pre_mutation_plan])
 
     def test_selector_source_paths_use_explicit_concatenation_not_regex_backrefs(self) -> None:
         text = PLAYBOOK.read_text(encoding="utf-8")
