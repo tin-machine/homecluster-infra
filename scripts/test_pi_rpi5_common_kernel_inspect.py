@@ -70,6 +70,11 @@ class RequiredActionTests(unittest.TestCase):
         self.assertEqual(value["runtime_reason"], "egpu_nvidia_or_llm_service_failed")
         self.assertEqual(value["required_action"], "fresh_boot")
 
+    def test_egpu_nvidia_module_failure_is_runtime_failure(self) -> None:
+        value = classify(acceptance="fail", reason="egpu_nvidia_module_missing")
+        self.assertEqual(value["runtime_reason"], "egpu_nvidia_module_missing")
+        self.assertEqual(value["required_action"], "fresh_boot")
+
     def test_egpu_llm_helper_failure_is_runtime_failure(self) -> None:
         value = classify(acceptance="fail", reason="egpu_llm_acceptance_failed")
         self.assertEqual(value["runtime_reason"], "egpu_llm_acceptance_failed")
@@ -94,6 +99,7 @@ class FailureReasonTests(unittest.TestCase):
         cases = {
             "ansible_failed_task=Pi5 common kernel runtime hard gateを検証": "kernel_hard_gate_failed",
             "ansible_failed_task=Generic canaryでNVIDIA module非autoloadを検証": "generic_nvidia_autoloaded",
+            "ansible_failed_task=eGPU canaryでNVIDIA moduleを検証": "egpu_nvidia_module_missing",
             "ansible_failed_task=eGPU canaryでNVIDIAとLLM serviceを検証": "egpu_nvidia_or_llm_service_failed",
             "llm_acceptance=fail": "egpu_llm_acceptance_failed",
         }
@@ -139,6 +145,7 @@ class FixtureContractTests(unittest.TestCase):
                 "kernel_release_mismatch",
                 "kernel_hard_gate_failed",
                 "generic_nvidia_autoloaded",
+                "egpu_nvidia_module_missing",
                 "egpu_nvidia_or_llm_service_failed",
                 "egpu_llm_acceptance_failed",
                 "egpu_llm_acceptance_helper_missing",

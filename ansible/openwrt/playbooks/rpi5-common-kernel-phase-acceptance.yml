@@ -62,11 +62,10 @@
         )
       changed_when: false
 
-    - name: eGPU canaryでNVIDIAとLLM serviceを検証
+    - name: eGPU canaryでNVIDIA moduleを検証
       ansible.builtin.shell: |
         set -euo pipefail
         lsmod | awk '{print $1}' | grep -q '^nvidia$'
-        test "$(systemctl is-active llama-vulkan.service)" = active
       args:
         executable: /bin/bash
       when: >-
