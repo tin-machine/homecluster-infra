@@ -48,6 +48,16 @@ run "workspace_storage_and_identity" {
   }
 
   assert {
+    condition     = kubernetes_deployment_v1.this.spec[0].progress_deadline_seconds == 3600
+    error_message = "The first ARM64 image pull needs a one-hour rollout deadline."
+  }
+
+  assert {
+    condition     = kubernetes_deployment_v1.this.timeouts.create == "60m" && kubernetes_deployment_v1.this.timeouts.update == "60m"
+    error_message = "Terraform must wait as long as Kubernetes for the workspace rollout."
+  }
+
+  assert {
     condition     = kubernetes_deployment_v1.this.spec[0].template[0].spec[0].node_selector["kubernetes.io/hostname"] == "staging-node"
     error_message = "The retained local state must stay on the selected node."
   }
