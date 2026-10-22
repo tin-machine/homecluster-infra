@@ -1,0 +1,60 @@
+---
+- name: Staging Pi5 kernel build work directory cleanup
+  hosts: rpi5_egpu_artifact_bundle
+  gather_facts: false
+  become: true
+  vars:
+    homecluster_cleanup_apply: false
+    homecluster_cleanup_min_free_gib: 48
+  tasks:
+    - name: Cleanup target and protected generationsを検証
+      ansible.builtin.assert:
+        that:
+          - groups['rpi5_egpu_artifact_bundle'] | default([]) | length == 1
+          - inventory_hostname == groups['rpi5_egpu_artifact_bundle'][0]
+          - rpi5_common_kernel_build_stage | default('') == 'stg'
+          - rpi5_common_kernel_build_work_root | default('') == '/var/lib/rancher/k3s/kernel-build'
+          - homecluster_cleanup_candidate | default('') is match('^[0-9]{8}-rpi5-homecluster$')
+          - homecluster_cleanup_accepted | default('') is match('^[0-9]{8}-rpi5-homecluster$')
+          - homecluster_cleanup_rollback | default('') is match('^[0-9]{8}-rpi5-homecluster$')
+          - not (ansible_check_mode and (homecluster_cleanup_apply | bool))
+        fail_msg: stg builder、固定work root、3つの保護世代を確認してください
+
+    - name: 古いbuild作業領域の候補と容量を表示
+      ansible.builtin.script:
+        cmd: >-
+          {{ playbook_dir }}/../roles/rpi5_common_kernel_build/files/cleanup_old_builds.py
+          --root /var/lib/rancher/k3s/kernel-build
+          --candidate {{ homecluster_cleanup_candidate }}
+          --accepted {{ homecluster_cleanup_accepted }}
+          --rollback {{ homecluster_cleanup_rollback }}
+          --min-free-gib {{ homecluster_cleanup_min_free_gib | int }}
+        executable: python3
+      register: homecluster_cleanup_preview
+      changed_when: false
+      check_mode: false
+
+    - name: 古いbuild作業領域の事前計画を表示
+      ansible.builtin.debug:
+        msg: "{{ homecluster_cleanup_preview.stdout | from_json }}"
+
+    - name: 同じ計画に固定して古いbuild作業領域を整理
+      ansible.builtin.script:
+        cmd: >-
+          {{ playbook_dir }}/../roles/rpi5_common_kernel_build/files/cleanup_old_builds.py
+          --root /var/lib/rancher/k3s/kernel-build
+          --candidate {{ homecluster_cleanup_candidate }}
+          --accepted {{ homecluster_cleanup_accepted }}
+          --rollback {{ homecluster_cleanup_rollback }}
+          --min-free-gib {{ homecluster_cleanup_min_free_gib | int }}
+          --apply
+          --expected-plan-sha256 {{ (homecluster_cleanup_preview.stdout | from_json).plan_sha256 }}
+        executable: python3
+      register: homecluster_cleanup_result
+      changed_when: "((homecluster_cleanup_result.stdout | from_json).delete_labels | length) > 0"
+      when: homecluster_cleanup_apply | bool
+
+    - name: 整理後の容量と削除結果を表示
+      ansible.builtin.debug:
+        msg: "{{ homecluster_cleanup_result.stdout | from_json }}"
+      when: homecluster_cleanup_apply | bool
