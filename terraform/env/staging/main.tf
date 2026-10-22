@@ -52,3 +52,17 @@ module "homelab_registry" {
   load_balancer_ip   = var.registry_load_balancer_ip
   port               = var.registry_port
 }
+
+module "cli_workspace" {
+  count  = var.cli_workspace_enabled ? 1 : 0
+  source = "../../modules/cli_workspace"
+
+  image            = var.cli_workspace_image
+  node_name        = var.cli_workspace_node_name
+  nas_server       = var.cli_workspace_nas_server
+  nas_export_path  = var.cli_workspace_nas_export_path
+  nas_home_subpath = var.cli_workspace_nas_home_subpath
+  user_name        = var.cli_workspace_user_name
+  user_id          = var.cli_workspace_user_id
+  group_id         = var.cli_workspace_group_id
+}
