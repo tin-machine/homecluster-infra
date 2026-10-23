@@ -15,6 +15,7 @@ import unittest
 from unittest.mock import patch
 
 import yaml
+from jinja2 import Environment
 
 ROOT = Path(__file__).resolve().parents[2]
 ROLE = ROOT / 'ansible/arm64/roles/host_tailscale'
@@ -113,6 +114,20 @@ class EnrollmentTests(unittest.TestCase):
 
 
 class BootTests(unittest.TestCase):
+    def test_staging_build_includes_tailscale_without_enabling_production(self):
+        playbooks = ROOT / 'ansible/openwrt/playbooks'
+        staging = yaml.safe_load((playbooks / 'pxe-release-bundle-staging.yml').read_text())[0]
+        build = yaml.safe_load((playbooks / 'pxe-release-bundle-build.yml').read_text())[0]
+        common_kernel = yaml.safe_load((playbooks / 'pxe-release-bundle-staging-with-common-kernel.yml').read_text())
+        self.assertEqual(staging['vars']['pxe_release_bundle_stage'], 'stg')
+        self.assertIs(staging['vars']['openwrt_gentoo_host_tailscale_enabled'], True)
+        self.assertEqual(common_kernel[-1]['ansible.builtin.import_playbook'], 'pxe-release-bundle-build.yml')
+        self.assertEqual(common_kernel[-1]['vars']['pxe_release_bundle_stage'], 'stg')
+        enabled = Environment().from_string(build['vars']['openwrt_gentoo_host_tailscale_enabled'])
+        self.assertEqual(enabled.render(pxe_release_bundle_stage='stg'), 'True')
+        self.assertEqual(enabled.render(pxe_release_bundle_stage='prod'), 'False')
+        self.assertEqual(enabled.render(), 'False')
+
     def test_no_opt_in_does_not_start_ansible(self):
         with patch.dict(os.environ, {'STAGE': 'stg', 'OVERLAY_ID': 'fixture-agent'}), patch.object(Path, 'is_file', return_value=False), patch.object(boot.subprocess, 'run') as run, contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(boot.main(), 0)
