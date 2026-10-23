@@ -420,6 +420,15 @@ def _build_k3s_stg_agent_vars(
     if not isinstance(k3s_agent_cfg, Mapping):
         k3s_agent_cfg = {}
 
+    snapshotter = _clean_string(hv.get("k3s_agent_snapshotter")) or "native"
+    if snapshotter not in {"native", "overlayfs"}:
+        raise ValueError("k3s_agent_snapshotter must be native or overlayfs")
+    if snapshotter == "overlayfs" and (
+        not _as_bool(hv.get("k3s_local_storage_enabled"))
+        or _clean_string(hv.get("k3s_local_storage_filesystem_type")) != "ext4"
+    ):
+        raise ValueError("k3s_agent_snapshotter=overlayfs requires dedicated ext4 k3s local storage")
+
     labels: list[str] = []
     for item in _as_list(k3s_agent_cfg.get("node-label")):
         _append_clean_unique(labels, item)
@@ -433,7 +442,7 @@ def _build_k3s_stg_agent_vars(
             "node-ip": node_ip,
             "node-name": overlay_id or hostname,
             "node-label": labels,
-            "snapshotter": "native",
+            "snapshotter": snapshotter,
             "data-dir": "/var/lib/rancher/k3s",
         },
         "k3s_build_cluster": True,

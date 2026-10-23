@@ -399,12 +399,38 @@ def test_staging_persistent_server_format_boundary() -> None:
                     raise AssertionError(f"persistent server accepted manual flag: {role}/{key}")
 
 
+def test_staging_agent_snapshotter_requires_ext4() -> None:
+    module = load_filter_module()
+    host = {
+        "k3s_local_storage_enabled": True,
+        "k3s_local_storage_filesystem_type": "ext4",
+    }
+
+    def snapshotter(values):
+        return module._build_k3s_stg_agent_vars("agent1", values, {}, "agent1")["k3s_agent"]["snapshotter"]
+
+    assert snapshotter(host) == "native"
+    assert snapshotter({**host, "k3s_agent_snapshotter": "overlayfs"}) == "overlayfs"
+    for invalid in (
+        {**host, "k3s_agent_snapshotter": "unknown"},
+        {**host, "k3s_agent_snapshotter": "overlayfs", "k3s_local_storage_enabled": False},
+        {**host, "k3s_agent_snapshotter": "overlayfs", "k3s_local_storage_filesystem_type": "f2fs"},
+    ):
+        try:
+            snapshotter(invalid)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"unsafe snapshotter accepted: {invalid!r}")
+
+
 def main() -> None:
     test_k3s_stg_storage_vars()
     test_k3s_production_server_and_storage_vars()
     test_host_specific_tftp_artifacts()
     test_picoclaw_base_vars_are_host_scoped()
     test_staging_persistent_server_format_boundary()
+    test_staging_agent_snapshotter_requires_ext4()
     print("openwrt_pxe_client_catalog checks ok")
 
 
