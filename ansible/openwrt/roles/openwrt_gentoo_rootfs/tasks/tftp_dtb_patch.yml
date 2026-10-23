@@ -1,28 +1,11 @@
 ---
 - name: TFTP hosts の DTB から cgroup_disable=memory を除去
-  ansible.builtin.command:
-    argv:
-      - python3
-      - -c
-      - |
-        import pathlib
-        import sys
-        path = pathlib.Path(sys.argv[1])
-        if not path.exists():
-            print("missing")
-            sys.exit(0)
-        data = path.read_bytes()
-        needle = b"cgroup_disable=memory"
-        if needle in data and path.is_symlink():
-            print("refuse to patch a shared release DTB through a host symlink", file=sys.stderr)
-            sys.exit(1)
-        new_data = data.replace(needle, b" " * len(needle))
-        if new_data != data:
-            path.write_bytes(new_data)
-            print("patched")
-        else:
-            print("unchanged")
-      - "/srv/gentoo/tftp-root/{{ item.0.board_hash }}/{{ item.1 }}"
+  ansible.builtin.script: >-
+    {{ role_path }}/files/patch_host_dtb.py
+    {{ ('/srv/gentoo/tftp-root/dates/' ~ item.0.release ~ '/' ~ item.1) | quote }}
+    {{ ('/srv/gentoo/tftp-root/' ~ item.0.board_hash ~ '/' ~ item.1) | quote }}
+  args:
+    executable: python3
   register: openwrt_gentoo_tftp_dtb_bootargs_patch
   changed_when: "'patched' in openwrt_gentoo_tftp_dtb_bootargs_patch.stdout"
   loop: "{{ (openwrt_gentoo_tftp_host_entries | default([])) | subelements('symlinks', skip_missing=True) }}"
