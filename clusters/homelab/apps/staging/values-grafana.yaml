@@ -26,6 +26,9 @@ resources:
     memory: 128Mi
   limits:
     memory: 256Mi
+# The NFS-backed SQLite health endpoint occasionally exceeds the chart's 1s default.
+readinessProbe:
+  timeoutSeconds: 10
 persistence:
   size: 5Gi
 datasources:
