@@ -21,11 +21,6 @@ METALLB_CRD_WAIT_TIMEOUT_SECS="{{ k3s_observability_apply_metallb_crd_wait_timeo
 METALLB_READY_WAIT_TIMEOUT_SECS="{{ k3s_observability_apply_metallb_ready_wait_timeout_secs }}"
 CERT_MANAGER_READY_WAIT_TIMEOUT_SECS="{{ k3s_observability_apply_cert_manager_ready_wait_timeout_secs }}"
 
-if [ -e "${DONE_MARKER}" ]; then
-  echo "k3s observability apply already completed for this boot: ${DONE_MARKER}"
-  exit 0
-fi
-
 setup_apply_log() {
   if [ -z "${APPLY_LOG_PATH}" ]; then
     return 0
@@ -52,8 +47,6 @@ setup_apply_log() {
   trap 'exec 1>&3 2>&4; wait "${log_tee_pid}" 2>/dev/null || true' EXIT
   echo "writing k3s observability apply output to ${APPLY_LOG_PATH}"
 }
-
-setup_apply_log
 
 if [ ! -d "${INFRA_CURRENT_LINK}" ]; then
   echo "infra current bundle not found: ${INFRA_CURRENT_LINK}" >&2
@@ -150,6 +143,31 @@ if [ "${LIVE_WRAPPER_CONTRACT_VERSION}" != "${STAGED_WRAPPER_CONTRACT_VERSION}" 
   echo "Re-run ansible-pull@terraform_stg.service or apply the k3s_observability_apply role before Terraform apply." >&2
   exit 1
 fi
+
+# A boot can stage another bundle after an earlier successful apply.  A receipt
+# for that earlier bundle must never suppress this one or be overwritten by it.
+if [ -e "${DONE_MARKER}" ] || [ -L "${DONE_MARKER}" ]; then
+  APPLY_BOOT_ID="$(cat /proc/sys/kernel/random/boot_id)"
+  RECEIPT_OWNER_UID=0
+  if [ -L "${DONE_MARKER}" ] || [ ! -f "${DONE_MARKER}" ] ||
+     [ "$(stat -c '%u:%a' "${DONE_MARKER}")" != "${RECEIPT_OWNER_UID}:600" ] ||
+     [ "$(wc -c < "${DONE_MARKER}")" -gt 1024 ] ||
+     [ "$(wc -l < "${DONE_MARKER}")" -ne 7 ] ||
+     ! sed -n '1p' "${DONE_MARKER}" | grep -Fqx 'SCHEMA=homecluster-terraform-apply-receipt-v1' ||
+     ! sed -n '2p' "${DONE_MARKER}" | grep -Fqx 'SCOPE=terraform_apply_success_not_helm_state_attested' ||
+     ! sed -n '3p' "${DONE_MARKER}" | grep -Fqx "BOOT_ID=${APPLY_BOOT_ID}" ||
+     ! sed -n '4p' "${DONE_MARKER}" | grep -Fqx "BUNDLE_ID=${INFRA_BUNDLE_ID}" ||
+     ! sed -n '5p' "${DONE_MARKER}" | grep -Fqx "INFRA_REVISION=${INFRA_REVISION}" ||
+     ! sed -n '6p' "${DONE_MARKER}" | grep -Fqx "INVENTORY_REVISION=${SITE_INPUT_INVENTORY_REVISION}" ||
+     ! sed -n '7p' "${DONE_MARKER}" | grep -Eq '^APPLIED_AT_EPOCH=[0-9]{1,16}$'; then
+    echo "Terraform completion receipt does not match the current boot and staged bundle; refusing to skip or overwrite it: ${DONE_MARKER}" >&2
+    exit 1
+  fi
+  echo "k3s observability apply already completed for this boot and bundle ${INFRA_BUNDLE_ID}"
+  exit 0
+fi
+
+setup_apply_log
 
 case "${WORK_DIR}" in
   "${WORK_ROOT}"/*) ;;
