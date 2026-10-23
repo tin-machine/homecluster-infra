@@ -174,8 +174,8 @@ def main() -> int:
     if not normalize_index < provenance_index:
         raise AssertionError("DTB normalization must precede immutable artifact hashing")
     require(tasks, "files/normalize_dtb.py", "build DTB normalization script")
-    require(host_dtb_patch, "path.is_symlink()", "shared release DTB mutation guard")
-    require(host_dtb_patch, "refuse to patch a shared release DTB", "shared release DTB failure reason")
+    require(host_dtb_patch, "files/patch_host_dtb.py", "host-local DTB copy")
+    require(host_dtb_patch, "item.0.release", "pinned release DTB source")
     require(tasks, "page_size: 4096", "4K metadata")
     require(tasks, "va_bits: 48", "48-bit metadata")
 

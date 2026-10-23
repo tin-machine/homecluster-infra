@@ -343,6 +343,7 @@ if command -v python3 >/dev/null 2>&1; then
   python3 scripts/ci/check-pxe-release-identity-status.py
   python3 scripts/ci/check-pxe-standard-source-validate.py
   python3 scripts/ci/check-rpi5-common-kernel-identity-status.py
+  python3 -B scripts/ci/test_host_dtb_patch.py
   python3 -B scripts/ci/test_rpi5_kernel_build_cleanup.py
   python3 scripts/ci/check-openwrt-srv-ext4-preflight.py
   python3 scripts/github-actions-runner-acceptance.py --self-test

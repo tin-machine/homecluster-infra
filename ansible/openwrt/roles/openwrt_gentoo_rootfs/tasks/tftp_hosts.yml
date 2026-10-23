@@ -255,6 +255,7 @@
     - openwrt_gentoo_enabled | bool
     - (openwrt_gentoo_tftp_hosts_mode | default('symlink')) == 'directory'
     - (item.1 | string | trim | length) > 0
+    - not (openwrt_gentoo_tftp_strip_dtb_cgroup_disable_memory | bool and (item.1 | string) is match('.*\\.dtb$'))
   tags:
     - pxe
     - tftp
