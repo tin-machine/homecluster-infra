@@ -5,6 +5,9 @@
   become: false
   vars_files:
     - ../group_vars/openwrt.yml
+  vars:
+    # The common-kernel staging wrapper imports this generic build playbook.
+    openwrt_gentoo_host_tailscale_enabled: "{{ pxe_release_bundle_stage | default('') == 'stg' }}"
 
   pre_tasks:
     - name: OpenWrt Python bootstrap を適用
