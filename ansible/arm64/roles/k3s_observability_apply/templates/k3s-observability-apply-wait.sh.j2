@@ -16,7 +16,7 @@ POD_SETTLE_NAMESPACE_EXCLUDE_REGEX="{{ k3s_observability_apply_pod_settle_namesp
 NODE_NAME="$(hostnamectl --static 2>/dev/null || hostname)"
 
 if [ -e "${DONE_MARKER}" ]; then
-  echo "k3s observability apply already completed for this boot: ${DONE_MARKER}"
+  echo "Terraform completion receipt exists; the apply command will verify its boot and bundle identity: ${DONE_MARKER}"
   exit 0
 fi
 

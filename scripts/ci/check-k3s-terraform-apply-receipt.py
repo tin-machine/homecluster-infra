@@ -16,6 +16,8 @@ START = "# The done marker is also a boot-scoped, source-labelled success receip
 END = 'echo "k3s observability apply completed for bundle ${INFRA_BUNDLE_ID}"'
 PRE_START = "for marker in .homecluster-bundle-id .homecluster-infra-revision; do"
 PRE_END = "read_contract_version() {"
+GUARD_START = "# A boot can stage another bundle after an earlier successful apply."
+GUARD_END = "setup_apply_log\n"
 
 
 def completion_block() -> str:
@@ -30,6 +32,14 @@ def preapply_block() -> str:
     start = source.index(PRE_START)
     end = source.index(PRE_END, start)
     return "set -eu\n" + source[start:end]
+
+
+def guard_block() -> str:
+    source = TEMPLATE.read_text(encoding="utf-8")
+    start = source.index(GUARD_START)
+    end = source.index(GUARD_END, start)
+    return ("set -eu\n" + source[start:end]).replace(
+        "RECEIPT_OWNER_UID=0", f"RECEIPT_OWNER_UID={os.getuid()}")
 
 
 class ApplyReceiptTests(unittest.TestCase):
@@ -62,6 +72,10 @@ class ApplyReceiptTests(unittest.TestCase):
 
     def run_preapply(self) -> subprocess.CompletedProcess[str]:
         return subprocess.run(["sh", "-c", preapply_block()], env=self.env,
+                              capture_output=True, text=True, check=False)
+
+    def run_guard(self) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(["sh", "-c", guard_block()], env=self.env,
                               capture_output=True, text=True, check=False)
 
     def test_preapply_requires_full_inventory_revision_and_matched_bundle(self) -> None:
@@ -100,6 +114,37 @@ class ApplyReceiptTests(unittest.TestCase):
         (self.site / ".homecluster-inventory-revision").write_text("c" * 40 + "\n", encoding="ascii")
         self.assertNotEqual(self.run_block().returncode, 0)
         self.assertFalse(self.path.exists())
+
+    def test_guard_skips_only_exact_current_receipt(self) -> None:
+        self.assertEqual(self.run_guard().returncode, 0)
+        self.assertEqual(self.run_block().returncode, 0)
+        self.assertIn("already completed", self.run_guard().stdout)
+
+    def test_guard_rejects_another_bundle_without_overwriting_receipt(self) -> None:
+        self.assertEqual(self.run_block().returncode, 0)
+        original = self.path.read_bytes()
+        self.env["INFRA_BUNDLE_ID"] = "a" * 12 + "-" + "c" * 12
+        result = self.run_guard()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("refusing to skip or overwrite", result.stderr)
+        self.assertEqual(self.path.read_bytes(), original)
+
+    def test_guard_rejects_wrong_boot_malformed_and_symlink_receipts(self) -> None:
+        self.assertEqual(self.run_block().returncode, 0)
+        original = self.path.read_bytes()
+        variants = (
+            original.replace(b"BOOT_ID=", b"BOOT_ID=00000000-0000-0000-0000-000000000000#"),
+            original.replace(b"SCHEMA=", b"WRONG_="),
+        )
+        for contents in variants:
+            with self.subTest(contents=contents[:32]):
+                self.path.write_bytes(contents)
+                self.assertNotEqual(self.run_guard().returncode, 0)
+        self.path.unlink()
+        target = Path(self.tmp.name) / "target"
+        target.write_bytes(original)
+        self.path.symlink_to(target)
+        self.assertNotEqual(self.run_guard().returncode, 0)
 
 
 if __name__ == "__main__":
