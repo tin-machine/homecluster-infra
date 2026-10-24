@@ -15,6 +15,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 ROLE = ROOT / "ansible/openwrt/roles/openwrt_gentoo_rootfs"
 RELEASE_TASKS = ROLE / "tasks/pxe_host_releases.yml"
 HOST_TASKS = ROLE / "tasks/tftp_hosts.yml"
+DTB_TASKS = ROLE / "tasks/tftp_dtb_patch.yml"
 DTB_HELPER = ROLE / "files/patch_host_dtb.py"
 SPEC = importlib.util.spec_from_file_location("patch_host_dtb", DTB_HELPER)
 HELPER = importlib.util.module_from_spec(SPEC)
@@ -32,6 +33,26 @@ def render(loader, value, variables):
 
 
 class PxeHostDtbContractTest(unittest.TestCase):
+    def test_staging_build_does_not_patch_production_host_dtb(self):
+        loader = DataLoader()
+        tasks = loader.load_from_file(str(DTB_TASKS))
+        task = next(task for task in tasks if task["name"] == "TFTP hosts の DTB から cgroup_disable=memory を除去")
+        stage_guard = next(condition for condition in task["when"] if "openwrt_gentoo_rootfs_target_stages" in condition)
+
+        def enabled(stage, target_stages):
+            variables = {
+                "item": ({"stage": stage}, "bcm2712-rpi-5-b.dtb"),
+                "openwrt_gentoo_enabled": True,
+                "openwrt_gentoo_tftp_strip_dtb_cgroup_disable_memory": True,
+                "openwrt_gentoo_tftp_hosts_mode": "directory",
+                "openwrt_gentoo_rootfs_target_stages": target_stages,
+            }
+            return bool(render(loader, "{{ " + stage_guard + " }}", variables))
+
+        self.assertTrue(enabled("stg", ["stg"]))
+        self.assertFalse(enabled("prod", ["stg"]))
+        self.assertTrue(enabled("prod", []))
+
     def test_generated_release_and_symlink_are_accepted_by_helper(self):
         loader = DataLoader()
         release_tasks = loader.load_from_file(str(RELEASE_TASKS))
