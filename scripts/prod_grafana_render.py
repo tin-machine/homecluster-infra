@@ -20,6 +20,7 @@ DATASOURCE_UID = "prod-prometheus"
 DASHBOARD_UID = "staging-outside-in"
 LOKI_DATASOURCE_UID = "prod-loki"
 LOG_DASHBOARD_UID = "staging-container-logs"
+OPENWRT_DASHBOARD_UID = "openwrt-prod-metrics"
 STAGING_LOG_QUERY = '{service_name=~".+"} | environment="staging"'
 GRAFANA = "prod-grafana"
 PROMETHEUS = "prod-prometheus"
@@ -113,6 +114,35 @@ def _logs_dashboard() -> dict:
     }
 
 
+def _openwrt_dashboard() -> dict:
+    node = '{job="openwrt-node-exporter"}'
+    return {
+        "uid": OPENWRT_DASHBOARD_UID,
+        "title": "OpenWrt router (prod monitoring)",
+        "tags": ["openwrt", "router", "homelab"],
+        "schemaVersion": 39, "version": 1, "editable": False,
+        "timezone": "browser", "refresh": "1m",
+        "time": {"from": "now-6h", "to": "now"},
+        "panels": [
+            _panel(1, "OpenWrt scrape UP", "up" + node, "short", 0, 0,
+                   panel_type="stat"),
+            _panel(2, "CPU busy (5m, %)",
+                   '100 * (1 - avg(rate(node_cpu_seconds_total{job="openwrt-node-exporter",mode="idle"}[5m])))',
+                   "percent", 12, 0),
+            _panel(3, "Memory usage (%)",
+                   "100 * (1 - node_memory_MemAvailable_bytes" + node +
+                   " / node_memory_MemTotal_bytes" + node + ")", "percent", 0, 8),
+            _panel(4, "Load (1m)", "node_load1" + node, "short", 12, 8),
+            _panel(5, "Network receive (bytes/s)",
+                   'rate(node_network_receive_bytes_total{job="openwrt-node-exporter",device!~"lo|veth.*"}[5m])',
+                   "Bps", 0, 16, legend="{{device}}"),
+            _panel(6, "Network transmit (bytes/s)",
+                   'rate(node_network_transmit_bytes_total{job="openwrt-node-exporter",device!~"lo|veth.*"}[5m])',
+                   "Bps", 12, 16, legend="{{device}}"),
+        ],
+    }
+
+
 def build_manifest() -> dict:
     datasource = {
         "apiVersion": 1,
@@ -144,6 +174,7 @@ def build_manifest() -> dict:
         "dashboard-provider.yaml": _json(provider),
         "staging-overview.json": _json(_dashboard()),
         "staging-logs.json": _json(_logs_dashboard()),
+        "openwrt-overview.json": _json(_openwrt_dashboard()),
     }
     checksum = hashlib.sha256(_json(config).encode("utf-8")).hexdigest()
     container = {
@@ -194,6 +225,7 @@ def build_manifest() -> dict:
             "name": CONFIG_NAME, "items": [
                 {"key": "staging-overview.json", "path": "staging-overview.json"},
                 {"key": "staging-logs.json", "path": "staging-logs.json"},
+                {"key": "openwrt-overview.json", "path": "openwrt-overview.json"},
             ]}},
         {"name": "data", "emptyDir": {"sizeLimit": "256Mi"}},
         {"name": "temp", "emptyDir": {"sizeLimit": "64Mi"}},

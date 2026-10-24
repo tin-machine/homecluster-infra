@@ -34,6 +34,30 @@ def objects(manifest: dict) -> dict:
 
 
 class ProductionOutsideInTest(unittest.TestCase):
+    def test_openwrt_metrics_target_is_separate_and_ip_scoped(self) -> None:
+        original = objects(r.build_manifest(fixture()))
+        site = fixture()
+        site["openwrt_metrics_target"] = {"name": "example-router", "target": "192.0.2.100:9100"}
+        updated = objects(r.build_manifest(site))
+        old_cfg = json.loads(original["prod-prometheus-config"]["data"]["prometheus.json"])
+        cfg = json.loads(updated["prod-prometheus-config"]["data"]["prometheus.json"])
+        self.assertEqual(cfg["scrape_configs"][:-1], old_cfg["scrape_configs"])
+        job = cfg["scrape_configs"][-1]
+        self.assertEqual(job["job_name"], "openwrt-node-exporter")
+        self.assertEqual(job["static_configs"], [{"targets": ["192.0.2.100:9100"],
+                                                   "labels": {"node_name": "example-router"}}])
+        self.assertEqual(job["sample_limit"], 2000)
+        self.assertEqual(updated["prod-prometheus-restricted"]["spec"]["egress"][-1], {
+            "to": [{"ipBlock": {"cidr": "192.0.2.100/32"}}],
+            "ports": [{"protocol": "TCP", "port": 9100}],
+        })
+        self.assertEqual(original["prod-blackbox-restricted"], updated["prod-blackbox-restricted"])
+        for bad in ("router.example:9100", "127.0.0.1:9100", "192.0.2.100:9090",
+                    "192.0.2.100:9100/path"):
+            with self.subTest(target=bad), self.assertRaises(ValueError):
+                r.build_manifest({**site, "openwrt_metrics_target":
+                                  {"name": "example-router", "target": bad}})
+
     def test_minimal_render_is_isolated_and_bounded(self) -> None:
         m = r.build_manifest(fixture())
         self.assertEqual(m["kind"], "List")

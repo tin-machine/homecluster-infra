@@ -62,57 +62,6 @@
     fail_msg: "openwrt_gentoo_cmdline_root_arg が空、または root= が欠落しています。例: root=nfs4:{{ openwrt_gentoo_server_host }}:/gentoo/{{ openwrt_gentoo_release }}/nfs,{{ openwrt_gentoo_cmdline_nfs_options }} を指定してください。"
   when: openwrt_gentoo_enabled | bool
 
-- name: distcc ホスト一覧を自動生成
-  ansible.builtin.set_fact:
-    openwrt_gentoo_distcc_hosts_effective: >-
-      {%- set hosts = [] -%}
-      {%- if (openwrt_gentoo_distcc_hosts | trim | length) > 0 -%}
-      {{- openwrt_gentoo_distcc_hosts | trim -}}
-      {%- elif openwrt_gentoo_distcc_auto | bool -%}
-      {%- for h in groups['all'] | default([]) -%}
-      {%- set hv = hostvars[h] -%}
-      {%- set cfg = hv.get('distcc', {}) -%}
-      {%- if cfg is mapping and (cfg.get('enabled', false) | bool) and (cfg.get('client_enabled', true) | bool) -%}
-      {%- set ip = cfg.get('host', cfg.get('address', hv.get('ansible_host', h))) -%}
-      {%- set port = cfg.get('port', 3632) | int -%}
-      {%- set vcpu = (hv.ansible_facts.processor_vcpus | default(0) | int) -%}
-      {%- set slots = cfg.get('slots', cfg.get('client_slots', (vcpu + 1) if vcpu > 0 else (openwrt_gentoo_distcc_default_slots | int))) -%}
-      {%- set host_label = (ip ~ ':' ~ port) if port != 3632 else ip -%}
-      {%- set _ = hosts.append(host_label ~ '/' ~ slots) -%}
-      {%- endif -%}
-      {%- endfor -%}
-      {%- if hosts | length == 0 -%}
-      {%- for h in groups['distcc'] | default([]) -%}
-      {%- set hv = hostvars[h] -%}
-      {%- set ip = (hv.ansible_host | default(h)) -%}
-      {%- set vcpu = (hv.ansible_facts.processor_vcpus | default(0) | int) -%}
-      {%- set slots = (vcpu + 1) if vcpu > 0 else (openwrt_gentoo_distcc_default_slots | int) -%}
-      {%- set _ = hosts.append(ip ~ '/' ~ slots) -%}
-      {%- endfor -%}
-      {%- endif -%}
-      {{- hosts | unique | join(' ') -}}
-      {%- else -%}
-      {{- openwrt_gentoo_distcc_hosts | trim -}}
-      {%- endif -%}
-  when:
-    - openwrt_gentoo_enabled | bool
-    - openwrt_gentoo_distcc_enabled | bool
-  tags:
-    - portage_config
-    - gentoo_distcc
-
-- name: distcc 設定を検証
-  ansible.builtin.assert:
-    that:
-      - openwrt_gentoo_distcc_hosts_effective | length > 0
-    fail_msg: "openwrt_gentoo_distcc_enabled=true の場合、openwrt_gentoo_distcc_hosts か distcc グループを指定してください。"
-  when:
-    - openwrt_gentoo_enabled | bool
-    - openwrt_gentoo_distcc_enabled | bool
-  tags:
-    - portage_config
-    - gentoo_distcc
-
 - name: Overlay remote 有効時は overlay_clients を必須化
   ansible.builtin.assert:
     that:
@@ -151,6 +100,7 @@
     - gentoo_packages
     - gentoo_iptables_nft
     - portage_config
+    - gentoo_distcc
     - official_binhost
     - rpi_eeprom
     - eeprom_config
@@ -220,6 +170,8 @@
     - pxe_ssh_host_keys
     - pxe_ansible_pull
     - official_binhost
+    - gentoo_distcc
+    - portage_config
 
 - name: PXE user / NFS home 反映 rootfs の存在を確認
   ansible.builtin.stat:
@@ -260,6 +212,8 @@
     - pxe_ssh_host_keys
     - pxe_ansible_pull
     - official_binhost
+    - gentoo_distcc
+    - portage_config
 
 - name: TFTP host directory tasks を適用
   ansible.builtin.import_tasks: tftp_hosts.yml
@@ -419,6 +373,12 @@
   ansible.builtin.import_tasks: lower_runtime_base.yml
   tags:
     - lower_runtime_base
+
+- name: distcc worker の実行直前確認 tasks を適用
+  ansible.builtin.import_tasks: distcc_preflight.yml
+  tags:
+    - portage_config
+    - gentoo_distcc
 
 - name: Portage prepare tasks を適用
   ansible.builtin.import_tasks: portage_prepare.yml
