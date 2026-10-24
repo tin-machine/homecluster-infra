@@ -16,6 +16,9 @@
     - openwrt_gentoo_enabled | bool
     - openwrt_gentoo_tftp_strip_dtb_cgroup_disable_memory | bool
     - (openwrt_gentoo_tftp_hosts_mode | default('symlink')) == 'directory'
+    - >-
+      (openwrt_gentoo_rootfs_target_stages | default([]) | length == 0)
+      or (item.0.stage | default('') | string) in openwrt_gentoo_rootfs_target_stages
     - (item.1 | string) is match('.*\\.dtb$')
   tags:
     - pxe
