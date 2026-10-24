@@ -22,6 +22,8 @@ from urllib.request import Request, urlopen
 
 import yaml
 
+from staging_upgrade_support import run_captured, stop_process
+
 ROOT = Path(__file__).resolve().parents[2]
 BASELINE_REF = "f83cceaf4709b469690120b64ccfc63b9a085e66"
 VALUES = ["clusters/homelab/apps/base/values-tempo.yaml",
@@ -37,8 +39,7 @@ def require(condition: bool, message: str) -> None:
 
 
 def run(*args: str, data: str | None = None, timeout: int = 300) -> str:
-    result = subprocess.run(args, input=data, text=True, capture_output=True,
-                            timeout=timeout, cwd=ROOT)
+    result = run_captured(args, data=data, timeout=timeout, cwd=ROOT)
     if result.returncode:
         raise RuntimeError(f"{args[0]} failed: {result.stdout[-2000:]}\n{result.stderr[-3000:]}")
     return result.stdout
@@ -176,12 +177,7 @@ def forward(kube: list[str]):
             eventually(lambda: http(13200, "/ready"))
             yield
         finally:
-            process.terminate()
-            try:
-                process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait()
+            stop_process(process)
 
 
 def main() -> None:

@@ -5,21 +5,23 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
 import stat
 import subprocess
 import sys
 from pathlib import Path
-from typing import Callable, Sequence
+from typing import Sequence
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from source_validator_support import Runner, result as source_result, run as _run
 
 
 ROOT = Path(__file__).resolve().parents[1]
 VALIDATOR = "infra-standard-pxe-source-v1"
 _GIT_REVISION = re.compile(r"^[0-9a-f]{40}$")
-_MAX_OUTPUT_BYTES = 64 * 1024
 
 SOURCE_PATHS = (
+    Path("scripts/source_validator_support.py"),
     Path("ansible/openwrt/playbooks/pxe-release-bundle-staging.yml"),
     Path("ansible/openwrt/roles/openwrt_gentoo_rootfs/defaults/main.yml"),
     Path("scripts/pxe_release_identity_status.py"),
@@ -76,8 +78,6 @@ CHECKS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ),
 )
 
-Runner = Callable[..., subprocess.CompletedProcess[str]]
-
 
 def _result(
     *,
@@ -86,44 +86,13 @@ def _result(
     source_revision: str = "",
     checks: int = 0,
 ) -> dict[str, object]:
-    return {
-        "schema": 1,
-        "validator": VALIDATOR,
-        "status": status,
-        "reason": reason,
-        "source_revision": source_revision,
-        "checks": checks,
-    }
-
-
-def _run(
-    runner: Runner,
-    command: Sequence[str],
-    *,
-    root: Path,
-    timeout: int,
-) -> subprocess.CompletedProcess[str] | None:
-    try:
-        completed = runner(
-            list(command),
-            cwd=root,
-            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            check=False,
-            timeout=timeout,
-        )
-    except (OSError, subprocess.SubprocessError, TypeError, ValueError):
-        return None
-    stdout = completed.stdout if isinstance(completed.stdout, str) else ""
-    stderr = completed.stderr if isinstance(completed.stderr, str) else ""
-    if (
-        len(stdout.encode("utf-8", errors="replace")) > _MAX_OUTPUT_BYTES
-        or len(stderr.encode("utf-8", errors="replace")) > _MAX_OUTPUT_BYTES
-    ):
-        return None
-    return completed
+    return source_result(
+        validator=VALIDATOR,
+        status=status,
+        reason=reason,
+        source_revision=source_revision,
+        checks=checks,
+    )
 
 
 def validate_source(

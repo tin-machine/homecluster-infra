@@ -307,11 +307,14 @@
       - item is mapping
       - item.id is defined
       - (item.id | string | trim) | length > 0
+      - (item.id | string) is match('^[A-Za-z0-9_.-]+$')
+      - (item.id | string) not in ['.', '..']
     fail_msg: "openwrt_gentoo_overlay_clients の各要素には id を指定してください。"
   loop: "{{ openwrt_gentoo_overlay_clients_effective | default(openwrt_gentoo_overlay_clients | default([])) }}"
   loop_control:
     label: "{{ item | default('client') }}"
   no_log: "{{ openwrt_pxe_client_catalog_no_log | default(true) | bool }}"
+  tags: [always]
   when:
     - openwrt_gentoo_enabled | bool
     - (openwrt_gentoo_overlay_clients_effective | default(openwrt_gentoo_overlay_clients | default([])) | length) > 0

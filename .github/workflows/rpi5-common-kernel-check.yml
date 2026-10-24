@@ -18,6 +18,7 @@ on:
       - 'ansible/openwrt/roles/openwrt_rpi5_egpu_runtime_repair/**'
       - 'scripts/pi-rpi5-common-kernel-*'
       - 'scripts/rpi5_common_kernel_source_validate.py'
+      - 'scripts/source_validator_support.py'
       - 'scripts/test_pi_rpi5_common_kernel.py'
       - 'scripts/ci/check-rpi5-common-kernel-source-validate.py'
       - 'scripts/test_pi_rpi5_common_kernel_known_good_fallback.py'
@@ -44,6 +45,7 @@ on:
       - 'ansible/openwrt/roles/openwrt_rpi5_egpu_runtime_repair/**'
       - 'scripts/pi-rpi5-common-kernel-*'
       - 'scripts/rpi5_common_kernel_source_validate.py'
+      - 'scripts/source_validator_support.py'
       - 'scripts/test_pi_rpi5_common_kernel.py'
       - 'scripts/ci/check-rpi5-common-kernel-source-validate.py'
       - 'scripts/test_pi_rpi5_common_kernel_known_good_fallback.py'
@@ -78,6 +80,7 @@ jobs:
             scripts/pi-rpi5-common-kernel-rollout \
             scripts/pi-rpi5-common-kernel-inspect \
             scripts/rpi5_common_kernel_source_validate.py \
+            scripts/source_validator_support.py \
             scripts/ci/check-rpi5-common-kernel-source-validate.py \
             scripts/test_pi_rpi5_common_kernel.py \
             scripts/test_pi_rpi5_common_kernel_known_good_fallback.py \

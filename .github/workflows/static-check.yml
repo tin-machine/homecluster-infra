@@ -45,13 +45,14 @@ jobs:
           terraform fmt -check -diff -recursive
           bash scripts/ci/static-check.sh
 
-      - name: Validate PXE host DTB producer-consumer contract
+      - name: Validate PXE producer-consumer contracts
         shell: bash
         run: |
           set -euo pipefail
           python3 -m venv "${RUNNER_TEMP}/pxe-contract-venv"
           "${RUNNER_TEMP}/pxe-contract-venv/bin/python" -m pip install 'ansible-core==2.20.1'
           "${RUNNER_TEMP}/pxe-contract-venv/bin/python" -B scripts/ci/test_pxe_host_dtb_contract.py
+          "${RUNNER_TEMP}/pxe-contract-venv/bin/python" -B scripts/ci/test_host_tailscale_client_vars_contract.py
 
       - name: Validate Namespace metadata with the locked Kubernetes provider
         shell: bash

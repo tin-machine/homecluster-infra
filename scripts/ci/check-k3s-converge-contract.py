@@ -24,45 +24,13 @@ def role_position(play: str, role_name: str) -> int:
     return match.start() if match else -1
 
 
-def main() -> int:
-    failures: list[str] = []
-
-    adr_path = "docs/architecture-decision-record/0014-k3s-converge-wrapper-contract.md"
-    defaults_path = "ansible/arm64/roles/k3s_converge_check/defaults/main.yml"
-    helper_path = "ansible/arm64/roles/k3s_converge_check/files/k3s-converge"
-    agent_install_config_tasks_path = (
-        "ansible/arm64/roles/k3s_agent_install_config/tasks/main.yml"
-    )
-    agent_install_config_defaults_path = (
-        "ansible/arm64/roles/k3s_agent_install_config/defaults/main.yml"
-    )
-    agent_install_config_template_path = (
-        "ansible/arm64/roles/k3s_agent_install_config/templates/k3s-agent.service.j2"
-    )
-    server_install_config_tasks_path = (
-        "ansible/arm64/roles/k3s_server_install_config/tasks/main.yml"
-    )
-    server_install_config_defaults_path = (
-        "ansible/arm64/roles/k3s_server_install_config/defaults/main.yml"
-    )
-    server_install_config_template_path = (
-        "ansible/arm64/roles/k3s_server_install_config/templates/k3s-server.service.j2"
-    )
-    converge_tasks_path = "ansible/arm64/roles/k3s_converge_check/tasks/main.yml"
-    site_path = "ansible/arm64/site.yml"
-
-    adr = read_rel(adr_path)
-    defaults = read_rel(defaults_path)
-    helper = read_rel(helper_path)
-    agent_install_config_tasks = read_rel(agent_install_config_tasks_path)
-    agent_install_config_defaults = read_rel(agent_install_config_defaults_path)
-    agent_install_config_template = read_rel(agent_install_config_template_path)
-    server_install_config_tasks = read_rel(server_install_config_tasks_path)
-    server_install_config_defaults = read_rel(server_install_config_defaults_path)
-    server_install_config_template = read_rel(server_install_config_template_path)
-    converge_tasks = read_rel(converge_tasks_path)
-    site = read_rel(site_path)
-
+def check_adr_and_helper(
+    adr_path: str,
+    adr: str,
+    defaults: str,
+    helper: str,
+    failures: list[str],
+) -> bool:
     required_adr_terms = [
         "k3s_state: downloaded",
         "Restart k3s systemd",
@@ -105,6 +73,18 @@ def main() -> int:
     if helper_has_lifecycle and not helper_has_start_mode:
         fail("k3s-converge lifecycle commands require an explicit start/restart mode", failures)
 
+    return helper_has_lifecycle
+
+
+def check_agent_scaffold(
+    tasks_path: str,
+    tasks: str,
+    defaults_path: str,
+    defaults: str,
+    template_path: str,
+    template: str,
+    failures: list[str],
+) -> None:
     forbidden_agent_role_terms = [
         "notify:",
         "ansible.builtin.service:",
@@ -117,9 +97,9 @@ def main() -> int:
         "enabled:",
     ]
     for term in forbidden_agent_role_terms:
-        if term in agent_install_config_tasks:
+        if term in tasks:
             fail(
-                f"{agent_install_config_tasks_path} must not contain lifecycle term `{term}`",
+                f"{tasks_path} must not contain lifecycle term `{term}`",
                 failures,
             )
 
@@ -128,9 +108,9 @@ def main() -> int:
         'k3s_agent_install_config_control_token: ""',
     ]
     for term in required_agent_token_default_terms:
-        if term not in agent_install_config_defaults:
+        if term not in defaults:
             fail(
-                f"{agent_install_config_defaults_path} must keep `{term}`",
+                f"{defaults_path} must keep `{term}`",
                 failures,
             )
 
@@ -149,9 +129,9 @@ def main() -> int:
         "no_log: true",
     ]
     for term in required_agent_token_task_terms:
-        if term not in agent_install_config_tasks:
+        if term not in tasks:
             fail(
-                f"{agent_install_config_tasks_path} must keep token placement guard `{term}`",
+                f"{tasks_path} must keep token placement guard `{term}`",
                 failures,
             )
 
@@ -164,12 +144,20 @@ def main() -> int:
         "WantedBy=multi-user.target",
     ]
     for term in required_agent_unit_terms:
-        if term not in agent_install_config_template:
+        if term not in template:
             fail(
-                f"{agent_install_config_template_path} must keep `{term}`",
+                f"{template_path} must keep `{term}`",
                 failures,
             )
-
+def check_server_scaffold(
+    tasks_path: str,
+    tasks: str,
+    defaults_path: str,
+    defaults: str,
+    template_path: str,
+    template: str,
+    failures: list[str],
+) -> None:
     required_server_default_terms = [
         "k3s_server_install_config_enabled: false",
         "k3s_server_install_config_node_role: server",
@@ -179,9 +167,9 @@ def main() -> int:
         'k3s_server_install_config_control_token: ""',
     ]
     for term in required_server_default_terms:
-        if term not in server_install_config_defaults:
+        if term not in defaults:
             fail(
-                f"{server_install_config_defaults_path} must keep `{term}`",
+                f"{defaults_path} must keep `{term}`",
                 failures,
             )
 
@@ -200,9 +188,9 @@ def main() -> int:
         'dest: "{{ k3s_server_install_config_systemd_unit_path }}"',
     ]
     for term in required_server_task_terms:
-        if term not in server_install_config_tasks:
+        if term not in tasks:
             fail(
-                f"{server_install_config_tasks_path} must keep scaffold guard `{term}`",
+                f"{tasks_path} must keep scaffold guard `{term}`",
                 failures,
             )
 
@@ -214,19 +202,24 @@ def main() -> int:
         "WantedBy=multi-user.target",
     ]
     for term in required_server_unit_terms:
-        if term not in server_install_config_template:
+        if term not in template:
             fail(
-                f"{server_install_config_template_path} must keep `{term}`",
+                f"{template_path} must keep `{term}`",
                 failures,
             )
 
-    for line in server_install_config_template.splitlines():
+    for line in template.splitlines():
         if line.startswith("ExecStart=") and "{%" in line:
             fail(
-                f"{server_install_config_template_path} must not put Jinja block tags on ExecStart; Ansible trim_blocks can join Restart= onto ExecStart",
+                f"{template_path} must not put Jinja block tags on ExecStart; Ansible trim_blocks can join Restart= onto ExecStart",
                 failures,
             )
-
+def check_site_wiring(
+    site: str,
+    converge_tasks: str,
+    helper_has_lifecycle: bool,
+    failures: list[str],
+) -> None:
     agent_play_match = re.search(
         r"- name: k3s staging agents(?P<body>.*?)(?:\n- name:|\Z)",
         site,
@@ -385,6 +378,60 @@ def main() -> int:
         fail("k3s server install/config wiring requires server xanmanning.k3s k3s_state: downloaded", failures)
     if "k3s_state: installed" in server_xanmanning_body:
         fail("k3s server install/config wiring must not leave server xanmanning.k3s at installed", failures)
+def main() -> int:
+    failures: list[str] = []
+
+    adr_path = "docs/architecture-decision-record/0014-k3s-converge-wrapper-contract.md"
+    defaults_path = "ansible/arm64/roles/k3s_converge_check/defaults/main.yml"
+    helper_path = "ansible/arm64/roles/k3s_converge_check/files/k3s-converge"
+    agent_install_config_tasks_path = (
+        "ansible/arm64/roles/k3s_agent_install_config/tasks/main.yml"
+    )
+    agent_install_config_defaults_path = (
+        "ansible/arm64/roles/k3s_agent_install_config/defaults/main.yml"
+    )
+    agent_install_config_template_path = (
+        "ansible/arm64/roles/k3s_agent_install_config/templates/k3s-agent.service.j2"
+    )
+    server_install_config_tasks_path = (
+        "ansible/arm64/roles/k3s_server_install_config/tasks/main.yml"
+    )
+    server_install_config_defaults_path = (
+        "ansible/arm64/roles/k3s_server_install_config/defaults/main.yml"
+    )
+    server_install_config_template_path = (
+        "ansible/arm64/roles/k3s_server_install_config/templates/k3s-server.service.j2"
+    )
+    converge_tasks_path = "ansible/arm64/roles/k3s_converge_check/tasks/main.yml"
+    site_path = "ansible/arm64/site.yml"
+
+    adr = read_rel(adr_path)
+    defaults = read_rel(defaults_path)
+    helper = read_rel(helper_path)
+    agent_install_config_tasks = read_rel(agent_install_config_tasks_path)
+    agent_install_config_defaults = read_rel(agent_install_config_defaults_path)
+    agent_install_config_template = read_rel(agent_install_config_template_path)
+    server_install_config_tasks = read_rel(server_install_config_tasks_path)
+    server_install_config_defaults = read_rel(server_install_config_defaults_path)
+    server_install_config_template = read_rel(server_install_config_template_path)
+    converge_tasks = read_rel(converge_tasks_path)
+    site = read_rel(site_path)
+
+    helper_has_lifecycle = check_adr_and_helper(adr_path, adr, defaults, helper, failures)
+
+    check_agent_scaffold(
+        agent_install_config_tasks_path, agent_install_config_tasks,
+        agent_install_config_defaults_path, agent_install_config_defaults,
+        agent_install_config_template_path, agent_install_config_template, failures,
+    )
+
+    check_server_scaffold(
+        server_install_config_tasks_path, server_install_config_tasks,
+        server_install_config_defaults_path, server_install_config_defaults,
+        server_install_config_template_path, server_install_config_template, failures,
+    )
+
+    check_site_wiring(site, converge_tasks, helper_has_lifecycle, failures)
 
     if failures:
         print("k3s_converge contract check failed", file=sys.stderr)

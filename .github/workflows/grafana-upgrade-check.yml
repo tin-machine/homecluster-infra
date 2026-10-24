@@ -5,6 +5,7 @@ on:
     paths:
       - '.github/workflows/grafana-upgrade-check.yml'
       - 'scripts/ci/*staging_grafana_upgrade.py'
+      - 'scripts/ci/*staging_upgrade_support.py'
       - 'terraform/modules/observability_stack/**'
       - 'clusters/homelab/apps/base/values-grafana.yaml'
       - 'clusters/homelab/apps/staging/values-grafana.yaml'
@@ -39,6 +40,8 @@ jobs:
       - name: Install YAML parser
         run: python3 -m pip install PyYAML==6.0.3
       - name: Validate negative fixtures
-        run: python3 -m unittest discover -s scripts/ci -p 'test_staging_grafana_upgrade.py' -v
+        run: |
+          python3 -m unittest discover -s scripts/ci -p 'test_staging_grafana_upgrade.py' -v
+          python3 -m unittest discover -s scripts/ci -p 'test_staging_upgrade_support.py' -v
       - name: Validate rendered contract and isolated SQLite upgrade
         run: python3 scripts/ci/check_staging_grafana_upgrade.py

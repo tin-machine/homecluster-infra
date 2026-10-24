@@ -17,6 +17,8 @@ import tempfile
 
 import yaml
 
+from staging_upgrade_support import run_captured
+
 ROOT = Path(__file__).resolve().parents[2]
 BASELINE = "87f9e290d50ee5e4afac649227ee7d92ef8ca1c6"
 VALUES = "clusters/homelab/apps"
@@ -33,8 +35,7 @@ def require(ok, message):
 
 
 def run(*args, data=None, timeout=300):
-    result = subprocess.run(args, input=data, text=True, capture_output=True,
-                            timeout=timeout, cwd=ROOT)
+    result = run_captured(args, data=data, timeout=timeout, cwd=ROOT)
     if result.returncode:
         raise RuntimeError(f"{args[0]} failed: {result.stdout[-2000:]}\n{result.stderr[-3000:]}")
     return result.stdout
