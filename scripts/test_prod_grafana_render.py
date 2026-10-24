@@ -62,7 +62,8 @@ class GrafanaSourceTests(unittest.TestCase):
         cm = self.items[("ConfigMap", grafana.CONFIG_NAME)]
         data = cm["data"]
         self.assertEqual(set(data), {"datasource.yaml", "dashboard-provider.yaml",
-                                     "staging-overview.json", "staging-logs.json"})
+                                     "staging-overview.json", "staging-logs.json",
+                                     "openwrt-overview.json"})
         ds = json.loads(data["datasource.yaml"])["datasources"][0]
         self.assertEqual(ds["url"], "http://prod-prometheus:9090")
         self.assertEqual(ds["uid"], grafana.DATASOURCE_UID)
@@ -113,7 +114,20 @@ class GrafanaSourceTests(unittest.TestCase):
         self.assertEqual(volumes["dashboards"]["configMap"]["items"], [
             {"key": "staging-overview.json", "path": "staging-overview.json"},
             {"key": "staging-logs.json", "path": "staging-logs.json"},
+            {"key": "openwrt-overview.json", "path": "openwrt-overview.json"},
         ])
+
+    def test_openwrt_dashboard_uses_prod_prometheus_series(self) -> None:
+        data = self.items[("ConfigMap", grafana.CONFIG_NAME)]["data"]
+        dashboard = json.loads(data["openwrt-overview.json"])
+        self.assertEqual(dashboard["uid"], grafana.OPENWRT_DASHBOARD_UID)
+        self.assertEqual(len(dashboard["panels"]), 6)
+        self.assertEqual({panel["datasource"]["uid"] for panel in dashboard["panels"]},
+                         {grafana.DATASOURCE_UID})
+        queries = "\n".join(panel["targets"][0]["expr"] for panel in dashboard["panels"])
+        self.assertIn('up{job="openwrt-node-exporter"}', queries)
+        self.assertIn("node_memory_MemAvailable_bytes", queries)
+        self.assertIn("node_network_receive_bytes_total", queries)
 
     def test_checksum_rollout_and_ephemeral_database(self) -> None:
         dep = self.items[("Deployment", grafana.GRAFANA)]
