@@ -20,6 +20,8 @@ from urllib.parse import quote
 
 import yaml
 
+from staging_upgrade_support import run_captured
+
 ROOT = Path(__file__).resolve().parents[2]
 BASELINE = "8.15.0"
 APPS = ROOT / "clusters/homelab/apps"
@@ -43,8 +45,7 @@ def require(condition: bool, message: str) -> None:
 
 
 def run(*args: str, timeout: int = 180) -> str:
-    result = subprocess.run(args, text=True, stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE, timeout=timeout)
+    result = run_captured(args, timeout=timeout)
     if result.returncode:
         raise RuntimeError(f"{args[0]} failed ({result.returncode}): {result.stderr[-3000:]}")
     return result.stdout

@@ -5,6 +5,7 @@ on:
     paths:
       - '.github/workflows/otel-upgrade-check.yml'
       - 'scripts/ci/*staging_otel_upgrade.py'
+      - 'scripts/ci/*staging_upgrade_support.py'
       - 'terraform/modules/observability_stack/**'
       - 'clusters/homelab/apps/base/values-otel-collector.yaml'
       - 'clusters/homelab/apps/staging/values-otel-collector*.yaml'
@@ -43,7 +44,9 @@ jobs:
           echo "${tools}" >> "${GITHUB_PATH}"
           python3 -m pip install PyYAML==6.0.3
       - name: Test invalid fixtures
-        run: python3 -m unittest discover -s scripts/ci -p 'test_staging_otel_upgrade.py' -v
+        run: |
+          python3 -m unittest discover -s scripts/ci -p 'test_staging_otel_upgrade.py' -v
+          python3 -m unittest discover -s scripts/ci -p 'test_staging_upgrade_support.py' -v
       - name: Create disposable Kubernetes 1.36
         run: |
           kind create cluster --name otel-upgrade-ci --kubeconfig "${KUBECONFIG}" --wait 120s \

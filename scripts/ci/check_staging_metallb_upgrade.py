@@ -20,6 +20,8 @@ import time
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+from staging_upgrade_support import run_captured, stop_process
+
 ROOT = Path(__file__).resolve().parents[2]
 BASELINE = "46cd5435fb99f9a9665b12bc8aea23fab9019c26"
 CRDS = "terraform/env/common-crds/main.tf"
@@ -37,7 +39,7 @@ def require(ok: bool, message: str) -> None:
 
 
 def run(*args: str, data: str | None = None, timeout: int = 300, cwd: Path = ROOT) -> str:
-    result = subprocess.run(args, input=data, text=True, capture_output=True, timeout=timeout, cwd=cwd)
+    result = run_captured(args, data=data, timeout=timeout, cwd=cwd)
     if result.returncode:
         raise RuntimeError(f"{args[0]} failed: {result.stdout[-1500:]}\n{result.stderr[-3000:]}")
     return result.stdout
@@ -151,12 +153,7 @@ def forward(kube: list[str], port: int):
         try:
             yield
         finally:
-            proc.terminate()
-            try:
-                proc.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.wait()
+            stop_process(proc)
 
 
 def main() -> None:
