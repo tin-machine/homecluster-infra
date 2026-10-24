@@ -346,8 +346,9 @@ if command -v python3 >/dev/null 2>&1; then
   python3 -B scripts/ci/test_host_dtb_patch.py
   if python3 -c 'import ansible.template' >/dev/null 2>&1; then
     python3 -B scripts/ci/test_pxe_host_dtb_contract.py
+    python3 -B scripts/ci/test_host_tailscale_client_vars_contract.py
   else
-    echo "Ansible Python API unavailable; CI runs the PXE host DTB contract in a pinned environment"
+    echo "Ansible Python API unavailable; CI runs PXE producer-consumer contracts in a pinned environment"
   fi
   python3 -B scripts/ci/test_rpi5_kernel_build_cleanup.py
   python3 scripts/ci/check-openwrt-srv-ext4-preflight.py

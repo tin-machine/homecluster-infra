@@ -452,8 +452,11 @@
       - item is mapping
       - (item.overlay_id | default('') | string | trim) | length > 0
       - (item.overlay_id | string) is match('^[A-Za-z0-9_.-]+$')
+      - (item.overlay_id | string) not in ['.', '..']
       - (item.role | default('') | string | trim) | length > 0
       - (item.role | string) is match('^[A-Za-z0-9_.-]+$')
+      - (item.role | string) not in ['.', '..']
+      - (item.role | string) != 'host_tailscale' or (item.overlay_id | string) is match('^[A-Za-z0-9_-]+$')
       - item.vars is mapping
     fail_msg: "openwrt_gentoo_ansible_pull_client_vars_effective は overlay_id / role / vars(mapping) を指定してください。"
   loop: "{{ openwrt_gentoo_ansible_pull_client_vars_effective | default([]) }}"
