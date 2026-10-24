@@ -5,6 +5,8 @@
       tags:
         - gentoo_packages
         - official_binhost
+        - gentoo_distcc
+        - portage_config
         - pxe_users
         - pxe_ssh_keys
         - rpi_eeprom
@@ -30,6 +32,8 @@
       tags:
         - gentoo_packages
         - official_binhost
+        - gentoo_distcc
+        - portage_config
         - pxe_users
         - pxe_ssh_keys
         - rpi_eeprom
@@ -49,6 +53,8 @@
       tags:
         - gentoo_packages
         - official_binhost
+        - gentoo_distcc
+        - portage_config
         - pxe_users
         - pxe_ssh_keys
         - rpi_eeprom
@@ -778,6 +784,12 @@
         - firmware
         - boot_order
 
+    - name: distcc と動的 MAKEOPTS を準備
+      ansible.builtin.import_tasks: distcc_setup.yml
+      tags:
+        - portage_config
+        - gentoo_distcc
+
     - name: official binhost パッケージを rootfs に事前導入
       ansible.builtin.shell: |
         set -euo pipefail
@@ -1410,49 +1422,6 @@
         - rpi_eeprom
         - firmware
         - eeprom_update
-
-    - name: distcc 導入済み package db を確認
-      ansible.builtin.find:
-        paths: "{{ item }}/var/db/pkg/sys-devel"
-        patterns: "distcc-*"
-        file_type: directory
-      loop: "{{ openwrt_gentoo_pxe_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
-      loop_control:
-        label: "{{ item }}"
-      register: openwrt_gentoo_distcc_pkg_dirs
-      when:
-        - openwrt_gentoo_distcc_enabled | bool
-      tags:
-        - gentoo_distcc
-
-    - name: distcc を導入
-      ansible.builtin.shell: |
-        set -euo pipefail
-        chroot {{ item.item }} {{ openwrt_gentoo_chroot_shell }} -lc '
-          set -euo pipefail
-          env-update
-          echo env-update
-          export DEBUGINFOD_URLS=""
-          set +u
-          source /etc/profile
-          set -u
-          echo source
-          export FEATURES="${FEATURES:-} -userpriv -usersandbox"
-          echo export
-          PKGS="sys-devel/distcc"
-          emerge --usepkg --oneshot --quiet-build=y ${PKGS}
-        '
-      args:
-        executable: /bin/ash
-      changed_when: true
-      loop: "{{ openwrt_gentoo_distcc_pkg_dirs.results | default([]) }}"
-      loop_control:
-        label: "{{ item.item | default('unknown') }}"
-      when:
-        - openwrt_gentoo_distcc_enabled | bool
-        - (item.matched | default(0) | int) == 0
-      tags:
-        - gentoo_distcc
 
     - name: ansible ユーザを事前作成（UID/GID 固定）
       ansible.builtin.shell: |
