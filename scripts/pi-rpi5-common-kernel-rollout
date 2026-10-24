@@ -984,29 +984,6 @@ def target_policy(
     return [str(item) for item in targets], previous, failed_phase
 
 
-def observe_cluster_health(runbook: Path) -> None:
-    global _PRE_ROLLOUT_CLUSTER_STATUS, _PRE_ROLLOUT_CLUSTER_ISSUES
-    helper = runbook / "scripts/pi-k3s-status"
-    if not helper.is_file():
-        _PRE_ROLLOUT_CLUSTER_STATUS = "unavailable"
-        _PRE_ROLLOUT_CLUSTER_ISSUES = "status_helper_missing"
-        return
-    completed = run(["bash", helper, "--json"], cwd=runbook, timeout=900)
-    try:
-        value = json.loads(completed.stdout)
-    except (ValueError, json.JSONDecodeError):
-        _PRE_ROLLOUT_CLUSTER_STATUS = "unknown"
-        _PRE_ROLLOUT_CLUSTER_ISSUES = "invalid_status_json"
-        return
-    if not isinstance(value, dict):
-        _PRE_ROLLOUT_CLUSTER_STATUS = "unknown"
-        _PRE_ROLLOUT_CLUSTER_ISSUES = "invalid_status_contract"
-        return
-    _PRE_ROLLOUT_CLUSTER_STATUS = str(value.get("status", "unknown"))
-    issues = value.get("issues", [])
-    _PRE_ROLLOUT_CLUSTER_ISSUES = ",".join(str(item) for item in issues[:10]) or "none" if isinstance(issues, list) else "invalid"
-
-
 def run_fresh_boot(runbook: Path) -> tuple[str, str]:
     global _LAST_FRESH_BOOT_STATUS, _PREFLIGHT_ACCEPTANCE
     if _CURRENT_ACTION == "full_fleet" and _LAST_SELECTOR_CHANGED is False and _LAST_ROLLOUT_CONTEXT:

@@ -696,7 +696,6 @@ def test_generation_gate_uses_artifact_reference_not_stage_date_equality(self):
     self.assertNotIn("common_kernel_stage_date_mismatch", precheck)
     self.assertNotIn("validate_stage_date_alignment", precheck)
     self.assertIn("kernel_artifact_and_pxe_release_identity=independent", precheck)
-    self.assertIn("def observe_cluster_health", rollout)
     self.assertIn("pre_rollout_cluster_status", rollout)
 
     self.assertNotIn("rpi5_common_kernel_stage_date_from_openwrt", generation_playbook)
