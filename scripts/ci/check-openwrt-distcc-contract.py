@@ -33,6 +33,10 @@ def main():
     )
     assert ast.literal_eval(rendered.strip()) == ["stg", "prod"]
 
+    worker_probe = task_by_name(preflight, "distcc worker の service と compiler を best-effort 確認")
+    assert worker_probe["delegate_to"] == "{{ item }}"
+    assert worker_probe["vars"]["ansible_user"] == "ansible"
+
     hosts = task_by_name(preflight, "利用可能な distcc hosts 文字列を作成")
     expression = hosts["ansible.builtin.set_fact"]["openwrt_gentoo_distcc_hosts_effective"]
     rendered = environment.from_string(expression).render(
