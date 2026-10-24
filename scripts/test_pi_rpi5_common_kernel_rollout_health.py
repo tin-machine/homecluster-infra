@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import importlib.machinery
 import importlib.util
+import io
 import json
 import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 from unittest import mock
 
@@ -111,26 +113,89 @@ class RolloutHealthTests(unittest.TestCase):
         )
         self.assertEqual(raised.exception.status, "unknown")
 
-    def test_cluster_health_is_observation_not_rollout_blocker(self):
+    def run_main_to_health_gate(self, phase, health, *, helper_present=True):
+        """Use the real CLI path; no subprocess or rollout mutation may escape."""
+        mod = ROLLOUT_MODULE
         with tempfile.TemporaryDirectory() as temporary:
-            runbook = self.runbook(Path(temporary))
-            with mock.patch.object(
-                ROLLOUT_MODULE,
-                "run",
-                return_value=self.completed("blocked", 1, nodes_ready=3, nodes_total=4, issues=["node_pressure"]),
-            ):
-                ROLLOUT_MODULE.observe_cluster_health(runbook)
-            self.assertEqual(ROLLOUT_MODULE._PRE_ROLLOUT_CLUSTER_STATUS, "blocked")
-            self.assertEqual(ROLLOUT_MODULE._PRE_ROLLOUT_CLUSTER_ISSUES, "node_pressure")
+            root = Path(temporary)
+            runbook = self.runbook(root / "runbook") if helper_present else root / "missing"
+            inventory = root / "inventory.yml"
+            inventory.write_text("{}\n", encoding="utf-8")
+            inventory.chmod(0o600)
+            source = ROLLOUT.parent.parent
 
-    def test_cluster_health_invalid_json_remains_observation(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            runbook = self.runbook(Path(temporary))
-            completed = subprocess.CompletedProcess(["fixture"], 2, "not-json", "")
-            with mock.patch.object(ROLLOUT_MODULE, "run", return_value=completed):
-                ROLLOUT_MODULE.observe_cluster_health(runbook)
-            self.assertEqual(ROLLOUT_MODULE._PRE_ROLLOUT_CLUSTER_STATUS, "unknown")
-            self.assertEqual(ROLLOUT_MODULE._PRE_ROLLOUT_CLUSTER_ISSUES, "invalid_status_json")
+            def command(args, **kwargs):
+                if args == ["git", "-C", source, "branch", "--show-current"]:
+                    return subprocess.CompletedProcess(args, 0, "stg\n", "")
+                if args == ["git", "-C", source, "status", "--porcelain"]:
+                    return subprocess.CompletedProcess(args, 0, "", "")
+                if args == ["bash", runbook / "scripts/pi-k3s-status", "--json"]:
+                    self.assertEqual(kwargs, {"cwd": runbook, "timeout": 900})
+                    return health
+                raise AssertionError(f"unexpected command: {args}")
+
+            output = io.StringIO()
+            with (
+                mock.patch.dict(mod.os.environ, {
+                    "HOMECLUSTER_RPI5_COMMON_KERNEL_ROLLOUT_APPLY": "1",
+                    "HOMECLUSTER_RUNBOOK_ROOT": str(runbook),
+                    "HOMECLUSTER_ANSIBLE_INVENTORY": str(inventory),
+                }),
+                mock.patch.object(mod, "workflow_root", return_value=root / "state"),
+                mock.patch.object(mod, "ProgressWriter"),
+                mock.patch.object(mod, "expected_accepted_generation", return_value={"run_id": "fixture"}),
+                mock.patch.object(mod, "latest_accepted", return_value={"generation_run_id": "fixture"}),
+                mock.patch.object(mod, "inventory_targets", return_value=(["agent-a"], "agent-a")),
+                mock.patch.object(mod, "target_policy", return_value=(["agent-a"], {}, phase)),
+                mock.patch.object(mod, "run", side_effect=command) as run,
+                mock.patch.object(mod, "ensure_no_active_fresh_boot",
+                                  side_effect=mod.RolloutError("fixture_after_health")) as next_gate,
+                mock.patch.object(mod, "run_fresh_boot", side_effect=AssertionError("power mutation")) as reboot,
+                redirect_stdout(output),
+            ):
+                exit_code = mod.main(["--json", "--phase", phase])
+            self.assertEqual(exit_code, 2)
+            reboot.assert_not_called()
+            self.assertEqual(run.call_count, 3 if helper_present else 2)
+            return json.loads(output.getvalue()), next_gate.call_count
+
+    def test_runtime_phases_stop_before_selector_on_unhealthy_cluster(self):
+        for phase in ROLLOUT_MODULE.RUNTIME_PHASES:
+            for state, status in (("blocked", "blocked"), ("converging", "blocked"), ("unknown", "unknown")):
+                with self.subTest(phase=phase, state=state):
+                    result, continued = self.run_main_to_health_gate(
+                        phase, self.completed(state, 1, issues=["node_pressure"]))
+                    self.assertEqual(result["status"], status)
+                    self.assertEqual(result["reason"], f"rollout_cluster_{state}")
+                    self.assertIn("k3s_issues=node_pressure", result["diagnostics"])
+                    self.assertEqual(continued, 0)
+
+    def test_healthy_cluster_reaches_next_gate(self):
+        for phase in ROLLOUT_MODULE.RUNTIME_PHASES:
+            with self.subTest(phase=phase):
+                result, continued = self.run_main_to_health_gate(
+                    phase, self.completed("healthy", 0, issues=[]))
+                self.assertEqual(result["reason"], "fixture_after_health")
+                self.assertEqual(continued, 1)
+
+    def test_invalid_health_contract_cannot_reach_selector(self):
+        for stdout in ("not-json", "[]", "null", "{}", '{"status":"unexpected"}'):
+            with self.subTest(stdout=stdout):
+                result, continued = self.run_main_to_health_gate(
+                    "full_fleet", subprocess.CompletedProcess([], 0, stdout, ""))
+                self.assertEqual(result["status"], "unknown")
+                self.assertEqual(result["reason"], "rollout_k3s_status_contract_invalid")
+                self.assertEqual(continued, 0)
+        result, continued = self.run_main_to_health_gate("full_fleet", self.completed("healthy", 1))
+        self.assertEqual(result["status"], "unknown")
+        self.assertEqual(result["reason"], "rollout_k3s_status_exit_mismatch")
+        self.assertEqual(continued, 0)
+
+    def test_missing_status_helper_blocks_before_selector(self):
+        result, continued = self.run_main_to_health_gate("full_fleet", None, helper_present=False)
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["reason"], "runbook_k3s_status_helper_missing")
+        self.assertEqual(continued, 0)
 
     def record(self, *, previous: str, applied: str, fresh_boot: str, kernel: bool | None):
         ROLLOUT_MODULE._CURRENT_ACTION = "generic_canary"
@@ -167,6 +232,9 @@ class RolloutHealthTests(unittest.TestCase):
         self.assertEqual(record["reboot_acceptance_status"], "fail")
         self.assertEqual(record["kernel_acceptance_status"], "not_run")
         self.assertFalse(record["rollback_recommended"])
+        # Keep legacy observation fields distinguishable from a passed gate.
+        self.assertEqual(record["pre_rollout_cluster_status"], "not_checked")
+        self.assertEqual(record["pre_rollout_cluster_issues"], "none")
 
     def test_kernel_failure_with_no_selector_change_does_not_recommend_rollback(self):
         record = self.record(
