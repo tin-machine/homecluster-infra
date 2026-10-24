@@ -300,6 +300,9 @@ if command -v python3 >/dev/null 2>&1; then
   python3 -m py_compile scripts/ci/check-changed-markdown-style.py
   python3 -m py_compile scripts/ci/check-arm64-distcc-contract.py
   python3 -m py_compile scripts/ci/check-k3s-converge-contract.py
+  python3 -m py_compile scripts/ci/staging_upgrade_support.py
+  python3 -m py_compile scripts/ci/test_staging_upgrade_support.py
+  python3 -m py_compile scripts/ci/check_staging_grafana_upgrade.py scripts/ci/check_staging_loki_upgrade.py scripts/ci/check_staging_metallb_upgrade.py scripts/ci/check_staging_otel_upgrade.py scripts/ci/check_staging_tempo_upgrade.py
   python3 -m py_compile scripts/ci/check-openwrt-gentoo-binary-preseed.py
   python3 -m py_compile scripts/ci/check-openwrt-pxe-ansible-pull-chain.py
   python3 -m py_compile scripts/ci/check-rpi-firmware-snapshot.py
@@ -314,6 +317,7 @@ if command -v python3 >/dev/null 2>&1; then
   python3 -m py_compile scripts/pxe_release_identity_status.py
   python3 -m py_compile scripts/ci/check-pxe-release-identity-status.py
   python3 -m py_compile scripts/pxe_standard_source_validate.py
+  python3 -m py_compile scripts/source_validator_support.py
   python3 -m py_compile scripts/rpi5_common_kernel_identity_status.py
   python3 -m py_compile scripts/ci/check-rpi5-common-kernel-identity-status.py
   python3 -m py_compile scripts/ci/check-pxe-standard-source-validate.py
@@ -327,6 +331,7 @@ if command -v python3 >/dev/null 2>&1; then
   python3 scripts/ci/check-openwrt-pxe-client-catalog.py
   python3 scripts/ci/check-host-tailscale.py
   python3 scripts/ci/check-k3s-converge-contract.py
+  python3 -m unittest discover -s scripts/ci -p 'test_k3s_converge_contract.py'
   python3 scripts/ci/check-openwrt-pxe-ansible-pull-chain.py
   python3 scripts/ci/check-pxe-ansible-pull-source-pin.py
   python3 scripts/ci/check-pxe-source-pin.py
@@ -346,8 +351,9 @@ if command -v python3 >/dev/null 2>&1; then
   python3 -B scripts/ci/test_host_dtb_patch.py
   if python3 -c 'import ansible.template' >/dev/null 2>&1; then
     python3 -B scripts/ci/test_pxe_host_dtb_contract.py
+    python3 -B scripts/ci/test_host_tailscale_client_vars_contract.py
   else
-    echo "Ansible Python API unavailable; CI runs the PXE host DTB contract in a pinned environment"
+    echo "Ansible Python API unavailable; CI runs PXE producer-consumer contracts in a pinned environment"
   fi
   python3 -B scripts/ci/test_rpi5_kernel_build_cleanup.py
   python3 scripts/ci/check-openwrt-srv-ext4-preflight.py

@@ -113,6 +113,35 @@ class StandardPxeSourceValidatorTests(unittest.TestCase):
             "infra_standard_pxe_source_revision_invalid",
         )
 
+    def test_shared_runner_rejects_timeout_and_oversized_output(self):
+        def timed_out(command, **_kwargs):
+            raise subprocess.TimeoutExpired(command, 1)
+
+        self.assertIsNone(
+            validator._run(timed_out, ("git", "status"), root=ROOT, timeout=1)
+        )
+
+        def oversized(command, **_kwargs):
+            return completed(command, stdout="x" * (64 * 1024 + 1))
+
+        self.assertIsNone(
+            validator._run(oversized, ("git", "status"), root=ROOT, timeout=1)
+        )
+
+    def test_shared_runner_keeps_fixed_execution_options(self):
+        observed = {}
+
+        def runner(command, **kwargs):
+            observed.update(kwargs)
+            return completed(command, stdout="ok")
+
+        result = validator._run(runner, ("git", "status"), root=ROOT, timeout=7)
+        self.assertEqual(result.stdout, "ok")
+        self.assertEqual(observed["cwd"], ROOT)
+        self.assertEqual(observed["timeout"], 7)
+        self.assertFalse(observed["check"])
+        self.assertEqual(observed["env"]["PYTHONDONTWRITEBYTECODE"], "1")
+
 
 if __name__ == "__main__":
     unittest.main()

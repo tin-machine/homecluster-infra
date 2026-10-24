@@ -515,16 +515,7 @@ def _mapping_value(cfg: Mapping[str, Any], nested_cfg: Mapping[str, Any], key: s
     return _first_present(nested_cfg.get(key), cfg.get(key))
 
 
-def _build_generated_client(
-    hostname: str,
-    hv: Mapping[str, Any],
-    cfg: Mapping[str, Any],
-    option_code: Any,
-    default_filename: Any,
-    default_serveraddress: Any,
-    default_servername: Any,
-    default_force: Any,
-) -> dict[str, Any]:
+def _client_sections(cfg: Mapping[str, Any]) -> tuple[Mapping[str, Any], Mapping[str, Any], Mapping[str, Any]]:
     pxe_host_cfg = cfg.get("pxe_host")
     if pxe_host_cfg is None:
         pxe_host_cfg = cfg.get("host")
@@ -549,24 +540,14 @@ def _build_generated_client(
     if not isinstance(overlay_cfg, Mapping):
         overlay_cfg = {}
 
-    name = _clean_string(_mapping_value(cfg, pxe_host_cfg, "name")) or hostname
-    networkid = _clean_string(_mapping_value(cfg, pxe_host_cfg, "networkid")) or name
+    return pxe_host_cfg, boot_cfg, overlay_cfg
 
-    roles = _as_list(cfg.get("roles"))
-    role = _mapping_value(cfg, overlay_cfg, "role")
-    if role is None and roles:
-        role = roles[0]
 
-    overlay_id = _clean_string(
-        _first_present(
-            overlay_cfg.get("id"),
-            cfg.get("overlay_id"),
-            cfg.get("id"),
-            name,
-        )
-    )
-    option_value = _option_value_for_client(cfg, overlay_cfg, overlay_id, role)
-
+def _generated_pxe_host(
+    cfg: Mapping[str, Any], pxe_host_cfg: Mapping[str, Any], hv: Mapping[str, Any],
+    name: str, networkid: str, option_value: str, option_code: Any,
+    default_filename: Any, default_force: Any,
+) -> dict[str, Any]:
     pxe_host: dict[str, Any] = {
         "name": name,
         "networkid": networkid,
@@ -624,6 +605,14 @@ def _build_generated_client(
     if dhcp_options_list:
         pxe_host["dhcp_options"] = dhcp_options_list
 
+    return pxe_host
+
+
+def _generated_pxe_boot(
+    cfg: Mapping[str, Any], boot_cfg: Mapping[str, Any], pxe_host: Mapping[str, Any],
+    name: str, networkid: str, default_filename: Any,
+    default_serveraddress: Any, default_servername: Any,
+) -> dict[str, Any] | None:
     pxe_boot: dict[str, Any] | None = None
     if _as_bool(boot_cfg.get("enabled", True)):
         filename = _clean_string(
@@ -658,6 +647,13 @@ def _build_generated_client(
                 "servername": servername,
             }
 
+    return pxe_boot
+
+
+def _generated_overlay_client(
+    cfg: Mapping[str, Any], overlay_cfg: Mapping[str, Any],
+    overlay_id: str, role: Any, option_value: str,
+) -> dict[str, Any] | None:
     overlay_client: dict[str, Any] | None = None
     if _as_bool(overlay_cfg.get("enabled", True)) and overlay_id:
         overlay_client = {"id": overlay_id}
@@ -670,6 +666,13 @@ def _build_generated_client(
             if value is not None and _clean_string(value):
                 overlay_client[key] = value
 
+    return overlay_client
+
+
+def _generated_role_client_vars(
+    hostname: str, hv: Mapping[str, Any], cfg: Mapping[str, Any],
+    roles: list[Any], overlay_id: str,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     ansible_pull_cfg = cfg.get("ansible_pull")
     if not isinstance(ansible_pull_cfg, Mapping):
         ansible_pull_cfg = {}
@@ -823,6 +826,57 @@ def _build_generated_client(
                 "vars": dict(role_extra_vars[role_name]),
             }
         )
+
+    return dict(ansible_pull_group_vars), ansible_pull_client_vars
+
+
+def _build_generated_client(
+    hostname: str,
+    hv: Mapping[str, Any],
+    cfg: Mapping[str, Any],
+    option_code: Any,
+    default_filename: Any,
+    default_serveraddress: Any,
+    default_servername: Any,
+    default_force: Any,
+) -> dict[str, Any]:
+    pxe_host_cfg, boot_cfg, overlay_cfg = _client_sections(cfg)
+
+    name = _clean_string(_mapping_value(cfg, pxe_host_cfg, "name")) or hostname
+    networkid = _clean_string(_mapping_value(cfg, pxe_host_cfg, "networkid")) or name
+
+    roles = _as_list(cfg.get("roles"))
+    role = _mapping_value(cfg, overlay_cfg, "role")
+    if role is None and roles:
+        role = roles[0]
+
+    overlay_id = _clean_string(
+        _first_present(
+            overlay_cfg.get("id"),
+            cfg.get("overlay_id"),
+            cfg.get("id"),
+            name,
+        )
+    )
+    option_value = _option_value_for_client(cfg, overlay_cfg, overlay_id, role)
+
+    pxe_host = _generated_pxe_host(
+        cfg, pxe_host_cfg, hv, name, networkid, option_value,
+        option_code, default_filename, default_force,
+    )
+
+    pxe_boot = _generated_pxe_boot(
+        cfg, boot_cfg, pxe_host, name, networkid,
+        default_filename, default_serveraddress, default_servername,
+    )
+
+    overlay_client = _generated_overlay_client(
+        cfg, overlay_cfg, overlay_id, role, option_value,
+    )
+
+    ansible_pull_group_vars, ansible_pull_client_vars = _generated_role_client_vars(
+        hostname, hv, cfg, roles, overlay_id,
+    )
 
     return {
         "pxe_host": pxe_host,
