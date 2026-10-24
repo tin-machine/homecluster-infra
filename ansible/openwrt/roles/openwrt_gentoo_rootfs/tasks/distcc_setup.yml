@@ -1,0 +1,95 @@
+---
+- name: distcc 導入済み package db を確認
+  ansible.builtin.find:
+    paths: "{{ item }}/var/db/pkg/sys-devel"
+    patterns: "distcc-*"
+    file_type: directory
+  loop: "{{ openwrt_gentoo_pxe_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+  loop_control:
+    label: "{{ item }}"
+  register: openwrt_gentoo_distcc_pkg_dirs
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_distcc_enabled | bool
+    - (openwrt_gentoo_distcc_hosts_effective | trim | length) > 0
+
+- name: distcc を先に導入
+  ansible.builtin.shell: |
+    set -euo pipefail
+    chroot {{ item.item }} {{ openwrt_gentoo_chroot_shell }} -lc '
+      set -euo pipefail
+      env-update
+      export DEBUGINFOD_URLS=""
+      set +u
+      source /etc/profile
+      set -u
+      export FEATURES="${FEATURES:-} -userpriv -usersandbox"
+      emerge --usepkg --oneshot --quiet-build=y sys-devel/distcc
+    '
+  args:
+    executable: /bin/ash
+  changed_when: true
+  loop: "{{ openwrt_gentoo_distcc_pkg_dirs.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item | default('unknown') }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_distcc_enabled | bool
+    - (openwrt_gentoo_distcc_hosts_effective | trim | length) > 0
+    - (item.matched | default(0) | int) == 0
+
+- name: 各 build root で distcc -j を取得
+  ansible.builtin.command:
+    argv:
+      - chroot
+      - "{{ item }}"
+      - /usr/bin/env
+      - "DISTCC_HOSTS={{ openwrt_gentoo_distcc_hosts_effective }}"
+      - /usr/bin/distcc
+      - -j
+  loop: "{{ openwrt_gentoo_pxe_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+  loop_control:
+    label: "{{ item }}"
+  register: openwrt_gentoo_distcc_slots_results
+  changed_when: false
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_distcc_enabled | bool
+    - (openwrt_gentoo_distcc_hosts_effective | trim | length) > 0
+
+- name: distcc -j の結果を検証
+  ansible.builtin.assert:
+    that:
+      - (openwrt_gentoo_distcc_slots_results.results | map(attribute='stdout') | unique | list | length) == 1
+      - (openwrt_gentoo_distcc_slots_results.results[0].stdout | trim) is match('^[1-9][0-9]*$')
+      - (openwrt_gentoo_distcc_slots_results.results[0].stdout | trim | int) <= 1024
+    fail_msg: "build root 間で distcc -j が一致しないか、無効な並列数を返しました"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_distcc_enabled | bool
+    - (openwrt_gentoo_distcc_hosts_effective | trim | length) > 0
+
+- name: 全 Portage package 用の動的 MAKEOPTS を設定
+  ansible.builtin.set_fact:
+    openwrt_gentoo_distcc_ready: true
+    openwrt_gentoo_makeopts_effective: "-j{{ openwrt_gentoo_distcc_slots_results.results[0].stdout | trim }}"
+  changed_when: false
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_distcc_enabled | bool
+    - (openwrt_gentoo_distcc_hosts_effective | trim | length) > 0
+
+- name: 全 Portage package 用 make.conf を動的並列数で再配置
+  ansible.builtin.template:
+    src: portage/make.conf.j2
+    dest: "{{ item }}/etc/portage/make.conf"
+    owner: root
+    group: root
+    mode: '0644'
+  loop: "{{ openwrt_gentoo_pxe_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+  loop_control:
+    label: "{{ item }}"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_distcc_enabled | bool
+    - (openwrt_gentoo_distcc_hosts_effective | trim | length) > 0

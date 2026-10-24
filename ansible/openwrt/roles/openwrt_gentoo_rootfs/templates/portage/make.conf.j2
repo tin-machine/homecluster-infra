@@ -18,14 +18,14 @@ BINPKG_COMPRESS_FLAGS="-15"
 PORTAGE_BINHOST="{{ openwrt_gentoo_binhost }}"
 BINPKG_GPG_VERIFY_GPG_HOME="/etc/portage/gnupg"
 
-{% if openwrt_gentoo_distcc_enabled | bool %}
+{% if openwrt_gentoo_distcc_ready | default(false) | bool %}
 FEATURES="buildpkg distcc -getbinpkg binpkg-multi-instance clean-logs compress-build-logs parallel-fetch parallel-install -userpriv -usersandbox -network-sandbox -pid-sandbox "
 DISTCC_HOSTS="{{ openwrt_gentoo_distcc_hosts_effective | default(openwrt_gentoo_distcc_hosts) }}"
 {% else %}
 FEATURES="buildpkg -distcc -getbinpkg binpkg-multi-instance clean-logs compress-build-logs parallel-fetch parallel-install -userpriv -usersandbox -network-sandbox -pid-sandbox "
 {% endif %}
-{% if openwrt_gentoo_makeopts | string | trim | length > 0 %}
-MAKEOPTS="{{ openwrt_gentoo_makeopts }}"
+{% if openwrt_gentoo_makeopts_effective | default(openwrt_gentoo_makeopts) | string | trim | length > 0 %}
+MAKEOPTS="{{ openwrt_gentoo_makeopts_effective | default(openwrt_gentoo_makeopts) }}"
 {% endif %}
 {% if openwrt_gentoo_emerge_default_opts | string | trim | length > 0 %}
 EMERGE_DEFAULT_OPTS="{{ openwrt_gentoo_emerge_default_opts }}"
