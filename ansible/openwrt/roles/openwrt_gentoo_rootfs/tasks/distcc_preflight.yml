@@ -75,6 +75,8 @@
   failed_when: false
   ignore_unreachable: true
   vars:
+    # OpenWrt play vars use root; the registered Pi/CM5 workers use ansible.
+    ansible_user: ansible
     ansible_ssh_timeout: 5
   when:
     - openwrt_gentoo_enabled | bool
