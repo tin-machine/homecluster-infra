@@ -17,6 +17,8 @@ from urllib.request import Request, urlopen
 
 import yaml
 
+from staging_upgrade_support import run_captured, stop_process
+
 ROOT = Path(__file__).resolve().parents[2]
 BASELINE = "3c08c4cdb7e5074a9e457731a2a996f5489e5193"
 TF = "terraform/modules/observability_stack/main.tf"
@@ -29,7 +31,7 @@ def require(ok, message):
 
 
 def run(*args, data=None, timeout=300):
-    result = subprocess.run(args, input=data, capture_output=True, text=True, cwd=ROOT, timeout=timeout)
+    result = run_captured(args, data=data, cwd=ROOT, timeout=timeout)
     require(result.returncode == 0, f"{args[0]} failed: {result.stdout[-1000:]}\n{result.stderr[-3000:]}")
     return result.stdout
 
@@ -159,12 +161,7 @@ def forward(kube, target, local, remote):
         try:
             yield
         finally:
-            proc.terminate()
-            try:
-                proc.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.wait()
+            stop_process(proc)
 
 
 def http(path, payload=None, port=19310):
