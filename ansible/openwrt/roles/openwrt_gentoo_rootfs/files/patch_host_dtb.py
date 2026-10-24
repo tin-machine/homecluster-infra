@@ -22,7 +22,7 @@ def patch(source: pathlib.Path, dest: pathlib.Path) -> bool:
         target = pathlib.PurePosixPath(os.readlink(dest))
         if target.parts[:2] != ("..", "dates") or len(target.parts) != 4:
             raise ValueError(f"unexpected host DTB symlink: {dest}")
-        if not re.fullmatch(r"\d{8}", target.parts[2]) or target.parts[3] != dest.name:
+        if not re.fullmatch(r"\d{8}(?:-[0-9A-Za-z._-]+)?", target.parts[2]) or target.parts[3] != dest.name:
             raise ValueError(f"unexpected host DTB symlink: {dest}")
     elif dest.exists() and not dest.is_file():
         raise ValueError(f"host DTB is not a regular file: {dest}")
