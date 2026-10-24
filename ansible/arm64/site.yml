@@ -443,6 +443,10 @@
     - common/cli_tools
     - common/ntp
     - common/daemon
+    - role: distcc
+      when: "'k3s_prd' in group_names"
+      tags:
+        - distcc
 
 - name: k3s production iSCSI storage
   hosts: "env_prd:&role_k3s_prd_storage"

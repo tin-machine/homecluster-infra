@@ -57,17 +57,33 @@ def _valid_host(host: str | None) -> bool:
 
 def validate_site(document: object) -> dict:
     required = {"api_targets", "tcp_targets", "egress_cidrs", "api_ca_secret"}
-    allowed = required | {"metrics_targets"}
+    allowed = required | {"metrics_targets", "openwrt_metrics_target"}
     if not isinstance(document, dict) or not required <= set(document) or set(document) - allowed:
         raise ValueError("site input must declare four O1 keys and optional metrics_targets")
     api = _names(document["api_targets"], "api_targets", 4)
     tcp = _names(document["tcp_targets"], "tcp_targets", 8)
     # O2 is opt-in; legacy four-key O1 inputs must render exactly the same objects.
     metrics = _names(document.get("metrics_targets", []), "metrics_targets", 4)
+    openwrt = document.get("openwrt_metrics_target")
+    if openwrt is not None:
+        parsed = _names([openwrt], "openwrt_metrics_target", 1)[0]
+        authority = urlsplit("tcp://" + parsed["target"])
+        try:
+            address = ipaddress.IPv4Address(authority.hostname or "")
+        except ipaddress.AddressValueError as exc:
+            raise ValueError("OpenWrt metrics target must use an IPv4 address") from exc
+        if (not _valid_host(str(address)) or authority.port != 9100
+                or authority.netloc != parsed["target"] or authority.path
+                or authority.query or authority.fragment):
+            raise ValueError("OpenWrt metrics target must be IPv4:9100")
+        openwrt = parsed
     if len({entry["name"] for entry in metrics}) != len(metrics):
         raise ValueError("duplicate metrics target name")
     if len({entry["target"] for entry in metrics}) != len(metrics):
         raise ValueError("duplicate metrics endpoint")
+    if openwrt is not None and (openwrt["name"] in {x["name"] for x in metrics}
+                                or openwrt["target"] in {x["target"] for x in metrics}):
+        raise ValueError("OpenWrt metrics target must differ from staging metrics targets")
     seen = set()
     for entry in api + tcp:
         if entry["name"] in seen:
@@ -132,6 +148,7 @@ def validate_site(document: object) -> dict:
     return {
         "api_targets": api, "tcp_targets": tcp, "egress_cidrs": result_cidrs,
         "api_ca_secret": secret, "metrics_targets": metrics,
+        "openwrt_metrics_target": openwrt,
     }
 
 
@@ -272,6 +289,24 @@ def build_manifest(site: dict) -> dict:
                 "regex": node_metric_names,
             }],
         })
+    if site["openwrt_metrics_target"]:
+        target = site["openwrt_metrics_target"]
+        jobs.append({
+            "job_name": "openwrt-node-exporter",
+            "metrics_path": "/metrics", "scheme": "http",
+            "scrape_interval": "60s", "scrape_timeout": "10s",
+            "sample_limit": 2000,
+            "static_configs": [{"targets": [target["target"]],
+                                "labels": {"node_name": target["name"]}}],
+            "metric_relabel_configs": [{
+                "action": "keep", "source_labels": ["__name__"],
+                "regex": (
+                    "node_cpu_seconds_total|node_memory_MemTotal_bytes|"
+                    "node_memory_MemAvailable_bytes|node_load1|node_boot_time_seconds|"
+                    "node_network_receive_bytes_total|node_network_transmit_bytes_total"
+                ),
+            }],
+        })
     prometheus_cfg = {"global": {"scrape_interval": "30s", "evaluation_interval": "30s"}, "scrape_configs": jobs}
     blackbox_config_text = json.dumps({"modules": bb_modules}, sort_keys=True)
     prometheus_config_text = json.dumps(prometheus_cfg, sort_keys=True)
@@ -313,6 +348,12 @@ def build_manifest(site: dict) -> dict:
     if site["metrics_targets"]:
         prometheus_egress.append({
             "to": [{"ipBlock": {"cidr": network}} for network in site["egress_cidrs"]],
+            "ports": [{"protocol": "TCP", "port": 9100}],
+        })
+    if site["openwrt_metrics_target"]:
+        address = site["openwrt_metrics_target"]["target"].split(":", 1)[0]
+        prometheus_egress.append({
+            "to": [{"ipBlock": {"cidr": address + "/32"}}],
             "ports": [{"protocol": "TCP", "port": 9100}],
         })
     items = [

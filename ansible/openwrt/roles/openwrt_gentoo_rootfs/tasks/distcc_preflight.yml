@@ -1,0 +1,159 @@
+---
+- name: Portage の並列数を安全な初期値にする
+  ansible.builtin.set_fact:
+    openwrt_gentoo_distcc_ready: false
+    openwrt_gentoo_makeopts_effective: >-
+      {{ '-j1' if (openwrt_gentoo_distcc_enabled | bool) else openwrt_gentoo_makeopts }}
+  changed_when: false
+  when: openwrt_gentoo_enabled | bool
+
+- name: distcc は inventory 自動選択に限定する
+  ansible.builtin.assert:
+    that:
+      - openwrt_gentoo_distcc_auto | bool
+      - (openwrt_gentoo_distcc_hosts | trim | length) == 0
+    fail_msg: "稼働確認を伴う distcc は inventory の distcc.enabled から自動選択してください"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_distcc_enabled | bool
+
+- name: distcc worker 候補を inventory から取得
+  ansible.builtin.set_fact:
+    openwrt_gentoo_distcc_candidate_names: >-
+      {%- set names = [] -%}
+      {%- for name in groups['all'] | default([]) -%}
+      {%- set cfg = hostvars[name].distcc | default({}) -%}
+      {%- if cfg is mapping and (cfg.enabled | default(false) | bool) -%}
+      {%- set _ = names.append(name) -%}
+      {%- endif -%}
+      {%- endfor -%}
+      {{ names }}
+  changed_when: false
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_distcc_enabled | bool
+
+- name: distcc worker 候補があることを確認
+  ansible.builtin.assert:
+    that:
+      - (openwrt_gentoo_distcc_candidate_names | length) > 0
+    fail_msg: "openwrt_gentoo_distcc_enabled=true には distcc.enabled=true の worker が必要です"
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_distcc_enabled | bool
+
+- name: OpenWrt build root の compiler fingerprint を取得
+  ansible.builtin.shell: |
+    set -euo pipefail
+    compiler="/usr/bin/{{ openwrt_gentoo_chost }}-gcc"
+    printf 'target=%s\n' "$(chroot {{ openwrt_gentoo_rootfs_dir }} "$compiler" -dumpmachine)"
+    printf 'gcc=%s\n' "$(chroot {{ openwrt_gentoo_rootfs_dir }} "$compiler" -dumpfullversion -dumpversion)"
+  args:
+    executable: /bin/ash
+  register: openwrt_gentoo_distcc_builder_fingerprint
+  changed_when: false
+  failed_when: false
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_distcc_enabled | bool
+
+- name: distcc worker の service と compiler を best-effort 確認
+  ansible.builtin.shell: |
+    set -euo pipefail
+    port="{{ (hostvars[item].distcc | default({})).port | default(3632) | int }}"
+    test "$(systemctl is-enabled distccd)" = enabled
+    test "$(systemctl is-active distccd)" = active
+    ss -H -ltn "sport = :${port}" | grep -q .
+    printf 'target=%s\n' "$(gcc -dumpmachine)"
+    printf 'gcc=%s\n' "$(gcc -dumpfullversion -dumpversion)"
+  args:
+    executable: /bin/bash
+  delegate_to: "{{ item }}"
+  loop: "{{ openwrt_gentoo_distcc_candidate_names | default([]) }}"
+  register: openwrt_gentoo_distcc_worker_probes
+  changed_when: false
+  failed_when: false
+  ignore_unreachable: true
+  vars:
+    ansible_ssh_timeout: 5
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_distcc_enabled | bool
+
+- name: compiler が一致する distcc worker を選択
+  ansible.builtin.set_fact:
+    openwrt_gentoo_distcc_compatible_names: >-
+      {%- set names = [] -%}
+      {%- if (openwrt_gentoo_distcc_builder_fingerprint.rc | default(1) | int) == 0 -%}
+      {%- for probe in openwrt_gentoo_distcc_worker_probes.results | default([]) -%}
+      {%- if not (probe.unreachable | default(false) | bool)
+            and (probe.rc | default(1) | int) == 0
+            and (probe.stdout_lines | default([])) == (openwrt_gentoo_distcc_builder_fingerprint.stdout_lines | default([])) -%}
+      {%- set _ = names.append(probe.item) -%}
+      {%- endif -%}
+      {%- endfor -%}
+      {%- endif -%}
+      {{ names }}
+  changed_when: false
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_distcc_enabled | bool
+
+- name: OpenWrt から worker の distccd port への接続を確認
+  ansible.builtin.wait_for:
+    host: "{{ (hostvars[item].distcc | default({})).host | default((hostvars[item].distcc | default({})).address | default(hostvars[item].ansible_host | default(item))) }}"
+    port: "{{ (hostvars[item].distcc | default({})).port | default(3632) | int }}"
+    connect_timeout: 2
+    timeout: 3
+    state: started
+  loop: "{{ openwrt_gentoo_distcc_compatible_names | default([]) }}"
+  register: openwrt_gentoo_distcc_client_probes
+  changed_when: false
+  ignore_errors: true
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_distcc_enabled | bool
+
+- name: 利用可能な distcc worker だけを採用
+  ansible.builtin.set_fact:
+    openwrt_gentoo_distcc_usable_names: >-
+      {%- set names = [] -%}
+      {%- for probe in openwrt_gentoo_distcc_client_probes.results | default([]) -%}
+      {%- if not (probe.failed | default(false) | bool) and (probe.state | default('')) == 'started' -%}
+      {%- set _ = names.append(probe.item) -%}
+      {%- endif -%}
+      {%- endfor -%}
+      {{ names }}
+  changed_when: false
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_distcc_enabled | bool
+
+- name: 利用可能な distcc hosts 文字列を作成
+  ansible.builtin.set_fact:
+    openwrt_gentoo_distcc_hosts_effective: >-
+      {%- set hosts = [] -%}
+      {%- for name in openwrt_gentoo_distcc_usable_names | default([]) -%}
+      {%- set hv = hostvars[name] -%}
+      {%- set cfg = hv.distcc -%}
+      {%- set address = cfg.host | default(cfg.address | default(hv.ansible_host | default(name))) -%}
+      {%- set port = cfg.port | default(3632) | int -%}
+      {%- set slots = cfg.slots | default(cfg.client_slots | default(openwrt_gentoo_distcc_default_slots)) | int -%}
+      {%- set label = (address ~ ':' ~ port) if port != 3632 else address -%}
+      {%- set _ = hosts.append(label ~ '/' ~ slots) -%}
+      {%- endfor -%}
+      {{ hosts | unique | join(' ') }}
+  changed_when: false
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_distcc_enabled | bool
+
+- name: distcc worker 選択数を表示
+  ansible.builtin.debug:
+    msg: >-
+      distcc candidates={{ openwrt_gentoo_distcc_candidate_names | length }},
+      compatible={{ openwrt_gentoo_distcc_compatible_names | length }},
+      usable={{ openwrt_gentoo_distcc_usable_names | length }}
+  when:
+    - openwrt_gentoo_enabled | bool
+    - openwrt_gentoo_distcc_enabled | bool
