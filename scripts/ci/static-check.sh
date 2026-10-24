@@ -314,6 +314,7 @@ if command -v python3 >/dev/null 2>&1; then
   python3 -m py_compile scripts/pxe_release_identity_status.py
   python3 -m py_compile scripts/ci/check-pxe-release-identity-status.py
   python3 -m py_compile scripts/pxe_standard_source_validate.py
+  python3 -m py_compile scripts/source_validator_support.py
   python3 -m py_compile scripts/rpi5_common_kernel_identity_status.py
   python3 -m py_compile scripts/ci/check-rpi5-common-kernel-identity-status.py
   python3 -m py_compile scripts/ci/check-pxe-standard-source-validate.py
