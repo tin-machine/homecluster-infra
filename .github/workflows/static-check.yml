@@ -53,6 +53,33 @@ jobs:
           "${RUNNER_TEMP}/pxe-contract-venv/bin/python" -m pip install 'ansible-core==2.20.1'
           "${RUNNER_TEMP}/pxe-contract-venv/bin/python" -B scripts/ci/test_pxe_host_dtb_contract.py
           "${RUNNER_TEMP}/pxe-contract-venv/bin/python" -B scripts/ci/test_host_tailscale_client_vars_contract.py
+          # Gate the actual Ansible YAML loader even though the optional full
+          # ansible-playbook --syntax-check is not enabled on hosted CI.
+          "${RUNNER_TEMP}/pxe-contract-venv/bin/python" - <<'PY'
+          from ansible.parsing.dataloader import DataLoader
+
+          paths = (
+              "ansible/arm64/roles/common/change_make_conf/defaults/main.yml",
+              "ansible/arm64/roles/common/change_make_conf/tasks/main.yml",
+              "ansible/openwrt/roles/openwrt_gentoo_rootfs/defaults/main.yml",
+              "ansible/openwrt/roles/openwrt_gentoo_rootfs/tasks/portage_chroot.yml",
+              "ansible/openwrt/roles/openwrt_nfs_server/defaults/main.yml",
+              "ansible/openwrt/roles/openwrt_nfs_server/tasks/main.yml",
+          )
+          loader = DataLoader()
+          for path in paths:
+              data = loader.load_from_file(path)
+              if not isinstance(data, (dict, list)):
+                  raise SystemExit(f"{path}: expected YAML mapping or list")
+
+          defaults = loader.load_from_file(paths[0])
+          expected = "{{ gentoo_binpkg_nfs_src | regex_replace('/binpkgs$', '/official-binhost-cache/gentoo') }}"
+          assert defaults["gentoo_official_binhost_cache_nfs_src"] == expected, (
+              "official binhost cache NFS source expression must be intact"
+          )
+          assert defaults["gentoo_chost"] == "aarch64-unknown-linux-gnu"
+          assert "gentoo_profile_name" in defaults
+          PY
 
       - name: Validate Namespace metadata with the locked Kubernetes provider
         shell: bash
