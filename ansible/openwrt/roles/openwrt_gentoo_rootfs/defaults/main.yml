@@ -141,16 +141,16 @@ openwrt_gentoo_chost: aarch64-unknown-linux-gnu
 openwrt_gentoo_profile_name: default/linux/arm64/23.0/systemd
 openwrt_gentoo_binpkg_dir: "/srv/gentoo/binpkgs/{{ openwrt_gentoo_arch }}/{{ openwrt_gentoo_chost }}/{{ openwrt_gentoo_profile_name }}"
 openwrt_gentoo_distfiles_dir: /srv/gentoo/distfiles
-openwrt_gentoo_binhost: "file://{{ openwrt_gentoo_binpkg_dir }}"
 
-# Official Gentoo binhost opt-in for packages that are too expensive or
-# undesirable to source-build in the PXE rootfs path. Keep this fail-closed:
-# only explicitly listed packages use --getbinpkgonly, so normal Portage runs
-# do not start fetching remote binpkgs implicitly.
+# Official Gentoo binhost for general source fallback and heavy binary-only preseed.
+# Keep downloaded official gpkg files separate from self-built PKGDIR.
 openwrt_gentoo_official_binhost_enabled: false
 openwrt_gentoo_official_binhost_name: gentoo
 openwrt_gentoo_official_binhost_uri: https://distfiles.gentoo.org/releases/arm64/binpackages/23.0/arm64
 openwrt_gentoo_official_binhost_location: /var/cache/binhost/gentoo
+# Persistent OpenWrt backing store, bind-mounted at the configured location
+# inside each rootfs chroot; also exported read/write to PXE clients via NFS.
+openwrt_gentoo_official_binhost_cache_host_dir: /srv/gentoo/official-binhost-cache/gentoo
 openwrt_gentoo_official_binhost_verify_signature: true
 openwrt_gentoo_official_binhost_emerge_args:
   - --getbinpkgonly
@@ -215,7 +215,7 @@ openwrt_gentoo_heavy_prebuilt_packages:
   - net-libs/nodejs
 
 openwrt_gentoo_k3s_base_baseline_enabled: true
-openwrt_gentoo_k3s_base_baseline_emerge_args: "--usepkg --changed-use --quiet-build=y"
+openwrt_gentoo_k3s_base_baseline_emerge_args: "--getbinpkg --binpkg-respect-use=y --binpkg-changed-deps=y --changed-use --quiet-build=y"
 openwrt_gentoo_k3s_base_baseline_terraform_enabled: true
 openwrt_gentoo_k3s_base_baseline_terraform_package_atom: =app-admin/terraform-1.14.8
 openwrt_gentoo_k3s_base_baseline_terraform_package_accept_keywords:

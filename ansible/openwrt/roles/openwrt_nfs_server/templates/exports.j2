@@ -2,6 +2,9 @@
 {% for export in (openwrt_nfs_exports | default([])) + (openwrt_nfs_extra_exports | default([])) %}
 {{ export.path }}{% for client in export.clients | default([]) %} {{ client.host | default('*') }}({{ client.options | default('rw,sync,no_subtree_check') }}){% endfor %}{{ '\n' }}
 {% endfor %}
+{% if openwrt_nfs_official_cache_export_enabled | default(false) | bool %}
+{{ openwrt_nfs_official_cache_export_dir }} {{ openwrt_nfs_official_cache_export_clients }}({{ openwrt_nfs_official_cache_export_options }})
+{% endif %}
 {% for line in openwrt_nfs_extra_lines %}
 {{ line }}{{ '\n' }}
 {% endfor %}
