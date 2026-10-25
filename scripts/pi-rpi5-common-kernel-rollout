@@ -22,6 +22,7 @@ RUNTIME_PHASES = ("generic_canary", "egpu_canary", "fleet_rollout", "full_fleet"
 AGENT_GROUP = "k3s_stg_agents"
 EGPU_GROUP = "rpi5_egpu_artifact_bundle"
 SAFE_RUN_ID = re.compile(r"^[0-9]{8}T[0-9]{6}Z-[A-Za-z0-9._-]+$")
+FRESH_BOOT_RUN_ID = re.compile(r"^[0-9]{8}T[0-9]{6}Z-[A-Za-z0-9]{8}$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 EXPECTED_ACCEPTED_RUN_ENV = "HOMECLUSTER_RPI5_COMMON_KERNEL_EXPECTED_ACCEPTED_RUN_ID"
 EXPECTED_ACCEPTED_SHA_ENV = "HOMECLUSTER_RPI5_COMMON_KERNEL_EXPECTED_ACCEPTED_SHA256"
@@ -561,7 +562,7 @@ def run_fresh_boot(runbook: Path) -> tuple[str, str]:
     if start_values.get("status") not in {"started", "in_progress"}:
         raise RolloutError(start_values.get("reason", "fresh_boot_start_failed"))
     run_id = start_values.get("run_id", "")
-    if not re.fullmatch(r"[0-9]{8}T[0-9]{6}Z", run_id):
+    if FRESH_BOOT_RUN_ID.fullmatch(run_id) is None:
         raise RolloutError("fresh_boot_run_id_invalid", "unknown")
 
     deadline = time.monotonic() + MAX_WAIT_SECONDS
