@@ -22,7 +22,7 @@ FFLAGS="${COMMON_FLAGS}"
 
 MAKEOPTS="-j{{ cpu_num.stdout }} -l4"
 
-EMERGE_DEFAULT_OPTS="--usepkg=y --jobs 2 --load-average {{ cpu_num.stdout }}"
+EMERGE_DEFAULT_OPTS="--usepkg=y --binpkg-respect-use=y --binpkg-changed-deps=y --jobs 2 --load-average {{ cpu_num.stdout }}"
 
 # Python target は Gentoo profile default に従う。
 # package 固有の例外が必要な場合だけ /etc/portage/package.use/python-targets へ書く。
@@ -35,7 +35,7 @@ USE="bindist -checkboot systemd -elogind"
 # FEATURES="buildpkg distcc -getbinpkg binpkg-multi-instance clean-logs compress-build-logs parallel-fetch parallel-install -userpriv -usersandbox -network-sandbox -pid-sandbox "
 {% set distcc_config = distcc | default({}) %}
 {% set distcc_client_enabled = distcc_config.client_enabled | default(distcc_config.enabled | default(false)) | bool %}
-FEATURES="buildpkg {{ 'distcc' if distcc_client_enabled else '-distcc' }} -getbinpkg binpkg-multi-instance clean-logs compress-build-logs parallel-fetch userpriv usersandbox -network-sandbox -pid-sandbox "
+FEATURES="buildpkg {{ 'distcc' if distcc_client_enabled else '-distcc' }} getbinpkg binpkg-multi-instance clean-logs compress-build-logs parallel-fetch userpriv usersandbox -network-sandbox -pid-sandbox "
 
 VIDEO_CARDS="vc4 v3d fbdev"
 INPUT_DEVICES="libinput"
