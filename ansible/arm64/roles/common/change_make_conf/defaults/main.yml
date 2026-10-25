@@ -11,8 +11,7 @@ gentoo_binpkg_cpu_key: ""
 # Derive its NFS source from the already configured binpkg export root.
 gentoo_official_binhost_cache_nfs_enabled: "{{ gentoo_binpkg_nfs_enabled | bool }}"
 gentoo_official_binhost_cache_mountpoint: /var/cache/binhost/gentoo
-gentoo_official_binhost_cache_nfs_src: "{{ gentoo_binpkg_nfs_src | regex_replace('/binpkgsgentoo_profile_name: ""
-, '/official-binhost-cache/gentoo') }}"
+gentoo_official_binhost_cache_nfs_src: "{{ gentoo_binpkg_nfs_src | regex_replace('/binpkgs$', '/official-binhost-cache/gentoo') }}"
 gentoo_official_binhost_cache_nfs_fstype: nfs4
 gentoo_official_binhost_cache_nfs_opts: "{{ gentoo_binpkg_nfs_opts }}"
 gentoo_chost: aarch64-unknown-linux-gnu
