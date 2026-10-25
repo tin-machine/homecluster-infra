@@ -12,6 +12,21 @@
         - rpi_eeprom
         - rpi_wireless
 
+    - name: Gentoo 公式binpkgの永続キャッシュを準備
+      ansible.builtin.file:
+        path: "{{ openwrt_gentoo_official_binhost_cache_host_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      when: openwrt_gentoo_official_binhost_enabled | bool
+      tags:
+        - gentoo_packages
+        - official_binhost
+        - portage_config
+        - heavy_prebuilt
+        - k3s_base_baseline
+
     - name: Gentoo chroot 用 bind mount を準備
       ansible.builtin.shell: |
         set -euo pipefail
@@ -26,7 +41,19 @@
         executable: /bin/ash
       register: openwrt_gentoo_chroot_bind_results
       changed_when: false
-      loop: "{{ (openwrt_gentoo_pxe_rootfs_dirs | default([openwrt_gentoo_rootfs_dir])) | product(openwrt_gentoo_chroot_bind_mounts) | list }}"
+      loop: >-
+        {{
+          (openwrt_gentoo_pxe_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]))
+          | product(
+              openwrt_gentoo_chroot_bind_mounts
+              + (
+                  [{'source': openwrt_gentoo_official_binhost_cache_host_dir,
+                    'target': openwrt_gentoo_official_binhost_location | regex_replace('^/', '')}]
+                  if (openwrt_gentoo_official_binhost_enabled | bool) else []
+                )
+            )
+          | list
+        }}
       loop_control:
         label: "{{ item.1.source }} -> {{ item.0 }}/{{ item.1.target }}"
       tags:
@@ -198,27 +225,16 @@
         - openwrt_gentoo_enabled | bool
         - openwrt_gentoo_binpkg_enabled | bool
 
-    - name: Portage make.conf.d ディレクトリを作成
+    # Portage does not source make.conf.d automatically. Remove the old,
+    # duplicated and unused binpkg.conf from existing rootfs releases.
+    - name: 古い make.conf.d/binpkg.conf を削除
       ansible.builtin.file:
-        path: "{{ openwrt_gentoo_rootfs_dir }}/etc/portage/make.conf.d"
-        state: directory
-        owner: root
-        group: root
-        mode: '0755'
-      when:
-        - openwrt_gentoo_enabled | bool
-        - openwrt_gentoo_binpkg_enabled | bool
-
-    - name: Portage binpkg 設定を配置
-      ansible.builtin.template:
-        src: portage/binpkg.conf.j2
-        dest: "{{ openwrt_gentoo_rootfs_dir }}/etc/portage/make.conf.d/binpkg.conf"
-        owner: root
-        group: root
-        mode: '0644'
-      when:
-        - openwrt_gentoo_enabled | bool
-        - openwrt_gentoo_binpkg_enabled | bool
+        path: "{{ item }}/etc/portage/make.conf.d/binpkg.conf"
+        state: absent
+      loop: "{{ openwrt_gentoo_pxe_rootfs_dirs | default([openwrt_gentoo_rootfs_dir]) }}"
+      tags:
+        - portage_config
+        - gentoo_packages
 
     - name: Portage make.conf を配置
       ansible.builtin.template:
