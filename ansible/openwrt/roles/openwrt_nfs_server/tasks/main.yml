@@ -27,6 +27,15 @@
     - openwrt_nfs_server_enabled | bool
     - item.ensure_dir | default(false) | bool
 
+- name: 公式 binhost cache の独立NFS exportを準備
+  ansible.builtin.file:
+    path: "{{ openwrt_nfs_official_cache_export_dir }}"
+    state: directory
+    owner: '250'
+    group: '250'
+    mode: '2775'
+  when: openwrt_nfs_server_enabled | bool and openwrt_nfs_official_cache_export_enabled | bool
+
 - name: NFS サーバ関連パッケージを導入
   ansible.builtin.include_role:
     name: openwrt_package
