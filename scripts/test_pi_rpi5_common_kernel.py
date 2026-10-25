@@ -91,6 +91,45 @@ class RuntimePrecheckDiagnosticsTests(unittest.TestCase):
         self.assertNotIn("do-not-copy", json.dumps(result))
 
 
+class FreshBootRunIdContractTests(unittest.TestCase):
+    def test_rollout_accepts_run_id_emitted_by_fresh_boot_start(self):
+        module = legacy.ROLLOUT_MODULE
+        run_id = "20261025T152106Z-16k45SBt"
+        with tempfile.TemporaryDirectory() as temporary:
+            scripts = (
+                Path(temporary)
+                / ".agents/skills/homecluster-k3s-fresh-boot-acceptance/scripts"
+            )
+            scripts.mkdir(parents=True)
+            (scripts / "start-k3s-fresh-boot-acceptance-job.sh").touch()
+            (scripts / "wait-k3s-fresh-boot-acceptance-job.sh").touch()
+            started = subprocess.CompletedProcess(
+                [], 0, f"status=started\nrun_id={run_id}\n", ""
+            )
+            accepted = subprocess.CompletedProcess([], 0, "status=pass\n", "")
+            with patch.object(module, "run", side_effect=[started, accepted]) as run:
+                self.assertEqual(module._original_run_fresh_boot(Path(temporary)), (run_id, "pass"))
+            self.assertEqual(run.call_count, 2)
+
+    def test_rollout_rejects_invalid_run_id_before_wait(self):
+        module = legacy.ROLLOUT_MODULE
+        with tempfile.TemporaryDirectory() as temporary:
+            scripts = (
+                Path(temporary)
+                / ".agents/skills/homecluster-k3s-fresh-boot-acceptance/scripts"
+            )
+            scripts.mkdir(parents=True)
+            (scripts / "start-k3s-fresh-boot-acceptance-job.sh").touch()
+            (scripts / "wait-k3s-fresh-boot-acceptance-job.sh").touch()
+            started = subprocess.CompletedProcess(
+                [], 0, "status=started\nrun_id=20261025T152106Z\n", ""
+            )
+            with patch.object(module, "run", return_value=started) as run:
+                with self.assertRaises(module.RolloutError) as raised:
+                    module._original_run_fresh_boot(Path(temporary))
+            self.assertEqual(raised.exception.reason, "fresh_boot_run_id_invalid")
+            self.assertEqual(run.call_count, 1)
+
 class DeviceTreeNormalizationTests(unittest.TestCase):
     def test_pi4_check_mode_rejects_unnormalized_dtb_without_writing(self):
         with tempfile.TemporaryDirectory() as directory:
