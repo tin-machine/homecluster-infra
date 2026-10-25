@@ -7,5 +7,12 @@ gentoo_binpkg_nfs_opts: vers=4.2,hard,timeo=600,retrans=2,nodev,nosuid,noatime,r
 gentoo_binpkg_nfs_require_mounted: true
 gentoo_binpkg_include_cpu_key: true
 gentoo_binpkg_cpu_key: ""
+# Official signed binpkg download cache, independent from self-built PKGDIR.
+# Derive its NFS source from the already configured binpkg export root.
+gentoo_official_binhost_cache_nfs_enabled: "{{ gentoo_binpkg_nfs_enabled | bool }}"
+gentoo_official_binhost_cache_mountpoint: /var/cache/binhost/gentoo
+gentoo_official_binhost_cache_nfs_src: "{{ gentoo_binpkg_nfs_src | regex_replace('/binpkgs$', '/official-binhost-cache/gentoo') }}"
+gentoo_official_binhost_cache_nfs_fstype: nfs4
+gentoo_official_binhost_cache_nfs_opts: "{{ gentoo_binpkg_nfs_opts }}"
 gentoo_chost: aarch64-unknown-linux-gnu
 gentoo_profile_name: ""

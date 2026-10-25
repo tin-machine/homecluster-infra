@@ -1,6 +1,12 @@
 ---
 # OpenWrt NFS サーバーロールのデフォルト値
 
+
+# Official signed binary download cache, separate from locally-built PKGDIR.
+openwrt_nfs_official_cache_export_enabled: "{{ openwrt_gentoo_official_binhost_enabled | default(false) | bool }}"
+openwrt_nfs_official_cache_export_dir: "{{ openwrt_gentoo_official_binhost_cache_host_dir | default('/srv/gentoo/official-binhost-cache/gentoo') }}"
+openwrt_nfs_official_cache_export_clients: "*"
+openwrt_nfs_official_cache_export_options: rw,sync,no_subtree_check,no_root_squash
 openwrt_nfs_server_enabled: true
 
 openwrt_nfs_packages:
