@@ -16,9 +16,9 @@
       ansible.builtin.file:
         path: "{{ openwrt_gentoo_official_binhost_cache_host_dir }}"
         state: directory
-        owner: root
-        group: root
-        mode: '0755'
+        owner: '250'
+        group: '250'
+        mode: '2775'
       when: openwrt_gentoo_official_binhost_enabled | bool
       tags:
         - gentoo_packages
