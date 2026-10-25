@@ -79,6 +79,69 @@
       - gentoo_binpkg_nfs_require_mounted | bool
     tags:
       - nfs_binpkg
+  # Mount before any Portage module or emerge. PXE overlay is volatile.
+  - name: 公式 binpkg cache NFS source を検証
+    ansible.builtin.assert:
+      that:
+        - (gentoo_binpkg_nfs_src | string).endswith('/binpkgs')
+        - (gentoo_official_binhost_cache_nfs_src | string) != (gentoo_binpkg_nfs_src | string)
+        - (gentoo_official_binhost_cache_mountpoint | string) == '/var/cache/binhost/gentoo'
+      fail_msg: "Gentoo公式cache NFS sourceは既存binpkg exportから導出してください"
+    when: gentoo_official_binhost_cache_nfs_enabled | bool
+    tags: [nfs_binpkg, nfs_official_binhost]
+  - name: 公式 binpkg cache NFS mountpoint を作成
+    become: true
+    ansible.builtin.file:
+      path: "{{ gentoo_official_binhost_cache_mountpoint }}"
+      state: directory
+      owner: root
+      group: root
+      mode: '0755'
+    when: gentoo_official_binhost_cache_nfs_enabled | bool
+    tags: [nfs_binpkg, nfs_official_binhost]
+  - name: 公式 binpkg cache NFS mountpoint の既存mountを確認
+    become: true
+    ansible.builtin.command: >-
+      findmnt -n -M {{ gentoo_official_binhost_cache_mountpoint | quote }} -o SOURCE,FSTYPE
+    register: gentoo_official_binhost_pre_mount
+    changed_when: false
+    failed_when: false
+    when: gentoo_official_binhost_cache_nfs_enabled | bool
+    tags: [nfs_binpkg, nfs_official_binhost]
+  - name: 公式 binpkg cache の既存mountが期待通りか検証
+    ansible.builtin.assert:
+      that:
+        - (gentoo_official_binhost_pre_mount.stdout.split() | length) >= 2
+        - gentoo_official_binhost_pre_mount.stdout.split()[0] == gentoo_official_binhost_cache_nfs_src
+        - gentoo_official_binhost_pre_mount.stdout.split()[1] in ['nfs', 'nfs4']
+      fail_msg: "公式binhostのcache mountpointが別のfilesystemを参照しています"
+    when:
+      - gentoo_official_binhost_cache_nfs_enabled | bool
+      - gentoo_official_binhost_pre_mount.rc == 0
+    tags: [nfs_binpkg, nfs_official_binhost]
+  - name: 公式 binpkg cache を NFS mount
+    become: true
+    ansible.posix.mount:
+      src: "{{ gentoo_official_binhost_cache_nfs_src }}"
+      path: "{{ gentoo_official_binhost_cache_mountpoint }}"
+      fstype: "{{ gentoo_official_binhost_cache_nfs_fstype }}"
+      opts: "{{ gentoo_official_binhost_cache_nfs_opts }}"
+      state: mounted
+    when: gentoo_official_binhost_cache_nfs_enabled | bool
+    tags: [nfs_binpkg, nfs_official_binhost]
+  - name: 公式 binpkg cache のmountを最終確認
+    become: true
+    ansible.builtin.command: >-
+      findmnt -n -M {{ gentoo_official_binhost_cache_mountpoint | quote }} -o SOURCE,FSTYPE
+    register: gentoo_official_binhost_mounted
+    changed_when: false
+    failed_when: >-
+      gentoo_official_binhost_mounted.rc != 0 or
+      (gentoo_official_binhost_mounted.stdout.split() | length) < 2 or
+      gentoo_official_binhost_mounted.stdout.split()[0] != gentoo_official_binhost_cache_nfs_src or
+      gentoo_official_binhost_mounted.stdout.split()[1] not in ['nfs', 'nfs4']
+    when: gentoo_official_binhost_cache_nfs_enabled | bool
+    tags: [nfs_binpkg, nfs_official_binhost]
   - name: "-mtune、-mcpuを決めるため app-misc/resolve-march-native をインストール"
     portage: >
       package="app-misc/resolve-march-native"
