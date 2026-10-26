@@ -346,6 +346,10 @@ if command -v python3 >/dev/null 2>&1; then
   python3 scripts/ci/check-pxe-artifact-fingerprint.py
   python3 scripts/ci/check-pxe-producer-receipt.py
   python3 scripts/ci/check-k3s-terraform-apply-receipt.py
+  python3 scripts/ci/check-k3s-observability-apply-wait.py
+  python3 scripts/ci/check-pxe-pinned-source-preparation.py
+  python3 scripts/ci/check-openwrt-apk-index-reuse.py
+  python3 scripts/ci/check-pxe-build-input-pin.py
   python3 scripts/ci/check-k3s-terraform-apply-receipt-reader.py
   python3 scripts/ci/check-k3s-helm-metadata-status.py
   python3 scripts/ci/check-pxe-live-selectors-readonly.py

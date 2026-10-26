@@ -1,4 +1,106 @@
 ---
+- name: PXE paired build の stage3 URL と checksum を一度だけ解決
+  ansible.builtin.include_role:
+    name: openwrt_gentoo_rootfs
+    tasks_from: stage3_auto
+  when: not (pxe_release_bundle_skip_build | default(false) | bool)
+  tags:
+    - pxe_release_bundle
+    - pxe_release_bundle_build
+
+- name: PXE paired build の stage3 入力を固定
+  ansible.builtin.set_fact:
+    pxe_release_bundle_stage3_url: "{{ openwrt_gentoo_stage3_url }}"
+    pxe_release_bundle_stage3_sha256: "{{ openwrt_gentoo_stage3_sha256 | default('', true) }}"
+    pxe_release_bundle_stage3_sha512: "{{ openwrt_gentoo_stage3_sha512 | default('', true) }}"
+    pxe_release_bundle_stage3_checksum_algo: "{{ openwrt_gentoo_stage3_checksum_algo }}"
+    pxe_release_bundle_stage3_checksum_value: "{{ openwrt_gentoo_stage3_checksum_value }}"
+  when: not (pxe_release_bundle_skip_build | default(false) | bool)
+  tags:
+    - pxe_release_bundle
+    - pxe_release_bundle_build
+
+- name: PXE paired build の stage3 checksum を検証
+  ansible.builtin.assert:
+    that:
+      - pxe_release_bundle_stage3_url | length > 0
+      - pxe_release_bundle_stage3_checksum_algo in ['sha256', 'sha512']
+      - (pxe_release_bundle_stage3_checksum_algo == 'sha256' and pxe_release_bundle_stage3_checksum_value is match('^[0-9a-f]{64}$')) or (pxe_release_bundle_stage3_checksum_algo == 'sha512' and pxe_release_bundle_stage3_checksum_value is match('^[0-9a-f]{128}$'))
+    fail_msg: "paired build の stage3 URL/checksum を固定できませんでした"
+  when: not (pxe_release_bundle_skip_build | default(false) | bool)
+  tags:
+    - pxe_release_bundle
+    - pxe_release_bundle_build
+
+- name: PXE paired build の Portage revision を取得
+  ansible.builtin.command:
+    argv:
+      - git
+      - ls-remote
+      - https://github.com/gentoo-mirror/gentoo.git
+      - refs/heads/master
+  register: pxe_release_bundle_portage_remote
+  changed_when: false
+  delegate_to: localhost
+  connection: local
+  become: false
+  when:
+    - not (pxe_release_bundle_skip_build | default(false) | bool)
+    - openwrt_gentoo_portage_revision | default('master') == 'master'
+  tags:
+    - pxe_release_bundle
+    - pxe_release_bundle_build
+
+- name: PXE paired build の firmware revision を取得
+  ansible.builtin.command:
+    argv:
+      - git
+      - ls-remote
+      - "{{ openwrt_gentoo_rpi_firmware_repo }}"
+      - refs/heads/master
+  register: pxe_release_bundle_firmware_remote
+  changed_when: false
+  delegate_to: localhost
+  connection: local
+  become: false
+  when:
+    - not (pxe_release_bundle_skip_build | default(false) | bool)
+    - openwrt_gentoo_copy_rpi_modules | bool
+    - openwrt_gentoo_rpi_firmware_version == 'master'
+  tags:
+    - pxe_release_bundle
+    - pxe_release_bundle_build
+
+- name: PXE paired build の moving input を commit に固定
+  ansible.builtin.set_fact:
+    pxe_release_bundle_portage_revision: >-
+      {{
+        ((pxe_release_bundle_portage_remote.stdout | default('')).split() | first | default('')
+         if openwrt_gentoo_portage_revision | default('master') == 'master'
+         else openwrt_gentoo_portage_revision)
+      }}
+    pxe_release_bundle_firmware_revision: >-
+      {{
+        ((pxe_release_bundle_firmware_remote.stdout | default('')).split() | first | default('')
+         if (openwrt_gentoo_copy_rpi_modules | bool and openwrt_gentoo_rpi_firmware_version == 'master')
+         else openwrt_gentoo_rpi_firmware_version)
+      }}
+  when: not (pxe_release_bundle_skip_build | default(false) | bool)
+  tags:
+    - pxe_release_bundle
+    - pxe_release_bundle_build
+
+- name: PXE paired build の input revision を検証
+  ansible.builtin.assert:
+    that:
+      - pxe_release_bundle_portage_revision is match('^[0-9a-f]{40}$')
+      - not (openwrt_gentoo_copy_rpi_modules | bool) or pxe_release_bundle_firmware_revision is match('^[0-9a-f]{40}$')
+    fail_msg: "Portage / firmware の入力commitを確定できませんでした"
+  when: not (pxe_release_bundle_skip_build | default(false) | bool)
+  tags:
+    - pxe_release_bundle
+    - pxe_release_bundle_build
+
 - name: PXE release bundle release を build
   ansible.builtin.include_role:
     name: openwrt_gentoo_rootfs
@@ -8,6 +110,13 @@
     label: "{{ pxe_release_bundle_build_item.name }}={{ pxe_release_bundle_build_item.release }}"
   vars:
     openwrt_gentoo_release: "{{ pxe_release_bundle_build_item.release }}"
+    openwrt_gentoo_portage_revision: "{{ pxe_release_bundle_portage_revision }}"
+    openwrt_gentoo_rpi_firmware_version: "{{ pxe_release_bundle_firmware_revision }}"
+    openwrt_gentoo_stage3_url: "{{ pxe_release_bundle_stage3_url }}"
+    openwrt_gentoo_stage3_sha256: "{{ pxe_release_bundle_stage3_sha256 }}"
+    openwrt_gentoo_stage3_sha512: "{{ pxe_release_bundle_stage3_sha512 }}"
+    openwrt_gentoo_stage3_checksum_algo: "{{ pxe_release_bundle_stage3_checksum_algo }}"
+    openwrt_gentoo_stage3_checksum_value: "{{ pxe_release_bundle_stage3_checksum_value }}"
     openwrt_gentoo_release_bundle_enabled: true
     openwrt_gentoo_release_bundle_date: "{{ pxe_release_bundle_effective_date }}"
     openwrt_gentoo_release_bundle_generations: "{{ pxe_release_bundle_effective_generations }}"
@@ -106,7 +215,21 @@
 
 - name: PXE release bundle manifest metadata の基底値を準備
   ansible.builtin.set_fact:
-    pxe_release_bundle_manifest_metadata_base: "{{ openwrt_gentoo_release_bundle_manifest_metadata | default({}) }}"
+    pxe_release_bundle_manifest_metadata_base: >-
+      {{
+        (openwrt_gentoo_release_bundle_manifest_metadata | default({}))
+        | combine({
+          'build_inputs': {
+            'stage3_url': pxe_release_bundle_stage3_url,
+            'stage3_sha256': pxe_release_bundle_stage3_sha256,
+            'stage3_sha512': pxe_release_bundle_stage3_sha512,
+            'stage3_checksum_algo': pxe_release_bundle_stage3_checksum_algo,
+            'stage3_checksum_value': pxe_release_bundle_stage3_checksum_value,
+            'portage_revision': pxe_release_bundle_portage_revision,
+            'firmware_revision': pxe_release_bundle_firmware_revision
+          }
+        } if not (pxe_release_bundle_skip_build | default(false) | bool) else {})
+      }}
   tags:
     - pxe_release_bundle
     - pxe_release_bundle_build
