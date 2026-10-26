@@ -5,6 +5,7 @@
     dest: "{{ openwrt_gentoo_firmware_checkout_dir }}"
     version: "{{ openwrt_gentoo_rpi_firmware_version }}"
     depth: "{{ openwrt_gentoo_rpi_firmware_depth if openwrt_gentoo_rpi_firmware_depth is not none else omit }}"
+    refspec: "{{ openwrt_gentoo_rpi_firmware_pinned_refspec | default(omit, true) }}"
     force: "{{ openwrt_gentoo_rpi_firmware_force | bool }}"
     update: true
     accept_hostkey: true

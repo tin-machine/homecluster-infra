@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Verify that Ansible's shallow Git checkout honors a resolved commit after master moves."""
+"""Verify that pinned PXE inputs stay shallow after the upstream branch moves."""
 
+from copy import deepcopy
 from pathlib import Path
 import subprocess
 import tempfile
@@ -11,6 +12,8 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 BUILD_TASKS = ROOT / "ansible/openwrt/playbooks/tasks/pxe_release_bundle_build_and_manifest.yml"
+FIRMWARE_TASKS = ROOT / "ansible/openwrt/roles/openwrt_gentoo_rootfs/tasks/rpi_firmware_modules.yml"
+PORTAGE_TASKS = ROOT / "ansible/openwrt/roles/openwrt_gentoo_rootfs/tasks/portage_chroot.yml"
 
 
 def git(directory: Path, *args: str) -> str:
@@ -88,23 +91,44 @@ class BuildInputPinTests(unittest.TestCase):
             subprocess.run(["git", "-C", str(source), "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "second"], check=True)
             git(source, "push", "-q", "origin", "master")
 
-            playbook = [{
-                "hosts": "localhost", "connection": "local", "gather_facts": False,
-                "tasks": [{"ansible.builtin.git": {
-                    "repo": remote.as_uri(), "dest": str(root / "checkout"),
-                    "version": fixed, "depth": 1, "update": True, "force": True,
-                }}],
-            }]
-            path = root / "pin.yml"
-            path.write_text(yaml.safe_dump(playbook, sort_keys=False))
-            for _ in range(2):
-                result = subprocess.run(
-                    ["ansible-playbook", "-i", "localhost,", str(path)],
-                    capture_output=True, text=True, timeout=45,
-                )
-                self.assertEqual(result.returncode, 0, result.stdout[-3000:] + result.stderr[-1000:])
-                self.assertEqual(git(root / "checkout", "rev-parse", "HEAD"), fixed)
-                self.assertEqual((root / "checkout/input").read_text(), "first\n")
+            build = next(task for task in yaml.safe_load(BUILD_TASKS.read_text())
+                         if task.get("name") == "PXE release bundle release を build")
+            for kind, path, name, pin_var, version_var in (
+                ("firmware", FIRMWARE_TASKS, "Raspberry Pi firmware リポジトリを取得",
+                 "openwrt_gentoo_rpi_firmware_pinned_refspec", "openwrt_gentoo_rpi_firmware_version"),
+                ("portage", PORTAGE_TASKS, "Portage tree を git で初期取得",
+                 "openwrt_gentoo_portage_pinned_refspec", "openwrt_gentoo_portage_revision"),
+            ):
+                self.assertEqual(build["vars"][pin_var],
+                                 "{{ pxe_release_bundle_" + kind + "_revision }}" if kind == "portage"
+                                 else "{{ pxe_release_bundle_firmware_revision }}")
+                source = yaml.safe_load(path.read_text())
+                candidates = source if kind == "firmware" else source[0]["block"]
+                task = deepcopy(next(item for item in candidates if item.get("name") == name))
+                task.pop("when", None)
+                options = task["ansible.builtin.git"]
+                self.assertIn(pin_var, options["refspec"])
+                options["repo"] = remote.as_uri()
+                checkout = root / kind
+                options["dest"] = str(checkout)
+                playbook = [{
+                    "hosts": "localhost", "connection": "local", "gather_facts": False,
+                    "vars": {version_var: fixed, pin_var: fixed,
+                             "openwrt_gentoo_rpi_firmware_depth": 1,
+                             "openwrt_gentoo_rpi_firmware_force": False},
+                    "tasks": [task],
+                }]
+                fixture = root / (kind + "-pin.yml")
+                fixture.write_text(yaml.safe_dump(playbook, sort_keys=False))
+                for _ in range(2):
+                    result = subprocess.run(
+                        ["ansible-playbook", "-i", "localhost,", str(fixture)],
+                        capture_output=True, text=True, timeout=45,
+                    )
+                    self.assertEqual(result.returncode, 0, result.stdout[-3000:] + result.stderr[-1000:])
+                    self.assertEqual(git(checkout, "rev-parse", "HEAD"), fixed)
+                    self.assertEqual((checkout / "input").read_text(), "first\n")
+                    self.assertTrue((checkout / ".git/shallow").is_file())
 
 
 if __name__ == "__main__":
