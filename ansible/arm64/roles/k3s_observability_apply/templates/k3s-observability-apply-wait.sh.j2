@@ -30,11 +30,13 @@ ready_node_count() {
 }
 
 non_running_pod_count() {
-  pod_lines="$(
+  if ! pod_lines="$(
     /usr/local/bin/k3s kubectl --kubeconfig="${KUBECONFIG_PATH}" get pods -A \
       --field-selector=status.phase!=Running,status.phase!=Succeeded \
-      --no-headers 2>/dev/null || true
-  )"
+      --no-headers 2>/dev/null
+  )"; then
+    return 1
+  fi
 
   if [ -z "${pod_lines}" ]; then
     echo 0
@@ -45,10 +47,11 @@ non_running_pod_count() {
     awk \
       -v include_re="${POD_SETTLE_NAMESPACE_INCLUDE_REGEX}" \
       -v exclude_re="${POD_SETTLE_NAMESPACE_EXCLUDE_REGEX}" \
-      'include_re != "" && $1 !~ include_re { next }
+      'NF < 6 || $3 !~ /^[0-9]+\/[0-9]+$/ { invalid = 1; next }
+       include_re != "" && $1 !~ include_re { next }
        exclude_re != "" && $1 ~ exclude_re { next }
        { count++ }
-       END { print count + 0 }'
+       END { if (invalid) exit 1; print count + 0 }'
 }
 
 deadline=$(( $(now_epoch) + TIMEOUT_SECS ))
@@ -92,15 +95,19 @@ done
 if [ "${POD_SETTLE_ENABLED}" = "true" ]; then
   PASSED_COUNT=0
   while true; do
-    NON_RUNNING="$(non_running_pod_count)"
-
-    if [ "${NON_RUNNING}" -eq 0 ]; then
-      PASSED_COUNT=$((PASSED_COUNT + 1))
-      if [ "${PASSED_COUNT}" -ge "${POD_SETTLE_PASS_COUNT}" ]; then
-        break
+    if NON_RUNNING="$(non_running_pod_count)"; then
+      if [ "${NON_RUNNING}" -eq 0 ]; then
+        PASSED_COUNT=$((PASSED_COUNT + 1))
+        if [ "${PASSED_COUNT}" -ge "${POD_SETTLE_PASS_COUNT}" ]; then
+          break
+        fi
+      else
+        PASSED_COUNT=0
       fi
     else
+      NON_RUNNING=unknown
       PASSED_COUNT=0
+      echo "pod settle API query failed or returned invalid data; retrying" >&2
     fi
 
     if [ "$(now_epoch)" -ge "${deadline}" ]; then

@@ -59,6 +59,7 @@
     - openwrt_gentoo_enabled | bool
     - openwrt_gentoo_stage3_auto | bool
     - (openwrt_gentoo_stage3_sha256 | default('', true) | string | trim) | length == 0
+    - (openwrt_gentoo_stage3_checksum_value | default('', true) | string | trim) | length == 0
     - (openwrt_gentoo_stage3_url | default('', true) | string | trim) | length > 0
   tags:
     - gentoo_stage3_auto
@@ -82,6 +83,7 @@
     - openwrt_gentoo_enabled | bool
     - openwrt_gentoo_stage3_auto | bool
     - (openwrt_gentoo_stage3_url | default('', true) | string | trim) | length > 0
+    - (openwrt_gentoo_stage3_checksum_value | default('', true) | string | trim) | length == 0
   tags:
     - gentoo_stage3_auto
 

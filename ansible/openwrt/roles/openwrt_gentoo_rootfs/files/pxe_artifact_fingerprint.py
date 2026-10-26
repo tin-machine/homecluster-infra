@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import re
 import stat
+import time
 
 MOUNTINFO = Path("/proc/self/mountinfo")
 DOMAIN = b"homecluster-pxe-artifact-tree-v1\x00"
@@ -173,7 +174,8 @@ def _walk(parent, name, max_entries, max_bytes):
     return digest.hexdigest(), stability.digest(), entries, regular_bytes
 
 
-def fingerprint_tree(root: Path, *, max_entries=1000000, max_bytes=1099511627776) -> dict:
+def fingerprint_tree(root: Path, *, max_entries=1000000, max_bytes=1099511627776,
+                     timing: dict | None = None) -> dict:
     """Measure a stable, mount-free tree; any missing evidence is an error."""
     if any(type(value) is not int or value <= 0 for value in (max_entries, max_bytes)):
         raise ValueError("budgets must be positive integers")
@@ -195,8 +197,11 @@ def fingerprint_tree(root: Path, *, max_entries=1000000, max_bytes=1099511627776
             bindings.append((parent, name, descriptor, before))
             parent = descriptor
         name = root.name or "."
+        first_start_ns = time.monotonic_ns()
         first = _walk(parent, name, max_entries, max_bytes)
+        second_start_ns = time.monotonic_ns()
         second = _walk(parent, name, max_entries, max_bytes)
+        second_finish_ns = time.monotonic_ns()
         if first != second:
             raise ValueError("artifact changed between verification passes")
         for directory, child, descriptor, before in bindings:
@@ -208,6 +213,10 @@ def fingerprint_tree(root: Path, *, max_entries=1000000, max_bytes=1099511627776
                     raise ValueError("root ancestor binding changed")
         if mounts != _mounts(root):
             raise ValueError("mount topology changed during measurement")
+        if timing is not None:
+            timing.update(first_pass_ms=(second_start_ns - first_start_ns) // 1000000,
+                          second_pass_ms=(second_finish_ns - second_start_ns) // 1000000,
+                          entries=first[2], regular_file_bytes=first[3])
         return {"schema": "homecluster-pxe-artifact-tree-v1", "algorithm": "sha256-posix-tree-v1",
                 "digest": first[0], "entries": first[2], "regular_file_bytes": first[3]}
     except (OSError, TypeError, OverflowError, RecursionError) as error:

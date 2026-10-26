@@ -171,7 +171,7 @@
       ansible.builtin.git:
         repo: "https://github.com/gentoo-mirror/gentoo.git"
         dest: "{{ openwrt_gentoo_rootfs_dir.rstrip('/') }}{{ openwrt_gentoo_portage_repo_path }}"
-        version: master
+        version: "{{ openwrt_gentoo_portage_revision }}"
         depth: 1
         update: true
       when:
@@ -185,7 +185,7 @@
       ansible.builtin.git:
         repo: "https://github.com/gentoo-mirror/gentoo.git"
         dest: "{{ openwrt_gentoo_rootfs_dir.rstrip('/') }}{{ openwrt_gentoo_portage_repo_path }}"
-        version: master
+        version: "{{ openwrt_gentoo_portage_revision }}"
         depth: 1
         update: true
         force: true
@@ -193,6 +193,7 @@
         - openwrt_gentoo_enabled | bool
         - openwrt_gentoo_portage_init | bool
         - openwrt_gentoo_portage_sync_required | default(true)
+        - openwrt_gentoo_portage_git_stat.stat.exists | default(false)
       tags:
         - gentoo_portage_git_sync
 

@@ -52,6 +52,11 @@
       openwrt_package_names は string list、openwrt_package_state は present/absent、
       openwrt_pkg_manager は opkg/apk で指定してください。
 
+- name: package manager変更時に apk index 再利用を無効化
+  ansible.builtin.set_fact:
+    openwrt_package_apk_index_signature: ""
+  when: openwrt_package_manager_effective != 'apk'
+
 - name: opkg で OpenWrt package を収束
   ansible.builtin.opkg:
     name: "{{ item }}"
@@ -63,8 +68,12 @@
   when:
     - openwrt_package_manager_effective == 'opkg'
 
-- name: apk package index を更新
-  ansible.builtin.raw: apk update
+- name: apk feed 設定の署名を取得
+  ansible.builtin.raw: |
+    set -o pipefail
+    test -d {{ openwrt_package_apk_config_dir | default('/etc/apk') | quote }}
+    find {{ openwrt_package_apk_config_dir | default('/etc/apk') | quote }} -type f -exec sha256sum '{}' \; | sort | sha256sum | awk '{print $1}'
+  register: openwrt_package_apk_feed_signature
   changed_when: false
   when:
     - openwrt_package_manager_effective == 'apk'
@@ -72,12 +81,31 @@
     - openwrt_package_update_cache_effective | bool
     - (openwrt_package_names | length) > 0
 
+- name: apk package index を更新
+  ansible.builtin.raw: "{{ openwrt_package_apk_command | default('apk') | quote }} update"
+  register: openwrt_package_apk_index_update
+  changed_when: false
+  when:
+    - openwrt_package_manager_effective == 'apk'
+    - openwrt_package_state_effective == 'present'
+    - openwrt_package_update_cache_effective | bool
+    - (openwrt_package_names | length) > 0
+    - (openwrt_package_apk_index_signature | default('')) != ('apk:' ~ (openwrt_package_apk_feed_signature.stdout | default('') | trim))
+
+- name: 成功した apk index 更新だけを同一 play で再利用
+  ansible.builtin.set_fact:
+    openwrt_package_apk_index_signature: "apk:{{ openwrt_package_apk_feed_signature.stdout | trim }}"
+  when:
+    - openwrt_package_apk_index_update is defined
+    - not (openwrt_package_apk_index_update.skipped | default(false))
+    - openwrt_package_apk_index_update is succeeded
+
 - name: apk で OpenWrt package を導入
   ansible.builtin.raw: |
-    if apk info -e {{ item | quote }} >/dev/null 2>&1; then
+    if {{ openwrt_package_apk_command | default('apk') | quote }} info -e {{ item | quote }} >/dev/null 2>&1; then
       echo "already-present"
     else
-      apk add {{ item | quote }}
+      {{ openwrt_package_apk_command | default('apk') | quote }} add {{ item | quote }}
       echo "__openwrt_package_changed__"
     fi
   register: openwrt_package_apk_present
@@ -91,8 +119,8 @@
 
 - name: apk で OpenWrt package を削除
   ansible.builtin.raw: |
-    if apk info -e {{ item | quote }} >/dev/null 2>&1; then
-      apk del {{ item | quote }}
+    if {{ openwrt_package_apk_command | default('apk') | quote }} info -e {{ item | quote }} >/dev/null 2>&1; then
+      {{ openwrt_package_apk_command | default('apk') | quote }} del {{ item | quote }}
       echo "__openwrt_package_changed__"
     else
       echo "already-absent"

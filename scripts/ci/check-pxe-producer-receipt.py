@@ -75,6 +75,13 @@ class ProducerTests(unittest.TestCase):
     def test_reader_roundtrip_is_historical_and_does_not_measure_current_trees(self):
         published = self.run_producer()
         original = self.output.read_bytes()
+        self.assertNotIn("measurement", json.loads(original))
+        for generation in ("rpi4", "rpi5"):
+            for artifact in ("rootfs", "tftp"):
+                timing = published["measurement"][generation][artifact]
+                self.assertGreaterEqual(timing["first_pass_ms"], 0)
+                self.assertGreaterEqual(timing["second_pass_ms"], 0)
+                self.assertGreater(timing["entries"], 0)
         (self.tftp() / "kernel8.img").write_bytes(b"changed after measurement")
         with mock.patch.object(producer, "fingerprint_tree", side_effect=AssertionError("reader must not hash trees")):
             receipt, digest = self.read_receipt()
@@ -289,8 +296,8 @@ class ProducerTests(unittest.TestCase):
 
     def test_manifest_change_during_measurement_rejected(self):
         actual = producer.fingerprint_tree
-        def changing_measurement(root):
-            result = actual(root)
+        def changing_measurement(root, **kwargs):
+            result = actual(root, **kwargs)
             self.manifest["metadata"]["changed"] = True
             self.write_manifest()
             return result

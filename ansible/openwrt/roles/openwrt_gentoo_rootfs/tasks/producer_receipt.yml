@@ -61,3 +61,8 @@
       register: openwrt_gentoo_release_producer_result
       changed_when: (openwrt_gentoo_release_producer_result.stdout | from_json).status == 'written'
       when: not ansible_check_mode
+
+    - name: Pi4 Pi5 artifactの二重走査時間と読取り量を記録
+      ansible.builtin.debug:
+        msg: "{{ (openwrt_gentoo_release_producer_result.stdout | from_json).measurement }}"
+      when: not ansible_check_mode
