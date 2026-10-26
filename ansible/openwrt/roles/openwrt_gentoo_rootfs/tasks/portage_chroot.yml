@@ -173,6 +173,7 @@
         dest: "{{ openwrt_gentoo_rootfs_dir.rstrip('/') }}{{ openwrt_gentoo_portage_repo_path }}"
         version: "{{ openwrt_gentoo_portage_revision }}"
         depth: 1
+        refspec: "{{ openwrt_gentoo_portage_pinned_refspec | default(omit, true) }}"
         update: true
       when:
         - openwrt_gentoo_enabled | bool
@@ -187,6 +188,7 @@
         dest: "{{ openwrt_gentoo_rootfs_dir.rstrip('/') }}{{ openwrt_gentoo_portage_repo_path }}"
         version: "{{ openwrt_gentoo_portage_revision }}"
         depth: 1
+        refspec: "{{ openwrt_gentoo_portage_pinned_refspec | default(omit, true) }}"
         update: true
         force: true
       when:

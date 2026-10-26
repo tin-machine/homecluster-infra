@@ -118,6 +118,9 @@
     openwrt_gentoo_release: "{{ pxe_release_bundle_build_item.release }}"
     openwrt_gentoo_portage_revision: "{{ pxe_release_bundle_portage_revision }}"
     openwrt_gentoo_rpi_firmware_version: "{{ pxe_release_bundle_firmware_revision }}"
+    # SHA は branch/tag ではないため、git module には浅い fetch 対象も渡す。
+    openwrt_gentoo_portage_pinned_refspec: "{{ pxe_release_bundle_portage_revision }}"
+    openwrt_gentoo_rpi_firmware_pinned_refspec: "{{ pxe_release_bundle_firmware_revision }}"
     openwrt_gentoo_stage3_url: "{{ pxe_release_bundle_stage3_url }}"
     openwrt_gentoo_stage3_sha256: "{{ pxe_release_bundle_stage3_sha256 }}"
     openwrt_gentoo_stage3_sha512: "{{ pxe_release_bundle_stage3_sha512 }}"
