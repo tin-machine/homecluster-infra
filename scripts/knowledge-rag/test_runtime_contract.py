@@ -1,7 +1,9 @@
 import argparse
 import unittest
+from unittest.mock import AsyncMock
 
-from http_client import completed
+from mcp.types import CallToolResult, TextContent
+from http_client import call, completed
 from render_poc import render
 
 
@@ -30,6 +32,15 @@ class RuntimeContracts(unittest.TestCase):
         with self.assertRaises(ValueError):render(args)
         args.editor_node='worker-b';args.namespace='production'
         with self.assertRaises(ValueError):render(args)
+
+
+class MCPResponseContract(unittest.IsolatedAsyncioTestCase):
+    async def test_real_sdk_success_and_error_envelopes(self):
+        session=AsyncMock()
+        session.call_tool.return_value=CallToolResult(content=[TextContent(type='text',text='{"status":"success","count":2}')],is_error=False)
+        self.assertEqual((await call(session,'list_documents'))['count'],2)
+        session.call_tool.return_value=CallToolResult(content=[TextContent(type='text',text='failure')],is_error=True)
+        with self.assertRaises(RuntimeError):await call(session,'list_documents')
 
 
 if __name__=='__main__':unittest.main()

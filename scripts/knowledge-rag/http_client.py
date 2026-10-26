@@ -19,7 +19,7 @@ async def connect(url):
 
 async def call(session, name, arguments=None):
     response = await session.call_tool(name, arguments or {})
-    if response.isError:
+    if response.is_error:
         raise RuntimeError(f'MCP tool failed: {name}')
     text = ''.join(c.text for c in response.content if c.type == 'text')
     value = json.loads(text)
