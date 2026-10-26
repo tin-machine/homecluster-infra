@@ -71,6 +71,11 @@ run "workspace_storage_and_identity" {
     condition     = length(kubernetes_service_v1.ssh) == 0
     error_message = "SSH must remain opt-in until credentials are provisioned."
   }
+
+  assert {
+    condition     = one([for env in kubernetes_deployment_v1.this.spec[0].template[0].spec[0].container[0].env : env.value if env.name == "PI_CODING_AGENT_DIR"]) == "/work-state/pi"
+    error_message = "Pi state must use the retained local volume in normal shell sessions."
+  }
 }
 
 run "reject_unpinned_image" {

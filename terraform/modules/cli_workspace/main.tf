@@ -118,6 +118,10 @@ resource "kubernetes_deployment_v1" "this" {
             name  = "CODEX_HOME"
             value = "/work-state/codex"
           }
+          env {
+            name  = "PI_CODING_AGENT_DIR"
+            value = "/work-state/pi"
+          }
 
           resources {
             requests = {
