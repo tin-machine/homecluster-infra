@@ -16,6 +16,8 @@ STATIC_INVENTORY_DIR="$(dirname "${INVENTORY_PATH}")"
 STATE_FILE="${STATE_DIR}/last.env"
 CURRENT_STEP="init"
 STATE_LOGGING_ENABLED=0
+ACTIVE_PHASE=""
+PREPARE_CACHE_HIT=0
 EXTRA_VARS_FILE=""
 K3S_STG_AGENT_TOKEN_FILE="${K3S_STG_AGENT_TOKEN_FILE:-/run/pxe-bootstrap/logs/k3s-stg/agent-token}"
 K3S_STG_AGENT_TOKEN_META_FILE="${K3S_STG_AGENT_TOKEN_META_FILE:-/run/pxe-bootstrap/logs/k3s-stg/agent-token.meta}"
@@ -38,6 +40,27 @@ now_epoch() {
 }
 
 START_TS="$(now_epoch)"
+
+monotonic_ms() {
+  awk '{printf "%.0f\n", $1 * 1000}' /proc/uptime
+}
+
+phase_begin() {
+  ACTIVE_PHASE="$1"
+  PHASE_START_MS="$(monotonic_ms)"
+}
+
+phase_end() {
+  phase_rc="$1"
+  [ -n "${ACTIVE_PHASE}" ] || return 0
+  phase_finish_ms="$(monotonic_ms)"
+  phase_elapsed_ms=$(( phase_finish_ms - PHASE_START_MS ))
+  [ "${phase_elapsed_ms}" -ge 0 ] || phase_elapsed_ms=0
+  printf 'pxe_phase role=%s phase=%s duration_ms=%s rc=%s cache_hit=%s pin=%s\n' \
+    "${ROLE}" "${ACTIVE_PHASE}" "${phase_elapsed_ms}" "${phase_rc}" \
+    "${PREPARE_CACHE_HIT}" "${pin_revision:-unknown}"
+  ACTIVE_PHASE=""
+}
 
 state_file_for_role() {
   role_name="${1:-unknown}"
@@ -302,6 +325,66 @@ token_file_is_usable() {
   [ "${age}" -le "${K3S_STG_AGENT_TOKEN_MAX_AGE_SECS}" ]
 }
 
+# /run is boot-scoped. This marker only attests source preparation, never a
+# successful role/playbook execution (which has a separate receipt below).
+pinned_prepare_marker() {
+  printf '%s/pinned-source-prepared.env\n' "${STATE_DIR}"
+}
+
+pinned_source_tree_is_clean() {
+  git -C "${DEST}" diff --quiet --exit-code || return 1
+  git -C "${DEST}" diff --cached --quiet --exit-code || return 1
+  untracked="$(git -C "${DEST}" ls-files --others --exclude-standard)" || return 1
+  if [ -n "${untracked}" ]; then
+    printf '%s\n' "${untracked}" | while IFS= read -r path; do
+      case "${path}" in
+        ansible/arm64/roles/xanmanning.k3s/*) ;;
+        *) exit 1 ;;
+      esac
+    done || return 1
+  fi
+}
+
+pinned_galaxy_install_is_current() {
+  python3 - "${ARM64_PLAYBOOK_DIR}/requirements.yml" "${ARM64_PLAYBOOK_DIR}/roles" <<'PY'
+import json
+from pathlib import Path
+import sys
+
+import yaml
+
+requirements = yaml.safe_load(Path(sys.argv[1]).read_text())
+roles_dir = Path(sys.argv[2])
+for role in requirements.get("roles", []):
+    info = roles_dir / role["name"] / "meta" / ".galaxy_install_info"
+    if not info.is_file() or yaml.safe_load(info.read_text()).get("version") != role["version"]:
+        sys.exit(1)
+for collection in requirements.get("collections", []):
+    namespace, name = collection["name"].split(".", 1)
+    manifest = Path.home() / ".ansible/collections/ansible_collections" / namespace / name / "MANIFEST.json"
+    if not manifest.is_file() or json.loads(manifest.read_text()).get("collection_info", {}).get("version") != collection["version"]:
+        sys.exit(1)
+PY
+}
+
+pinned_prepare_is_current() {
+  marker="$(pinned_prepare_marker)"
+  [ -f "${marker}" ] || return 1
+  [ "$(cat "${marker}")" = "${pin_revision} ${pin_build_id} ${pin_digest} ${prepare_boot_id} ${DEST} ${requirements_sha}" ] || return 1
+  [ "$(git -C "${DEST}" rev-parse --verify 'HEAD^{commit}' 2>/dev/null)" = "${pin_revision}" ] || return 1
+  pinned_source_tree_is_clean || return 1
+  pinned_galaxy_install_is_current
+}
+
+record_pinned_prepare() {
+  marker="$(pinned_prepare_marker)"
+  marker_tmp="${marker}.tmp.$$"
+  (umask 0077; printf '%s %s %s %s %s %s\n' \
+    "${pin_revision}" "${pin_build_id}" "${pin_digest}" \
+    "${prepare_boot_id}" "${DEST}" "${requirements_sha}" > "${marker_tmp}") || return 1
+  mv -f "${marker_tmp}" "${marker}"
+}
+
 # Optional evidence of checkout HEAD just after a successful ansible-pull.
 # Legacy evidence remains a post-success observation, not proof of a source pin.
 read_boot_id() {
@@ -426,6 +509,7 @@ EOF
 finish() {
   rc="$?"
   trap - EXIT
+  phase_end "${rc}" || true
   if [ "${STATE_LOGGING_ENABLED}" -eq 1 ]; then
     end_ts="$(now_epoch)"
     elapsed=$(( end_ts - START_TS ))
@@ -476,7 +560,9 @@ esac
 CURRENT_STEP="runtime_inventory"
 write_runtime_inventory
 CURRENT_STEP="role_extra_vars"
+phase_begin role_extra_vars
 prepare_role_extra_vars
+phase_end 0
 
 CURRENT_STEP="time_sync_check"
 timeout 5 timedatectl show -p NTPSynchronized --value >/dev/null 2>&1 || echo "warning: timedatectl failed; continuing" >&2
@@ -496,22 +582,35 @@ if [ "${resolved}" -ne 1 ]; then
 fi
 
 CURRENT_STEP="prepare_dest"
+phase_begin source_git
 mkdir -p "${DEST}"
 if [ "${SOURCE_MODE}" = pinned ]; then
   DEST="$(cd "${DEST}" && pwd -P)"
-  if [ ! -d "${DEST}/.git" ]; then
-    CURRENT_STEP="git_init"
-    git init "${DEST}"
-    git -C "${DEST}" remote add origin "${REPO_URL}"
+  ARM64_PLAYBOOK_DIR="${DEST}/ansible/arm64"
+  requirements_sha="$(sha256sum "${ARM64_PLAYBOOK_DIR}/requirements.yml" 2>/dev/null | awk '{print $1}')"
+  prepare_boot_id="$(read_boot_id)"
+  CURRENT_STEP="pinned_prepare_check"
+  if [ -n "${requirements_sha}" ] && pinned_prepare_is_current; then
+    PREPARE_CACHE_HIT=1
+    echo "pinned source preparation cache hit: ${pin_revision}"
+  else
+    rm -f "$(pinned_prepare_marker)"
+    if [ ! -d "${DEST}/.git" ]; then
+      CURRENT_STEP="git_init"
+      git init "${DEST}"
+      git -C "${DEST}" remote add origin "${REPO_URL}"
+    fi
+    CURRENT_STEP="git_fetch_pin"
+    git -C "${DEST}" fetch --depth 1 origin "${pin_revision}"
+    if [ -d "${DEST}/ansible/arm64/roles/xanmanning.k3s" ]; then
+      CURRENT_STEP="cleanup_old_galaxy_roles"
+      rm -rf "${DEST}/ansible/arm64/roles/xanmanning.k3s"
+    fi
+    CURRENT_STEP="git_reset_pin"
+    git -C "${DEST}" reset --hard "${pin_revision}"
+    pinned_source_tree_is_clean || { echo "unexpected checkout changes or untracked source" >&2; exit 2; }
+    requirements_sha="$(sha256sum "${ARM64_PLAYBOOK_DIR}/requirements.yml" | awk '{print $1}')"
   fi
-  CURRENT_STEP="git_fetch_pin"
-  git -C "${DEST}" fetch --depth 1 origin "${pin_revision}"
-  if [ -d "${DEST}/ansible/arm64/roles/xanmanning.k3s" ]; then
-    CURRENT_STEP="cleanup_old_galaxy_roles"
-    rm -rf "${DEST}/ansible/arm64/roles/xanmanning.k3s"
-  fi
-  CURRENT_STEP="git_reset_pin"
-  git -C "${DEST}" reset --hard "${pin_revision}"
 elif [ ! -d "${DEST}/.git" ]; then
   CURRENT_STEP="git_clone"
   git clone --depth 1 --branch "${BRANCH}" "${REPO_URL}" "${DEST}"
@@ -525,6 +624,7 @@ else
   CURRENT_STEP="git_reset"
   git -C "${DEST}" reset --hard "origin/${BRANCH}"
 fi
+phase_end 0
 
 ARM64_PLAYBOOK_DIR="${DEST}/ansible/arm64"
 ARM64_PLAYBOOK_REL="ansible/arm64"
@@ -533,10 +633,20 @@ export ANSIBLE_ROLES_PATH="${ARM64_PLAYBOOK_DIR}/roles:${DEST}/ansible/roles:/ro
 
 GALAXY_ROLE_HOME="/run/homecluster-ansible-galaxy-role"
 install -d -m 0700 "${GALAXY_ROLE_HOME}"
-CURRENT_STEP="ansible_galaxy_roles"
-HOME="${GALAXY_ROLE_HOME}" /usr/bin/ansible-galaxy install -r "${ARM64_PLAYBOOK_DIR}/requirements.yml" -p "${ARM64_PLAYBOOK_DIR}/roles"
-CURRENT_STEP="ansible_galaxy_collections"
-/usr/bin/ansible-galaxy collection install -r "${ARM64_PLAYBOOK_DIR}/requirements.yml"
+phase_begin source_galaxy
+if [ "${SOURCE_MODE}" != pinned ] || ! pinned_prepare_is_current; then
+  CURRENT_STEP="ansible_galaxy_roles"
+  HOME="${GALAXY_ROLE_HOME}" /usr/bin/ansible-galaxy install -r "${ARM64_PLAYBOOK_DIR}/requirements.yml" -p "${ARM64_PLAYBOOK_DIR}/roles"
+  CURRENT_STEP="ansible_galaxy_collections"
+  /usr/bin/ansible-galaxy collection install -r "${ARM64_PLAYBOOK_DIR}/requirements.yml"
+  if [ "${SOURCE_MODE}" = pinned ]; then
+    CURRENT_STEP="verify_galaxy_install"
+    pinned_galaxy_install_is_current
+    pinned_source_tree_is_clean
+    record_pinned_prepare
+  fi
+fi
+phase_end 0
 
 if [ "${SOURCE_MODE}" = pinned ]; then
   CURRENT_STEP="verify_source_pin"
@@ -556,5 +666,7 @@ if [ -n "${EXTRA_VARS_FILE}" ]; then
   set -- "$@" -e "@${EXTRA_VARS_FILE}"
 fi
 CURRENT_STEP="ansible_pull"
+phase_begin playbook
 "$@" "${selected_playbook}"
+phase_end 0
 CURRENT_STEP="complete"

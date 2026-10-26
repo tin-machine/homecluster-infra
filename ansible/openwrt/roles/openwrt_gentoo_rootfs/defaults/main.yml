@@ -423,6 +423,7 @@ openwrt_gentoo_ssh_host_certificates_config_path: /etc/ssh/sshd_config.d/20-pxe-
 # Portage 初期化
 openwrt_gentoo_portage_init: true
 openwrt_gentoo_portage_repo_path: /var/db/repos/gentoo
+openwrt_gentoo_portage_revision: master
 openwrt_gentoo_portage_profile: /var/db/repos/gentoo/profiles/default/linux/arm64/23.0/systemd
 openwrt_gentoo_portage_sync_args: "--quiet"
 openwrt_gentoo_portage_sync_marker: "{{ openwrt_gentoo_rootfs_dir }}/var/db/repos/.portage_synced"
