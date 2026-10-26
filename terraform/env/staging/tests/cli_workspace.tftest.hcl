@@ -96,6 +96,49 @@ run "reject_unpinned_image" {
   expect_failures = [var.image]
 }
 
+run "existing_absolute_home_symlinks" {
+  command = plan
+
+  module {
+    source = "../../modules/cli_workspace"
+  }
+
+  plan_options {
+    refresh = false
+  }
+
+  variables {
+    home_mount_path = "/net/192.0.2.10/homes/workspace"
+  }
+
+  assert {
+    condition = (
+      one([for env in kubernetes_deployment_v1.this.spec[0].template[0].spec[0].container[0].env : env.value if env.name == "HOME"]) == var.home_mount_path &&
+      kubernetes_deployment_v1.this.spec[0].template[0].spec[0].container[0].volume_mount[0].mount_path == var.home_mount_path &&
+      kubernetes_deployment_v1.this.spec[0].template[0].spec[0].container[0].volume_mount[0].sub_path == var.nas_home_subpath
+    )
+    error_message = "The existing NAS home must be mounted at the same absolute path used by HOME and dotfile symlinks."
+  }
+}
+
+run "reject_home_mount_over_system_paths" {
+  command = plan
+
+  module {
+    source = "../../modules/cli_workspace"
+  }
+
+  plan_options {
+    refresh = false
+  }
+
+  variables {
+    home_mount_path = "/home/../usr"
+  }
+
+  expect_failures = [var.home_mount_path]
+}
+
 run "ssh_endpoint_is_explicit_and_tailnet_only" {
   command = plan
 

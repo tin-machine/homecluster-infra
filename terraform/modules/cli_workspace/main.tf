@@ -112,7 +112,7 @@ resource "kubernetes_deployment_v1" "this" {
           }
           env {
             name  = "HOME"
-            value = "/work-home"
+            value = var.home_mount_path
           }
           env {
             name  = "CODEX_HOME"
@@ -141,7 +141,7 @@ resource "kubernetes_deployment_v1" "this" {
 
           volume_mount {
             name       = "home"
-            mount_path = "/work-home"
+            mount_path = var.home_mount_path
             sub_path   = var.nas_home_subpath
           }
           volume_mount {

@@ -62,6 +62,7 @@ module "cli_workspace" {
   nas_server                      = var.cli_workspace_nas_server
   nas_export_path                 = var.cli_workspace_nas_export_path
   nas_home_subpath                = var.cli_workspace_nas_home_subpath
+  home_mount_path                 = var.cli_workspace_home_mount_path
   user_name                       = var.cli_workspace_user_name
   user_id                         = var.cli_workspace_user_id
   group_id                        = var.cli_workspace_group_id

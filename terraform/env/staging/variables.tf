@@ -102,6 +102,12 @@ variable "cli_workspace_nas_home_subpath" {
   default     = ""
 }
 
+variable "cli_workspace_home_mount_path" {
+  type        = string
+  description = "Container home path; match existing NAS dotfile symlinks if they use absolute paths."
+  default     = "/work-home"
+}
+
 variable "cli_workspace_user_name" {
   type        = string
   description = "Unix account name mapped to the existing NAS home."

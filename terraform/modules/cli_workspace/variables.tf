@@ -48,6 +48,20 @@ variable "nas_home_subpath" {
   }
 }
 
+variable "home_mount_path" {
+  type        = string
+  description = "Container home path matching existing absolute dotfile symlinks when needed."
+  default     = "/work-home"
+  validation {
+    condition = (
+      var.home_mount_path == "/work-home" ||
+      (can(regex("^/(home|net|mnt)/[a-zA-Z0-9._-]+(/[a-zA-Z0-9._-]+)*$", var.home_mount_path)) &&
+      alltrue([for part in split("/", var.home_mount_path) : !contains([".", ".."], part)]))
+    )
+    error_message = "Home must be /work-home or a path below /home, /net, or /mnt without dot segments."
+  }
+}
+
 variable "user_name" {
   type = string
   validation {
