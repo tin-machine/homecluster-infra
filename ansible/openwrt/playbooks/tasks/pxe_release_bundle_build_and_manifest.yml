@@ -44,6 +44,8 @@
   delegate_to: localhost
   connection: local
   become: false
+  vars:
+    ansible_connection: local
   when:
     - not (pxe_release_bundle_skip_build | default(false) | bool)
     - openwrt_gentoo_portage_revision | default('master') == 'master'
@@ -63,6 +65,8 @@
   delegate_to: localhost
   connection: local
   become: false
+  vars:
+    ansible_connection: local
   when:
     - not (pxe_release_bundle_skip_build | default(false) | bool)
     - openwrt_gentoo_copy_rpi_modules | bool
