@@ -59,7 +59,7 @@
     argv:
       - git
       - ls-remote
-      - "{{ openwrt_gentoo_rpi_firmware_repo }}"
+      - "{{ openwrt_gentoo_rpi_firmware_repo | default('https://github.com/raspberrypi/firmware.git') }}"
       - refs/heads/master
   register: pxe_release_bundle_firmware_remote
   changed_when: false
@@ -71,8 +71,8 @@
     ansible_remote_tmp: ~/.ansible/tmp
   when:
     - not (pxe_release_bundle_skip_build | default(false) | bool)
-    - openwrt_gentoo_copy_rpi_modules | bool
-    - openwrt_gentoo_rpi_firmware_version == 'master'
+    - openwrt_gentoo_copy_rpi_modules | default(true) | bool
+    - openwrt_gentoo_rpi_firmware_version | default('master') == 'master'
   tags:
     - pxe_release_bundle
     - pxe_release_bundle_build
@@ -88,8 +88,8 @@
     pxe_release_bundle_firmware_revision: >-
       {{
         ((pxe_release_bundle_firmware_remote.stdout | default('')).split() | first | default('')
-         if (openwrt_gentoo_copy_rpi_modules | bool and openwrt_gentoo_rpi_firmware_version == 'master')
-         else openwrt_gentoo_rpi_firmware_version)
+         if (openwrt_gentoo_copy_rpi_modules | default(true) | bool and openwrt_gentoo_rpi_firmware_version | default('master') == 'master')
+         else openwrt_gentoo_rpi_firmware_version | default('master'))
       }}
   when: not (pxe_release_bundle_skip_build | default(false) | bool)
   tags:
@@ -100,7 +100,7 @@
   ansible.builtin.assert:
     that:
       - pxe_release_bundle_portage_revision is match('^[0-9a-f]{40}$')
-      - not (openwrt_gentoo_copy_rpi_modules | bool) or pxe_release_bundle_firmware_revision is match('^[0-9a-f]{40}$')
+      - not (openwrt_gentoo_copy_rpi_modules | default(true) | bool) or pxe_release_bundle_firmware_revision is match('^[0-9a-f]{40}$')
     fail_msg: "Portage / firmware の入力commitを確定できませんでした"
   when: not (pxe_release_bundle_skip_build | default(false) | bool)
   tags:
