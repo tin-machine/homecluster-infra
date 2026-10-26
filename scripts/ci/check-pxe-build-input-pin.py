@@ -40,12 +40,14 @@ class BuildInputPinTests(unittest.TestCase):
                      if task.get("name") in {
                          "PXE paired build の Portage revision を取得",
                          "PXE paired build の firmware revision を取得",
+                         "PXE paired build の moving input を commit に固定",
+                         "PXE paired build の input revision を検証",
                      }]
-            self.assertEqual(len(tasks), 2)
+            self.assertEqual(len(tasks), 4)
             tasks[0]["ansible.builtin.command"]["argv"][2] = remote.as_uri()
             tasks.append({"ansible.builtin.assert": {"that": [
-                f"pxe_release_bundle_portage_remote.stdout.split()[0] == '{fixed}'",
-                f"pxe_release_bundle_firmware_remote.stdout.split()[0] == '{fixed}'",
+                f"pxe_release_bundle_portage_revision == '{fixed}'",
+                f"pxe_release_bundle_firmware_revision == '{fixed}'",
             ]}})
             playbook = [{
                 "hosts": "buildhost", "gather_facts": False,
@@ -53,9 +55,6 @@ class BuildInputPinTests(unittest.TestCase):
                     "ansible_connection": "ssh", "ansible_user": "root",
                     "ansible_remote_tmp": str(remote_tmp_file),
                     "pxe_release_bundle_skip_build": False,
-                    "openwrt_gentoo_portage_revision": "master",
-                    "openwrt_gentoo_copy_rpi_modules": True,
-                    "openwrt_gentoo_rpi_firmware_version": "master",
                     "openwrt_gentoo_rpi_firmware_repo": remote.as_uri(),
                 },
                 "tasks": tasks,
