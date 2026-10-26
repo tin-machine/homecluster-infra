@@ -206,6 +206,7 @@ resource "kubernetes_service_v1" "ssh" {
     labels    = local.labels
     annotations = {
       "tailscale.com/hostname" = var.ssh_tailnet_hostname
+      "tailscale.com/tags"     = "tag:cli-workspace-stg"
     }
   }
 

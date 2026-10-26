@@ -119,6 +119,11 @@ run "ssh_endpoint_is_explicit_and_tailnet_only" {
   }
 
   assert {
+    condition     = kubernetes_service_v1.ssh[0].metadata[0].annotations["tailscale.com/tags"] == "tag:cli-workspace-stg"
+    error_message = "Workspace SSH must have a dedicated tailnet policy identity."
+  }
+
+  assert {
     condition     = kubernetes_deployment_v1.this.spec[0].template[0].spec[0].volume[2].secret[0].secret_name == "workspace-keys"
     error_message = "Only a precreated authorized_keys Secret name may enter the Pod plan."
   }
