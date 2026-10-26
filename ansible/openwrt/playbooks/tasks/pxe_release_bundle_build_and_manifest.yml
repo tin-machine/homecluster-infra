@@ -46,6 +46,7 @@
   become: false
   vars:
     ansible_connection: local
+    ansible_remote_tmp: ~/.ansible/tmp
   when:
     - not (pxe_release_bundle_skip_build | default(false) | bool)
     - openwrt_gentoo_portage_revision | default('master') == 'master'
@@ -67,6 +68,7 @@
   become: false
   vars:
     ansible_connection: local
+    ansible_remote_tmp: ~/.ansible/tmp
   when:
     - not (pxe_release_bundle_skip_build | default(false) | bool)
     - openwrt_gentoo_copy_rpi_modules | bool
