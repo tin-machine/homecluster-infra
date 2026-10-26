@@ -130,7 +130,7 @@ resource "kubernetes_deployment_v1" "this" {
               "ephemeral-storage" = "512Mi"
             }
             limits = {
-              memory              = "2Gi"
+              memory              = "4Gi"
               "ephemeral-storage" = "4Gi"
             }
           }
