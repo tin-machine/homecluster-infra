@@ -16,7 +16,11 @@ INITRAMFS = ROOT / "ansible/openwrt/roles/openwrt_gentoo_rootfs/tasks/initramfs.
 
 
 def fixture(*, include_override: bool) -> subprocess.CompletedProcess[str]:
-    build = yaml.safe_load(BUNDLE.read_text())[0]
+    build = next(
+        task for task in yaml.safe_load(BUNDLE.read_text())
+        if task.get("ansible.builtin.include_role", {}).get("name") == "openwrt_gentoo_rootfs"
+        and "openwrt_gentoo_initramfs_builds" in task.get("vars", {})
+    )
     # Execute the production normalizer, but never its stat, chroot or copy tasks.
     normalizer = yaml.safe_load(INITRAMFS.read_text())[0]["block"][:2]
     role_vars = {}

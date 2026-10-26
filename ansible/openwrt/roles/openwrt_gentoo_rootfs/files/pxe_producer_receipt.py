@@ -117,7 +117,7 @@ def produce(*, bundle_date, build_id, infra_revision, generation_profile):
     started = _now()
     manifest_raw = _file(manifest_path, 512 * 1024)
     paths = _manifest(manifest_raw, bundle_date)
-    artifacts, declarations = {}, {}
+    artifacts, declarations, measurement = {}, {}, {}
     for generation in GENERATIONS:
         release = f"{bundle_date}-{generation}"
         rootfs = ROOT / release / "nfs"
@@ -125,8 +125,11 @@ def produce(*, bundle_date, build_id, infra_revision, generation_profile):
         declaration = rootfs / "etc/ansible-pull/source-declaration.json"
         declarations[generation] = _declaration(_file(declaration, 4096), build_id, infra_revision)
         required = _required_files(tftp, paths[generation])
-        artifacts[generation] = {"rootfs": fingerprint_tree(rootfs), "tftp": fingerprint_tree(tftp),
+        rootfs_timing, tftp_timing = {}, {}
+        artifacts[generation] = {"rootfs": fingerprint_tree(rootfs, timing=rootfs_timing),
+                                 "tftp": fingerprint_tree(tftp, timing=tftp_timing),
                                  "required_tftp": required}
+        measurement[generation] = {"rootfs": rootfs_timing, "tftp": tftp_timing}
         if required != _required_files(tftp, paths[generation]):
             raise ValueError("required artifacts changed during measurement")
     if len(set(declarations.values())) != 1:
@@ -161,7 +164,7 @@ def produce(*, bundle_date, build_id, infra_revision, generation_profile):
     else:
         raw = _publish(destination, value)
     return {"status": status, "bundle_date": bundle_date, "receipt_id": value["receipt_id"],
-            "receipt_sha256": hashlib.sha256(raw).hexdigest()}
+            "receipt_sha256": hashlib.sha256(raw).hexdigest(), "measurement": measurement}
 
 
 def main():

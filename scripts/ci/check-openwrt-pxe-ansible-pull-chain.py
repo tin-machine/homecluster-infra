@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -119,12 +120,12 @@ def assert_galaxy_role_download_has_isolated_home(text: str) -> None:
         'HOME="${GALAXY_ROLE_HOME}" /usr/bin/ansible-galaxy install -r ',
         "Galaxy role install must not inherit root HOME or /root/.netrc",
     )
-    require_contains(
+    if not re.search(
+        r'CURRENT_STEP="ansible_galaxy_collections"\n\s*'
+        r'/usr/bin/ansible-galaxy collection install -r ',
         text,
-        'CURRENT_STEP="ansible_galaxy_collections"\n'
-        '/usr/bin/ansible-galaxy collection install -r ',
-        "Galaxy collection install must retain its existing root HOME destination",
-    )
+    ):
+        raise AssertionError("Galaxy collection install must retain its existing root HOME destination")
 
 
 def test_galaxy_role_download_home_isolation() -> None:
