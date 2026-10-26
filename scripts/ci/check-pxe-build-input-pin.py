@@ -33,6 +33,8 @@ class BuildInputPinTests(unittest.TestCase):
             git(source, "remote", "add", "origin", str(remote))
             git(source, "push", "-q", "origin", "master")
             fixed = git(source, "rev-parse", "HEAD")
+            remote_tmp_file = root / "openwrt-remote-tmp-is-not-a-directory"
+            remote_tmp_file.write_text("not a directory\n")
 
             tasks = [task for task in yaml.safe_load(BUILD_TASKS.read_text())
                      if task.get("name") in {
@@ -49,6 +51,7 @@ class BuildInputPinTests(unittest.TestCase):
                 "hosts": "buildhost", "gather_facts": False,
                 "vars": {
                     "ansible_connection": "ssh", "ansible_user": "root",
+                    "ansible_remote_tmp": str(remote_tmp_file),
                     "pxe_release_bundle_skip_build": False,
                     "openwrt_gentoo_portage_revision": "master",
                     "openwrt_gentoo_copy_rpi_modules": True,
