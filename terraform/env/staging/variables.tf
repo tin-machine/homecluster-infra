@@ -102,6 +102,12 @@ variable "cli_workspace_nas_home_subpath" {
   default     = ""
 }
 
+variable "cli_workspace_home_mount_path" {
+  type        = string
+  description = "Container home path; match existing NAS dotfile symlinks if they use absolute paths."
+  default     = "/work-home"
+}
+
 variable "cli_workspace_user_name" {
   type        = string
   description = "Unix account name mapped to the existing NAS home."
@@ -118,6 +124,36 @@ variable "cli_workspace_group_id" {
   type        = number
   description = "Existing NAS home owner GID."
   default     = 0
+}
+
+variable "cli_workspace_ssh_enabled" {
+  type        = bool
+  description = "Enable the CLI Pod SSH endpoint after the public-key Secret and Tailscale operator are ready."
+  default     = false
+}
+
+variable "cli_workspace_ssh_image" {
+  type        = string
+  description = "Validated ARM64 SSH sidecar image pinned by sha256 digest."
+  default     = ""
+}
+
+variable "cli_workspace_ssh_authorized_keys_secret_name" {
+  type        = string
+  description = "Name of the precreated cli-tools Secret containing authorized_keys; no key material enters Terraform state."
+  default     = "cli-workspace-ssh"
+}
+
+variable "cli_workspace_ssh_tailnet_hostname" {
+  type        = string
+  description = "Dedicated MagicDNS hostname for the workspace SSH Service."
+  default     = "workspace"
+}
+
+variable "tailscale_operator_enabled" {
+  type        = bool
+  description = "Install the pinned Tailscale operator only after tailscale/operator-oauth exists."
+  default     = false
 }
 
 variable "registry_namespace" {

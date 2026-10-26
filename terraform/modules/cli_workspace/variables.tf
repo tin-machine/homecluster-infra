@@ -48,6 +48,20 @@ variable "nas_home_subpath" {
   }
 }
 
+variable "home_mount_path" {
+  type        = string
+  description = "Container home path matching existing absolute dotfile symlinks when needed."
+  default     = "/work-home"
+  validation {
+    condition = (
+      var.home_mount_path == "/work-home" ||
+      (can(regex("^/(home|net|mnt)/[a-zA-Z0-9._-]+(/[a-zA-Z0-9._-]+)*$", var.home_mount_path)) &&
+      alltrue([for part in split("/", var.home_mount_path) : !contains([".", ".."], part)]))
+    )
+    error_message = "Home must be /work-home or a path below /home, /net, or /mnt without dot segments."
+  }
+}
+
 variable "user_name" {
   type = string
   validation {
@@ -75,4 +89,36 @@ variable "group_id" {
 variable "state_storage_size" {
   type    = string
   default = "10Gi"
+}
+
+variable "ssh_enabled" {
+  type    = bool
+  default = false
+}
+
+variable "ssh_image" {
+  type    = string
+  default = ""
+  validation {
+    condition     = !var.ssh_enabled || can(regex("@sha256:[0-9a-f]{64}$", var.ssh_image))
+    error_message = "The SSH sidecar image must be pinned by sha256 when enabled."
+  }
+}
+
+variable "ssh_authorized_keys_secret_name" {
+  type    = string
+  default = "cli-workspace-ssh"
+  validation {
+    condition     = length(var.ssh_authorized_keys_secret_name) <= 63 && can(regex("^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", var.ssh_authorized_keys_secret_name))
+    error_message = "SSH authorized_keys Secret name must be a Kubernetes DNS label."
+  }
+}
+
+variable "ssh_tailnet_hostname" {
+  type    = string
+  default = "workspace"
+  validation {
+    condition     = length(var.ssh_tailnet_hostname) <= 63 && can(regex("^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", var.ssh_tailnet_hostname))
+    error_message = "The tailnet hostname must be one DNS label."
+  }
 }
