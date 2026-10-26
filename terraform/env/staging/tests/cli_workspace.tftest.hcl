@@ -104,6 +104,7 @@ run "ssh_endpoint_is_explicit_and_tailnet_only" {
 
   variables {
     ssh_enabled                     = true
+    ssh_image                       = "ghcr.io/example/cli-ssh@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
     ssh_authorized_keys_secret_name = "workspace-keys"
     ssh_tailnet_hostname            = "workspace-test"
   }
@@ -124,7 +125,46 @@ run "ssh_endpoint_is_explicit_and_tailnet_only" {
   }
 
   assert {
-    condition     = kubernetes_deployment_v1.this.spec[0].template[0].spec[0].volume[2].secret[0].secret_name == "workspace-keys"
+    condition     = kubernetes_deployment_v1.this.spec[0].template[0].spec[0].volume[3].secret[0].secret_name == "workspace-keys"
     error_message = "Only a precreated authorized_keys Secret name may enter the Pod plan."
   }
+
+  assert {
+    condition     = kubernetes_deployment_v1.this.spec[0].template[0].spec[0].container[1].name == "ssh" && kubernetes_deployment_v1.this.spec[0].template[0].spec[0].container[1].image == var.ssh_image
+    error_message = "SSH must run as a separate pinned sidecar image."
+  }
+
+  assert {
+    condition     = kubernetes_deployment_v1.this.spec[0].template[0].spec[0].container[1].volume_mount[0].sub_path == "ssh" && kubernetes_deployment_v1.this.spec[0].template[0].spec[0].container[1].volume_mount[0].mount_path == "/work-state/ssh"
+    error_message = "The SSH sidecar may mount only the persistent host-key directory."
+  }
+
+  assert {
+    condition     = kubernetes_deployment_v1.this.spec[0].template[0].spec[0].automount_service_account_token == false
+    error_message = "The workspace Pod must not receive a Kubernetes API token."
+  }
+
+  assert {
+    condition     = kubernetes_deployment_v1.this.spec[0].template[0].spec[0].volume[2].empty_dir[0].medium == "Memory"
+    error_message = "CLI and SSH containers must share an ephemeral tmux socket volume."
+  }
+}
+
+run "reject_unpinned_ssh_sidecar" {
+  command = plan
+
+  module {
+    source = "../../modules/cli_workspace"
+  }
+
+  plan_options {
+    refresh = false
+  }
+
+  variables {
+    ssh_enabled = true
+    ssh_image   = "ghcr.io/example/cli-ssh:latest"
+  }
+
+  expect_failures = [var.ssh_image]
 }

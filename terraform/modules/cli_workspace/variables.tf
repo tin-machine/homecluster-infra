@@ -82,6 +82,15 @@ variable "ssh_enabled" {
   default = false
 }
 
+variable "ssh_image" {
+  type    = string
+  default = ""
+  validation {
+    condition     = !var.ssh_enabled || can(regex("@sha256:[0-9a-f]{64}$", var.ssh_image))
+    error_message = "The SSH sidecar image must be pinned by sha256 when enabled."
+  }
+}
+
 variable "ssh_authorized_keys_secret_name" {
   type    = string
   default = "cli-workspace-ssh"

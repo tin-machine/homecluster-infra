@@ -80,6 +80,7 @@ resource "kubernetes_deployment_v1" "this" {
       }
 
       spec {
+        automount_service_account_token = false
         node_selector = {
           "kubernetes.io/hostname" = var.node_name
         }
@@ -106,7 +107,7 @@ resource "kubernetes_deployment_v1" "this" {
             value = "1"
           }
           env {
-            name  = "CLI_WORKSPACE_SSH"
+            name  = "CLI_WORKSPACE_TMUX"
             value = var.ssh_enabled ? "1" : "0"
           }
           env {
@@ -134,15 +135,6 @@ resource "kubernetes_deployment_v1" "this" {
             allow_privilege_escalation = false
           }
 
-          dynamic "port" {
-            for_each = var.ssh_enabled ? [1] : []
-            content {
-              name           = "ssh"
-              container_port = 22
-              protocol       = "TCP"
-            }
-          }
-
           volume_mount {
             name       = "home"
             mount_path = "/work-home"
@@ -155,6 +147,62 @@ resource "kubernetes_deployment_v1" "this" {
           dynamic "volume_mount" {
             for_each = var.ssh_enabled ? [1] : []
             content {
+              name       = "tmux-socket"
+              mount_path = "/run/workspace-tmux"
+            }
+          }
+        }
+
+        dynamic "container" {
+          for_each = var.ssh_enabled ? [1] : []
+          content {
+            name              = "ssh"
+            image             = var.ssh_image
+            image_pull_policy = "IfNotPresent"
+
+            env {
+              name  = "USER_NAME"
+              value = var.user_name
+            }
+            env {
+              name  = "CLI_USER_ID"
+              value = tostring(var.user_id)
+            }
+            env {
+              name  = "CLI_GROUP_ID"
+              value = tostring(var.group_id)
+            }
+
+            port {
+              name           = "ssh"
+              container_port = 22
+              protocol       = "TCP"
+            }
+
+            resources {
+              requests = {
+                cpu    = "20m"
+                memory = "64Mi"
+              }
+              limits = {
+                memory = "256Mi"
+              }
+            }
+
+            security_context {
+              allow_privilege_escalation = false
+            }
+
+            volume_mount {
+              name       = "state"
+              mount_path = "/work-state/ssh"
+              sub_path   = "ssh"
+            }
+            volume_mount {
+              name       = "tmux-socket"
+              mount_path = "/run/workspace-tmux"
+            }
+            volume_mount {
               name       = "ssh-authorized-keys"
               mount_path = "/run/workspace-ssh"
               read_only  = true
@@ -174,6 +222,16 @@ resource "kubernetes_deployment_v1" "this" {
           name = "state"
           persistent_volume_claim {
             claim_name = kubernetes_persistent_volume_claim_v1.state.metadata[0].name
+          }
+        }
+        dynamic "volume" {
+          for_each = var.ssh_enabled ? [1] : []
+          content {
+            name = "tmux-socket"
+            empty_dir {
+              medium     = "Memory"
+              size_limit = "16Mi"
+            }
           }
         }
         dynamic "volume" {

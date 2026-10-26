@@ -126,6 +126,12 @@ variable "cli_workspace_ssh_enabled" {
   default     = false
 }
 
+variable "cli_workspace_ssh_image" {
+  type        = string
+  description = "Validated ARM64 SSH sidecar image pinned by sha256 digest."
+  default     = ""
+}
+
 variable "cli_workspace_ssh_authorized_keys_secret_name" {
   type        = string
   description = "Name of the precreated cli-tools Secret containing authorized_keys; no key material enters Terraform state."

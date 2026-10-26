@@ -66,6 +66,7 @@ module "cli_workspace" {
   user_id                         = var.cli_workspace_user_id
   group_id                        = var.cli_workspace_group_id
   ssh_enabled                     = var.cli_workspace_ssh_enabled
+  ssh_image                       = var.cli_workspace_ssh_image
   ssh_authorized_keys_secret_name = var.cli_workspace_ssh_authorized_keys_secret_name
   ssh_tailnet_hostname            = var.cli_workspace_ssh_tailnet_hostname
 }
