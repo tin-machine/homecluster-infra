@@ -57,12 +57,29 @@ module "cli_workspace" {
   count  = var.cli_workspace_enabled ? 1 : 0
   source = "../../modules/cli_workspace"
 
-  image            = var.cli_workspace_image
-  node_name        = var.cli_workspace_node_name
-  nas_server       = var.cli_workspace_nas_server
-  nas_export_path  = var.cli_workspace_nas_export_path
-  nas_home_subpath = var.cli_workspace_nas_home_subpath
-  user_name        = var.cli_workspace_user_name
-  user_id          = var.cli_workspace_user_id
-  group_id         = var.cli_workspace_group_id
+  image                           = var.cli_workspace_image
+  node_name                       = var.cli_workspace_node_name
+  nas_server                      = var.cli_workspace_nas_server
+  nas_export_path                 = var.cli_workspace_nas_export_path
+  nas_home_subpath                = var.cli_workspace_nas_home_subpath
+  user_name                       = var.cli_workspace_user_name
+  user_id                         = var.cli_workspace_user_id
+  group_id                        = var.cli_workspace_group_id
+  ssh_enabled                     = var.cli_workspace_ssh_enabled
+  ssh_authorized_keys_secret_name = var.cli_workspace_ssh_authorized_keys_secret_name
+  ssh_tailnet_hostname            = var.cli_workspace_ssh_tailnet_hostname
+}
+
+# The chart reads precreated tailscale/operator-oauth (client_id and client_secret).
+# Never pass OAuth credentials through Helm values or Terraform state.
+resource "helm_release" "tailscale_operator" {
+  count            = var.tailscale_operator_enabled ? 1 : 0
+  name             = "tailscale-operator"
+  repository       = "https://pkgs.tailscale.com/helmcharts"
+  chart            = "tailscale-operator"
+  version          = "1.104.2"
+  namespace        = "tailscale"
+  create_namespace = true
+  wait             = true
+  timeout          = 600
 }

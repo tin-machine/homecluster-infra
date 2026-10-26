@@ -76,3 +76,26 @@ variable "state_storage_size" {
   type    = string
   default = "10Gi"
 }
+
+variable "ssh_enabled" {
+  type    = bool
+  default = false
+}
+
+variable "ssh_authorized_keys_secret_name" {
+  type    = string
+  default = "cli-workspace-ssh"
+  validation {
+    condition     = length(var.ssh_authorized_keys_secret_name) <= 63 && can(regex("^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", var.ssh_authorized_keys_secret_name))
+    error_message = "SSH authorized_keys Secret name must be a Kubernetes DNS label."
+  }
+}
+
+variable "ssh_tailnet_hostname" {
+  type    = string
+  default = "workspace"
+  validation {
+    condition     = length(var.ssh_tailnet_hostname) <= 63 && can(regex("^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", var.ssh_tailnet_hostname))
+    error_message = "The tailnet hostname must be one DNS label."
+  }
+}

@@ -66,6 +66,11 @@ run "workspace_storage_and_identity" {
     condition     = kubernetes_deployment_v1.this.spec[0].template[0].spec[0].volume[0].nfs[0].path == "/homes"
     error_message = "The existing NAS export must be mounted directly."
   }
+
+  assert {
+    condition     = length(kubernetes_service_v1.ssh) == 0
+    error_message = "SSH must remain opt-in until credentials are provisioned."
+  }
 }
 
 run "reject_unpinned_image" {
@@ -84,4 +89,37 @@ run "reject_unpinned_image" {
   }
 
   expect_failures = [var.image]
+}
+
+run "ssh_endpoint_is_explicit_and_tailnet_only" {
+  command = plan
+
+  module {
+    source = "../../modules/cli_workspace"
+  }
+
+  plan_options {
+    refresh = false
+  }
+
+  variables {
+    ssh_enabled                     = true
+    ssh_authorized_keys_secret_name = "workspace-keys"
+    ssh_tailnet_hostname            = "workspace-test"
+  }
+
+  assert {
+    condition     = kubernetes_service_v1.ssh[0].spec[0].load_balancer_class == "tailscale"
+    error_message = "SSH must only be advertised through the Tailscale load balancer class."
+  }
+
+  assert {
+    condition     = kubernetes_service_v1.ssh[0].metadata[0].annotations["tailscale.com/hostname"] == "workspace-test"
+    error_message = "SSH must use a dedicated MagicDNS hostname."
+  }
+
+  assert {
+    condition     = kubernetes_deployment_v1.this.spec[0].template[0].spec[0].volume[2].secret[0].secret_name == "workspace-keys"
+    error_message = "Only a precreated authorized_keys Secret name may enter the Pod plan."
+  }
 }

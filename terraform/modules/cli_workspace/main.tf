@@ -106,6 +106,10 @@ resource "kubernetes_deployment_v1" "this" {
             value = "1"
           }
           env {
+            name  = "CLI_WORKSPACE_SSH"
+            value = var.ssh_enabled ? "1" : "0"
+          }
+          env {
             name  = "HOME"
             value = "/work-home"
           }
@@ -130,6 +134,15 @@ resource "kubernetes_deployment_v1" "this" {
             allow_privilege_escalation = false
           }
 
+          dynamic "port" {
+            for_each = var.ssh_enabled ? [1] : []
+            content {
+              name           = "ssh"
+              container_port = 22
+              protocol       = "TCP"
+            }
+          }
+
           volume_mount {
             name       = "home"
             mount_path = "/work-home"
@@ -138,6 +151,14 @@ resource "kubernetes_deployment_v1" "this" {
           volume_mount {
             name       = "state"
             mount_path = "/work-state"
+          }
+          dynamic "volume_mount" {
+            for_each = var.ssh_enabled ? [1] : []
+            content {
+              name       = "ssh-authorized-keys"
+              mount_path = "/run/workspace-ssh"
+              read_only  = true
+            }
           }
         }
 
@@ -155,7 +176,48 @@ resource "kubernetes_deployment_v1" "this" {
             claim_name = kubernetes_persistent_volume_claim_v1.state.metadata[0].name
           }
         }
+        dynamic "volume" {
+          for_each = var.ssh_enabled ? [1] : []
+          content {
+            name = "ssh-authorized-keys"
+            secret {
+              secret_name  = var.ssh_authorized_keys_secret_name
+              default_mode = "0444"
+              items {
+                key  = "authorized_keys"
+                path = "authorized_keys"
+              }
+            }
+          }
+        }
       }
+    }
+  }
+}
+
+# A standalone Tailscale L3 proxy gives this Service its own MagicDNS name.
+resource "kubernetes_service_v1" "ssh" {
+  count                  = var.ssh_enabled ? 1 : 0
+  wait_for_load_balancer = false
+
+  metadata {
+    name      = "${var.name}-ssh"
+    namespace = kubernetes_namespace_v1.this.metadata[0].name
+    labels    = local.labels
+    annotations = {
+      "tailscale.com/hostname" = var.ssh_tailnet_hostname
+    }
+  }
+
+  spec {
+    selector            = local.labels
+    type                = "LoadBalancer"
+    load_balancer_class = "tailscale"
+    port {
+      name        = "ssh"
+      port        = 22
+      target_port = 22
+      protocol    = "TCP"
     }
   }
 }
