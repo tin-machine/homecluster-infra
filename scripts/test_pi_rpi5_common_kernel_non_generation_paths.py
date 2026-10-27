@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import importlib.machinery
 import importlib.util
+import hashlib
+import json
 import subprocess
 import sys
 import tempfile
@@ -82,6 +84,34 @@ class NonGenerationPathGateTests(unittest.TestCase):
             with self.assertRaises(MODULE.GateError) as context:
                 MODULE.validate_gate_revision(root, generation, unsafe)
             self.assertEqual(context.exception.reason, "generation_source_changed_since_observer")
+
+
+class InventorySnapshotGateTests(unittest.TestCase):
+    def test_snapshot_requires_exact_bytes_and_rejects_symlink(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            inventory = root / "inventory.yml"
+            inventory.write_text("all: {}\n", encoding="utf-8")
+            digest = hashlib.sha256(inventory.read_bytes()).hexdigest()
+            self.assertEqual(MODULE.inventory_identity(inventory, digest), (inventory, digest))
+            with self.assertRaises(MODULE.GateError) as context:
+                MODULE.inventory_identity(inventory, "0" * 64)
+            self.assertEqual(context.exception.reason, "inventory_snapshot_digest_mismatch")
+            link = root / "linked.yml"
+            link.symlink_to(inventory)
+            with self.assertRaises(MODULE.GateError) as context:
+                MODULE.inventory_identity(link, digest)
+            self.assertEqual(context.exception.reason, "inventory_provenance_missing")
+
+    def test_generated_entrypoint_provenance_must_match_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            inventory = Path(temporary) / "inventory.yml"
+            inventory.write_text("all: {}\n", encoding="utf-8")
+            provenance = Path(str(inventory) + ".provenance.json")
+            provenance.write_text(json.dumps({"inventory_sha256": "0" * 64}), encoding="utf-8")
+            with self.assertRaises(MODULE.GateError) as context:
+                MODULE.inventory_identity(inventory)
+            self.assertEqual(context.exception.reason, "inventory_provenance_mismatch")
 
 
 if __name__ == "__main__":

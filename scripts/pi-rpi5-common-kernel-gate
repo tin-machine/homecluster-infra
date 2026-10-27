@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -28,6 +29,8 @@ ARTIFACT_CHECK_IDS = frozenset(
         "tftp_directory_present",
         "bc_executable_present",
         "bc_vdb_present",
+        "cmake_executable_present",
+        "cmake_vdb_present",
         "dtb_present",
         "tftp_file_count_sufficient",
         "generic_rootfs_initramfs_present",
@@ -229,11 +232,42 @@ def fixture_result(path: Path, run_id: str, generation_infra_commit: str) -> dic
     }
 
 
+def inventory_identity(path: Path, expected_sha256: str = "") -> tuple[Path, str]:
+    if path.is_symlink() or not path.is_file():
+        raise GateError("inventory_provenance_missing")
+    inventory = path.resolve()
+    try:
+        actual = hashlib.sha256(inventory.read_bytes()).hexdigest()
+    except OSError as error:
+        raise GateError("inventory_unavailable", "unknown") from error
+    if expected_sha256:
+        if not SHA256.fullmatch(expected_sha256):
+            raise GateError("inventory_snapshot_digest_invalid", "unknown")
+        if actual != expected_sha256:
+            raise GateError("inventory_snapshot_digest_mismatch", "unknown")
+        return inventory, expected_sha256
+    provenance = Path(str(inventory) + ".provenance.json")
+    if provenance.is_symlink() or not provenance.is_file():
+        raise GateError("inventory_provenance_missing")
+    try:
+        provenance_value = json.loads(provenance.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise GateError("inventory_provenance_invalid", "unknown") from error
+    digest = provenance_value.get("inventory_sha256") if isinstance(provenance_value, dict) else None
+    if not isinstance(digest, str) or not SHA256.fullmatch(digest):
+        raise GateError("inventory_provenance_invalid", "unknown")
+    if actual != digest:
+        raise GateError("inventory_provenance_mismatch", "unknown")
+    return inventory, digest
+
+
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(description="Fixed Pi5 common-kernel generation acceptance gate")
     result.add_argument("--json", action="store_true")
     result.add_argument("--observer-run-id", required=True)
     result.add_argument("--generation-infra-commit", required=True)
+    result.add_argument("--inventory-path", default="")
+    result.add_argument("--inventory-sha256", default="")
     result.add_argument("--fixture", default="", help=argparse.SUPPRESS)
     return result
 
@@ -253,14 +287,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         else:
             infra = Path(__file__).resolve().parents[1]
-            inventory = Path(os.environ.get("HOMECLUSTER_ANSIBLE_INVENTORY", str(infra.parent / "inventory.yml"))).resolve()
-            provenance = Path(str(inventory) + ".provenance.json")
-            if not inventory.is_file() or not provenance.is_file():
-                raise GateError("inventory_provenance_missing")
-            provenance_value = json.loads(provenance.read_text(encoding="utf-8"))
-            inventory_provenance = provenance_value.get("inventory_sha256") if isinstance(provenance_value, dict) else None
-            if not isinstance(inventory_provenance, str) or not SHA256.fullmatch(inventory_provenance):
-                raise GateError("inventory_provenance_invalid", "unknown")
+            if bool(args.inventory_path) != bool(args.inventory_sha256):
+                raise GateError("inventory_snapshot_binding_incomplete", "unknown")
+            inventory_path = Path(args.inventory_path or os.environ.get(
+                "HOMECLUSTER_ANSIBLE_INVENTORY", str(infra.parent / "inventory.yml")
+            ))
+            inventory, inventory_provenance = inventory_identity(
+                inventory_path, args.inventory_sha256
+            )
             infra_commit = args.generation_infra_commit
             validation_commit = git(infra, "rev-parse", "HEAD")
             changed_paths = validate_gate_revision(infra, infra_commit, validation_commit)
@@ -289,6 +323,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             if completed.returncode != 0 or not output.is_file():
                 raise GateError("generation_gate_playbook_failed", diagnostics=playbook_failure_diagnostics(completed))
+            # The observed job's inventory snapshot must remain pinned for the
+            # entire nested gate, not only when the helper starts.
+            inventory_identity(inventory_path, args.inventory_sha256)
             try:
                 raw = json.loads(output.read_text(encoding="utf-8"))
                 result = validate_result(raw, args.observer_run_id, infra_commit, inventory_provenance)

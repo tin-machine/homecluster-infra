@@ -274,6 +274,10 @@
         test -x "$rootfs/usr/bin/bc" -o -x "$rootfs/bin/bc"
         homecluster_check bc_vdb_present
         test -n "$(find "$rootfs/var/db/pkg/sys-devel" -maxdepth 1 -type d -name 'bc-*' -print | sed -n '1p')"
+        homecluster_check cmake_executable_present
+        test -x "$rootfs/usr/bin/cmake"
+        homecluster_check cmake_vdb_present
+        test -n "$(find "$rootfs/var/db/pkg/dev-build" -maxdepth 1 -type d -name 'cmake-*' -print | sed -n '1p')"
         homecluster_check dtb_present
         test -n "$(find "$tftp" -maxdepth 2 -type f -name 'bcm2712-rpi-5-b.dtb' -print | sed -n '1p')"
         homecluster_check tftp_file_count_sufficient

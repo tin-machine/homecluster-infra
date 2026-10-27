@@ -1917,6 +1917,7 @@
       - app-shells/fish
       - app-shells/fzf
       - app-vim/vim-tmux
+      - dev-build/cmake
       - dev-vcs/git
       - net-analyzer/netcat
       - net-dns/bind

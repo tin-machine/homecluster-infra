@@ -205,6 +205,62 @@
     - name: PXE release bundle build と manifest 検証を実行
       ansible.builtin.import_tasks: tasks/pxe_release_bundle_build_and_manifest.yml
 
+    - name: Pi5共通カーネル再利用時の固定gate入力を検証
+      ansible.builtin.assert:
+        that:
+          - openwrt_gentoo_ansible_pull_source_build_id | default('', true) | string is match('^[0-9]{8}T[0-9]{6}Z-[A-Za-z0-9._-]+$')
+          - openwrt_gentoo_ansible_pull_source_revision | default('', true) | string is match('^[0-9a-f]{40}$')
+          - homecluster_generation_inventory_sha256 | default('', true) | string is match('^[0-9a-f]{64}$')
+          - ansible_inventory_sources | length == 1
+        fail_msg: Pi5共通カーネル再利用の受入には固定observerとinventory snapshotが必要です
+      when: pxe_release_bundle_rpi5_nvidia_tftp_required | bool
+      changed_when: false
+      tags:
+        - pxe_release_bundle
+        - pxe_tftp_switch
+
+    - name: Pi5共通カーネル再利用をselector切替前に検証
+      ansible.builtin.command:
+        argv:
+          - "{{ playbook_dir }}/../../../scripts/pi-rpi5-common-kernel-gate"
+          - --json
+          - --observer-run-id
+          - "{{ openwrt_gentoo_ansible_pull_source_build_id }}"
+          - --generation-infra-commit
+          - "{{ openwrt_gentoo_ansible_pull_source_revision }}"
+          - --inventory-path
+          - "{{ ansible_inventory_sources[0] }}"
+          - --inventory-sha256
+          - "{{ homecluster_generation_inventory_sha256 }}"
+      delegate_to: localhost
+      connection: local
+      become: false
+      environment:
+        ANSIBLE_CALLBACKS_ENABLED: ""
+        HOMECLUSTER_ANSIBLE_OBSERVER_SHADOW: "0"
+      register: pxe_release_bundle_reused_kernel_gate
+      changed_when: false
+      no_log: true
+      when: pxe_release_bundle_rpi5_nvidia_tftp_required | bool
+      tags:
+        - pxe_release_bundle
+        - pxe_tftp_switch
+
+    - name: Pi5共通カーネル再利用gateの世代対応を検証
+      ansible.builtin.assert:
+        that:
+          - (pxe_release_bundle_reused_kernel_gate.stdout | from_json).status == 'pass'
+          - (pxe_release_bundle_reused_kernel_gate.stdout | from_json).generation_run_id == openwrt_gentoo_ansible_pull_source_build_id
+          - (pxe_release_bundle_reused_kernel_gate.stdout | from_json).pxe_release_id == pxe_release_bundle_effective_date ~ '-rpi5'
+          - (pxe_release_bundle_reused_kernel_gate.stdout | from_json).inventory_provenance == homecluster_generation_inventory_sha256
+        fail_msg: Pi5共通カーネルartifactと新PXE releaseの対応を証明できません
+      changed_when: false
+      no_log: true
+      when: pxe_release_bundle_rpi5_nvidia_tftp_required | bool
+      tags:
+        - pxe_release_bundle
+        - pxe_tftp_switch
+
     - name: PXE host release を inventory stage date から再解決
       ansible.builtin.include_role:
         name: openwrt_gentoo_rootfs
