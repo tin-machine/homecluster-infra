@@ -49,6 +49,20 @@ def validate_common_kernel_publish_contract(text: str) -> None:
     )
 
 
+def validate_standard_reuse_gate_order(text: str) -> None:
+    build = text.index("PXE release bundle build と manifest 検証を実行")
+    gate = text.index("Pi5共通カーネル再利用をselector切替前に検証")
+    gate_result = text.index("Pi5共通カーネル再利用gateの世代対応を検証")
+    switch = text.index("PXE release bundle staging host directory を promote")
+    if not build < gate < gate_result < switch:
+        raise AssertionError("standard artifact gate must precede selector promotion")
+    for value in ("--observer-run-id", "--generation-infra-commit",
+                  "--inventory-path", "--inventory-sha256"):
+        require(text[gate:gate_result], value, "standard pinned reuse gate")
+    require(text[gate_result:switch], "pxe_release_bundle_effective_date ~ '-rpi5'",
+            "standard gate release binding")
+
+
 def validate_egpu_archive_transfer_contract(text: str) -> None:
     transfer = text.index("- name: rpi5 eGPU generation artifact archive を OpenWrt へ再開可能に転送")
     checksum = text.index("- name: rpi5 eGPU generation artifact archive の OpenWrt 側 checksum を取得")
@@ -127,7 +141,11 @@ def main() -> int:
     require(tasks, "-o kernel/configs.o", "local generated config compiler wrapper target")
 
     require(rootfs_tasks, "sys-devel/bc", "k3s_base_baseline_packages")
+    require(rootfs_tasks, "- dev-build/cmake", "LLM build dependency")
     require(rootfs_tasks, "k3s_base_baseline_packages:", "k3s_base_baseline_packages definition")
+    validate_standard_reuse_gate_order(standard_staging)
+    require(gate, "cmake_executable_present", "rootfs cmake executable gate")
+    require(gate, "cmake_vdb_present", "rootfs cmake package gate")
 
     for config_gate in (
         "scripts/config --enable ARM64_4K_PAGES",
