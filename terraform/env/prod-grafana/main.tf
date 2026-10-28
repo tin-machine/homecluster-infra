@@ -27,7 +27,7 @@ locals {
 }
 
 resource "kubernetes_manifest" "grafana" {
-  for_each = local.resources
+  for_each = { for key, value in local.resources : key => value if value.kind != "Deployment" }
   manifest = each.value
 
   field_manager {
@@ -50,4 +50,45 @@ resource "kubernetes_manifest" "grafana" {
       error_message = "Only the existing production Grafana resources are allowed."
     }
   }
+}
+
+resource "kubernetes_manifest" "workload" {
+  for_each   = { for key, value in local.resources : key => value if value.kind == "Deployment" }
+  manifest   = each.value
+  depends_on = [kubernetes_manifest.grafana]
+
+  wait { rollout = true }
+  timeouts { update = "5m" }
+
+  field_manager {
+    name            = "terraform-prod-grafana"
+    force_conflicts = var.adopt_existing_field_ownership
+  }
+
+  lifecycle {
+    prevent_destroy = true
+    precondition {
+      condition     = data.kubernetes_namespace_v1.cluster_identity.metadata[0].uid == var.expected_kube_system_uid
+      error_message = "Production cluster identity does not match the expected kube-system UID."
+    }
+    precondition {
+      condition = each.value.metadata.namespace == "observability-prod" && contains([
+        "ConfigMap/prod-grafana-provisioning", "Deployment/prod-grafana", "Service/prod-grafana",
+        "NetworkPolicy/prod-grafana-restricted", "NetworkPolicy/prod-prometheus-grafana-ingress",
+        "ConfigMap/prod-prometheus-config", "Deployment/prod-prometheus", "NetworkPolicy/prod-prometheus-restricted"
+      ], each.key)
+      error_message = "Only the existing production Grafana resources are allowed."
+    }
+  }
+}
+
+
+moved {
+  from = kubernetes_manifest.grafana["Deployment/prod-grafana"]
+  to   = kubernetes_manifest.workload["Deployment/prod-grafana"]
+}
+
+moved {
+  from = kubernetes_manifest.grafana["Deployment/prod-prometheus"]
+  to   = kubernetes_manifest.workload["Deployment/prod-prometheus"]
 }
