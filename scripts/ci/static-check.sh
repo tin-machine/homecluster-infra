@@ -281,6 +281,7 @@ if [ "${RUN_TERRAFORM_VALIDATE:-0}" = "1" ]; then
     terraform/env/common-addons \
     terraform/env/common-certificates \
     terraform/env/staging \
+    terraform/env/prod-grafana \
     terraform/cloudflare/dns \
     terraform/cloudflare/email-routing \
     terraform/cloudflare/worldweaver-hosting
