@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from copy import deepcopy
 from typing import Any
 
 
@@ -451,6 +452,10 @@ def _build_k3s_stg_agent_vars(
         "k3s_control_delegate": "k3s_stg_server",
         "k3s_controller_list": ["k3s_stg_server"],
     }
+    # Preserve explicit overrides consumed by config-agent.yaml.j2 on PXE boot.
+    # Absence must retain the networking role's default arguments.
+    if "kubelet-arg" in k3s_agent_cfg:
+        result["k3s_agent"]["kubelet-arg"] = deepcopy(k3s_agent_cfg["kubelet-arg"])
     if "k3s_start_on_boot" in hv:
         result["k3s_start_on_boot"] = _as_bool(hv.get("k3s_start_on_boot"))
     result.update(
