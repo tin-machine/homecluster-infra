@@ -2,18 +2,21 @@
 import copy
 import unittest
 
-from check_prod_grafana_adoption_plan import IDENTITIES, check
+from check_prod_grafana_adoption_plan import IDENTITIES, address, check
 from prod_grafana_render import build_manifest
 from prod_grafana_terraform_input import terraform_manifest
 
 
 def plan():
     return {"resource_changes": [
-        {"mode": "managed", "address": f'kubernetes_manifest.grafana["{name}"]',
+        {"mode": "managed", "address": address(name),
          "change": {"actions": ["update"], "after_unknown": {},
                     "before": {"manifest": None, "field_manager": [], "object": {"unchanged": True}},
                     "after": {"manifest": {"data": {}}, "object": {"unchanged": True},
-                              "field_manager": [{"name": "terraform-prod-grafana", "force_conflicts": False}]}}}
+                              "field_manager": [{"name": "terraform-prod-grafana", "force_conflicts": False}],
+                              **({"wait": [{"condition": [], "fields": None, "rollout": True}],
+                                  "timeouts": [{"create": None, "delete": None, "update": "5m"}]}
+                                 if name.startswith("Deployment/") else {})}}}
         for name in sorted(IDENTITIES)
     ]}
 

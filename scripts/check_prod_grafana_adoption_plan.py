@@ -17,6 +17,11 @@ IDENTITIES = {
 }
 
 
+def address(name: str) -> str:
+    resource = "workload" if name.startswith("Deployment/") else "grafana"
+    return f'kubernetes_manifest.{resource}["{name}"]'
+
+
 def unknown(value: object) -> bool:
     if isinstance(value, dict):
         return any(unknown(v) for v in value.values())
@@ -27,7 +32,7 @@ def unknown(value: object) -> bool:
 
 def check(plan: dict, *, include_prometheus: bool = False) -> dict:
     identities = IDENTITIES | PROMETHEUS_IDENTITIES if include_prometheus else IDENTITIES
-    expected = {f'kubernetes_manifest.grafana["{name}"]' for name in identities}
+    expected = {address(name) for name in identities}
     resources = [r for r in plan.get("resource_changes", []) if r.get("mode") == "managed"]
     if {r["address"] for r in resources} != expected or len(resources) != len(expected):
         raise ValueError("unexpected_resource_set")
@@ -42,10 +47,17 @@ def check(plan: dict, *, include_prometheus: bool = False) -> dict:
         if before.get("object") != after.get("object"):
             raise ValueError("live_object_values_change")
         for key in set(before) | set(after):
-            if key not in ("manifest", "field_manager") and before.get(key) != after.get(key):
+            if key not in ("manifest", "field_manager", "wait", "timeouts") and before.get(key) != after.get(key):
                 raise ValueError("unexpected_state_change")
         if after.get("field_manager") != [{"name": "terraform-prod-grafana", "force_conflicts": False}]:
             raise ValueError("unexpected_field_manager")
+        if resource["address"].startswith("kubernetes_manifest.workload["):
+            if after.get("wait") != [{"condition": [], "fields": None, "rollout": True}]:
+                raise ValueError("unexpected_rollout_wait")
+            if after.get("timeouts") != [{"create": None, "delete": None, "update": "5m"}]:
+                raise ValueError("unexpected_rollout_timeout")
+        elif before.get("wait") != after.get("wait") or before.get("timeouts") != after.get("timeouts"):
+            raise ValueError("unexpected_resource_wait")
         if change["actions"] == ["update"]:
             updates += 1
     return {"status": "pass", "resources": len(resources), "state_adoption_updates": updates,

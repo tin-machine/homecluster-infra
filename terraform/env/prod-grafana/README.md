@@ -47,8 +47,12 @@ terraform plan -var-file=/private/site/prod-grafana.tfvars -out=/private/plans/g
 terraform show -json /private/plans/grafana.tfplan | python3 ../../../scripts/check_prod_grafana_adoption_plan.py
 ```
 
-Import the Deployment (`apps/v1`), Service (`v1`) and both NetworkPolicies
-(`networking.k8s.io/v1`) using the same address and identifier pattern. Import
+Import the Deployment (`apps/v1`) into `kubernetes_manifest.workload`, and the
+Service (`v1`) and both NetworkPolicies (`networking.k8s.io/v1`) into
+`kubernetes_manifest.grafana`, using the same key and identifier pattern.
+The included moved blocks preserve earlier imported Deployment addresses.
+All ConfigMaps and network rules finish updating before Deployments roll out;
+Terraform waits for each rollout, with a five-minute update timeout. Import
 only changes Terraform state; applying a saved plan is a separate operation.
 Keep state backup and previous source revision for recovery. Never use
 `terraform destroy` to undo adoption. `prevent_destroy` is an additional guard,
