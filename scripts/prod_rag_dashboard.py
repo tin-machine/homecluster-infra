@@ -28,7 +28,11 @@ def dashboard() -> dict:
             "gridPos": {"x": x, "y": y, "w": 12, "h": 7},
             "targets": [{"refId": chr(65+i), "expr": query, "legendFormat": legend}
                         for i, (query, legend) in enumerate(expressions)],
-            "fieldConfig": {"defaults": {"unit": unit, "noValue": "未観測"}, "overrides": []},
+            "fieldConfig": {"defaults": {
+                "unit": unit, "noValue": "未観測",
+                "color": ({"mode": "fixed", "fixedColor": "blue"} if stat
+                          else {"mode": "palette-classic"}),
+            }, "overrides": []},
             "options": {"reduceOptions": {"values": False, "calcs": ["last"], "fields": ""},
                         "legend": {"displayMode": "table", "placement": "bottom"}},
         })
