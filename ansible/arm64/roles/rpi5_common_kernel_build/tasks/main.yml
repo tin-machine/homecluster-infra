@@ -11,21 +11,25 @@
       {%- if rpi5_common_kernel_build_distcc_enabled | bool and rpi5_common_kernel_build_distcc_auto | bool -%}
       {%- for host_name in groups['all'] | default([]) -%}
       {%- set cfg = hostvars[host_name].distcc | default({}) -%}
-      {%- if host_name != inventory_hostname and cfg is mapping and (cfg.enabled | default(false) | bool) and (cfg.client_enabled | default(true) | bool) -%}
+      {%- if host_name != inventory_hostname and cfg is mapping and (cfg.enabled | default(false) | bool) and (cfg.kernel_worker_enabled | default(true) | bool) -%}
       {%- set _ = workers.append(host_name) -%}
       {%- endif -%}
       {%- endfor -%}
       {%- endif -%}
       {{ workers }}
+  when: rpi5_common_kernel_build_enabled | bool
+
+- name: 検証対象workerと同じlistからDISTCC_HOSTSを作成
+  ansible.builtin.set_fact:
     rpi5_common_kernel_build_distcc_hosts_effective: >-
       {%- set hosts = [] -%}
       {%- if rpi5_common_kernel_build_distcc_hosts | string | trim | length > 0 -%}
       {{- rpi5_common_kernel_build_distcc_hosts | string | trim -}}
       {%- elif rpi5_common_kernel_build_distcc_enabled | bool -%}
-      {%- for host_name in groups['all'] | default([]) -%}
+      {%- for host_name in rpi5_common_kernel_build_distcc_worker_names -%}
       {%- set hv = hostvars[host_name] -%}
       {%- set cfg = hv.distcc | default({}) -%}
-      {%- if host_name != inventory_hostname and cfg is mapping and (cfg.enabled | default(false) | bool) and (cfg.client_enabled | default(true) | bool) -%}
+      {%- if host_name != inventory_hostname and cfg is mapping and (cfg.enabled | default(false) | bool) and (cfg.kernel_worker_enabled | default(true) | bool) -%}
       {%- set address = cfg.host | default(cfg.address | default(hv.ansible_host | default(host_name), true), true) -%}
       {%- set port = cfg.port | default(3632) | int -%}
       {%- set slots = cfg.slots | default(cfg.client_slots | default(rpi5_common_kernel_build_distcc_default_slots), true) | int -%}
@@ -53,8 +57,14 @@
       - rpi5_common_kernel_build_modules_dir is match('^/var/lib/rancher/k3s/')
       - rpi5_common_kernel_build_config_seed is match('^/var/lib/rancher/k3s/')
       - rpi5_common_kernel_build_localversion == '-v8-homecluster'
-      - rpi5_common_kernel_build_make_jobs | int > 0
-      - rpi5_common_kernel_build_local_slots | int > 0
+      - rpi5_common_kernel_build_make_jobs | string is match('^(auto|[1-9][0-9]*)$')
+      - rpi5_common_kernel_build_make_jobs_cap | string is match('^(0|[1-9][0-9]*)$')
+      - rpi5_common_kernel_build_make_jobs_cap | int <= 1024
+      - not (rpi5_common_kernel_build_distcc_enabled | bool) or (rpi5_common_kernel_build_distcc_auto | bool)
+      - rpi5_common_kernel_build_distcc_hosts | string | trim | length == 0
+      - rpi5_common_kernel_build_distcc_fallback | string == '0'
+      - rpi5_common_kernel_build_local_slots | string is match('^[1-9][0-9]*$')
+      - rpi5_common_kernel_build_local_slots | int <= 1024
       - not (rpi5_common_kernel_build_distcc_enabled | bool) or (rpi5_common_kernel_build_distcc_worker_names | length > 0)
       - not (rpi5_common_kernel_build_distcc_enabled | bool) or ('--pump' not in rpi5_common_kernel_build_distcc_hosts_effective)
       - rpi5_common_kernel_build_open_modules_dir is match('^/var/lib/rancher/k3s/')
@@ -63,6 +73,22 @@
     fail_msg: >-
       Pi5 common kernel build には stage date、Linux commit、config seed、distcc worker、
       NVIDIA source/runfile pin、および一致する confirmation token が必要です。
+  when: rpi5_common_kernel_build_enabled | bool
+
+- name: kernel workerの接続先とslot数を検証
+  ansible.builtin.assert:
+    that:
+      - address | string is match('^[A-Za-z0-9][A-Za-z0-9.-]*$')
+      - port | string is match('^[1-9][0-9]*$')
+      - port | int <= 65535
+      - slots | string is match('^[1-9][0-9]*$')
+      - slots | int <= 1024
+  vars:
+    cfg: "{{ hostvars[item].distcc }}"
+    address: "{{ cfg.host | default(cfg.address | default(hostvars[item].ansible_host | default(item), true), true) }}"
+    port: "{{ cfg.port | default(3632) }}"
+    slots: "{{ cfg.slots | default(cfg.client_slots | default(rpi5_common_kernel_build_distcc_default_slots), true) }}"
+  loop: "{{ rpi5_common_kernel_build_distcc_worker_names }}"
   when: rpi5_common_kernel_build_enabled | bool
 
 - name: rpi5 common kernel build command を確認
@@ -133,6 +159,62 @@
   when:
     - rpi5_common_kernel_build_enabled | bool
     - rpi5_common_kernel_build_distcc_enabled | bool
+
+- name: builderから各distcc workerへの接続を確認
+  ansible.builtin.wait_for:
+    host: "{{ cfg.host | default(cfg.address | default(hostvars[item].ansible_host | default(item), true), true) }}"
+    port: "{{ cfg.port | default(3632) | int }}"
+    timeout: 5
+    connect_timeout: 3
+  vars:
+    cfg: "{{ hostvars[item].distcc }}"
+  loop: "{{ rpi5_common_kernel_build_distcc_worker_names }}"
+  changed_when: false
+  when:
+    - rpi5_common_kernel_build_enabled | bool
+    - rpi5_common_kernel_build_distcc_enabled | bool
+
+- name: 検証済みDISTCC_HOSTSのslot数を取得
+  ansible.builtin.command:
+    argv: [distcc, '-j']
+  environment:
+    DISTCC_HOSTS: "{{ rpi5_common_kernel_build_distcc_hosts_effective }}"
+  register: rpi5_common_kernel_build_distcc_jobs
+  changed_when: false
+  when: rpi5_common_kernel_build_enabled | bool
+
+- name: distccの計算値を検証
+  ansible.builtin.assert:
+    that:
+      - rpi5_common_kernel_build_distcc_jobs.stdout | trim is match('^[1-9][0-9]*$')
+      - rpi5_common_kernel_build_distcc_jobs.stdout | trim | int <= 1024
+  when: rpi5_common_kernel_build_enabled | bool
+
+- name: kernel make並列度を解決
+  ansible.builtin.set_fact:
+    rpi5_common_kernel_build_make_jobs_effective: >-
+      {%- set requested = (rpi5_common_kernel_build_distcc_jobs.stdout | trim | int)
+          if rpi5_common_kernel_build_make_jobs | string == 'auto'
+          else (rpi5_common_kernel_build_make_jobs | int) -%}
+      {%- set cap = rpi5_common_kernel_build_make_jobs_cap | int -%}
+      {{ [requested, cap] | min if cap > 0 else requested }}
+  when: rpi5_common_kernel_build_enabled | bool
+
+- name: kernel make並列度の上限を検証
+  ansible.builtin.assert:
+    that:
+      - rpi5_common_kernel_build_make_jobs_effective | int > 0
+      - rpi5_common_kernel_build_make_jobs_effective | int <= 1024
+  when: rpi5_common_kernel_build_enabled | bool
+
+- name: kernel分散buildの計画を表示
+  ansible.builtin.debug:
+    msg:
+      workers: "{{ rpi5_common_kernel_build_distcc_worker_names }}"
+      configured_slots: "{{ rpi5_common_kernel_build_distcc_jobs.stdout | trim | int }}"
+      make_jobs: "{{ rpi5_common_kernel_build_make_jobs_effective | int }}"
+      local_slots: "{{ rpi5_common_kernel_build_local_slots | int }}"
+  when: rpi5_common_kernel_build_enabled | bool
 
 - name: rpi5 common kernel build directory の親を作成
   become: true
@@ -250,12 +332,15 @@
   ansible.builtin.command:
     argv:
       - make
-      - -j{{ rpi5_common_kernel_build_make_jobs | int }}
+      - -j{{ rpi5_common_kernel_build_make_jobs_effective | int }}
       - kernel/configs.o
     chdir: "{{ rpi5_common_kernel_build_dir }}"
   environment:
     CC: ./.homecluster-cc-wrapper
     HOSTCC: gcc
+    DISTCC_HOSTS: "{{ rpi5_common_kernel_build_distcc_hosts_effective }}"
+    DISTCC_FALLBACK: "{{ rpi5_common_kernel_build_distcc_fallback }}"
+    DISTCC_IO_TIMEOUT: "{{ rpi5_common_kernel_build_distcc_io_timeout | string }}"
   changed_when: true
   when: rpi5_common_kernel_build_enabled | bool
 
@@ -263,15 +348,18 @@
   ansible.builtin.shell: |
     set -euo pipefail
     cd "{{ rpi5_common_kernel_build_dir }}"
-    export DISTCC_HOSTS='{{ rpi5_common_kernel_build_distcc_hosts_effective }}'
+    export DISTCC_HOSTS={{ rpi5_common_kernel_build_distcc_hosts_effective | quote }}
     export DISTCC_FALLBACK='{{ rpi5_common_kernel_build_distcc_fallback }}'
     export DISTCC_IO_TIMEOUT='{{ rpi5_common_kernel_build_distcc_io_timeout | int }}'
-    make -j{{ rpi5_common_kernel_build_make_jobs | int }} \
+    make -j{{ rpi5_common_kernel_build_make_jobs_effective | int }} \
       CC='{{ './.homecluster-cc-wrapper' if (rpi5_common_kernel_build_distcc_enabled | bool) else 'gcc' }}' \
       HOSTCC=gcc \
       Image modules dtbs
   args:
     executable: /bin/bash
+  environment:
+    TZ: UTC
+  register: rpi5_common_kernel_build_kernel_timing
   changed_when: true
   when: rpi5_common_kernel_build_enabled | bool
 
@@ -349,6 +437,9 @@
       TARGET_ARCH=aarch64
   args:
     executable: /bin/bash
+  environment:
+    TZ: UTC
+  register: rpi5_common_kernel_build_nvidia_timing
   changed_when: true
   when: rpi5_common_kernel_build_enabled | bool
 
@@ -415,6 +506,16 @@
       page_size: 4096
       va_bits: 48
       distcc_hosts: "{{ rpi5_common_kernel_build_distcc_hosts_effective }}"
+      distcc_workers: "{{ rpi5_common_kernel_build_distcc_worker_names }}"
+      distcc_slots: "{{ rpi5_common_kernel_build_distcc_jobs.stdout | trim | int }}"
+      make_jobs: "{{ rpi5_common_kernel_build_make_jobs_effective | int }}"
+      build_timing_timezone: UTC
+      kernel_build_started_at: "{{ rpi5_common_kernel_build_kernel_timing.start }}"
+      kernel_build_finished_at: "{{ rpi5_common_kernel_build_kernel_timing.end }}"
+      kernel_build_duration: "{{ rpi5_common_kernel_build_kernel_timing.delta }}"
+      nvidia_build_started_at: "{{ rpi5_common_kernel_build_nvidia_timing.start }}"
+      nvidia_build_finished_at: "{{ rpi5_common_kernel_build_nvidia_timing.end }}"
+      nvidia_build_duration: "{{ rpi5_common_kernel_build_nvidia_timing.delta }}"
       open_kernel_modules_commit: "{{ rpi5_common_kernel_build_open_modules_commit }}"
       nvidia_runfile_sha256: "{{ rpi5_common_kernel_build_provenance_stats.results[1].stat.checksum }}"
   when: rpi5_common_kernel_build_enabled | bool
