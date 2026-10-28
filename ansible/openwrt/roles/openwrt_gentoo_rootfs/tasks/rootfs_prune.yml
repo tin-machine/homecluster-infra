@@ -47,13 +47,13 @@
     keep_generations = int({{ openwrt_gentoo_rootfs_prune_keep_generations | int }})
     min_release_age_days = int({{ openwrt_gentoo_rootfs_prune_min_release_age_days | int }})
     apply = {{ (openwrt_gentoo_rootfs_prune_apply | bool) | ternary('True', 'False') }}
-    explicit_protected = {{ (openwrt_gentoo_rootfs_prune_protected_releases | default([])) | to_json }}
-    configured_releases = {{
+    explicit_protected = json.loads({{ (openwrt_gentoo_rootfs_prune_protected_releases | default([])) | to_json | to_json }})
+    configured_releases = json.loads({{
       [
         openwrt_gentoo_release | default('', true),
-      ] | to_json
-    }}
-    pxe_hosts = {{ (openwrt_pxe_hosts_effective | default(openwrt_pxe_hosts | default([]))) | to_json }}
+      ] | to_json | to_json
+    }})
+    pxe_hosts = json.loads({{ (openwrt_pxe_hosts_effective | default(openwrt_pxe_hosts | default([]))) | to_json | to_json }})
 
     release_re = re.compile(r"^(\d{8})(?:-(rpi[0-9]+(?:-clone)?))?$")
     board_hash_re = re.compile(r"^[0-9A-Fa-f]{8}$")
