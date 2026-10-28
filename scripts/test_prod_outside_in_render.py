@@ -34,6 +34,39 @@ def objects(manifest: dict) -> dict:
 
 
 class ProductionOutsideInTest(unittest.TestCase):
+    def test_kernel_workers_include_isolated_prod_metrics_and_extended_series(self):
+        import re
+        site = fixture()
+        site["metrics_targets"] = [{"name": "worker-" + str(n), "target": f"192.0.2.{n}:9100"} for n in range(1, 5)]
+        old = objects(r.build_manifest(site))
+        site["prod_metrics_target"] = {"name": "prod-worker", "target": "198.51.100.5:9100"}
+        new = objects(r.build_manifest(site))
+        config = json.loads(new["prod-prometheus-config"]["data"]["prometheus.json"])
+        jobs = {x["job_name"]: x for x in config["scrape_configs"]}
+        self.assertEqual(len(jobs["staging-node-exporter"]["static_configs"]), 4)
+        self.assertEqual(jobs["prod-node-exporter"]["static_configs"], [
+            {"targets": ["198.51.100.5:9100"], "labels": {"node_name": "prod-worker"}}])
+        for name in ("prod-node-exporter", "staging-node-exporter"):
+            job = jobs[name]
+            self.assertEqual(job["scrape_interval"], "60s")
+            self.assertEqual(job["sample_limit"], 2000)
+            pattern = job["metric_relabel_configs"][0]["regex"]
+            for metric in ("node_cpu_seconds_total", "node_memory_MemAvailable_bytes", "node_hwmon_temp_celsius",
+                           "node_cpu_scaling_frequency_hertz", "node_pressure_io_waiting_seconds_total",
+                           "homecluster_rpi_throttle_state", "homecluster_rpi_health_collection_success"):
+                self.assertIsNotNone(re.fullmatch(pattern, metric), metric)
+            self.assertIsNone(re.fullmatch(pattern, "unbounded_application_metric"))
+        self.assertIn({"to": [{"ipBlock": {"cidr": "198.51.100.5/32"}}],
+                       "ports": [{"protocol": "TCP", "port": 9100}]},
+                      new["prod-prometheus-restricted"]["spec"]["egress"])
+        self.assertNotEqual(old["prod-prometheus-config"], new["prod-prometheus-config"])
+        for invalid in ({"name": "worker-1", "target": "198.51.100.5:9100"},
+                        {"name": "prod-worker", "target": "192.0.2.1:9100"},
+                        {"name": "prod-worker", "target": "198.51.100.5:22"},
+                        {"name": "prod-worker", "target": "user@198.51.100.5:9100"}):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                r.build_manifest({**site, "prod_metrics_target": invalid})
+
     def test_openwrt_metrics_target_is_separate_and_ip_scoped(self) -> None:
         original = objects(r.build_manifest(fixture()))
         site = fixture()

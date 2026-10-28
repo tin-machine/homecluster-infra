@@ -25,7 +25,10 @@ rpi5_common_kernel_build_dir: "{{ rpi5_common_kernel_build_work_root }}/{{ rpi5_
 rpi5_common_kernel_build_modules_dir: "{{ rpi5_common_kernel_build_work_root }}/{{ rpi5_common_kernel_build_label }}/staging"
 rpi5_common_kernel_build_config_seed: "{{ rpi5_common_kernel_build_work_root }}/config/rpi5-homecluster.config"
 rpi5_common_kernel_build_localversion: -v8-homecluster
-rpi5_common_kernel_build_make_jobs: 8
+# auto uses distcc -j for this build's verified host list. A positive integer
+# overrides it; the optional cap also bounds an explicit override.
+rpi5_common_kernel_build_make_jobs: auto
+rpi5_common_kernel_build_make_jobs_cap: 0
 rpi5_common_kernel_build_local_slots: 2
 rpi5_common_kernel_build_required_commands:
   - git

@@ -13,6 +13,15 @@
           - homecluster_common_kernel_rollout_output | string is match('^/tmp/homecluster-common-kernel-rollout-[A-Za-z0-9._/-]+/result.json$')
           - homecluster_common_kernel_rollout_targets is iterable
           - homecluster_common_kernel_rollout_targets | length > 0
+          - homecluster_common_kernel_rollout_targets | difference(groups['env_stg'] | default([])) | length == 0
+          - homecluster_common_kernel_rollout_targets | intersect(groups['env_prod'] | default([])) | length == 0
+          - >-
+            homecluster_common_kernel_rollout_phase != 'full_fleet'
+            or (
+              homecluster_common_kernel_rollout_targets | sort
+              == ((groups['k3s_stg_server'] | default([])) + (groups['k3s_stg_agents'] | default([]))) | sort
+              and homecluster_common_kernel_rollout_targets | length == 4
+            )
           - homecluster_common_kernel_accepted_generation_run_id | string is match('^[0-9]{8}T[0-9]{6}Z-[A-Za-z0-9._-]+$')
           - homecluster_common_kernel_exact_release | string is match('^.+-v8-homecluster\\+$')
           - homecluster_common_kernel_accepted_selector | string is match('^[0-9]{8}-rpi5$')
@@ -138,6 +147,7 @@
         that:
           - homecluster_common_kernel_accepted_live_manifest.schema | int == 1
           - homecluster_common_kernel_accepted_live_manifest.releases.rpi5 | default('') == homecluster_common_kernel_accepted_selector
+          - homecluster_common_kernel_accepted_live_manifest.releases.rpi4 | default('') == (homecluster_common_kernel_accepted_selector | regex_replace('-rpi5$', '-rpi4'))
           - homecluster_common_kernel_accepted_live_manifest.metadata.rpi5_nvidia.kernel_release | default('') == homecluster_common_kernel_exact_release
           - homecluster_common_kernel_accepted_live_manifest.metadata.rpi5_nvidia.common_kernel_artifact.id | default('') == homecluster_common_kernel_accepted_kernel_artifact_id
           - homecluster_common_kernel_accepted_live_manifest.metadata.rpi5_nvidia.common_kernel_artifact.manifest_sha256 | default('') == homecluster_common_kernel_accepted_kernel_artifact_manifest_sha256
@@ -203,8 +213,8 @@
         that:
           - homecluster_common_kernel_current_selectors | length == homecluster_common_kernel_rollout_targets | length
           - item in homecluster_common_kernel_current_selectors
-          - homecluster_common_kernel_current_selectors[item].tftp_release | string is match('^[0-9]{8}-rpi5$')
-          - homecluster_common_kernel_current_selectors[item].rootfs_release | string is match('^[0-9]{8}-rpi5$')
+          - homecluster_common_kernel_current_selectors[item].tftp_release | string is match('^[0-9]{8}-rpi[45]$')
+          - homecluster_common_kernel_current_selectors[item].rootfs_release | string is match('^[0-9]{8}-rpi[45]$')
         fail_msg: rollout targetの現在selectorを一意に解決できません
       loop: "{{ homecluster_common_kernel_rollout_targets }}"
       changed_when: false
@@ -222,9 +232,11 @@
             'rootfs_release': previous.rootfs_release | default('', true) | string | trim
           }}) -%}
           {%- else -%}
+          {%- set selector = (homecluster_common_kernel_accepted_selector | regex_replace('-rpi5$', '-rpi4'))
+              if name in (groups['k3s_stg_server'] | default([])) else homecluster_common_kernel_accepted_selector -%}
           {%- set _ = result.update({name: {
-            'tftp_release': homecluster_common_kernel_accepted_selector,
-            'rootfs_release': homecluster_common_kernel_accepted_selector
+            'tftp_release': selector,
+            'rootfs_release': selector
           }}) -%}
           {%- endif -%}
           {%- endfor -%}
@@ -235,8 +247,8 @@
     - name: Pi5 common kernel planned selector mappingを検証
       ansible.builtin.assert:
         that:
-          - homecluster_common_kernel_applied_selectors[item].tftp_release | string is match('^[0-9]{8}-rpi5$')
-          - homecluster_common_kernel_applied_selectors[item].rootfs_release | string is match('^[0-9]{8}-rpi5$')
+          - homecluster_common_kernel_applied_selectors[item].tftp_release | string is match('^[0-9]{8}-rpi[45]$')
+          - homecluster_common_kernel_applied_selectors[item].rootfs_release | string is match('^[0-9]{8}-rpi[45]$')
         fail_msg: applied selectorが固定release contractを満たしません
       loop: "{{ homecluster_common_kernel_rollout_targets }}"
       changed_when: false
@@ -306,8 +318,6 @@
             'tftp_release': selector.tftp_release,
             'rootfs_release': selector.rootfs_release
           })) -%}
-          {%- else -%}
-          {%- set _ = result.append(item) -%}
           {%- endif -%}
           {%- endfor -%}
           {{ result }}

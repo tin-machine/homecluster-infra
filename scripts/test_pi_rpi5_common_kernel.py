@@ -444,7 +444,7 @@ class FullFleetAcceptanceTests(unittest.TestCase):
             self.assertIn("postboot_acceptance_attempts=2", diagnostics)
             self.assertIn("k3s_final_observation=healthy", diagnostics)
 
-    def test_same_selector_failed_reacceptance_does_not_power_cycle(self):
+    def test_same_selector_fresh_boot_failure_is_not_hidden(self):
         module = legacy.ROLLOUT_MODULE
         original_action = module._CURRENT_ACTION
         original_selector_changed = module._LAST_SELECTOR_CHANGED
@@ -459,10 +459,10 @@ class FullFleetAcceptanceTests(unittest.TestCase):
         }
         try:
             with patch.object(module, "run_phase_acceptance", return_value=(False, ["llm_acceptance=fail"])):
-                with patch.object(module, "_original_run_fresh_boot", side_effect=AssertionError("unexpected reboot")):
+                with patch.object(module, "_original_run_fresh_boot", side_effect=module.RolloutError("fresh_boot_failed")):
                     with self.assertRaises(module.RolloutError) as raised:
                         module.run_fresh_boot(Path("/tmp/runbook-fixture"))
-            self.assertEqual(raised.exception.reason, "same_selector_acceptance_failed")
+            self.assertEqual(raised.exception.reason, "fresh_boot_failed")
             self.assertEqual(raised.exception.status, "blocked")
         finally:
             module._CURRENT_ACTION = original_action

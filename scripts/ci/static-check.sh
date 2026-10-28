@@ -363,6 +363,8 @@ if command -v python3 >/dev/null 2>&1; then
   if python3 -c 'import ansible.template' >/dev/null 2>&1; then
     python3 -B scripts/ci/test_pxe_host_dtb_contract.py
     python3 -B scripts/ci/test_host_tailscale_client_vars_contract.py
+    python3 -B scripts/ci/test_kernel_distcc_contract.py
+    python3 -B scripts/ci/test_pxe_full_fleet_contract.py
   else
     echo "Ansible Python API unavailable; CI runs PXE producer-consumer contracts in a pinned environment"
   fi
