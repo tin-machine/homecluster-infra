@@ -53,8 +53,16 @@ resource "kubernetes_manifest" "grafana" {
 }
 
 resource "kubernetes_manifest" "workload" {
-  for_each   = { for key, value in local.resources : key => value if value.kind == "Deployment" }
-  manifest   = each.value
+  for_each = { for key, value in local.resources : key => value if value.kind == "Deployment" }
+  # Updating the spec also invalidates the computed annotation map so that the
+  # controller-owned deployment revision can advance during rollout.
+  manifest = merge(each.value, {
+    metadata = merge(each.value.metadata, {
+      annotations = merge(each.value.metadata.annotations, {
+        "homecluster.io/workload-spec-checksum" = sha256(jsonencode(each.value.spec))
+      })
+    })
+  })
   depends_on = [kubernetes_manifest.grafana]
 
   wait { rollout = true }
