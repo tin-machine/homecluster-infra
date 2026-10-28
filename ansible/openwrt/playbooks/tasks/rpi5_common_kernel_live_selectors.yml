@@ -89,8 +89,8 @@
     that:
       - homecluster_common_kernel_live_selectors | length == homecluster_common_kernel_live_selector_targets | length
       - item in homecluster_common_kernel_live_selectors
-      - homecluster_common_kernel_live_selectors[item].tftp_release | string is match('^[0-9]{8}-rpi5$')
-      - homecluster_common_kernel_live_selectors[item].rootfs_release | string is match('^[0-9]{8}-rpi5$')
+      - homecluster_common_kernel_live_selectors[item].tftp_release | string is match('^[0-9]{8}-rpi[45]$')
+      - homecluster_common_kernel_live_selectors[item].rootfs_release | string is match('^[0-9]{8}-rpi[45]$')
     fail_msg: common-kernel live selectorをOpenWrtから解決できません
   loop: "{{ homecluster_common_kernel_live_selector_targets }}"
   changed_when: false

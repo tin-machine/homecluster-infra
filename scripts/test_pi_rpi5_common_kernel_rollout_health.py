@@ -145,7 +145,12 @@ class RolloutHealthTests(unittest.TestCase):
                 mock.patch.object(mod, "ProgressWriter"),
                 mock.patch.object(mod, "expected_accepted_generation", return_value={"run_id": "fixture"}),
                 mock.patch.object(mod, "latest_accepted", return_value={"generation_run_id": "fixture"}),
-                mock.patch.object(mod, "inventory_targets", return_value=(["agent-a"], "agent-a")),
+                mock.patch.object(mod, "inventory_targets", return_value=(["agent-a", "agent-b", "agent-c"], "agent-a")),
+                mock.patch.object(mod, "inventory_json", return_value={
+                    "k3s_stg_server": {"hosts": ["server"]},
+                    "env_stg": {"hosts": ["server", "agent-a", "agent-b", "agent-c"]},
+                    "env_prod": {"hosts": ["prod"]},
+                }),
                 mock.patch.object(mod, "target_policy", return_value=(["agent-a"], {}, phase)),
                 mock.patch.object(mod, "run", side_effect=command) as run,
                 mock.patch.object(mod, "ensure_no_active_fresh_boot",

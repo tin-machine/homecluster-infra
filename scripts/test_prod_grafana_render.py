@@ -19,6 +19,23 @@ class GrafanaSourceTests(unittest.TestCase):
         self.manifest = grafana.build_manifest()
         self.items = index(self.manifest)
 
+    def test_kernel_dashboard_is_opt_in_and_queries_all_workers(self):
+        baseline = grafana.build_manifest()
+        items = index(grafana.build_manifest(include_kernel_build=True))
+        data = items[("ConfigMap", grafana.CONFIG_NAME)]["data"]
+        self.assertNotIn("kernel-build-fleet.json", self.items[("ConfigMap", grafana.CONFIG_NAME)]["data"])
+        dashboard = json.loads(data["kernel-build-fleet.json"])
+        self.assertEqual(dashboard["uid"], "kernel-build-fleet")
+        queries = "\n".join(p["targets"][0]["expr"] for p in dashboard["panels"])
+        self.assertIn('staging-node-exporter|prod-node-exporter', queries)
+        self.assertIn('mode!="idle"', queries)
+        self.assertIn('homecluster_rpi_health_collected_at_seconds', queries)
+        self.assertNotIn('or vector(0)', queries)
+        volumes = items[("Deployment", grafana.GRAFANA)]["spec"]["template"]["spec"]["volumes"]
+        self.assertIn({"key": "kernel-build-fleet.json", "path": "kernel-build-fleet.json"},
+                      next(x for x in volumes if x["name"] == "dashboards")["configMap"]["items"])
+        self.assertEqual(grafana.build_manifest(), baseline)
+
     def test_five_additive_resources_and_no_o1_updates(self) -> None:
         self.assertEqual(self.manifest["kind"], "List")
         self.assertEqual(len(self.items), 5)
