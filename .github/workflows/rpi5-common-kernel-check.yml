@@ -26,6 +26,8 @@ on:
       - 'scripts/test_pi_rpi5_common_kernel_rollout_health.py'
       - 'scripts/test_pi_rpi5_common_kernel_rollout_selector_resolution.py'
       - 'scripts/ci/check-rpi5-common-kernel-build.py'
+      - 'scripts/ci/test_kernel_distcc_contract.py'
+      - 'scripts/ci/test_pxe_full_fleet_contract.py'
       - '.github/workflows/rpi5-common-kernel-check.yml'
   push:
     branches:
@@ -53,6 +55,8 @@ on:
       - 'scripts/test_pi_rpi5_common_kernel_rollout_health.py'
       - 'scripts/test_pi_rpi5_common_kernel_rollout_selector_resolution.py'
       - 'scripts/ci/check-rpi5-common-kernel-build.py'
+      - 'scripts/ci/test_kernel_distcc_contract.py'
+      - 'scripts/ci/test_pxe_full_fleet_contract.py'
       - '.github/workflows/rpi5-common-kernel-check.yml'
 
 permissions:
@@ -69,7 +73,7 @@ jobs:
           persist-credentials: false
 
       - name: Install Ansible syntax checker
-        run: python3 -m pip install --disable-pip-version-check ansible-core
+        run: python3 -m pip install --disable-pip-version-check ansible-core==2.20.1
 
       - name: Check Python syntax
         run: |

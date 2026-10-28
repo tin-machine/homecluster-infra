@@ -57,7 +57,7 @@ def _valid_host(host: str | None) -> bool:
 
 def validate_site(document: object) -> dict:
     required = {"api_targets", "tcp_targets", "egress_cidrs", "api_ca_secret"}
-    allowed = required | {"metrics_targets", "openwrt_metrics_target"}
+    allowed = required | {"metrics_targets", "openwrt_metrics_target", "prod_metrics_target"}
     if not isinstance(document, dict) or not required <= set(document) or set(document) - allowed:
         raise ValueError("site input must declare four O1 keys and optional metrics_targets")
     api = _names(document["api_targets"], "api_targets", 4)
@@ -84,6 +84,24 @@ def validate_site(document: object) -> dict:
     if openwrt is not None and (openwrt["name"] in {x["name"] for x in metrics}
                                 or openwrt["target"] in {x["target"] for x in metrics}):
         raise ValueError("OpenWrt metrics target must differ from staging metrics targets")
+    prod = document.get("prod_metrics_target")
+    if prod is not None:
+        prod = _names([prod], "prod_metrics_target", 1)[0]
+        authority = urlsplit("tcp://" + prod["target"])
+        try:
+            address = ipaddress.IPv4Address(authority.hostname or "")
+        except ipaddress.AddressValueError as exc:
+            raise ValueError("prod metrics target must use IPv4:9100") from exc
+        if (not _valid_host(str(address)) or authority.port != 9100
+                or authority.username is not None or authority.password is not None
+                or authority.netloc != prod["target"] or authority.path
+                or authority.query or authority.fragment):
+            raise ValueError("prod metrics target must use IPv4:9100")
+        others = metrics + ([openwrt] if openwrt else [])
+        if any(prod["name"] == x["name"] or prod["target"] == x["target"] for x in others):
+            raise ValueError("prod target must differ from staging and OpenWrt targets")
+        if len(metrics) != 4:
+            raise ValueError("kernel build monitoring requires four staging targets")
     seen = set()
     for entry in api + tcp:
         if entry["name"] in seen:
@@ -148,7 +166,7 @@ def validate_site(document: object) -> dict:
     return {
         "api_targets": api, "tcp_targets": tcp, "egress_cidrs": result_cidrs,
         "api_ca_secret": secret, "metrics_targets": metrics,
-        "openwrt_metrics_target": openwrt,
+        "openwrt_metrics_target": openwrt, "prod_metrics_target": prod,
     }
 
 
@@ -273,6 +291,15 @@ def build_manifest(site: dict) -> dict:
             "node_filesystem_avail_bytes|node_load1|node_boot_time_seconds|"
             "node_network_receive_bytes_total|node_network_transmit_bytes_total"
         )
+        if site["prod_metrics_target"]:
+            node_metric_names += (
+                "|node_load5|node_load15|node_hwmon_temp_celsius|node_thermal_zone_temp|"
+                "node_cpu_frequency_hertz|node_cpu_scaling_frequency_hertz|"
+                "node_pressure_(cpu|memory|io)_(waiting|stalled)_seconds_total|"
+                "node_disk_(read_bytes|written_bytes|io_time_seconds)_total|"
+                "homecluster_rpi_throttle_state|homecluster_rpi_health_collection_success|"
+                "homecluster_rpi_health_collected_at_seconds"
+            )
         jobs.append({
             "job_name": "staging-node-exporter",
             "metrics_path": "/metrics",
@@ -289,6 +316,15 @@ def build_manifest(site: dict) -> dict:
                 "regex": node_metric_names,
             }],
         })
+    if site["prod_metrics_target"]:
+        # Identical bounded metric selection, independent target and job identity.
+        import copy
+        prod_job = copy.deepcopy(jobs[-1])
+        prod_job["job_name"] = "prod-node-exporter"
+        target = site["prod_metrics_target"]
+        prod_job["static_configs"] = [{"targets": [target["target"]],
+                                        "labels": {"node_name": target["name"]}}]
+        jobs.append(prod_job)
     if site["openwrt_metrics_target"]:
         target = site["openwrt_metrics_target"]
         jobs.append({
@@ -348,6 +384,12 @@ def build_manifest(site: dict) -> dict:
     if site["metrics_targets"]:
         prometheus_egress.append({
             "to": [{"ipBlock": {"cidr": network}} for network in site["egress_cidrs"]],
+            "ports": [{"protocol": "TCP", "port": 9100}],
+        })
+    if site["prod_metrics_target"]:
+        address = site["prod_metrics_target"]["target"].split(":", 1)[0]
+        prometheus_egress.append({
+            "to": [{"ipBlock": {"cidr": address + "/32"}}],
             "ports": [{"protocol": "TCP", "port": 9100}],
         })
     if site["openwrt_metrics_target"]:

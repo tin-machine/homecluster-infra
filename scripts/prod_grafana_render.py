@@ -143,7 +143,32 @@ def _openwrt_dashboard() -> dict:
     }
 
 
-def build_manifest() -> dict:
+def _kernel_build_dashboard() -> dict:
+    selector = '{job=~"staging-node-exporter|prod-node-exporter"}'
+    cpu = '{job=~"staging-node-exporter|prod-node-exporter",mode!="idle"}'
+    rows = [
+        ("Worker scrape UP (4 staging + 1 prod)", "up" + selector, "short", "{{node_name}}"),
+        ("CPU by mode (5m, % per host)", "100 * avg by (node_name, mode) (rate(node_cpu_seconds_total" + cpu + "[5m]))", "percent", "{{node_name}} {{mode}}"),
+        ("Available memory", "node_memory_MemAvailable_bytes" + selector, "bytes", "{{node_name}}"),
+        ("Load (1m)", "node_load1" + selector, "short", "{{node_name}}"),
+        ("Temperature (missing series = unknown)", "node_hwmon_temp_celsius" + selector + " or node_thermal_zone_temp" + selector, "celsius", "{{node_name}} {{chip}} {{sensor}} {{zone}}"),
+        ("CPU frequency", "node_cpu_scaling_frequency_hertz" + selector, "hertz", "{{node_name}} CPU {{cpu}}"),
+        ("CPU pressure", "rate(node_pressure_cpu_waiting_seconds_total" + selector + "[5m])", "percentunit", "{{node_name}}"),
+        ("I/O pressure", "rate(node_pressure_io_waiting_seconds_total" + selector + "[5m])", "percentunit", "{{node_name}}"),
+        ("Firmware throttle conditions (current / since boot)", "homecluster_rpi_throttle_state" + selector, "short", "{{node_name}} {{condition}} {{state}}"),
+        ("Firmware metric collection success", "homecluster_rpi_health_collection_success" + selector, "short", "{{node_name}}"),
+        ("Firmware collection age", "time() - homecluster_rpi_health_collected_at_seconds" + selector, "s", "{{node_name}}"),
+        ("Production Prometheus availability", 'up{job="prod-prometheus-self"}', "short", "{{job}}"),
+    ]
+    return {"uid": "kernel-build-fleet", "title": "Kernel build workers (staging + prod)",
+            "tags": ["kernel", "distcc"], "schemaVersion": 39, "version": 1,
+            "editable": False, "timezone": "browser", "refresh": "1m",
+            "time": {"from": "now-6h", "to": "now"},
+            "panels": [_panel(n + 1, title, query, unit, (n % 2) * 12, (n // 2) * 8, legend=legend)
+                       for n, (title, query, unit, legend) in enumerate(rows)]}
+
+
+def build_manifest(*, include_kernel_build: bool = False) -> dict:
     datasource = {
         "apiVersion": 1,
         "datasources": [
@@ -176,6 +201,8 @@ def build_manifest() -> dict:
         "staging-logs.json": _json(_logs_dashboard()),
         "openwrt-overview.json": _json(_openwrt_dashboard()),
     }
+    if include_kernel_build:
+        config["kernel-build-fleet.json"] = _json(_kernel_build_dashboard())
     checksum = hashlib.sha256(_json(config).encode("utf-8")).hexdigest()
     container = {
         "name": "grafana", "image": IMAGE, "imagePullPolicy": "IfNotPresent",
@@ -230,6 +257,8 @@ def build_manifest() -> dict:
         {"name": "data", "emptyDir": {"sizeLimit": "256Mi"}},
         {"name": "temp", "emptyDir": {"sizeLimit": "64Mi"}},
     ]
+    if include_kernel_build:
+        volumes[2]["configMap"]["items"].append({"key": "kernel-build-fleet.json", "path": "kernel-build-fleet.json"})
     return {"apiVersion": "v1", "kind": "List", "items": [
         _resource("v1", "ConfigMap", CONFIG_NAME, data=config),
         _resource("apps/v1", "Deployment", GRAFANA, spec={
@@ -278,8 +307,9 @@ def build_manifest() -> dict:
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--output", help="file path; output contains no site input")
+    p.add_argument("--kernel-build", action="store_true", help="include the five-worker build dashboard")
     args = p.parse_args()
-    result = _json(build_manifest()) + "\n"
+    result = _json(build_manifest(include_kernel_build=args.kernel_build)) + "\n"
     if args.output:
         from pathlib import Path
         target = Path(args.output)

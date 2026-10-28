@@ -82,18 +82,11 @@ def validate_egpu_archive_transfer_contract(text: str) -> None:
     require_not(unpack_task, "openwrt_rpi5_egpu_generation_artifact_controller_dir", "controller-side unarchive transfer")
 
 
-def validate_distcc_pre_role_default(defaults: str, bundle_playbook: str) -> None:
-    # The playbook resolves distcc before include_role loads the role defaults.
-    role_default = "rpi5_common_kernel_build_distcc_enabled: true"
-    require(defaults, role_default, "role distcc enabled default")
-    pre_role_default = "rpi5_common_kernel_build_distcc_enabled | default(true) | bool"
-    if bundle_playbook.count(pre_role_default) != 2:
-        raise AssertionError("pre-role distcc policy must match the enabled role default in both expressions")
-    require_not(
-        bundle_playbook,
-        "rpi5_common_kernel_build_distcc_enabled | default(false)",
-        "pre-role distcc disabled default",
-    )
+def validate_distcc_role_ownership(defaults: str, bundle_playbook: str) -> None:
+    require(defaults, "rpi5_common_kernel_build_distcc_enabled: true", "role distcc default")
+    require(defaults, "rpi5_common_kernel_build_make_jobs: auto", "automatic kernel parallelism")
+    require_not(bundle_playbook, "rpi5_common_kernel_build_distcc_enabled:", "outer local-only fallback")
+    require_not(bundle_playbook, "distcc_candidate_names", "duplicate worker selection")
 
 
 def main() -> int:
@@ -124,7 +117,7 @@ def main() -> int:
     require(defaults, "/var/lib/rancher/k3s/kernel-build", "local SSD work root")
     require(defaults, "rpi5_common_kernel_build_distcc_enabled: true", "distcc enabled default")
     require(defaults, "Plain distcc only", "plain distcc policy")
-    validate_distcc_pre_role_default(defaults, bundle_playbook)
+    validate_distcc_role_ownership(defaults, bundle_playbook)
 
     require(tasks, "kernel/configs.o", "local generated config object prebuild")
     require_not(tasks, "make\n      - kernel/config_data.gz", "direct config data prebuild target")

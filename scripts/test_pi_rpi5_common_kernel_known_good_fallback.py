@@ -48,50 +48,16 @@ class SelectorConvergenceTests(unittest.TestCase):
         }
         self.assertTrue(module.selectors_changed(["node-a", "node-b"], value))
 
-    def test_aligned_and_runtime_accepted_skips_fresh_boot(self) -> None:
+
+
+    def test_same_selector_requires_this_generations_fresh_boot(self) -> None:
         module._LAST_SELECTOR_CHANGED = False
-        module._LAST_ROLLOUT_CONTEXT = {
-            "root": Path("/fixture/infra"),
-            "inventory": Path("/fixture/inventory.yml"),
-            "targets": ["node-a", "node-b"],
-            "exact_release": "6.18.36-v8-homecluster+",
-        }
-        with patch.object(
-            module,
-            "run_phase_acceptance",
-            return_value=(True, ["phase_runtime_acceptance=pass"]),
-        ) as acceptance, patch.object(
-            module,
-            "_original_run_fresh_boot",
-            side_effect=AssertionError("fresh boot must not run"),
-        ):
-            run_id, status = module.run_fresh_boot(Path("/fixture/runbook"))
-
-        self.assertEqual((run_id, status), ("", "pass"))
-        self.assertEqual(module._LAST_FRESH_BOOT_STATUS, "not_required")
-        self.assertIsNotNone(module._PREFLIGHT_ACCEPTANCE)
-        acceptance.assert_called_once()
-        self.assertTrue(acceptance.call_args.kwargs["preflight"])
-
-    def test_aligned_but_runtime_not_accepted_stops_without_fresh_boot(self) -> None:
-        module._LAST_SELECTOR_CHANGED = False
-        module._LAST_ROLLOUT_CONTEXT = {
-            "root": Path("/fixture/infra"),
-            "inventory": Path("/fixture/inventory.yml"),
-            "targets": ["node-a", "node-b"],
-            "exact_release": "6.18.36-v8-homecluster+",
-        }
-        with patch.object(module, "run_phase_acceptance", return_value=(False, ["phase_runtime_acceptance=fail"])), patch.object(
-            module,
-            "_original_run_fresh_boot",
-            side_effect=AssertionError("fresh boot must not run"),
-        ) as fresh_boot:
-            with self.assertRaises(module.RolloutError) as raised:
-                module.run_fresh_boot(Path("/fixture/runbook"))
-
-        self.assertEqual(raised.exception.reason, "same_selector_acceptance_failed")
-        self.assertEqual(raised.exception.status, "blocked")
-        fresh_boot.assert_not_called()
+        module._PROGRESS = None
+        with patch.object(module, "run_phase_acceptance", side_effect=AssertionError("no reused acceptance")), \
+             patch.object(module, "_original_run_fresh_boot", return_value=("fresh-run", "pass")) as power:
+            self.assertEqual(module.run_fresh_boot(Path("/fixture/runbook")), ("fresh-run", "pass"))
+        power.assert_called_once()
+        self.assertEqual(module._LAST_FRESH_BOOT_STATUS, "pass")
 
     def test_no_reboot_acceptance_is_recorded_explicitly(self) -> None:
         selector = {"tftp_release": "20260828-rpi5", "rootfs_release": "20260828-rpi5"}

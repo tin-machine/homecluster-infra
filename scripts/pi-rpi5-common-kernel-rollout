@@ -29,7 +29,7 @@ EXPECTED_ACCEPTED_SHA_ENV = "HOMECLUSTER_RPI5_COMMON_KERNEL_EXPECTED_ACCEPTED_SH
 DEPLOYMENT_ATTEMPT_ENV = "HOMECLUSTER_PXE_DEPLOYMENT_ATTEMPT_ID"
 DEPLOYMENT_ATTEMPT_ID = re.compile(r"^deployment-[0-9a-f]{32}$")
 KERNEL_RELEASE = re.compile(r"^.+-v8-homecluster\+$")
-SELECTOR = re.compile(r"^[0-9]{8}-rpi5$")
+SELECTOR = re.compile(r"^[0-9]{8}-rpi[45]$")
 TASK_LINE = re.compile(r"^TASK \[(.+?)\](?:\s+\*+)?$")
 FAILED_HOST_LINE = re.compile(r"^(?:fatal|failed): \[([^\]]+)\]")
 ORIGIN_LINE = re.compile(r"^Origin:\s+(.+)$")
@@ -432,6 +432,27 @@ def inventory_targets(root: Path, inventory: Path) -> tuple[list[str], str]:
     return agents, egpu_target
 
 
+
+def staging_fleet(value: Mapping[str, Any], agents: Sequence[str]) -> list[str]:
+    """Four staging selectors, including the Pi4 server; never a prod entry."""
+    def members(group: str, seen: frozenset[str] = frozenset()) -> set[str]:
+        if group in seen:
+            raise RolloutError("inventory_group_cycle")
+        item = value.get(group, {})
+        if not isinstance(item, dict):
+            raise RolloutError("inventory_group_invalid")
+        result = set(group_hosts(value, group))
+        for child in item.get("children", []):
+            result.update(members(child, seen | {group}))
+        return result
+
+    servers = group_hosts(value, "k3s_stg_server")
+    fleet = set(servers) | set(agents)
+    if (len(servers) != 1 or len(agents) != 3 or len(fleet) != 4
+            or not fleet <= members("env_stg") or fleet & members("env_prod")):
+        raise RolloutError("staging_fleet_target_contract_invalid")
+    return [*servers, *sorted(agents)]
+
 def target_policy(
     root: Path,
     phase: str,
@@ -693,10 +714,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                     "unknown",
                 )
             agents, egpu_target = inventory_targets(root, inventory)
+            fleet = staging_fleet(inventory_json(root, inventory), agents)
+            policy_targets = fleet if args.phase in {"full_fleet", "rollback_last_phase"} else agents
             targets, rollback_selectors, record_phase = target_policy(
                 workflow_root(),
                 args.phase,
-                agents,
+                policy_targets,
                 egpu_target,
                 str(accepted["generation_run_id"]),
             )
@@ -987,25 +1010,6 @@ def target_policy(
 
 def run_fresh_boot(runbook: Path) -> tuple[str, str]:
     global _LAST_FRESH_BOOT_STATUS, _PREFLIGHT_ACCEPTANCE
-    if _CURRENT_ACTION == "full_fleet" and _LAST_SELECTOR_CHANGED is False and _LAST_ROLLOUT_CONTEXT:
-        context = dict(_LAST_ROLLOUT_CONTEXT)
-        accepted, diagnostics = run_phase_acceptance(
-            Path(context["root"]),
-            runbook,
-            Path(context["inventory"]),
-            "full_fleet",
-            list(context["targets"]),
-            list(context["targets"]),
-            str(context["exact_release"]),
-            preflight=True,
-        )
-        if accepted:
-            _PREFLIGHT_ACCEPTANCE = (accepted, diagnostics)
-            _LAST_FRESH_BOOT_STATUS = "not_required"
-            if _PROGRESS is not None:
-                _PROGRESS.transition("fresh_boot", "fresh_boot_reuse", "not_required")
-            return "", "pass"
-        raise RolloutError("same_selector_acceptance_failed", "blocked", diagnostics)
     if _PROGRESS is not None:
         _PROGRESS.transition("fresh_boot", "fresh_boot_start", "started", power_cycle_started=None)
         _PROGRESS.transition("fresh_boot", "fresh_boot_watch", "waiting")

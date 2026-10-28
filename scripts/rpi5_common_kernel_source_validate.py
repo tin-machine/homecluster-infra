@@ -21,6 +21,8 @@ VALIDATOR = "infra-common-kernel-source-v1"
 _GIT_REVISION = re.compile(r"^[0-9a-f]{40}$")
 
 SOURCE_PATHS = (
+    Path("scripts/ci/test_kernel_distcc_contract.py"),
+    Path("scripts/ci/test_pxe_full_fleet_contract.py"),
     Path("scripts/source_validator_support.py"),
     Path("scripts/ansible/test_pxe_release_bundle_initramfs_scope.py"),
     Path("ansible/openwrt/roles/openwrt_gentoo_rootfs/tasks/initramfs.yml"),
@@ -57,6 +59,8 @@ SOURCE_PATHS = (
 )
 
 CHECKS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("kernel-distcc-workers", (sys.executable, "-B", "scripts/ci/test_kernel_distcc_contract.py")),
+    ("pxe-full-fleet", (sys.executable, "-B", "scripts/ci/test_pxe_full_fleet_contract.py")),
     (
         "paired-release-initramfs-scope",
         (sys.executable, "-B", "scripts/ansible/test_pxe_release_bundle_initramfs_scope.py"),
