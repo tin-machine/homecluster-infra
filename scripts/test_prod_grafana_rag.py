@@ -55,6 +55,16 @@ class RagDashboardTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             terraform_manifest(include_rag=True)
 
+    def test_duration_is_neutral_and_health_zero_is_red(self):
+        panels = {p["title"]: p for p in dashboard()["panels"] if p["type"] != "row"}
+        for name in ("RAG稼働時間", "最終全対象照合の成功からの経過", "最新jobの状態"):
+            self.assertEqual(panels[name]["fieldConfig"]["defaults"]["color"],
+                             {"mode": "fixed", "fixedColor": "blue"})
+        health = panels["収集・DB・更新監視（1=正常）"]["fieldConfig"]["defaults"]
+        self.assertEqual(health["color"], {"mode": "thresholds"})
+        self.assertEqual(health["thresholds"]["steps"],
+                         [{"color": "red", "value": None}, {"color": "green", "value": 1}])
+
     def test_four_sections_and_missing_data_semantics(self):
         value = dashboard()
         self.assertEqual([p["title"] for p in value["panels"] if p["type"] == "row"],
