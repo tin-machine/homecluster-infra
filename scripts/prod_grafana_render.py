@@ -143,7 +143,7 @@ def _openwrt_dashboard() -> dict:
     }
 
 
-def build_manifest() -> dict:
+def build_manifest(*, include_rag: bool = False, folder_uid: str = "") -> dict:
     datasource = {
         "apiVersion": 1,
         "datasources": [
@@ -169,6 +169,14 @@ def build_manifest() -> dict:
             "options": {"path": "/etc/grafana/dashboards"},
         }],
     }
+    if folder_uid:
+        provider["providers"][0]["folderUid"] = folder_uid
+    if include_rag:
+        provider["providers"].append({
+            "name": "shared-rag", "orgId": 1, "type": "file", "folder": "RAG",
+            "folderUid": "shared-rag", "disableDeletion": True, "allowUiUpdates": False,
+            "updateIntervalSeconds": 30, "options": {"path": "/etc/grafana/rag-dashboards"},
+        })
     config = {
         "datasource.yaml": _json(datasource),
         "dashboard-provider.yaml": _json(provider),
@@ -176,6 +184,9 @@ def build_manifest() -> dict:
         "staging-logs.json": _json(_logs_dashboard()),
         "openwrt-overview.json": _json(_openwrt_dashboard()),
     }
+    if include_rag:
+        from prod_rag_dashboard import dashboard
+        config["rag-overview.json"] = _json(dashboard())
     checksum = hashlib.sha256(_json(config).encode("utf-8")).hexdigest()
     container = {
         "name": "grafana", "image": IMAGE, "imagePullPolicy": "IfNotPresent",
@@ -230,6 +241,13 @@ def build_manifest() -> dict:
         {"name": "data", "emptyDir": {"sizeLimit": "256Mi"}},
         {"name": "temp", "emptyDir": {"sizeLimit": "64Mi"}},
     ]
+    if include_rag:
+        container["volumeMounts"].append({
+            "name": "rag-dashboards", "mountPath": "/etc/grafana/rag-dashboards", "readOnly": True,
+        })
+        volumes.append({"name": "rag-dashboards", "configMap": {
+            "name": CONFIG_NAME, "items": [{"key": "rag-overview.json", "path": "rag-overview.json"}],
+        }})
     return {"apiVersion": "v1", "kind": "List", "items": [
         _resource("v1", "ConfigMap", CONFIG_NAME, data=config),
         _resource("apps/v1", "Deployment", GRAFANA, spec={
