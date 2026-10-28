@@ -43,6 +43,13 @@ def test_k3s_stg_storage_vars() -> None:
         },
         "agent1": {
             "ansible_host": "192.0.2.11",
+            "k3s_agent": {
+                "kubelet-arg": [
+                    "container-log-max-size=10Mi",
+                    "container-log-max-files=3",
+                    "runtime-request-timeout=15m",
+                ],
+            },
             "k3s_local_storage_enabled": True,
             "k3s_local_storage_device": "/dev/disk/by-id/example-agent-part1",
             "k3s_local_storage_scrub_containerd_on_boot": True,
@@ -140,6 +147,11 @@ def test_k3s_stg_storage_vars() -> None:
     assert server["k3s_start_on_boot"] is False
 
     assert agent["k3s_agent"]["data-dir"] == "/var/lib/rancher/k3s"
+    assert agent["k3s_agent"]["kubelet-arg"] == [
+        "container-log-max-size=10Mi",
+        "container-log-max-files=3",
+        "runtime-request-timeout=15m",
+    ]
     assert agent["k3s_local_storage_enabled"] is True
     assert agent["k3s_local_storage_device"] == "/dev/disk/by-id/example-agent-part1"
     assert agent["k3s_local_storage_ephemeral_agent_data"] is True
@@ -163,6 +175,7 @@ def test_k3s_stg_storage_vars() -> None:
     assert "k3s_start_on_boot" not in storage
 
     assert agent_2["k3s_agent"]["data-dir"] == "/var/lib/rancher/k3s"
+    assert "kubelet-arg" not in agent_2["k3s_agent"]
     assert gpu_agent["k3s_agent"]["data-dir"] == "/var/lib/rancher/k3s"
     assert gpu_agent["rpi5_egpu_local_llm_enabled"] is True
     assert gpu_agent["rpi5_egpu_llama_bind_host"] == "192.0.2.13"
