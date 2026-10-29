@@ -13,6 +13,7 @@ import sys
 
 
 LABEL = re.compile(r"^[0-9]{8}-rpi5-homecluster$")
+LEGACY_LABEL = re.compile(r"^[0-9]{8}-rpi5-nvidia$")
 PRODUCTION_ROOT = Path("/var/lib/rancher/k3s/kernel-build")
 
 
@@ -59,12 +60,54 @@ def active_references(paths, proc_root=Path("/proc")):
     return False
 
 
-def build_plan(root, protected, min_free_bytes, free_bytes, proc_root=Path("/proc")):
+def linked_build_labels(root, modules_root=Path("/lib/modules")):
+    """Protect even dangling module build links; these can be needed by DKMS."""
+    labels = set()
+    if not modules_root.is_dir():
+        raise CleanupBlocked("modules_root_missing")
+    for base, dirs, files in os.walk(modules_root, followlinks=False):
+        for name in dirs + files:
+            link = Path(base) / name
+            if not link.is_symlink():
+                continue
+            target = link.resolve(strict=False)
+            try:
+                relative = target.relative_to(root)
+            except ValueError:
+                continue
+            if relative.parts:
+                labels.add(relative.parts[0])
+    return labels
+
+
+def mounted_below(paths, mountinfo=Path("/proc/self/mountinfo")):
+    """Never recurse through a mount inside a selected work directory."""
+    for line in mountinfo.read_text().splitlines():
+        fields = line.split()
+        if len(fields) < 5:
+            raise CleanupBlocked("mountinfo_invalid")
+        mount = Path(fields[4].replace("\\040", " "))
+        for path in paths:
+            if mount == path or path in mount.parents:
+                return True
+    return False
+
+
+def separate_work_mount(root):
+    return root.stat().st_dev != Path("/").stat().st_dev
+
+
+def build_plan(root, protected, min_free_bytes, free_bytes, proc_root=Path("/proc"),
+               post_complete=False, modules_root=Path("/lib/modules"),
+               mountinfo=Path("/proc/self/mountinfo")):
     if root.is_symlink() or not root.is_dir():
         raise CleanupBlocked("invalid_work_root")
+    protected = set(protected)
+    if post_complete:
+        protected.update(linked_build_labels(root, modules_root))
     eligible = []
     for path in root.iterdir():
-        if not LABEL.fullmatch(path.name):
+        if not LABEL.fullmatch(path.name) and not (post_complete and LEGACY_LABEL.fullmatch(path.name)):
             continue
         mode = path.lstat().st_mode
         if not stat.S_ISDIR(mode):
@@ -72,16 +115,18 @@ def build_plan(root, protected, min_free_bytes, free_bytes, proc_root=Path("/pro
         if path.name in protected:
             continue
         # A work directory newer than the oldest protected generation is not stale.
-        if path.name >= min(protected):
+        if not post_complete and path.name >= min(protected):
             continue
         eligible.append(path)
     eligible.sort(key=lambda path: path.name)
+    if post_complete and mounted_below(eligible, mountinfo):
+        raise CleanupBlocked("candidate_contains_mount")
     if active_references(eligible, proc_root):
         raise CleanupBlocked("active_build_reference")
     selected = []
     projected_free = free_bytes
     for path in eligible:
-        if projected_free >= min_free_bytes:
+        if not post_complete and projected_free >= min_free_bytes:
             break
         selected.append(path)
         projected_free += directory_bytes(path)
@@ -92,6 +137,7 @@ def build_plan(root, protected, min_free_bytes, free_bytes, proc_root=Path("/pro
         "protected": sorted(protected),
         "delete": [{"label": path.name, "inode": path.lstat().st_ino} for path in selected],
         "min_free_bytes": min_free_bytes,
+        "post_complete": post_complete,
     }
     digest = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
     return {
@@ -107,15 +153,32 @@ def build_plan(root, protected, min_free_bytes, free_bytes, proc_root=Path("/pro
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", required=True, type=Path)
-    parser.add_argument("--candidate", required=True)
+    parser.add_argument("--candidate", default="")
     parser.add_argument("--accepted", required=True)
-    parser.add_argument("--rollback", required=True)
+    parser.add_argument("--rollback", default="")
     parser.add_argument("--min-free-gib", type=int, default=48)
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--expected-plan-sha256", default="")
+    parser.add_argument("--post-complete", action="store_true")
+    parser.add_argument("--protected-label", action="append", default=[])
     args = parser.parse_args()
     try:
-        protected = validate_labels(args.candidate, args.accepted, args.rollback)
+        if args.post_complete:
+            if not LABEL.fullmatch(args.accepted) or not args.protected_label:
+                raise CleanupBlocked("post_complete_protection_missing")
+            if not separate_work_mount(args.root):
+                raise CleanupBlocked("work_root_not_separate_mount")
+            if any(not (LABEL.fullmatch(label) or LEGACY_LABEL.fullmatch(label))
+                   for label in args.protected_label):
+                raise CleanupBlocked("invalid_protected_label")
+            protected = {args.accepted, *args.protected_label}
+            accepted_path = args.root / args.accepted
+            if accepted_path.is_symlink() or not accepted_path.is_dir():
+                raise CleanupBlocked("accepted_build_missing")
+            if args.accepted not in linked_build_labels(args.root):
+                raise CleanupBlocked("accepted_build_link_missing")
+        else:
+            protected = validate_labels(args.candidate, args.accepted, args.rollback)
         if args.root != PRODUCTION_ROOT or args.root.is_symlink():
             raise CleanupBlocked("unexpected_work_root")
         if not 1 <= args.min_free_gib <= 200:
@@ -125,13 +188,18 @@ def main():
         if not args.apply and args.expected_plan_sha256:
             raise CleanupBlocked("plan_digest_without_apply")
         free_bytes = shutil.disk_usage(args.root).free
-        plan = build_plan(args.root, protected, args.min_free_gib * 1024**3, free_bytes)
+        plan = build_plan(args.root, protected, args.min_free_gib * 1024**3, free_bytes,
+                          post_complete=args.post_complete)
         if args.apply:
             if plan["plan_sha256"] != args.expected_plan_sha256:
                 raise CleanupBlocked("plan_changed")
             for label in plan["delete_labels"]:
                 path = args.root / label
-                if path.is_symlink() or not path.is_dir() or active_references([path]):
+                if path.is_symlink() or not path.is_dir() or active_references([path]) or (
+                    args.post_complete and (
+                        mounted_below([path]) or path.name in linked_build_labels(args.root)
+                    )
+                ):
                     raise CleanupBlocked("candidate_changed_or_active")
                 shutil.rmtree(path)
             plan["free_bytes_after"] = shutil.disk_usage(args.root).free

@@ -1,0 +1,106 @@
+---
+- name: Resolve protected Pi5 rollback build releases
+  hosts: openwrt
+  gather_facts: false
+  tasks:
+    - name: Staging rollback selectorsを検証
+      ansible.builtin.assert:
+        that:
+          - groups['openwrt'] | length == 1
+          - homecluster_cleanup_previous_selectors is sequence
+          - homecluster_cleanup_previous_selectors is not string
+          - homecluster_cleanup_previous_selectors | length > 0
+          - homecluster_cleanup_previous_selectors | length <= 6
+          - homecluster_cleanup_accepted is match('^[0-9]{8}-rpi5-homecluster$')
+          - homecluster_cleanup_apply | default(false) | bool
+          - not ansible_check_mode
+        fail_msg: postaccept cleanupにはstgのrollback selectorとaccepted buildを指定してください
+
+    - name: Rollback selectorの形式を検証
+      ansible.builtin.assert:
+        that:
+          - item is match('^[0-9]{8}-rpi5$')
+      loop: "{{ homecluster_cleanup_previous_selectors }}"
+
+    - name: Rollback release manifestを読む
+      ansible.builtin.raw: "cat /srv/gentoo/releases/{{ item | regex_replace('-rpi5$', '') }}.json"
+      loop: "{{ homecluster_cleanup_previous_selectors | unique | list }}"
+      register: homecluster_cleanup_previous_manifests
+      no_log: true
+
+    - name: Rollback manifestのbuild releaseを検証
+      ansible.builtin.assert:
+        that:
+          - (item.stdout | from_json).releases.rpi5 == item.item
+          - (item.stdout | from_json).metadata.rpi5_nvidia.common_kernel_artifact.build_release is match('^[0-9]{8}-rpi5$')
+      loop: "{{ homecluster_cleanup_previous_manifests.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+      no_log: true
+
+    - name: Rollbackで使うbuildを保護対象へ追加
+      ansible.builtin.set_fact:
+        homecluster_cleanup_rollback_labels: >-
+          {{ homecluster_cleanup_previous_manifests.results
+             | map(attribute='stdout') | map('from_json')
+             | map(attribute='metadata.rpi5_nvidia.common_kernel_artifact.build_release')
+             | map('regex_replace', '$', '-homecluster') | unique | list }}
+
+- name: Clean unreferenced Pi5 build work after full-fleet acceptance
+  hosts: rpi5_egpu_artifact_bundle
+  gather_facts: false
+  become: true
+  vars:
+    homecluster_cleanup_min_free_gib: 48
+    homecluster_cleanup_rollback_labels: "{{ hostvars[groups['openwrt'][0]].homecluster_cleanup_rollback_labels }}"
+  tasks:
+    - name: Staging builderと保護対象を検証
+      ansible.builtin.assert:
+        that:
+          - groups['rpi5_egpu_artifact_bundle'] | length == 1
+          - inventory_hostname == groups['rpi5_egpu_artifact_bundle'][0]
+          - rpi5_common_kernel_build_stage | default('') == 'stg'
+          - rpi5_common_kernel_build_work_root | default('/var/lib/rancher/k3s/kernel-build') == '/var/lib/rancher/k3s/kernel-build'
+          - homecluster_cleanup_rollback_labels | length > 0
+          - homecluster_cleanup_accepted not in homecluster_cleanup_rollback_labels
+
+    - name: 削除候補と計画digestを計算
+      ansible.builtin.script:
+        cmd: >-
+          {{ playbook_dir }}/../roles/rpi5_common_kernel_build/files/cleanup_old_builds.py
+          --root /var/lib/rancher/k3s/kernel-build
+          --accepted {{ homecluster_cleanup_accepted }}
+          {% for label in homecluster_cleanup_rollback_labels %}
+          --protected-label {{ label }}
+          {% endfor %}
+          --post-complete
+          --min-free-gib {{ homecluster_cleanup_min_free_gib | int }}
+        executable: python3
+      register: homecluster_cleanup_preview
+      changed_when: false
+      check_mode: false
+
+    - name: 削除前の候補と容量を表示
+      ansible.builtin.debug:
+        msg: "{{ homecluster_cleanup_preview.stdout | from_json }}"
+
+    - name: 同じdigestの計画を実行
+      ansible.builtin.script:
+        cmd: >-
+          {{ playbook_dir }}/../roles/rpi5_common_kernel_build/files/cleanup_old_builds.py
+          --root /var/lib/rancher/k3s/kernel-build
+          --accepted {{ homecluster_cleanup_accepted }}
+          {% for label in homecluster_cleanup_rollback_labels %}
+          --protected-label {{ label }}
+          {% endfor %}
+          --post-complete
+          --min-free-gib {{ homecluster_cleanup_min_free_gib | int }}
+          --apply
+          --expected-plan-sha256 {{ (homecluster_cleanup_preview.stdout | from_json).plan_sha256 }}
+        executable: python3
+      register: homecluster_cleanup_result
+      changed_when: "((homecluster_cleanup_result.stdout | from_json).delete_labels | length) > 0"
+
+    - name: 削除結果と残容量を表示
+      ansible.builtin.debug:
+        msg: "{{ homecluster_cleanup_result.stdout | from_json }}"
