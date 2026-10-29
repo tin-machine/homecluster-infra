@@ -15,4 +15,11 @@ cd terraform/env/staging
 terraform init -backend=false
 terraform validate
 terraform test -filter=tests/grafana_tailnet.tftest.hcl
+terraform test -filter=tests/typevt_tailnet_egress.tftest.hcl
 ```
+
+## TypeVT metrics over the tailnet
+
+Set `typevt_tailnet_fqdn` to the tablet's full MagicDNS name in private staging site input after its exporter is active. By default the egress Service is absent. When enabled, the Operator creates a standalone egress proxy for `observability-stg/typevt-node-exporter-tailnet` on TCP 9100. This lets a staging Pod reach the exporter without exposing it on the LAN. The Operator rewrites the Service's `externalName`; Terraform ignores only that managed field.
+
+Before adding a Prometheus scrape target, confirm the egress Service reports `TailscaleEgressSvcReady=true` and a bounded test Pod can read `http://typevt-node-exporter-tailnet.observability-stg.svc.cluster.local:9100/metrics`. Confirm the tailnet policy permits this egress proxy to reach TypeVT. Remove the Service or set the variable to `null` to disable the route. See the [Tailscale egress guide](https://tailscale.com/docs/kubernetes-operator/egress/access-tailnet-service) for the Operator's ExternalName behavior.

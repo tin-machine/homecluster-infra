@@ -171,6 +171,21 @@ variable "grafana_tailnet_hostname" {
   }
 }
 
+variable "typevt_tailnet_fqdn" {
+  type        = string
+  description = "Optional full MagicDNS name of TypeVT for a staging-only node exporter egress proxy."
+  default     = null
+  nullable    = true
+
+  validation {
+    condition = var.typevt_tailnet_fqdn == null ? true : can(regex(
+      "^[a-z0-9-]+(\\.[a-z0-9-]+)+\\.ts\\.net$",
+      var.typevt_tailnet_fqdn
+    ))
+    error_message = "typevt_tailnet_fqdn must be a full lowercase .ts.net MagicDNS name."
+  }
+}
+
 variable "registry_namespace" {
   type        = string
   description = "Namespace for staging local registry resources"
