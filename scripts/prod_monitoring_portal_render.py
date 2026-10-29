@@ -166,7 +166,8 @@ http {
         "policyTypes": ["Ingress", "Egress"],
         "ingress": [{"from": from_tailnet,
                      "ports": [{"protocol": "TCP", "port": 8080}]}],
-        "egress": [],
+        # Kubernetes omits an empty egress list when it reads the policy back.
+        # Egress in policyTypes still denies all outbound traffic.
     })
     grafana_policy = _resource("networking.k8s.io/v1", "NetworkPolicy",
                                "prod-grafana-tailnet-ingress", spec={

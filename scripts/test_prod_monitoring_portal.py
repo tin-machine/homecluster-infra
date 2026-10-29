@@ -36,7 +36,7 @@ class PortalTests(unittest.TestCase):
         self.assertEqual(pod["containers"][0]["resources"]["limits"]["memory"], "64Mi")
         policy = by_name["NetworkPolicy", "prod-monitoring-portal-ingress"]["spec"]
         self.assertEqual(policy["policyTypes"], ["Ingress", "Egress"])
-        self.assertEqual(policy["egress"], [])
+        self.assertNotIn("egress", policy)
         self.assertEqual(policy["ingress"][0]["from"][0]["namespaceSelector"]["matchLabels"],
                          {"kubernetes.io/metadata.name": "tailscale"})
 
