@@ -6,6 +6,8 @@ This separate Terraform root manages a small static Nginx link page and, when en
 
 `enable_tailnet=false` is the default. It leaves both Ingresses and the Tailscale Operator absent while allowing a source review of the portal manifest. Enabling tailnet requires the precreated `tailscale/operator-oauth` Secret containing `client_id` and `client_secret`; no credential is passed in Terraform variables or Helm values. Create that production Secret only after staging HTTPS, access policy, Grafana login, and the saved production plan have been accepted. The Operator chart is pinned to `1.104.2` and its Serve proxy image to `v1.104.4`.
 
+The default proxy tag is `tag:k8s`. Before creating the production OAuth client, confirm that its operator tag can own `tag:k8s` in the tailnet policy and that the client can issue keys for it. Also confirm ACLs permit only the intended viewers to reach the portal and Grafana over HTTPS. The staging OAuth client could not use the default tag; production credentials and policy need their own check.
+
 The root requires an explicit production kubeconfig context and expected `kube-system` UID. Confirm both before planning. Review the exact ConfigMap, Deployment, Service, NetworkPolicy, Ingress, and Helm changes in a saved plan before apply. The existing Grafana NetworkPolicy remains in place; this root only adds ingress from the `tailscale` namespace to port 3000. The Nginx Pod has a read-only root filesystem, no service account token, no egress, and a single 8080 listener.
 
 Source checks:
