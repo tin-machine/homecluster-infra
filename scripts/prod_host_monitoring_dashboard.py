@@ -24,12 +24,19 @@ def dashboard(host: str) -> dict:
         raise ValueError("unknown host dashboard")
     job = "ubuntu-desktop-node-exporter" if host == "desktop" else "typevt-node-exporter"
     selector = '{job="' + job + '"}'
+    temperature = "node_hwmon_temp_celsius" + selector
+    temperature_legend = "{{chip}} {{sensor}}"
+    if host == "desktop":
+        # The host exposes unconnected CPUTIN/AUXTIN and zero-valued PCH sensors.
+        temperature += (' * on(instance,job,chip,sensor) group_left(label) '
+                        'node_hwmon_sensor_label{job="' + job + '",label=~"Package id 0|SYSTIN"}')
+        temperature_legend = "{{label}}"
     rows = [
         ("Scrape UP", "up" + selector, "short", "", "stat"),
         ("CPU busy (5m)", '100 * (1 - avg(rate(node_cpu_seconds_total{job="' + job + '",mode="idle"}[5m])))', "percent", "", "timeseries"),
         ("Available memory", "node_memory_MemAvailable_bytes" + selector, "bytes", "", "timeseries"),
         ("Swap used", "node_memory_SwapTotal_bytes" + selector + " - node_memory_SwapFree_bytes" + selector, "bytes", "", "timeseries"),
-        ("CPU and board temperature", "node_hwmon_temp_celsius" + selector, "celsius", "{{chip}} {{sensor}}", "timeseries"),
+        ("CPU and board temperature", temperature, "celsius", temperature_legend, "timeseries"),
         ("Root filesystem available", 'node_filesystem_avail_bytes{job="' + job + '",mountpoint="/"}', "bytes", "", "timeseries"),
         ("Disk read rate", 'rate(node_disk_read_bytes_total{job="' + job + '",device!~"loop.*|ram.*"}[5m])', "Bps", "{{device}}", "timeseries"),
         ("Disk write rate", 'rate(node_disk_written_bytes_total{job="' + job + '",device!~"loop.*|ram.*"}[5m])', "Bps", "{{device}}", "timeseries"),
@@ -49,6 +56,13 @@ def dashboard(host: str) -> dict:
             ("SSD temperature", "homecluster_smart_temperature_celsius" + selector, "celsius", "{{device}}", "timeseries"),
             ("GPU collection age", "time() - homecluster_gpu_last_success_timestamp_seconds" + selector, "s", "", "stat"),
             ("SMART collection age", "time() - homecluster_smart_last_attempt_timestamp_seconds" + selector, "s", "", "stat"),
+            ("LLM metrics collection", "homecluster_llm_collection_success" + selector, "short", "", "stat"),
+            ("LLM requests processing", "homecluster_llm_requests_processing" + selector, "short", "", "timeseries"),
+            ("LLM requests waiting", "homecluster_llm_requests_deferred" + selector, "short", "", "timeseries"),
+            ("LLM prompt tokens/s (5m)", "rate(homecluster_llm_prompt_tokens_total" + selector + "[5m])", "short", "", "timeseries"),
+            ("LLM cached prompt tokens/s (5m)", "rate(homecluster_llm_prompt_tokens_cached_total" + selector + "[5m])", "short", "", "timeseries"),
+            ("LLM generated tokens/s (5m)", "rate(homecluster_llm_predicted_tokens_total" + selector + "[5m])", "short", "", "timeseries"),
+            ("LLM metrics age", "time() - homecluster_llm_last_success_timestamp_seconds" + selector, "s", "", "stat"),
         ]
     else:
         rows += [
