@@ -5,6 +5,10 @@ resource "kubernetes_ingress_v1" "grafana_tailnet" {
   metadata {
     name      = "stg-grafana-tailnet"
     namespace = "observability-stg"
+    annotations = {
+      # The staging OAuth client can issue proxy keys for this existing tag.
+      "tailscale.com/tags" = "tag:cli-workspace-stg"
+    }
     labels = {
       "app.kubernetes.io/name"     = "grafana"
       "app.kubernetes.io/instance" = "stg-grafana"

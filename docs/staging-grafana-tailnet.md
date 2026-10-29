@@ -4,6 +4,8 @@
 
 Set `tailscale_operator_enabled=true` and `grafana_tailnet_hostname` to an available single MagicDNS label in the private staging site input. The default `null` leaves the Ingress absent. The Ingress uses `ingressClassName=tailscale`, publishes only Grafana port 80, and does not enable Funnel. The existing LoadBalancer service remains available.
 
+Both new resources use the staging OAuth client's existing `tag:cli-workspace-stg` proxy tag. The default `tag:k8s` was rejected by this tailnet during the first staging apply. This tag permits proxy registration only; verify tailnet ACLs separately for Grafana HTTPS and TypeVT port 9100. A dedicated monitoring tag can replace it after the tailnet policy and OAuth client are updated together.
+
 Before applying, confirm the target is the staging cluster, the Operator and OAuth Secret exist, the chosen hostname is free, and the tailnet policy allows only the intended viewers to reach the proxy. Apply the normal staging Terraform plan after the cluster is healthy. Confirm HTTPS certificate issuance, Grafana login and redirect behavior, dashboard/log access, and the existing LAN address. A failed login redirect may require setting Grafana's `root_url` in the staging site values; check both access paths before changing it.
 
 The pinned Operator chart is `1.104.2`; its Serve proxy image is pinned to `v1.104.4`. This changes the Operator Helm release on the next normal apply, even when Grafana Ingress remains disabled. Review the rollout and the existing CLI workspace proxy in the saved plan.

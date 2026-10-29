@@ -50,6 +50,7 @@ run "grafana_uses_existing_staging_operator" {
   assert {
     condition = (
       kubernetes_ingress_v1.grafana_tailnet[0].metadata[0].namespace == "observability-stg" &&
+      kubernetes_ingress_v1.grafana_tailnet[0].metadata[0].annotations["tailscale.com/tags"] == "tag:cli-workspace-stg" &&
       kubernetes_ingress_v1.grafana_tailnet[0].spec[0].ingress_class_name == "tailscale" &&
       kubernetes_ingress_v1.grafana_tailnet[0].spec[0].tls[0].hosts == tolist(["grafana-stg-fixture"]) &&
       kubernetes_ingress_v1.grafana_tailnet[0].spec[0].rule[0].http[0].path[0].backend[0].service[0].name == "stg-grafana" &&

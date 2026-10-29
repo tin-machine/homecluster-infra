@@ -51,6 +51,7 @@ run "egress_targets_only_typevt_metrics" {
     condition = (
       kubernetes_service_v1.typevt_node_exporter_tailnet[0].metadata[0].namespace == "observability-stg" &&
       kubernetes_service_v1.typevt_node_exporter_tailnet[0].metadata[0].annotations["tailscale.com/tailnet-fqdn"] == "tablet.tail0000.ts.net" &&
+      kubernetes_service_v1.typevt_node_exporter_tailnet[0].metadata[0].annotations["tailscale.com/tags"] == "tag:cli-workspace-stg" &&
       kubernetes_service_v1.typevt_node_exporter_tailnet[0].spec[0].type == "ExternalName" &&
       kubernetes_service_v1.typevt_node_exporter_tailnet[0].spec[0].port[0].port == 9100
     )
