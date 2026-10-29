@@ -3,10 +3,12 @@
 LOKI = {"type": "loki", "uid": "prod-loki"}
 PROMETHEUS = {"type": "prometheus", "uid": "prod-prometheus"}
 WARN_LEVELS = "warn|warning|error|err|critical|crit|fatal|alert|emerg"
-SELECTOR = ('{service_name=~"${service:raw}"}'
+SELECTOR = ('{service_name=~".+"}'
+            ' | service_name=~"${service:raw}"'
             ' | environment=~"${environment:raw}"'
             ' | detected_level=~"${minimum_level:raw}"')
-UNKNOWN = ('{service_name=~"${service:raw}"}'
+UNKNOWN = ('{service_name=~".+"}'
+           ' | service_name=~"${service:raw}"'
            ' | environment=~"${environment:raw}"'
            ' | detected_level=~"unknown|^$"')
 

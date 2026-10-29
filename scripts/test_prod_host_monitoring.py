@@ -67,7 +67,8 @@ class HostMonitoringTests(unittest.TestCase):
         queries = [panel["targets"][0]["expr"] for panel in value["panels"]]
         self.assertIn('detected_level=~"${minimum_level:raw}"', queries[0])
         self.assertIn('detected_level=~"unknown|^$"', queries[1])
-        self.assertTrue(queries[0].startswith('{service_name=~"${service:raw}"} | environment='))
+        self.assertTrue(queries[0].startswith(
+            '{service_name=~".+"} | service_name=~"${service:raw}" | environment='))
         self.assertIn(' | k8s_namespace_name=~"${namespace:raw}"', queries[2])
         self.assertIn(' | _HOSTNAME=~"${host:raw}"', queries[3])
         self.assertNotIn("|~", queries[0])
