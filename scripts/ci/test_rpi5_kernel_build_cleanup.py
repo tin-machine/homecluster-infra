@@ -108,6 +108,70 @@ class CleanupSafetyTest(unittest.TestCase):
             self.assertFalse(old.exists())
             self.assertTrue(current.is_dir())
 
+    def test_postcomplete_protects_current_rollback_and_module_links(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "kernel-build"
+            root.mkdir()
+            labels = (
+                "20260602-rpi5-nvidia", "20261024-rpi5-homecluster",
+                "20261025-rpi5-homecluster", "20261026-rpi5-homecluster",
+                "20261027-rpi5-homecluster",
+            )
+            for label in labels:
+                (root / label).mkdir()
+                (root / label / "build.o").write_bytes(b"build")
+            modules = Path(tmp) / "modules" / "6.18.36"
+            modules.mkdir(parents=True)
+            (modules / "build").symlink_to(root / "20261025-rpi5-homecluster" / "linux")
+            mountinfo = Path(tmp) / "mountinfo"
+            mountinfo.write_text("1 0 0:1 / / rw - ext4 /dev/a rw\n")
+            plan = cleanup.build_plan(
+                root,
+                {"20261024-rpi5-homecluster", "20261026-rpi5-homecluster"},
+                1, 0, proc_root=root, post_complete=True,
+                modules_root=modules.parent, mountinfo=mountinfo,
+            )
+            self.assertEqual(plan["delete_labels"], [
+                "20260602-rpi5-nvidia", "20261027-rpi5-homecluster",
+            ])
+            self.assertIn("20261025-rpi5-homecluster", plan["protected_labels"])
+
+    def test_postcomplete_blocks_mounted_candidate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "kernel-build"
+            root.mkdir()
+            old = root / "20261024-rpi5-homecluster"
+            old.mkdir()
+            modules = Path(tmp) / "modules" / "current"
+            modules.mkdir(parents=True)
+            (modules / "build").symlink_to(root / "20261026-rpi5-homecluster" / "linux")
+            mountinfo = Path(tmp) / "mountinfo"
+            mountinfo.write_text(f"1 0 0:1 / {old / 'staging'} rw - ext4 /dev/a rw\n")
+            with self.assertRaisesRegex(cleanup.CleanupBlocked, "candidate_contains_mount"):
+                cleanup.build_plan(
+                    root, {"20261026-rpi5-homecluster"}, 1, 0,
+                    proc_root=root, post_complete=True, modules_root=modules.parent,
+                    mountinfo=mountinfo,
+                )
+
+    def test_postcomplete_rejects_unmounted_work_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "kernel-build"
+            root.mkdir()
+            args = [
+                "cleanup_old_builds.py", "--root", str(root),
+                "--accepted", "20261026-rpi5-homecluster",
+                "--protected-label", "20261024-rpi5-homecluster",
+                "--post-complete",
+            ]
+            with patch.object(cleanup, "PRODUCTION_ROOT", root), patch.object(
+                cleanup, "separate_work_mount", return_value=False
+            ), patch.object(
+                cleanup.sys, "argv", args
+            ), patch("sys.stdout", new_callable=io.StringIO) as out:
+                self.assertEqual(cleanup.main(), 2)
+            self.assertEqual(json.loads(out.getvalue())["reason"], "work_root_not_separate_mount")
+
 
 if __name__ == "__main__":
     unittest.main()

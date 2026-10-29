@@ -668,6 +668,52 @@ def parser() -> argparse.ArgumentParser:
     return result
 
 
+def postaccept_cleanup(
+    root: Path, inventory: Path, agents: Sequence[str],
+    accepted: Mapping[str, Any], selector_result: Mapping[str, Any],
+) -> list[str]:
+    """Best-effort GC after accepted full-fleet boot; never change boot acceptance."""
+    build_release = str(accepted.get("kernel_artifact_build_release", ""))
+    if not SELECTOR.fullmatch(build_release) or not build_release.endswith("-rpi5"):
+        return ["postaccept_cleanup=blocked_accepted_build_unknown"]
+    previous = selector_result.get("previous_selector_by_node")
+    if not isinstance(previous, dict):
+        return ["postaccept_cleanup=blocked_previous_selectors_unknown"]
+    selectors: set[str] = set()
+    for agent in agents:
+        record = previous.get(agent)
+        if not isinstance(record, dict):
+            return ["postaccept_cleanup=blocked_previous_selectors_unknown"]
+        for field in ("tftp_release", "rootfs_release"):
+            value = record.get(field)
+            if not isinstance(value, str) or not re.fullmatch(r"[0-9]{8}-rpi5", value):
+                return ["postaccept_cleanup=blocked_previous_selectors_unknown"]
+            selectors.add(value)
+    if not selectors:
+        return ["postaccept_cleanup=blocked_previous_selectors_unknown"]
+    playbook = root / "ansible/arm64/playbooks/rpi5-common-kernel-postaccept-cleanup.yml"
+    if not playbook.is_file():
+        return ["postaccept_cleanup=blocked_playbook_missing"]
+    try:
+        completed = run(
+            ["ansible-playbook", "-i", inventory, playbook, "--extra-vars", json.dumps({
+                "homecluster_cleanup_apply": True,
+                "homecluster_cleanup_accepted": build_release + "-homecluster",
+                "homecluster_cleanup_previous_selectors": sorted(selectors),
+            }, separators=(",", ":"))],
+            cwd=root / "ansible/arm64", timeout=1800,
+        )
+    except RolloutError:
+        return ["postaccept_cleanup=execution_unknown"]
+    if completed.returncode != 0:
+        return ["postaccept_cleanup=failed", *ansible_failure_diagnostics(
+            completed.stdout, completed.stderr, stage="postaccept_cleanup",
+            mutation_committed=None, power_cycle_started=True,
+            next_check_id="kernel_build_cleanup_receipt",
+        )]
+    return ["postaccept_cleanup=pass"]
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     global _PROGRESS
     args = parser().parse_args(argv)
@@ -878,6 +924,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                             "phase_record": record,
                             "diagnostics": ["selector_apply=pass", "fresh_boot=pass", *diagnostics, "automatic_rollback=false"],
                         }
+                        if args.phase == "full_fleet" and accepted_phase:
+                            try:
+                                result["diagnostics"].extend(postaccept_cleanup(
+                                    root, inventory, agents, accepted, selector_result,
+                                ))
+                            except Exception:  # GC must not erase successful boot acceptance.
+                                result["diagnostics"].append("postaccept_cleanup=execution_unknown")
     except RolloutError as error:
         result = {
             "collector": COLLECTOR,
