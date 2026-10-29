@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -345,6 +346,7 @@ def main() -> int:
     )
     require_not(rollout_playbook, "tasks_from: tftp_switch", "shared release rewrite during rollout")
 
+    subprocess.run([sys.executable, "-B", str(ROOT / "scripts/ci/test_nvidia_kernel_context.py")], check=True)
     print("rpi5 common kernel build contract ok")
     return 0
 
