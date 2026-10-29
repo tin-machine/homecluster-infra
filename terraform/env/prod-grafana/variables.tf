@@ -47,6 +47,24 @@ variable "rag_address" {
   default     = ""
 }
 
+variable "desktop_host_address" {
+  description = "Specific private IPv4 of the Ubuntu Desktop node exporter; empty disables this scrape."
+  type        = string
+  default     = ""
+}
+
+variable "typevt_host_address" {
+  description = "Specific IPv4 of the TypeVT node exporter, only after the prod Prometheus Pod route is proven; empty disables this scrape."
+  type        = string
+  default     = ""
+}
+
+variable "attention_enabled" {
+  description = "Provision the Warn+ and unknown-level log dashboard with existing Loki streams."
+  type        = bool
+  default     = false
+}
+
 variable "existing_folder_uid" {
   description = "Existing Staging folder UID from Grafana API inventory; empty preserves the baseline."
   type        = string
