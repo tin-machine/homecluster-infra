@@ -84,4 +84,11 @@ resource "helm_release" "tailscale_operator" {
   create_namespace = true
   wait             = true
   timeout          = 600
+
+  # Keep the stable Operator chart while pinning Serve proxies to a patched image.
+  values = [yamlencode({
+    proxyConfig = {
+      image = { tag = "v1.104.4" }
+    }
+  })]
 }

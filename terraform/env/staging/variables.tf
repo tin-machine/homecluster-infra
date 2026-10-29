@@ -156,6 +156,21 @@ variable "tailscale_operator_enabled" {
   default     = false
 }
 
+variable "grafana_tailnet_hostname" {
+  type        = string
+  description = "Optional MagicDNS hostname label for the staging Grafana HTTPS Ingress. Requires the existing Tailscale Operator."
+  default     = null
+  nullable    = true
+
+  validation {
+    condition = var.grafana_tailnet_hostname == null ? true : (
+      length(var.grafana_tailnet_hostname) <= 63 &&
+      can(regex("^[a-z0-9]([a-z0-9-]*[a-z0-9])?$", var.grafana_tailnet_hostname))
+    )
+    error_message = "grafana_tailnet_hostname must be a single lowercase DNS label of at most 63 characters."
+  }
+}
+
 variable "registry_namespace" {
   type        = string
   description = "Namespace for staging local registry resources"
