@@ -8,6 +8,7 @@ resource "kubernetes_service_v1" "typevt_node_exporter_tailnet" {
     namespace = "observability-stg"
     annotations = {
       "tailscale.com/tailnet-fqdn" = var.typevt_tailnet_fqdn
+      "tailscale.com/tags"         = "tag:cli-workspace-stg"
     }
     labels = {
       "app.kubernetes.io/name"    = "node-exporter"
