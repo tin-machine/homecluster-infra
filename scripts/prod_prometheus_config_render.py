@@ -14,9 +14,12 @@ import prod_outside_in_render as outside
 
 IDENTITIES = {"ConfigMap/prod-prometheus-config", "Deployment/prod-prometheus",
               "NetworkPolicy/prod-prometheus-restricted"}
+HOST_JOBS = {"desktop": "ubuntu-desktop-node-exporter",
+             "typevt": "typevt-node-exporter"}
 
 
-def build_manifest(site: dict, *, rag_address: str = "") -> dict:
+def build_manifest(site: dict, *, rag_address: str = "",
+                   host_addresses: dict[str, str] | None = None) -> dict:
     source = outside.build_manifest(site)
     items = [x for x in source["items"]
              if f'{x["kind"]}/{x["metadata"]["name"]}' in IDENTITIES]
@@ -42,6 +45,26 @@ def build_manifest(site: dict, *, rag_address: str = "") -> dict:
         policy["spec"]["egress"].append({
             "to": [{"ipBlock": {"cidr": rag_address + "/32"}}],
             "ports": [{"protocol": "TCP", "port": 3102}],
+        })
+    for host, target in sorted((host_addresses or {}).items()):
+        if host not in HOST_JOBS:
+            raise ValueError("unexpected host monitoring target")
+        address = ipaddress.IPv4Address(target)
+        tailnet = address in ipaddress.IPv4Network("100.64.0.0/10")
+        if (not (address.is_private or tailnet) or address.is_loopback
+                or address.is_multicast or address.is_unspecified or str(address) != target):
+            raise ValueError("host monitoring requires a specific private or tailnet IPv4")
+        job = {"job_name": HOST_JOBS[host], "metrics_path": "/metrics", "scheme": "http",
+               "scrape_interval": "60s", "scrape_timeout": "8s", "sample_limit": 5000,
+               "static_configs": [{"targets": [target + ":9100"]}],
+               "metric_relabel_configs": [
+                   {"action": "drop", "source_labels": ["__name__"], "regex": "node_dmi_info"},
+                   {"action": "labeldrop", "regex": "serial_number"},
+               ]}
+        config["scrape_configs"].append(job)
+        policy["spec"]["egress"].append({
+            "to": [{"ipBlock": {"cidr": target + "/32"}}],
+            "ports": [{"protocol": "TCP", "port": 9100}],
         })
     config_text = json.dumps(config, sort_keys=True)
     cm["data"]["prometheus.json"] = config_text

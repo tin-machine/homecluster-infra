@@ -169,7 +169,9 @@ def _kernel_build_dashboard() -> dict:
 
 
 def build_manifest(*, include_rag: bool = False, folder_uid: str = "",
-                   include_kernel_build: bool = False) -> dict:
+                   include_kernel_build: bool = False,
+                   include_host_monitoring: bool = False,
+                   include_attention: bool = False) -> dict:
     datasource = {
         "apiVersion": 1,
         "datasources": [
@@ -203,6 +205,20 @@ def build_manifest(*, include_rag: bool = False, folder_uid: str = "",
             "folderUid": "shared-rag", "disableDeletion": True, "allowUiUpdates": False,
             "updateIntervalSeconds": 30, "options": {"path": "/etc/grafana/rag-dashboards"},
         })
+    if include_host_monitoring:
+        provider["providers"].append({
+            "name": "home-hosts", "orgId": 1, "type": "file", "folder": "Home hosts",
+            "folderUid": "home-hosts", "disableDeletion": True, "allowUiUpdates": False,
+            "updateIntervalSeconds": 30,
+            "options": {"path": "/etc/grafana/host-dashboards"},
+        })
+    if include_attention:
+        provider["providers"].append({
+            "name": "home-attention", "orgId": 1, "type": "file", "folder": "要対応",
+            "folderUid": "home-attention", "disableDeletion": True,
+            "allowUiUpdates": False, "updateIntervalSeconds": 30,
+            "options": {"path": "/etc/grafana/attention-dashboards"},
+        })
     config = {
         "datasource.yaml": _json(datasource),
         "dashboard-provider.yaml": _json(provider),
@@ -215,6 +231,13 @@ def build_manifest(*, include_rag: bool = False, folder_uid: str = "",
     if include_rag:
         from prod_rag_dashboard import dashboard
         config["rag-overview.json"] = _json(dashboard())
+    if include_host_monitoring:
+        from prod_host_monitoring_dashboard import dashboard as host_dashboard
+        config["ubuntu-desktop-host.json"] = _json(host_dashboard("desktop"))
+        config["typevt-host.json"] = _json(host_dashboard("typevt"))
+    if include_attention:
+        from prod_attention_dashboard import dashboard as attention_dashboard
+        config["home-attention.json"] = _json(attention_dashboard())
     checksum = hashlib.sha256(_json(config).encode("utf-8")).hexdigest()
     container = {
         "name": "grafana", "image": IMAGE, "imagePullPolicy": "IfNotPresent",
@@ -277,6 +300,25 @@ def build_manifest(*, include_rag: bool = False, folder_uid: str = "",
         })
         volumes.append({"name": "rag-dashboards", "configMap": {
             "name": CONFIG_NAME, "items": [{"key": "rag-overview.json", "path": "rag-overview.json"}],
+        }})
+    if include_host_monitoring:
+        container["volumeMounts"].append({
+            "name": "host-dashboards", "mountPath": "/etc/grafana/host-dashboards", "readOnly": True,
+        })
+        volumes.append({"name": "host-dashboards", "configMap": {
+            "name": CONFIG_NAME, "items": [
+                {"key": "ubuntu-desktop-host.json", "path": "ubuntu-desktop-host.json"},
+                {"key": "typevt-host.json", "path": "typevt-host.json"},
+            ],
+        }})
+    if include_attention:
+        container["volumeMounts"].append({
+            "name": "attention-dashboards", "mountPath": "/etc/grafana/attention-dashboards",
+            "readOnly": True,
+        })
+        volumes.append({"name": "attention-dashboards", "configMap": {
+            "name": CONFIG_NAME,
+            "items": [{"key": "home-attention.json", "path": "home-attention.json"}],
         }})
     return {"apiVersion": "v1", "kind": "List", "items": [
         _resource("v1", "ConfigMap", CONFIG_NAME, data=config),
