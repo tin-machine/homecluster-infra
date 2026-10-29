@@ -3,10 +3,12 @@
 LOKI = {"type": "loki", "uid": "prod-loki"}
 PROMETHEUS = {"type": "prometheus", "uid": "prod-prometheus"}
 WARN_LEVELS = "warn|warning|error|err|critical|crit|fatal|alert|emerg"
-SELECTOR = ('{environment=~"${environment:raw}",service_name=~"${service:raw}",'
-            'detected_level=~"${minimum_level:raw}"}')
-UNKNOWN = ('{environment=~"${environment:raw}",service_name=~"${service:raw}",'
-           'detected_level=~"unknown|^$"}')
+SELECTOR = ('{service_name=~"${service:raw}"}'
+            ' | environment=~"${environment:raw}"'
+            ' | detected_level=~"${minimum_level:raw}"')
+UNKNOWN = ('{service_name=~"${service:raw}"}'
+           ' | environment=~"${environment:raw}"'
+           ' | detected_level=~"unknown|^$"')
 
 
 def _variable(name: str, label: str, value: str) -> dict:
@@ -59,10 +61,10 @@ def dashboard() -> dict:
         "panels": [
             _panel(1, "Warn以上の最新ログ（全levelへ切替可）", SELECTOR),
             _panel(2, "level不明の最新ログ", UNKNOWN),
-            _panel(3, "Podログ：namespace指定", SELECTOR[:-1] +
-                   ',k8s_namespace_name=~"${namespace:raw}"}'),
-            _panel(4, "syslog：host指定", SELECTOR[:-1] +
-                   ',hostname=~"${host:raw}"}'),
+            _panel(3, "Podログ：namespace指定", SELECTOR +
+                   ' | k8s_namespace_name=~"${namespace:raw}"'),
+            _panel(4, "journal：host指定", SELECTOR +
+                   ' | _HOSTNAME=~"${host:raw}"'),
             _panel(5, "Warn以上の件数", "sum(count_over_time(" + SELECTOR + "[$__interval]))",
                    kind="timeseries"),
             _panel(6, "level不明の件数", "sum(count_over_time(" + UNKNOWN + "[$__interval]))",
