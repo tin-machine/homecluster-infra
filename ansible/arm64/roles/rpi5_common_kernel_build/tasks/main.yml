@@ -418,10 +418,17 @@
 - name: Rpi5 common kernel NVIDIA external modules worktree を clean にする
   ansible.builtin.shell: |
     set -euo pipefail
+    test -f "{{ rpi5_common_kernel_build_dir }}/.config"
+    test -f "{{ rpi5_common_kernel_build_dir }}/Makefile"
+    test "$(make -s -C "{{ rpi5_common_kernel_build_dir }}" kernelrelease)" = "{{ rpi5_common_kernel_build_kernelrelease_command.stdout | trim }}"
     cd "{{ rpi5_common_kernel_build_open_modules_dir }}"
     git reset --hard "{{ rpi5_common_kernel_build_open_modules_commit }}"
     git clean -ffdx
-    make clean
+    make clean \
+      SYSSRC="{{ rpi5_common_kernel_build_dir }}" \
+      SYSOUT="{{ rpi5_common_kernel_build_dir }}" \
+      KERNEL_UNAME="{{ rpi5_common_kernel_build_kernelrelease_command.stdout | trim }}" \
+      TARGET_ARCH=aarch64
     test "$(git rev-parse HEAD)" = "{{ rpi5_common_kernel_build_open_modules_commit }}"
   args:
     executable: /bin/bash
@@ -434,6 +441,8 @@
     cd "{{ rpi5_common_kernel_build_open_modules_dir }}"
     make -j{{ rpi5_common_kernel_build_nvidia_module_jobs | int }} modules \
       SYSSRC="{{ rpi5_common_kernel_build_dir }}" \
+      SYSOUT="{{ rpi5_common_kernel_build_dir }}" \
+      KERNEL_UNAME="{{ rpi5_common_kernel_build_kernelrelease_command.stdout | trim }}" \
       TARGET_ARCH=aarch64
   args:
     executable: /bin/bash
