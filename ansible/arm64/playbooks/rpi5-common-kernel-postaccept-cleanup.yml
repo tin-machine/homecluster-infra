@@ -80,6 +80,10 @@
       changed_when: false
       check_mode: false
 
+    - name: 削除前の候補と容量を表示
+      ansible.builtin.debug:
+        msg: "{{ homecluster_cleanup_preview.stdout | from_json }}"
+
     - name: 同じdigestの計画を実行
       ansible.builtin.script:
         cmd: >-
