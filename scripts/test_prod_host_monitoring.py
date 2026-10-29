@@ -58,6 +58,26 @@ class HostMonitoringTests(unittest.TestCase):
         self.assertTrue(any("node_power_supply_energy_watthour" in query for query in tablet_queries))
         self.assertFalse(any("node_power_supply_charge_now" in query for query in tablet_queries))
 
+    def test_desktop_temperature_uses_verified_labels_and_llm_is_desktop_only(self):
+        desktop = dashboard("desktop")
+        tablet = dashboard("typevt")
+        temperature = next(p for p in desktop["panels"] if p["title"] == "CPU and board temperature")
+        expression = temperature["targets"][0]["expr"]
+        self.assertIn('label=~"Package id 0|SYSTIN"', expression)
+        self.assertIn("group_left(label)", expression)
+        self.assertEqual(temperature["targets"][0]["legendFormat"], "{{label}}")
+        self.assertNotIn("CPUTIN", expression)
+        desktop_queries = "\n".join(p["targets"][0]["expr"] for p in desktop["panels"])
+        tablet_queries = "\n".join(p["targets"][0]["expr"] for p in tablet["panels"])
+        for metric in ("homecluster_llm_collection_success", "homecluster_llm_requests_processing",
+                       "homecluster_llm_requests_deferred", "homecluster_llm_prompt_tokens_total",
+                       "homecluster_llm_prompt_tokens_cached_total",
+                       "homecluster_llm_predicted_tokens_total",
+                       "homecluster_llm_last_success_timestamp_seconds"):
+            self.assertIn(metric, desktop_queries)
+            self.assertNotIn(metric, tablet_queries)
+        self.assertEqual(len({panel["id"] for panel in desktop["panels"]}), len(desktop["panels"]))
+
     def test_attention_defaults_to_warn_and_keeps_unknown_separate(self):
         value = attention_dashboard()
         minimum = value["templating"]["list"][0]
