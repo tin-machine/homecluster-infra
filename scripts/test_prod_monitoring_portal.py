@@ -31,6 +31,10 @@ class PortalTests(unittest.TestCase):
                             for obj in ingresses))
         deployment = by_name["Deployment", "prod-monitoring-portal"]
         pod = deployment["spec"]["template"]["spec"]
+        nginx_config = by_name["ConfigMap", "prod-monitoring-portal-content"]["data"]["nginx.conf"]
+        for directive in ("pid", "client_body_temp_path", "proxy_temp_path",
+                          "fastcgi_temp_path", "uwsgi_temp_path", "scgi_temp_path"):
+            self.assertRegex(nginx_config, rf"{directive} /tmp/[^;]+;")
         self.assertFalse(pod["automountServiceAccountToken"])
         self.assertTrue(pod["containers"][0]["securityContext"]["readOnlyRootFilesystem"])
         self.assertEqual(pod["containers"][0]["resources"]["limits"]["memory"], "64Mi")
