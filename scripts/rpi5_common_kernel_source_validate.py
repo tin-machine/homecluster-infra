@@ -21,6 +21,7 @@ VALIDATOR = "infra-common-kernel-source-v1"
 _GIT_REVISION = re.compile(r"^[0-9a-f]{40}$")
 
 SOURCE_PATHS = (
+    Path("scripts/ci/test_nvidia_kernel_context.py"),
     Path("scripts/ci/test_kernel_distcc_contract.py"),
     Path("scripts/ci/test_pxe_full_fleet_contract.py"),
     Path("scripts/source_validator_support.py"),
