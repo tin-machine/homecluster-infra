@@ -1,0 +1,20 @@
+[Unit]
+Description=RAM-backed DHCP manager for the NFS root
+DefaultDependencies=no
+IgnoreOnIsolate=yes
+RefuseManualStop=yes
+SurviveFinalKillSignal=yes
+
+[Service]
+Type=notify
+NotifyAccess=main
+User=root
+RootDirectory=/run/sd-netboot-runtime
+MountAPIVFS=yes
+BindPaths=/run/systemd:/run/systemd /run/udev:/run/udev /run/dbus:/run/dbus
+ExecStart=/usr/lib/systemd/systemd-networkd
+Restart=always
+RestartSec=2
+StandardOutput=null
+StandardError=null
+

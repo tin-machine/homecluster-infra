@@ -1,0 +1,68 @@
+---
+- name: Require explicit isolated image build inputs
+  ansible.builtin.assert:
+    that:
+      - rpi_sd_wifi_build_enabled | bool
+      - rpi_sd_wifi_sysroot is match('^/.+')
+      - rpi_sd_wifi_tftp_dir is match('^/.+')
+      - rpi_sd_wifi_work_root is match('^/.+')
+      - rpi_sd_wifi_output_root is match('^/.+')
+      - rpi_sd_wifi_image_id is match('^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$')
+      - rpi_sd_wifi_kernel_release is match('^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$')
+      - rpi_sd_wifi_source_revision is match('^[0-9a-f]{40}$')
+      - rpi_sd_wifi_size_mib | int >= 256
+      - rpi_sd_wifi_size_mib | int <= 4096
+    fail_msg: Explicit source, output, identity and opt-in are required for the isolated Pi4 image build.
+
+- name: Require build tools without installing packages on the shared host
+  ansible.builtin.command:
+    argv: [which, "{{ item }}"]
+  loop: [python3, dracut, cpio, gzip, xz, mformat, mcopy, findmnt]
+  changed_when: false
+  environment:
+    PATH: "{{ (rpi_sd_wifi_extra_tool_dir ~ ':') if rpi_sd_wifi_extra_tool_dir else '' }}/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+- name: Create the isolated builder source directory
+  ansible.builtin.file:
+    path: "{{ rpi_sd_wifi_work_root }}/source/{{ rpi_sd_wifi_source_revision }}"
+    state: directory
+    mode: "0700"
+
+- name: Install the reviewed image builder and boot payload
+  ansible.builtin.copy:
+    src: "{{ role_path }}/files/"
+    dest: "{{ rpi_sd_wifi_work_root }}/source/{{ rpi_sd_wifi_source_revision }}/"
+    mode: preserve
+    directory_mode: "0700"
+
+- name: Build and verify the Pi4 Wi-Fi image in a durable remote job
+  ansible.builtin.command:
+    argv:
+      - python3
+      - "{{ rpi_sd_wifi_work_root }}/source/{{ rpi_sd_wifi_source_revision }}/build_image.py"
+      - --sysroot
+      - "{{ rpi_sd_wifi_sysroot }}"
+      - --tftp-dir
+      - "{{ rpi_sd_wifi_tftp_dir }}"
+      - --work-dir
+      - "{{ rpi_sd_wifi_work_root }}/runs/{{ rpi_sd_wifi_image_id }}"
+      - --output-dir
+      - "{{ rpi_sd_wifi_output_root }}/{{ rpi_sd_wifi_image_id }}"
+      - --image-id
+      - "{{ rpi_sd_wifi_image_id }}"
+      - --kernel-release
+      - "{{ rpi_sd_wifi_kernel_release }}"
+      - --source-revision
+      - "{{ rpi_sd_wifi_source_revision }}"
+      - --size-mib
+      - "{{ rpi_sd_wifi_size_mib | string }}"
+  async: "{{ rpi_sd_wifi_build_timeout | int }}"
+  poll: 15
+  register: rpi_sd_wifi_build_result
+  changed_when: true
+  environment:
+    PATH: "{{ (rpi_sd_wifi_extra_tool_dir ~ ':') if rpi_sd_wifi_extra_tool_dir else '' }}/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+- name: Show the compact artifact receipt
+  ansible.builtin.debug:
+    msg: "{{ rpi_sd_wifi_build_result.stdout | from_json }}"

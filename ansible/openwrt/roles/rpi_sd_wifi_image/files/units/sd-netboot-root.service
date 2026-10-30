@@ -1,0 +1,17 @@
+[Unit]
+Description=Select and verify the Wi-Fi NFS root before switching root
+DefaultDependencies=no
+Requires=sd-netboot-prepare.service
+After=sd-netboot-prepare.service
+Before=initrd-root-fs.target initrd-switch-root.target
+ConditionPathExists=/etc/initrd-release
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3.14 /usr/lib/sd-netboot/boot.py root
+RemainAfterExit=yes
+TimeoutStartSec=600
+TimeoutStopSec=5
+StandardOutput=journal+console
+StandardError=null
+

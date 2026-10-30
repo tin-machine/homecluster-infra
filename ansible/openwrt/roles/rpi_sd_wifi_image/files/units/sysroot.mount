@@ -1,0 +1,12 @@
+[Unit]
+Description=Verified SD Wi-Fi overlay root
+DefaultDependencies=no
+Requires=sd-netboot-root.service
+After=sd-netboot-root.service
+Before=initrd-root-fs.target
+
+[Mount]
+What=overlay
+Where=/sysroot
+Type=overlay
+Options=lowerdir=/run/sd-netboot-state/lower,upperdir=/run/sd-netboot-state/upper,workdir=/run/sd-netboot-state/work

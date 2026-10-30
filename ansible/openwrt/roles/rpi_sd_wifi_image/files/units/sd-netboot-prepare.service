@@ -1,0 +1,15 @@
+[Unit]
+Description=Validate the SD and prepare RAM-backed Wi-Fi root storage
+DefaultDependencies=no
+After=systemd-udevd.service
+Before=sd-netboot-root.service
+ConditionPathExists=/etc/initrd-release
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3.14 /usr/lib/sd-netboot/boot.py prepare
+RemainAfterExit=yes
+TimeoutStartSec=180
+StandardOutput=journal+console
+StandardError=null
+
