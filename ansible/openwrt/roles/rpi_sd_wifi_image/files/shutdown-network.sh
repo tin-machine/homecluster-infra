@@ -1,8 +1,11 @@
 #!/bin/sh
 # Sourced by the exitrd after systemd-shutdown. Keep the NFS backing alive.
-if grep -Eq ' - nfs(4)? ' /proc/self/mountinfo; then
-    return 0
-fi
+[ -r /proc/self/mountinfo ] || return 0
+while IFS= read -r entry; do
+    case "$entry" in
+        *' - nfs '*|*' - nfs4 '*) return 0 ;;
+    esac
+done < /proc/self/mountinfo
 # Only this image's RAM-backed units are stopped, after all NFS users are gone.
 for name in wpa networkd; do
     pidfile="/run/sd-netboot-state/$name.pid"

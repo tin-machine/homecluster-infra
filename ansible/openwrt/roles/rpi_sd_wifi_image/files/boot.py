@@ -2,6 +2,7 @@
 """Fixed SD -> Wi-Fi -> DHCP -> NFS/overlay boot path, without shell evaluation."""
 import argparse
 import base64
+import hashlib
 import ipaddress
 import json
 import os
@@ -70,6 +71,12 @@ class Diagnostics:
         self.events = []
         self.last_stage = 'sd_detected'
         self.io_failed = False
+        self.context = {}
+
+    def set_network(self, interface, mac):
+        if not re.fullmatch(r'[A-Za-z0-9_.-]{1,15}',interface) or not re.fullmatch(r'(?:[0-9a-f]{2}:){5}[0-9a-f]{2}',mac):
+            raise BootError('diagnostic_schema_invalid')
+        self.context={'interface':interface,'wifi_mac':mac}
 
     def event(self, stage, result='pass', reason='ok'):
         if stage not in STAGES or result not in {'pass', 'fail', 'unknown'} or reason not in REASONS:
@@ -78,7 +85,7 @@ class Diagnostics:
         self.sequence += 1
         event = {'image_id': self.image_id, 'boot_id': self.boot_id,
                  'monotonic_ms': int(time.monotonic()*1000), 'sequence': self.sequence,
-                 'stage': stage, 'result': result, 'reason': reason}
+                 'stage': stage, 'result': result, 'reason': reason,**self.context}
         self.events.append(event)
         # One boot <= 60 KiB including summary, previous boot <= 60 KiB.
         while len(json.dumps(self.events).encode()) > 56000 and len(self.events) > 2:
@@ -233,9 +240,9 @@ def prepare():
     try:
         config = parse_wifi_config(read_limited(boot/'wifi.conf',4097))
         atomic_write(STATE/'wpa.conf',supplicant_config(config))
+        run(['modprobe','brcmfmac'])
         run(['iw','reg','set',config['country']])
         diag.event('config_valid')
-        run(['modprobe','brcmfmac'])
         def interfaces():
             found=[]
             for p in Path('/sys/class/net').glob('*'):
@@ -250,11 +257,13 @@ def prepare():
         mac=(Path('/sys/class/net')/interface/'address').read_text().strip()
         atomic_write(STATE/'interface',interface)
         atomic_write(STATE/'mac',mac)
+        diag.set_network(interface,mac)
         diag.event('wifi_device_ready')
         copy_runtime()
         network=(f'[Match]\nMACAddress={mac}\n\n[Link]\nRequiredForOnline=yes\n'
                  '[Network]\nDHCP=ipv4\nIPv6AcceptRA=no\nKeepConfiguration=yes\nIgnoreCarrierLoss=yes\n'
-                 '[DHCPv4]\nClientIdentifier=mac\nRequestOptions=17 224\nSendRelease=no\n')
+                 '[DHCPv4]\nClientIdentifier=mac\nRequestOptions=17 224\nSendRelease=no\n'
+                 'SendHostname=yes\nHostname=sd-netboot-'+hashlib.sha256(manifest['image_id'].encode()).hexdigest()[:12]+'\n')
         atomic_write('/run/systemd/network/00-sd-netboot.network',network,0o644)
         atomic_write(STATE/'wpa-start','#!/bin/sh\nexec /usr/bin/wpa_supplicant -D nl80211 -i '+interface+' -c /run/sd-netboot-state/wpa.conf\n',0o700)
         # The same diagnostics object/sequence is reloaded by root().
@@ -276,6 +285,8 @@ def prepare():
 def diagnostics():
     manifest=json.loads((STATE/'manifest.json').read_text())
     diag=Diagnostics(BOOT/'diagnostics',manifest['image_id'])
+    if (STATE/'interface').exists() and (STATE/'mac').exists():
+        diag.set_network((STATE/'interface').read_text(),(STATE/'mac').read_text())
     try:
         previous=[json.loads(v) for v in (diag.directory/'boot-events.jsonl').read_text().splitlines()]
         diag.events=[e for e in previous if e.get('boot_id')==diag.boot_id]

@@ -128,9 +128,50 @@ def mirror_userspace(root, destination):
     (etc/'passwd').write_text('root:x:0:0:root:/root:/bin/sh\nsystemd-network:x:192:192:Network:/run/systemd:/sbin/nologin\n')
     (etc/'group').write_text('root:x:0:\nsystemd-network:x:192:\n')
     (etc/'nsswitch.conf').write_text('passwd: files\ngroup: files\nhosts: files dns\n')
+    write_network_databases(etc)
     (etc/'systemd/network').mkdir(parents=True)
     if (root/'etc/ld.so.cache').is_file():
         shutil.copy2(root/'etc/ld.so.cache',etc/'ld.so.cache')
+
+
+def write_network_databases(etc):
+    # mount.nfs resolves transport names through NSS even with a numeric server.
+    (etc/'protocols').write_text('ip 0 IP\ntcp 6 TCP\nudp 17 UDP\n')
+    (etc/'services').write_text('sunrpc 111/tcp\nsunrpc 111/udp\nnfs 2049/tcp\n')
+    (etc/'netconfig').write_text('udp tpi_clts v inet udp - -\ntcp tpi_cots_ord v inet tcp - -\nudp6 tpi_clts v inet6 udp - -\ntcp6 tpi_cots_ord v inet6 tcp - -\n')
+
+
+def cpio_archive_offsets(path):
+    """dracut may concatenate compressed-module and userspace newc archives."""
+    offsets=[]
+    size=path.stat().st_size
+    with path.open('rb') as stream:
+        while stream.tell()<size:
+            start=stream.tell()
+            byte=stream.read(1)
+            if byte==b'\0':
+                continue
+            stream.seek(start)
+            offsets.append(start)
+            while True:
+                header=stream.read(110)
+                if len(header)!=110 or header[:6] not in (b'070701',b'070702'):
+                    raise ValueError('invalid_dracut_newc_archive')
+                length=int(header[94:102],16)
+                data_size=int(header[54:62],16)
+                if not 1<=length<=1048576:
+                    raise ValueError('invalid_dracut_newc_archive')
+                name=stream.read(length)
+                if len(name)!=length or name[-1:]!=b'\0':
+                    raise ValueError('invalid_dracut_newc_archive')
+                stream.seek((-(110+length))%4+data_size+(-data_size)%4,1)
+                if stream.tell()>size:
+                    raise ValueError('truncated_dracut_newc_archive')
+                if name==b'TRAILER!!!\0':
+                    break
+    if not offsets:
+        raise ValueError('empty_dracut_newc_archive')
+    return offsets
 
 
 def build_initrd(args, work, manifest):
@@ -159,8 +200,10 @@ def build_initrd(args, work, manifest):
              '--tmpdir',work,'--logfile',work/'dracut.log',base])
     assert_dracut_log_ok(Path(LOG).read_bytes())
     tree.mkdir()
-    with open(base,'rb') as stream:
-        command(['cpio','--extract','--make-directories','--no-absolute-filenames','--quiet'],stdin=stream,cwd=tree)
+    for offset in cpio_archive_offsets(base):
+        with open(base,'rb') as stream:
+            stream.seek(offset)
+            command(['cpio','--extract','--make-directories','--no-absolute-filenames','--quiet'],stdin=stream,cwd=tree)
     for driver in drivers.split():
         command(['modinfo','--basedir',tree,'--set-version',args.kernel_release,'--field','filename',driver])
     # Never copy site config from the sysroot, including host login identities.
@@ -172,6 +215,7 @@ def build_initrd(args, work, manifest):
             p.unlink()
     (tree/'etc/passwd').write_text('root:x:0:0:root:/root:/bin/sh\n')
     (tree/'etc/group').write_text('root:x:0:\n')
+    write_network_databases(tree/'etc')
     # Pure stdlib plus ELF dependencies already installed by dracut.
     shutil.copytree(stdlib,tree/'usr/lib/python3.14',dirs_exist_ok=True,
                     ignore=shutil.ignore_patterns('site-packages','test','tests','__pycache__','idlelib','tkinter','ensurepip'))
@@ -182,8 +226,10 @@ def build_initrd(args, work, manifest):
             if destination.is_dir():
                 shutil.rmtree(destination)
             copy_plain(source,destination)
-    required_firmware=tree/'usr/lib/firmware/brcm'
-    if not any(required_firmware.glob('brcmfmac43455-sdio*')):
+    firmware=tree/'usr/lib/firmware'
+    required=['brcm/brcmfmac43455-sdio.raspberrypi,4-model-b.'+ext for ext in ['bin','txt','clm_blob']]
+    required+=['regulatory.db','regulatory.db.p7s']
+    if not all((firmware/name).is_file() for name in required):
         raise ValueError('wifi_firmware_missing')
     # Preserve a dependency-complete RAM userspace for both storage daemons.
     mirror_userspace(tree,work/'runtime')
@@ -192,7 +238,7 @@ def build_initrd(args, work, manifest):
     for name in ['boot.py','wifi_config.py']:
         shutil.copy2(FILES/name,runtime_code/name)
     command(['chroot',work/'runtime','/usr/bin/python3.14','-I','-c',
-             "import sys;sys.path.insert(0,'/usr/lib/sd-netboot');import boot,ssl,ctypes,hashlib;assert hashlib.pbkdf2_hmac('sha1',b'password',b'IEEE',4096,32).hex().startswith('f42c6fc5')"])
+             "import sys;sys.path.insert(0,'/usr/lib/sd-netboot');import boot,ssl,ctypes,hashlib,socket;assert socket.getprotobyname('tcp')==6;assert hashlib.pbkdf2_hmac('sha1',b'password',b'IEEE',4096,32).hex().startswith('f42c6fc5')"])
     command(['chroot',work/'runtime','/usr/bin/wpa_supplicant','-v'])
     command(['chroot',work/'runtime','/usr/lib/systemd/systemd-networkd','--version'])
     # An exitrd gets the same RAM tools and dracut's shutdown implementation.

@@ -11,6 +11,7 @@ RootDirectory=/run/sd-netboot-runtime
 MountAPIVFS=yes
 BindPaths=/run/sd-netboot-state:/run/sd-netboot-state
 ExecStart=/bin/sh /run/sd-netboot-state/wpa-start
+ExecStartPost=/bin/sh -c 'echo "$$MAINPID" > /run/sd-netboot-state/wpa.pid'
 Restart=always
 RestartSec=2
 StandardOutput=null

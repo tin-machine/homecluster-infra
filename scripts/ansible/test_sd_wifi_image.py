@@ -125,7 +125,11 @@ class BootContracts(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory,patch.object(os,'sync'),contextlib.redirect_stdout(io.StringIO()):
             p=Path(directory)
             first=boot.Diagnostics(p,'fixture','11111111-1111-1111-1111-111111111111')
+            first.set_network('wlan0','02:00:00:00:00:01')
             first.event('config_valid')
+            self.assertIn('wifi_mac=02:00:00:00:00:01',(p/'boot-status.txt').read_text())
+            with self.assertRaises(boot.BootError):
+                first.set_network('wlan0','private-fixture-password')
             second=boot.Diagnostics(p,'fixture','22222222-2222-2222-2222-222222222222')
             for _ in range(280):
                 second.event('wifi_associated')
@@ -148,10 +152,42 @@ class BootContracts(unittest.TestCase):
             for line in ['DefaultDependencies=no','IgnoreOnIsolate=yes','RefuseManualStop=yes','SurviveFinalKillSignal=yes','RootDirectory=/run/sd-netboot-runtime']:
                 self.assertIn(line,value)
         self.assertIn('systemd-networkd.service', (FILES/'boot.py').read_text())
-        self.assertIn(' - nfs(4)? ',(FILES/'shutdown-network.sh').read_text())
+
+    def test_exitrd_never_releases_network_with_nfs_or_unreadable_mounts(self):
+        guard=(FILES/'shutdown-network.sh').read_text().split('# Only this image')[0]
+        with tempfile.TemporaryDirectory() as directory:
+            p=Path(directory)/'mountinfo'
+            for content,expected in [(None,False),('1 2 0:1 / /oldroot ro - nfs4 server:/root ro\n',False),
+                                     ('1 2 0:1 / /oldroot ro - nfs server:/root ro\n',False),
+                                     ('1 2 0:1 / /oldroot ro - tmpfs tmpfs rw\n',True)]:
+                if content is not None:
+                    p.write_text(content)
+                script='check() {\n'+guard.replace('/proc/self/mountinfo',str(p))+'\necho RELEASE_ALLOWED\n}\ncheck\n'
+                result=subprocess.run(['/bin/sh','-c',script],capture_output=True,text=True)
+                self.assertEqual(result.returncode,0)
+                self.assertEqual('RELEASE_ALLOWED' in result.stdout,expected)
 
 
 class ArtifactTests(unittest.TestCase):
+    def test_nfs_transport_names_have_site_independent_databases(self):
+        with tempfile.TemporaryDirectory() as directory:
+            p=Path(directory);build_image.write_network_databases(p)
+            self.assertIn('tcp 6 TCP',(p/'protocols').read_text())
+            self.assertIn('tcp tpi_cots_ord v inet tcp - -',(p/'netconfig').read_text())
+
+    def test_all_concatenated_dracut_archives_are_extracted(self):
+        with tempfile.TemporaryDirectory() as directory:
+            p=Path(directory);a=p/'a';b=p/'b';a.mkdir();b.mkdir()
+            (a/'module.ko.xz').write_bytes(b'module')
+            (b/'init').write_bytes(b'userspace')
+            build_image.newc_write(a,p/'a.cpio');build_image.newc_write(b,p/'b.cpio')
+            first=(p/'a.cpio').read_bytes()
+            image=p/'combined.cpio';image.write_bytes(first+(p/'b.cpio').read_bytes())
+            self.assertEqual(build_image.cpio_archive_offsets(image),[0,len(first)])
+            image.write_bytes(first+b'invalid')
+            with self.assertRaises(ValueError):
+                build_image.cpio_archive_offsets(image)
+
     def test_dracut_zero_exit_does_not_hide_missing_module(self):
         build_image.assert_dracut_log_ok(b'dracut[I]: including base\n')
         for data in [b'dracut[E]: FAILED: module install',b"dracut-install: Failed to find module 'fixture'"]:
