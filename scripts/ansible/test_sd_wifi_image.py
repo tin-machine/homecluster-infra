@@ -13,6 +13,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -101,6 +102,15 @@ class LeaseTests(unittest.TestCase):
 
 
 class BootContracts(unittest.TestCase):
+    def test_root_mounts_cannot_pin_nfs_in_daemon_state_namespace(self):
+        self.assertNotIn(boot.STATE,boot.LOWER.parents)
+        self.assertNotIn(boot.STATE,boot.BOOT.parents)
+        self.assertNotIn(boot.STATE,boot.OVERLAY.parents)
+        with patch.object(boot,'atomic_write') as writer,patch.object(boot,'run'):
+            boot.pin_mount(boot.LOWER,'192.0.2.10:/fixture','nfs4','ro,hard')
+        self.assertIn('IgnoreOnIsolate=yes',writer.call_args.args[1])
+        self.assertIn('DefaultDependencies=no',writer.call_args.args[1])
+
     def test_kernel_bundle_mismatch_is_rejected(self):
         expected={'kernel_release':'fixture','kernel_sha256':'a'*64,'modules_sha256':'b'*64,'boot_protocol_version':1}
         with tempfile.TemporaryDirectory() as directory:
@@ -142,6 +152,28 @@ class BootContracts(unittest.TestCase):
 
 
 class ArtifactTests(unittest.TestCase):
+    def test_dracut_zero_exit_does_not_hide_missing_module(self):
+        build_image.assert_dracut_log_ok(b'dracut[I]: including base\n')
+        for data in [b'dracut[E]: FAILED: module install',b"dracut-install: Failed to find module 'fixture'"]:
+            with self.assertRaisesRegex(ValueError,'dracut_reported_error'):
+                build_image.assert_dracut_log_ok(data)
+
+    def test_newc_preserves_only_dev_special_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            p=Path(directory);root=p/'root';(root/'dev').mkdir(parents=True)
+            node=root/'dev/null';node.touch()
+            original=Path.lstat
+            special=SimpleNamespace(st_mode=0o020666,st_rdev=os.makedev(1,3))
+            def lstat(path):
+                return special if path==node else original(path)
+            with patch.object(Path,'lstat',lstat):
+                build_image.newc_write(root,p/'initrd.cpio')
+            value=(p/'initrd.cpio').read_bytes();offset=value.index(b'dev/null\0')-110
+            header=value[offset:offset+110]
+            self.assertEqual(int(header[6+8:6+16],16),0o020666)
+            self.assertEqual(int(header[6+9*8:6+10*8],16),1)
+            self.assertEqual(int(header[6+10*8:6+11*8],16),3)
+
     def test_vendor_plus_kernel_reaches_readonly_source_guard(self):
         argv=['builder','--sysroot','/source','--tftp-dir','/assets','--work-dir','/work/new',
               '--output-dir','/output/new','--image-id','fixture','--kernel-release','6.18.56-v8+',

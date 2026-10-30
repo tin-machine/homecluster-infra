@@ -28,12 +28,35 @@
     state: directory
     mode: "0700"
 
-- name: Install the reviewed image builder and boot payload
-  ansible.builtin.copy:
-    src: "{{ role_path }}/files/"
+- name: Create a private controller-side payload cache
+  ansible.builtin.file:
+    path: "{{ rpi_sd_wifi_local_payload_dir }}"
+    state: directory
+    mode: "0700"
+  delegate_to: localhost
+  become: false
+
+- name: Export only committed boot payload files from the exact revision
+  ansible.builtin.command:
+    argv:
+      - git
+      - -C
+      - "{{ role_path | dirname | dirname | dirname | dirname }}"
+      - archive
+      - --format=tar
+      - "--output={{ rpi_sd_wifi_local_payload_dir }}/{{ rpi_sd_wifi_source_revision }}.tar"
+      - "{{ rpi_sd_wifi_source_revision }}"
+      - ansible/openwrt/roles/rpi_sd_wifi_image/files
+    creates: "{{ rpi_sd_wifi_local_payload_dir }}/{{ rpi_sd_wifi_source_revision }}.tar"
+  delegate_to: localhost
+  become: false
+  changed_when: true
+
+- name: Install the exact reviewed payload as one archive
+  ansible.builtin.unarchive:
+    src: "{{ rpi_sd_wifi_local_payload_dir }}/{{ rpi_sd_wifi_source_revision }}.tar"
     dest: "{{ rpi_sd_wifi_work_root }}/source/{{ rpi_sd_wifi_source_revision }}/"
-    mode: preserve
-    directory_mode: "0700"
+    extra_opts: [--strip-components=5]
 
 - name: Build and verify the Pi4 Wi-Fi image in a durable remote job
   ansible.builtin.command:

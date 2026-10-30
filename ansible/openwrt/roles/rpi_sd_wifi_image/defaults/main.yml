@@ -10,3 +10,4 @@ rpi_sd_wifi_source_revision: ""
 rpi_sd_wifi_size_mib: 512
 rpi_sd_wifi_build_timeout: 7200
 rpi_sd_wifi_extra_tool_dir: ""
+rpi_sd_wifi_local_payload_dir: "{{ lookup('env', 'HOME') }}/.cache/homecluster-sd-wifi"

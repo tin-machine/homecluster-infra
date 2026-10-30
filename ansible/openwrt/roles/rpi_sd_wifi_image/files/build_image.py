@@ -67,6 +67,11 @@ def source_is_readonly(path):
         raise ValueError('sysroot_must_be_mounted_readonly')
 
 
+def assert_dracut_log_ok(data):
+    if re.search(rb'dracut\[E\]|dracut-install: Failed',data):
+        raise ValueError('dracut_reported_error_despite_exit_code')
+
+
 def copy_plain(source, destination):
     destination.parent.mkdir(parents=True,exist_ok=True)
     if source.is_dir():
@@ -96,6 +101,11 @@ def newc_write(root, output):
                 data=os.readlink(p).encode()
             elif stat.S_ISDIR(st.st_mode):
                 data=b''
+            elif (stat.S_ISCHR(st.st_mode) or stat.S_ISBLK(st.st_mode) or stat.S_ISFIFO(st.st_mode)) and p.relative_to(root).parts[0]=='dev':
+                data=b''
+                entry(p.relative_to(root).as_posix(),st.st_mode,data,number,
+                      os.major(st.st_rdev),os.minor(st.st_rdev))
+                continue
             else:
                 raise ValueError('unexpected_initramfs_file_type')
             entry(p.relative_to(root).as_posix(),st.st_mode,data,number)
@@ -119,6 +129,8 @@ def mirror_userspace(root, destination):
     (etc/'group').write_text('root:x:0:\nsystemd-network:x:192:\n')
     (etc/'nsswitch.conf').write_text('passwd: files\ngroup: files\nhosts: files dns\n')
     (etc/'systemd/network').mkdir(parents=True)
+    if (root/'etc/ld.so.cache').is_file():
+        shutil.copy2(root/'etc/ld.so.cache',etc/'ld.so.cache')
 
 
 def build_initrd(args, work, manifest):
@@ -133,7 +145,9 @@ def build_initrd(args, work, manifest):
     # dracut-install resolves all ELF dependencies, including Python extensions.
     extensions=['/'+str(p.relative_to(args.sysroot)) for p in (stdlib/'lib-dynload').glob('*.so')]
     module_dir=args.sysroot/'usr/lib/modules'/args.kernel_release
-    drivers='brcmfmac brcmutil cfg80211 rfkill mmc_block sdhci sdhci_iproc sdhci_pltfm bcm2835_sdhost vfat nls_cp437 nls_iso8859_1 overlay nfs nfsv4 sunrpc iscsi_tcp sd_mod ext4'
+    drivers='brcmfmac brcmutil cfg80211 rfkill mmc_block sdhci sdhci_iproc sdhci_pltfm sdhci_brcmstb bcm2835 bcm2835_mmc vfat nls_cp437 nls_iso8859_1 overlay nfs nfsv4 sunrpc iscsi_tcp sd_mod ext4'
+    for driver in drivers.split():
+        command(['modinfo','--basedir',args.sysroot,'--set-version',args.kernel_release,'--field','filename',driver])
     # Explicit modules/empty configuration prevent host-only credentials, cmdline and root settings.
     empty=work/'empty-conf'
     empty.mkdir()
@@ -143,9 +157,12 @@ def build_initrd(args, work, manifest):
              '--modules','base systemd systemd-initrd systemd-udevd systemd-modules-load fs-lib kernel-modules kernel-network-modules shutdown',
              '--add-drivers',drivers,'--install',' '.join(binaries+extensions),
              '--tmpdir',work,'--logfile',work/'dracut.log',base])
+    assert_dracut_log_ok(Path(LOG).read_bytes())
     tree.mkdir()
     with open(base,'rb') as stream:
         command(['cpio','--extract','--make-directories','--no-absolute-filenames','--quiet'],stdin=stream,cwd=tree)
+    for driver in drivers.split():
+        command(['modinfo','--basedir',tree,'--set-version',args.kernel_release,'--field','filename',driver])
     # Never copy site config from the sysroot, including host login identities.
     for name in ['root','home','etc/ssh','etc/shadow','etc/gshadow','etc/machine-id','etc/fstab','etc/cmdline.d']:
         p=tree/name
@@ -174,6 +191,10 @@ def build_initrd(args, work, manifest):
     runtime_code.mkdir(parents=True)
     for name in ['boot.py','wifi_config.py']:
         shutil.copy2(FILES/name,runtime_code/name)
+    command(['chroot',work/'runtime','/usr/bin/python3.14','-I','-c',
+             "import sys;sys.path.insert(0,'/usr/lib/sd-netboot');import boot,ssl,ctypes,hashlib;assert hashlib.pbkdf2_hmac('sha1',b'password',b'IEEE',4096,32).hex().startswith('f42c6fc5')"])
+    command(['chroot',work/'runtime','/usr/bin/wpa_supplicant','-v'])
+    command(['chroot',work/'runtime','/usr/lib/systemd/systemd-networkd','--version'])
     # An exitrd gets the same RAM tools and dracut's shutdown implementation.
     shutil.copytree(work/'runtime',work/'exitrd',symlinks=True)
     shutdown=Path('/usr/lib/dracut/modules.d/86shutdown/shutdown.sh')
@@ -273,6 +294,7 @@ def main():
                   'kernel_release':args.kernel_release,'kernel_sha256':digest(kernel),
                   'modules_sha256':tree_digest(modules)}
         initrd=build_initrd(args,args.work_dir,manifest)
+        manifest['initramfs_unpacked_bytes']=(args.work_dir/'initramfs.cpio').stat().st_size
         boot=args.work_dir/'boot'
         boot.mkdir()
         for name in ['kernel8.img','start4.elf','fixup4.dat','bcm2711-rpi-4-b.dtb']:

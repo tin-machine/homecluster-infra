@@ -17,6 +17,9 @@ import uuid
 from wifi_config import ConfigError, atomic_write, parse_wifi_config, supplicant_config
 
 STATE = Path('/run/sd-netboot-state')
+BOOT = Path('/run/sd-netboot-boot')
+LOWER = Path('/run/sd-netboot-lower')
+OVERLAY = Path('/run/sd-netboot-overlay')
 RUNTIME = Path('/run/sd-netboot-runtime')
 PAYLOAD = Path('/usr/lib/sd-netboot')
 STAGES = frozenset('sd_detected config_valid wifi_device_ready wifi_associated dhcp_bound root_selected root_mounted kernel_compatible switch_root_started userspace_ready workload_ready'.split())
@@ -194,6 +197,15 @@ def copy_runtime():
         (units/name).symlink_to('/dev/null')
 
 
+def pin_mount(path, source, filesystem, options):
+    """Keep initrd mounts across isolation; never put NFS under daemon bind paths."""
+    name=str(path).strip('/').replace('-',r'\x2d').replace('/','-')+'.mount'
+    content=('[Unit]\nDefaultDependencies=no\nIgnoreOnIsolate=yes\n'
+             '[Mount]\nWhat='+source+'\nWhere='+str(path)+'\nType='+filesystem+'\nOptions='+options+'\n')
+    atomic_write(Path('/run/systemd/system')/name,content,0o644)
+    run(['systemctl','daemon-reload'])
+
+
 def prepare():
     global DEADLINE
     STATE.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -208,8 +220,9 @@ def prepare():
     devices=run(['blkid','-t','PARTUUID='+parts[0],'-o','device']).stdout.splitlines()
     if len(devices)!=1 or Path(devices[0]).resolve()!=device.resolve():
         raise BootError('boot_partition_ambiguous')
-    boot = STATE/'boot'
+    boot = BOOT
     boot.mkdir()
+    pin_mount(boot,str(device),'vfat','rw,nosuid,nodev,noexec,umask=0077')
     run(['mount','-t','vfat','-o','rw,nosuid,nodev,noexec,umask=0077',str(device),str(boot)])
     manifest = json.loads(read_limited(boot/'boot-manifest.json',1024*1024))
     if manifest.get('partuuid') != parts[0] or manifest.get('model') != 'pi4':
@@ -262,7 +275,7 @@ def prepare():
 
 def diagnostics():
     manifest=json.loads((STATE/'manifest.json').read_text())
-    diag=Diagnostics(STATE/'boot/diagnostics',manifest['image_id'])
+    diag=Diagnostics(BOOT/'diagnostics',manifest['image_id'])
     try:
         previous=[json.loads(v) for v in (diag.directory/'boot-events.jsonl').read_text().splitlines()]
         diag.events=[e for e in previous if e.get('boot_id')==diag.boot_id]
@@ -297,8 +310,9 @@ def root():
         selection=select_root(bound)
         atomic_write(STATE/'selection.json',json.dumps(selection))
         diag.event('root_selected')
-        lower=STATE/'lower'
+        lower=LOWER
         lower.mkdir()
+        pin_mount(lower,selection['server']+':'+selection['path'],'nfs4','ro,vers=4.2,proto=tcp,hard')
         process=subprocess.Popen(['mount','-t','nfs4','-o','ro,vers=4.2,proto=tcp,hard',selection['server']+':'+selection['path'],str(lower)],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
         end=min(time.monotonic()+120,DEADLINE)
         while process.poll() is None and time.monotonic()<end:
@@ -312,9 +326,9 @@ def root():
         verify_root(lower,manifest)
         diag.event('kernel_compatible')
         for name in ['upper','work']:
-            (STATE/name).mkdir()
+            (OVERLAY/name).mkdir(parents=True)
         Path('/sysroot').mkdir(exist_ok=True)
-        run(['mount','-t','overlay','overlay','-o',f'lowerdir={lower},upperdir={STATE}/upper,workdir={STATE}/work','/sysroot'])
+        run(['mount','-t','overlay','overlay','-o',f'lowerdir={lower},upperdir={OVERLAY}/upper,workdir={OVERLAY}/work','/sysroot'])
         # Preserve one immutable role selection for this boot; renewal never switches OS.
         role='roles='+selection.get('roles',selection.get('role',''))+'\nstage='+selection['stage']+'\noverlay_id='+selection['overlay_id']+'\n'
         atomic_write('/sysroot/etc/sd-netboot-role',role)
