@@ -12,4 +12,3 @@ RemainAfterExit=yes
 TimeoutStartSec=180
 StandardOutput=journal+console
 StandardError=null
-

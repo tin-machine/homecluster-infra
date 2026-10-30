@@ -14,4 +14,3 @@ TimeoutStartSec=600
 TimeoutStopSec=5
 StandardOutput=journal+console
 StandardError=null
-

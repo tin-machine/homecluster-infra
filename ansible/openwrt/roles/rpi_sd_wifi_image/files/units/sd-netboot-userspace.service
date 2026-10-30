@@ -12,4 +12,3 @@ ExecStart=/usr/bin/python3.14 /usr/lib/sd-netboot/boot.py userspace
 RemainAfterExit=yes
 StandardOutput=journal+console
 StandardError=null
-
