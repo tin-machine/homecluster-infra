@@ -17,6 +17,7 @@ import time
 
 FILES = Path(__file__).resolve().parent
 ID = re.compile(r'^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$')
+KERNEL = re.compile(r'^[A-Za-z0-9][A-Za-z0-9_.+-]{0,99}$')
 EMPTY_WIFI = b'country=JP\nssid=\npassword=\n'
 
 
@@ -243,7 +244,7 @@ def main():
         parser.add_argument('--'+name,required=True)
     parser.add_argument('--size-mib',type=int,default=512)
     args=parser.parse_args()
-    if not ID.fullmatch(args.image_id) or not ID.fullmatch(args.kernel_release) or not re.fullmatch('[0-9a-f]{40}',args.source_revision):
+    if not ID.fullmatch(args.image_id) or not KERNEL.fullmatch(args.kernel_release) or not re.fullmatch('[0-9a-f]{40}',args.source_revision):
         parser.error('invalid build identity')
     for name in ['sysroot','tftp_dir','work_dir','output_dir']:
         path=getattr(args,name)

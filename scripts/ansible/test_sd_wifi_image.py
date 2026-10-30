@@ -142,6 +142,14 @@ class BootContracts(unittest.TestCase):
 
 
 class ArtifactTests(unittest.TestCase):
+    def test_vendor_plus_kernel_reaches_readonly_source_guard(self):
+        argv=['builder','--sysroot','/source','--tftp-dir','/assets','--work-dir','/work/new',
+              '--output-dir','/output/new','--image-id','fixture','--kernel-release','6.18.56-v8+',
+              '--source-revision','a'*40]
+        with patch.object(sys,'argv',argv),patch.object(build_image,'source_is_readonly',side_effect=RuntimeError('readonly_boundary_reached')):
+            with self.assertRaisesRegex(RuntimeError,'readonly_boundary_reached'):
+                build_image.main()
+
     def test_mbr_is_bootable_and_partuuid_matches(self):
         with tempfile.TemporaryDirectory() as directory:
             image=Path(directory)/'test.img';build_image.mbr(image,256,0x12345678)

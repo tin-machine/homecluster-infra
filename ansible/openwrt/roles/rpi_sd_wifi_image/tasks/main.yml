@@ -8,7 +8,7 @@
       - rpi_sd_wifi_work_root is match('^/.+')
       - rpi_sd_wifi_output_root is match('^/.+')
       - rpi_sd_wifi_image_id is match('^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$')
-      - rpi_sd_wifi_kernel_release is match('^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$')
+      - rpi_sd_wifi_kernel_release is match('^[A-Za-z0-9][A-Za-z0-9_.+-]{0,99}$')
       - rpi_sd_wifi_source_revision is match('^[0-9a-f]{40}$')
       - rpi_sd_wifi_size_mib | int >= 256
       - rpi_sd_wifi_size_mib | int <= 4096

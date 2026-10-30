@@ -368,6 +368,7 @@ if command -v python3 >/dev/null 2>&1; then
     echo "Ansible Python API unavailable; CI runs PXE producer-consumer contracts in a pinned environment"
   fi
   python3 -B scripts/ci/test_rpi5_kernel_build_cleanup.py
+  python3 -B scripts/ansible/test_sd_wifi_image.py
   python3 scripts/ci/check-openwrt-srv-ext4-preflight.py
   python3 scripts/github-actions-runner-acceptance.py --self-test
   python3 scripts/ci/check-github-actions-arc-observability.py
