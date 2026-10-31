@@ -1,0 +1,4 @@
+---
+openwrt_security_monitor_enabled: false
+openwrt_security_monitor_sensor: ""
+openwrt_security_monitor_interval_seconds: 60

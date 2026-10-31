@@ -1,4 +1,7 @@
 ---
+- name: banIP 定期更新の入力を先に検証
+  ansible.builtin.import_tasks: refresh_validate.yml
+
 - name: banIP feed 名を検証
   ansible.builtin.assert:
     that:
@@ -177,3 +180,6 @@
   when:
     - not ansible_check_mode
     - openwrt_banip_enabled | bool
+
+- name: banIP 定期更新を管理
+  ansible.builtin.import_tasks: refresh.yml

@@ -336,7 +336,17 @@ resource "helm_release" "otel_collector" {
     var.o4_prod_container_logs_enabled ? [
       file("${var.values_env_dir}/values-otel-collector-o4-prod-logs.yaml")
     ] : [],
+    var.openwrt_security_logs_enabled ? [
+      file("${var.values_env_dir}/values-otel-collector-openwrt-security.yaml")
+    ] : [],
   )
+
+  lifecycle {
+    precondition {
+      condition     = !var.openwrt_security_logs_enabled || var.o4_prod_container_logs_enabled
+      error_message = "OpenWrt security normalization requires the O4 production-only log pipeline."
+    }
+  }
 
   depends_on = [
     helm_release.loki,

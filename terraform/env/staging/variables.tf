@@ -258,6 +258,12 @@ variable "site_values_dir" {
   description = "Absolute path to generated site-local Helm values. Every required chart file must exist."
 }
 
+variable "openwrt_security_logs_enabled" {
+  type        = bool
+  description = "Opt in to OpenWrt security normalization on the existing O4 production-only log pipeline"
+  default     = false
+}
+
 variable "o4_prod_container_logs_enabled" {
   type        = bool
   description = "Opt in to the O4 staging Pod log exporter for the production Loki push gateway"

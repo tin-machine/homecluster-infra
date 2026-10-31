@@ -1,0 +1,8 @@
+---
+- name: Restart homecluster security monitor
+  ansible.builtin.command: /etc/init.d/homecluster-security-monitor restart
+  changed_when: true
+  when:
+    - openwrt_security_monitor_enabled
+    - openwrt_security_monitor_was_running
+    - not ansible_check_mode
