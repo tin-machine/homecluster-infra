@@ -109,6 +109,9 @@ jobs:
           terraform -chdir=terraform/env/staging test -filter=tests/security_lab_pipeline.tftest.hcl -no-color
           terraform -chdir=terraform/env/staging test -filter=tests/security_lab_logs.tftest.hcl -no-color
 
+      - name: Validate bounded security transfer and receipt recovery
+        run: python3 -B scripts/ci/test_security_lab_transfer.py
+
       - name: Validate security-lab short logs and durable delivery
         run: python3 -B scripts/ci/test_security_lab_otel.py
 

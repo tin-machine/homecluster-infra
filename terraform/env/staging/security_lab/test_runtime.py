@@ -194,6 +194,73 @@ class RuntimeTests(unittest.TestCase):
         runtime.intake(self.manifest, io.BytesIO(self.data))
         self.assertEqual(runtime.read_json(path), first)
 
+    def test_read_only_input_verification_detects_later_tampering(self):
+        runtime.intake(self.manifest, io.BytesIO(self.data))
+        target = self.input / "captures" / self.cid
+        before = {p.name: (p.stat().st_mtime_ns, p.read_bytes()) for p in target.iterdir()}
+        result = runtime.verify_input(self.cid)
+        self.assertEqual(result["sha256"], self.manifest["pcap_sha256"])
+        self.assertEqual(before, {p.name: (p.stat().st_mtime_ns, p.read_bytes()) for p in target.iterdir()})
+        (target / "capture.pcap").write_bytes(self.data[:-1] + b"x")
+        with self.assertRaisesRegex(ValueError, "durable_hash_mismatch"):
+            runtime.verify_input(self.cid)
+
+    def test_replay_request_emits_only_from_main_publisher_and_is_consumed_once(self):
+        owner, owner_path = self.owner()
+        run = owner_path.parent / owner["analysis_id"]
+        runtime.atomic(run / "result.json", dict(owner, status="succeeded"))
+        row = runtime.envelope(owner["analysis_id"], self.cid, "analysis_summary", {"status": "succeeded"})
+        runtime.atomic(run / "outbox.json", [row])
+        queued_output = io.StringIO()
+        with patch.object(runtime.sys, "stdout", queued_output):
+            first = runtime.request_replay(owner["analysis_id"])
+            second = runtime.request_replay(owner["analysis_id"])
+        self.assertEqual(queued_output.getvalue(), "")  # exec is not a CRI log stream
+        self.assertEqual(first, second)
+        output = io.StringIO()
+        with patch.object(runtime.sys, "stdout", output):
+            runtime.process_replays()
+        self.assertEqual(json.loads(output.getvalue())["event_id"], row["event_id"])
+        self.assertFalse((run / "replay-request.json").exists())
+        repeat = io.StringIO()
+        with patch.object(runtime.sys, "stdout", repeat):
+            runtime.process_replays()
+        self.assertEqual(repeat.getvalue(), "")
+        self.assertEqual(runtime.read_json(run / "replay-result.json")["token"], first["token"])
+
+    def test_missing_only_replay_never_skips_initial_unsubmitted_events(self):
+        owner, path = self.owner()
+        run = path.parent / owner["analysis_id"]
+        runtime.atomic(run / "result.json", dict(owner, status="succeeded"))
+        rows = [runtime.envelope(owner["analysis_id"], self.cid, kind, {"status": "succeeded"})
+                for kind in ("analysis_summary", "suricata_candidate")]
+        runtime.atomic(run / "outbox.json", rows)
+        runtime.request_replay(owner["analysis_id"], [rows[1]["event_id"]])
+        stream = io.StringIO()
+        with patch.object(runtime.sys, "stdout", stream):
+            runtime.process_replays()
+        self.assertEqual([json.loads(x)["event_id"] for x in stream.getvalue().splitlines()], [rows[1]["event_id"]])
+        self.assertFalse((run / "submitted.json").exists())
+        initial = io.StringIO()
+        with patch.object(runtime.sys, "stdout", initial):
+            runtime.publish(run)
+        self.assertEqual([json.loads(x)["event_id"] for x in initial.getvalue().splitlines()], [x["event_id"] for x in rows])
+        with self.assertRaisesRegex(ValueError, "invalid_replay_events"):
+            runtime.request_replay(owner["analysis_id"], ["f" * 64])
+
+    def test_invalid_replay_is_not_a_reason_to_stop_the_analysis_job(self):
+        owner, path = self.owner()
+        run = path.parent / owner["analysis_id"]
+        runtime.atomic(run / "result.json", dict(owner, status="succeeded"))
+        row = runtime.envelope(owner["analysis_id"], self.cid, "analysis_summary", {"status": "succeeded"})
+        runtime.atomic(run / "outbox.json", [row])
+        runtime.atomic(run / "replay-request.json", {"token": "invalid", "event_ids": []})
+        with patch.object(runtime.sys, "stdout", io.StringIO()), patch.object(runtime.os, "killpg") as kill:
+            runtime.process_replays()
+            kill.assert_not_called()
+        self.assertTrue((run / "replay-request.json").exists())
+        self.assertTrue(path.exists())
+
     def test_previous_cluster_owner_refuses_api_calls(self):
         class RejectAPI:
             def call(self, *args):
@@ -378,6 +445,25 @@ class RuntimeTests(unittest.TestCase):
             runtime.tree_bytes(self.root)
         with self.assertRaisesRegex(ValueError, "envelope_too_large"):
             runtime.envelope("a" * 64, self.cid, "analysis_summary", {"body": "x" * 20000})
+
+    def test_actual_nfs_version_must_match_policy_with_remote_locking(self):
+        self.patches[1].stop()
+        mountinfo = self.file("mountinfo", b"")
+        for fs, options, accepted in (("nfs", "rw,vers=3,local_lock=none", True),
+                                      ("nfs4", "rw,vers=4.1", False),
+                                      ("nfs", "rw", False),
+                                      ("nfs", "rw,vers=3,nolock", False),
+                                      ("nfs", "rw,vers=3,local_lock=all", False)):
+            with self.subTest(fs=fs, options=options):
+                mountinfo.write_text("1 0 0:1 / " + str(self.input) + " rw - " + fs + " fixture:/export " + options + "\n")
+                if accepted:
+                    self.assertEqual(runtime.nfs_mount(self.input, mountinfo), "nfs")
+                else:
+                    with self.assertRaises(ValueError):
+                        runtime.nfs_mount(self.input, mountinfo)
+        self.config["nfs_version"] = 4
+        mountinfo.write_text("1 0 0:1 / " + str(self.input) + " rw - nfs4 fixture:/export rw,vers=4.1\n")
+        self.assertEqual(runtime.nfs_mount(self.input, mountinfo), "nfs4")
 
     def test_local_filesystem_is_not_nfs(self):
         mountinfo = self.file("mountinfo", b"1 0 0:1 / / rw - overlay overlay rw\n")

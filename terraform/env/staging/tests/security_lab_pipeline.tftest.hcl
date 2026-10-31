@@ -55,6 +55,10 @@ run "pipeline_restricted_and_pinned" {
     error_message = "Runtime configuration and all images must be immutable."
   }
   assert {
+    condition     = jsondecode(kubernetes_config_map_v1.security_lab_runtime[0].data["settings.json"]).nfs_version == 3
+    error_message = "The required actual NFS version must reach the runtime mount validator."
+  }
+  assert {
     condition     = tonumber(kubernetes_deployment_v1.security_lab_coordinator[0].spec[0].replicas) == 1 && kubernetes_deployment_v1.security_lab_coordinator[0].spec[0].strategy[0].type == "Recreate" && !kubernetes_deployment_v1.security_lab_coordinator[0].spec[0].template[0].spec[0].automount_service_account_token
     error_message = "Only one coordinator may own the projected, restricted API token."
   }
@@ -70,6 +74,13 @@ run "pipeline_restricted_and_pinned" {
     condition     = strcontains(kubernetes_config_map_v1.security_lab_runtime[0].data["suricata.yaml"], "[192.0.2.0/24]") && !strcontains(kubernetes_config_map_v1.security_lab_runtime[0].data["suricata.yaml"], "@HOME_NET@")
     error_message = "The explicit HOME_NET must replace the configuration placeholder."
   }
+}
+run "reject_unknown_nfs_version" {
+  command = plan
+  variables {
+    security_lab_nfs_version = 0
+  }
+  expect_failures = [var.security_lab_nfs_version]
 }
 run "reject_pipeline_without_home_net" {
   command = plan
