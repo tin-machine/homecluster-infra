@@ -33,3 +33,43 @@ Job作成・結果保存・NFS上の永続queue/lockはlauncherが担当する�
 
 source validationはTerraform validateと`tests/security_lab_offline.tftest.hcl`を使う。
 既定無効の互換性、worker選択の不正/欠落、restricted/RBAC/egress、IPv6のhost単位制約を検証する。
+
+## Bounded pipeline
+
+境界とNFS権限の受入後、`security_lab_pipeline_enabled=true`と明示的な`security_lab_home_nets`を渡す。
+初期UID/GIDは10001。NFSで同じnumeric ownerの0700 directory・0600 file、fsyncと別processの
+lock排他を確認する。root_squash/mapall等で一致しなければ、検証したnumeric UIDを指定する。
+既存PVC全体のchmod/chownは行わない。通常の一時領域は64Mi以下とし、大きい出力は専用PVCに置く。
+
+coordinatorは1 replica/Recreate。NFSのglobal flockを全engineの実行中保持し、cluster UID・
+Job UID・config SHAをowner recordへ保存する。古いownerを時刻だけで捨てない。
+設定更新前は実行中Jobが無いことを確認する。再構築後に旧clusterのownerが残れば照合待ちになる。
+
+`runtime.py intake '<closed manifest JSON>'`へ標準入力でPCAPを渡す。router producerのschemaと
+pcap_sha256/size_bytes/packet_count等を照合し、PCAP→manifest→固定configに束ねたrequestの順に
+fsync/公開する。durable receipt後にだけ管理側からrouterへACKする。
+専用SSH鍵・NAS credentialをPodへ渡さない。部分転送・不一致・古いqueueを黙って上書きしない。
+同じartifactの二重配送は再queueせず、設定更新による自動再解析も行わない。
+
+各JobはSuricata→Zeekのinit containerとterminal containerから成る。入力はread-only、
+出力はanalysis別subPath、non-root、capability全削除、RuntimeDefault、read-only root、tokenなし。
+低優先度の専用PriorityClassはpreemptionPolicy Neverであり、既存workloadを退避させない
+（[Kubernetes公式説明](https://kubernetes.io/docs/concepts/scheduling-eviction/pod-priority-preemption/)）。
+request/limitはengineごと2Gi、limit 2 CPU、nice +10、Job deadline 600秒、engine 480秒、retryなし。
+host MemAvailable、Node pressure、Job/Pod枠、NFS空き・各1Gi出力上限を監督し、異常時は自身の
+Job UIDだけを停止する。OOM/欠落結果/Job Completeだけを成功へ補完しない。
+
+固定image digest、設定hash、engine結果を保存する。local rulesの1000001は無害な検証用ICMP、
+1000002は外部からのSSH SYN反復の検知候補であり、侵害確定とは表現しない。広範なIDS coverageを
+保証するrulesetではない。更新は解析Jobの外でconfigテストと合成正例・負例を通す。
+
+結果manifestとoutboxはPVCに残し、candidateを最大32件とsummaryをJSON stdoutへ出す。
+元event時刻と解析時刻を分ける。Job成功・stdout提出・prod Loki到着は別状態。
+`replay <analysis-id>`は保存済みevent IDを保持し、engineを再実行しない。
+`delivery-ack <analysis-id>`は管理側がLoki到着を照合した後だけ使う。
+短命Pod専用Collector、通知、保持cleanupは別の有効化条件として受け入れる。
+
+検証: runtimeの合成fixture、`tests/security_lab_pipeline.tftest.hcl`と1.14互換性、
+`python3 -B scripts/ci/check-security-lab-engines.py`による固定imageの実config/正例・負例。
+Docker daemonが別filesystemなら、共有しているfixture directoryをTMPDIRに指定する。
+CIのnative image検証だけでARM64/NFS実行を受け入れたとは扱わない。
