@@ -54,6 +54,7 @@ jobs:
           PATH="${RUNNER_TEMP}/pxe-contract-venv/bin:${PATH}" \
             "${RUNNER_TEMP}/pxe-contract-venv/bin/python" -B \
             ansible/openwrt/roles/openwrt_banip/tests/test_refresh.py
+          "${RUNNER_TEMP}/pxe-contract-venv/bin/python" -B ansible/openwrt/roles/openwrt_banip/tests/test_feed_proof.py
           "${RUNNER_TEMP}/pxe-contract-venv/bin/python" -B \
             ansible/openwrt/roles/openwrt_security_monitor/tests/test_monitor.py
           "${RUNNER_TEMP}/pxe-contract-venv/bin/python" -B scripts/ci/test_openwrt_security_otel.py

@@ -6,6 +6,8 @@ site inputs, ports on the host, or credentials are needed.
 """
 
 import copy
+from datetime import datetime
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -81,11 +83,30 @@ def main():
                       "log_type": "heartbeat", "banip_status": "active",
                       "banip_run_age_seconds": 60, "banip_feed_verification": "unknown",
                       "fixture_case": "fixture-normal"}
+            # Feed metadata comes from the real producer, not a parallel JSON
+            # implementation in this consumer fixture.
+            spec = importlib.util.spec_from_file_location("security_monitor_fixture", ROOT / "ansible/openwrt/roles/openwrt_security_monitor/files/security_monitor.py")
+            producer = importlib.util.module_from_spec(spec); spec.loader.exec_module(producer)
+            stamp = datetime(2026, 1, 1).timestamp()
+            runtime = Path(dirname) / "runtime.json"
+            runtime.write_text(json.dumps({"status": "active", "backend_ver": "fixture",
+                                          "active_feeds": ["dshield.v4", "feodo.v4"],
+                                          "last_run": "mode: reload, date / time: 01/01/2026 00:00:00, duration: 1s"}))
+            proof = {"status": "verified", "age_seconds": 60, "feeds": [
+                {"feed": name, "status": "verified", "verified_at": stamp, "age_seconds": 60, "last_verified_count": 1}
+                for name in ("dshield.v4", "feodo.v4")]}
+            feed_record = producer.heartbeat("router-example", runtime=runtime, now=stamp + 60,
+                                             feed_verification=True, proof_reader=lambda: proof)
+            assert feed_record["banip_feed_verification"] == "verified"
+            feed_record["fixture_case"] = "fixture-feed-proof"
+            invalid_feed = dict(feed_record, fixture_case="fixture-invalid-proof", banip_feed_max_age_seconds=True)
             prefix = "<30>Oct 31 00:00:00 router-example "
             frames = [prefix + "homecluster-security: " + json.dumps(record),
                       prefix + "homecluster-security: {fixture-invalid",
                       prefix + "homecluster-security: " + json.dumps({"valid": True, "sensor": "fixture-forged"}),
-                      prefix + "kernel: fixture-kernel-record"]
+                      prefix + "kernel: fixture-kernel-record",
+                      prefix + "homecluster-security: " + json.dumps(feed_record),
+                      prefix + "homecluster-security: " + json.dumps(invalid_feed)]
             client = (
                 "import socket,time,json\n"
                 "deadline=time.monotonic()+30\n"
@@ -107,29 +128,36 @@ def main():
                 logs = docker("logs", collector)
                 output = logs.stdout + logs.stderr
                 records = re.split(r"(?m)^LogRecord #\d+\s*$", output)[1:]
-                if len(records) >= 4:
+                if len(records) >= 6:
                     break
                 if time.monotonic() > deadline:
-                    raise AssertionError("four fixture records not exported\n" + output[-8000:])
+                    raise AssertionError("six fixture records not exported\n" + output[-8000:])
                 time.sleep(.2)
             normal = next(r for r in records if "fixture-normal" in r)
             invalid = next(r for r in records if "fixture-invalid" in r)
             forged = next(r for r in records if "fixture-forged" in r)
             kernel = next(r for r in records if "fixture-kernel-record" in r)
+            feed = next(r for r in records if "fixture-feed-proof" in r)
+            invalid_proof = next(r for r in records if "fixture-invalid-proof" in r)
             assert "service.name: Str(openwrt-security)" in output
             assert "sensor: Str(router-example)" in normal
             assert "log_type: Str(heartbeat)" in normal
             assert "security_parser_status: Str(ok)" in normal
             assert re.search(r"banip_run_age_seconds: (Int|Double)\(60\)", normal), normal
-            for record in [invalid, forged]:
+            assert "security_parser_status: Str(ok)" in feed
+            assert "banip_feed_verification: Str(verified)" in feed
+            assert re.search(r"banip_feed_max_age_seconds: (Int|Double)\(60\)", feed), feed
+            assert "dshield.v4" in feed and "feodo.v4" in feed
+            for record in [invalid, forged, invalid_proof]:
                 assert "security_parser_status: Str(invalid)" in record
                 assert "log_type: Str(heartbeat)" not in record
                 assert "-> sensor:" not in record
             assert "security_parser_status" not in kernel
             assert "app: Str(openwrt-router)" in kernel
-            print(json.dumps({"status": "pass", "image": image, "records": 4,
+            print(json.dumps({"status": "pass", "image": image, "records": 6,
                               "normal": True, "malformed": True,
-                              "forged_valid_rejected": True, "kernel_preserved": True}))
+                              "forged_valid_rejected": True, "kernel_preserved": True,
+                              "real_feed_producer": True, "invalid_verified_age_rejected": True}))
     finally:
         docker("rm", "-f", token + "-sender", check=False)
         docker("rm", "-f", collector, check=False)
