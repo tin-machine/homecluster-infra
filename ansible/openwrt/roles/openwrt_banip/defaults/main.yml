@@ -15,3 +15,4 @@ openwrt_banip_nftcount: false
 openwrt_banip_refresh_enabled: false
 openwrt_banip_refresh_hour: 4
 openwrt_banip_refresh_minute: 17
+openwrt_banip_feed_verification_enabled: false

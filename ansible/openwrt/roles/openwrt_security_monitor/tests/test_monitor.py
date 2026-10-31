@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+import sys
+from unittest.mock import patch
 
 
 SOURCE = Path(__file__).resolve().parents[1] / "files/security_monitor.py"
@@ -86,6 +88,65 @@ class MonitorTest(unittest.TestCase):
         record = self.record({**self.normal, "active_feeds": ["a" * 80] * 128})
         self.assertLess(len(json.dumps(record).encode()), 1024)
         self.assertEqual(record["banip_feed_count"], 128)
+
+    def feed_summary(self, status="verified", age=60):
+        return {"status": status, "age_seconds": age, "feeds": [
+            {"feed": name, "status": status, "verified_at": self.stamp, "age_seconds": age, "last_verified_count": 99}
+            for name in ("dshield.v4", "feodo.v4")]}
+
+    def test_verified_feed_evidence_is_optional_and_bounded(self):
+        self.path.write_text(json.dumps({**self.normal, "active_feeds": ["a" * 80] * 128}))
+        value = self.feed_summary()
+        record = monitor.heartbeat("a" * 64, runtime=self.path, now=self.stamp + 60,
+                                   feed_verification=True, proof_reader=lambda: value)
+        self.assertEqual(record["banip_feed_verification"], "verified")
+        self.assertEqual(len(record["banip_feed_results"]), 2)
+        self.assertEqual(record["banip_feed_max_age_seconds"], 60)
+        self.assertLess(len(json.dumps(record).encode()), 1024)
+
+    def test_malformed_or_unavailable_proof_does_not_become_fresh(self):
+        self.path.write_text(json.dumps(self.normal))
+        values = [{}, {"status": "verified"}, {"status": "verified", "feeds": []},
+                  self.feed_summary(age=48 * 3600 + 1), {"status": "verified", "age_seconds": 0, "feeds": [
+                      {"feed": "feodo.v4", "status": "verified", "verified_at": True, "age_seconds": 0, "last_verified_count": 1}]}]
+        for value in values:
+            with self.subTest(value=value):
+                record = monitor.heartbeat("router-example", runtime=self.path, now=self.stamp + 60,
+                                           feed_verification=True, proof_reader=lambda: value)
+                self.assertEqual(record["banip_feed_verification"], "unknown")
+                self.assertIsNone(record["banip_feed_max_age_seconds"])
+        def unavailable():
+            raise OSError("fixture helper unavailable")
+        record = monitor.heartbeat("router-example", runtime=self.path, now=self.stamp + 60,
+                                   feed_verification=True, proof_reader=unavailable)
+        self.assertEqual(record["banip_status"], "active")
+        self.assertEqual(record["banip_feed_verification"], "unknown")
+
+    def test_stale_or_failed_check_preserves_last_verified_age(self):
+        self.path.write_text(json.dumps(self.normal))
+        for status, age in [("stale", 48 * 3600 + 1), ("error", 60)]:
+            value = self.feed_summary(status, age)
+            record = monitor.heartbeat("router-example", runtime=self.path, now=self.stamp + age,
+                                       feed_verification=True, proof_reader=lambda: value)
+            self.assertEqual(record["banip_feed_verification"], status)
+            self.assertEqual(record["banip_feed_max_age_seconds"], age)
+
+    def test_invalid_feed_flag_and_oversized_helper_output(self):
+        self.path.write_text(json.dumps({"sensor": "router-example", "interval_seconds": 60, "feed_verification_enabled": "yes"}))
+        with self.assertRaises(ValueError):
+            monitor.config(self.path)
+        with patch.object(monitor, "FEED_PROOF_COMMAND", [sys.executable, "-c", "print('x'*2049)"]):
+            with self.assertRaises(ValueError):
+                monitor.read_feed_proof()
+
+    def test_read_only_proof_child_has_a_wall_budget_and_no_false_success(self):
+        with patch.object(monitor, "FEED_PROOF_COMMAND", [sys.executable, "-c", "import time;time.sleep(1)"]), \
+                patch.object(monitor, "FEED_PROOF_TIMEOUT", .03):
+            with self.assertRaisesRegex(ValueError, "feed_proof_timeout"):
+                monitor.read_feed_proof()
+        with patch.object(monitor, "FEED_PROOF_COMMAND", [sys.executable, "-c", "raise SystemExit(3)"]):
+            with self.assertRaisesRegex(ValueError, "feed_proof_unavailable"):
+                monitor.read_feed_proof()
 
 
 if __name__ == "__main__":
