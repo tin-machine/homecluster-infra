@@ -104,6 +104,22 @@ jobs:
           terraform -chdir=terraform/env/staging test -filter=tests/openwrt_security_logs.tftest.hcl -no-color
           terraform -chdir=terraform/env/staging test -filter=tests/security_lab_offline.tftest.hcl -no-color
 
+      - name: Validate security lab with Terraform 1.14
+        shell: bash
+        run: |
+          set -euo pipefail
+          compat_dir="${RUNNER_TEMP}/terraform-1.14"
+          mkdir -p "${compat_dir}"
+          curl --fail --silent --show-error --location \
+            https://releases.hashicorp.com/terraform/1.14.8/terraform_1.14.8_linux_amd64.zip \
+            --output "${compat_dir}/terraform.zip"
+          printf '%s  %s\n' \
+            56a5d12f47cbc1c6bedb8f5426ae7d5df984d1929572c24b56f4c82e9f9bf709 \
+            "${compat_dir}/terraform.zip" | sha256sum --check --strict -
+          unzip -q "${compat_dir}/terraform.zip" -d "${compat_dir}"
+          "${compat_dir}/terraform" -chdir=terraform/env/staging init -backend=false -input=false -lockfile=readonly
+          "${compat_dir}/terraform" -chdir=terraform/env/staging test -filter=tests/security_lab_offline.tftest.hcl -no-color
+
       - name: Validate staging Loki rendered storage and binary config
         run: bash scripts/ci/check-staging-loki-compat.sh
 
