@@ -1,0 +1,51 @@
+---
+- name: 有効化された banIP feed 検証を構成
+  when: openwrt_banip_feed_verification_enabled
+  block:
+    - name: Python HTTPS 機能と信頼ストアを確認
+      ansible.builtin.command:
+        argv: [/usr/bin/python3, -c, 'import ssl, urllib.request; ssl.create_default_context()']
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Feed 検証専用 directory の既存状態を確認
+      ansible.builtin.stat:
+        path: /etc/homecluster-security
+        follow: false
+      register: openwrt_banip_proof_directory
+
+    - name: 不明な directory を feed 検証領域として採用しない
+      ansible.builtin.assert:
+        that:
+          - not openwrt_banip_proof_directory.stat.exists or (openwrt_banip_proof_directory.stat.isdir and not openwrt_banip_proof_directory.stat.islnk and openwrt_banip_proof_directory.stat.uid == 0 and openwrt_banip_proof_directory.stat.mode == '0700')
+
+    - name: Feed 検証専用 directory を準備
+      ansible.builtin.file:
+        path: /etc/homecluster-security
+        state: directory
+        owner: root
+        group: root
+        mode: '0700'
+
+    - name: Feed 検証 helper を配置
+      ansible.builtin.copy:
+        src: banip_feed_proof.py
+        dest: /usr/libexec/homecluster-banip-feed-proof.py
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Feed 検証の固定設定を配置
+      ansible.builtin.template:
+        src: proof.json.j2
+        dest: /etc/homecluster-security/banip-proof.json
+        owner: root
+        group: root
+        mode: '0600'
+      when: not ansible_check_mode or openwrt_banip_proof_directory.stat.exists
+
+    - name: 初回 check mode での設定配置予定を示す
+      ansible.builtin.debug:
+        msg: "private directory 作成後に feed 検証設定を配置します。check mode では取得・reloadを実行しません。"
+      changed_when: true
+      when: ansible_check_mode and not openwrt_banip_proof_directory.stat.exists

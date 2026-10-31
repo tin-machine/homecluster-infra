@@ -11,4 +11,8 @@
       - openwrt_banip_refresh_minute is not boolean
       - openwrt_banip_refresh_minute >= 0
       - openwrt_banip_refresh_minute <= 59
+      - openwrt_banip_feed_verification_enabled is boolean
+      - not openwrt_banip_feed_verification_enabled or (openwrt_banip_enabled | bool and openwrt_banip_refresh_enabled)
+      - not openwrt_banip_feed_verification_enabled or (openwrt_banip_feeds is sequence and openwrt_banip_feeds is not string and 1 <= openwrt_banip_feeds | length <= 2)
+      - not openwrt_banip_feed_verification_enabled or (openwrt_banip_feeds | difference(['dshield', 'feodo']) | length == 0 and openwrt_banip_feeds | unique | length == openwrt_banip_feeds | length)
     fail_msg: "banIP refresh_enabled はbool、hour/minute は範囲内の整数を指定してください。"
