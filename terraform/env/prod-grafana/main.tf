@@ -1,18 +1,21 @@
 data "external" "grafana" {
   program = ["python3", "${path.module}/../../../scripts/prod_grafana_terraform_input.py"]
   query = {
-    rag_enabled          = tostring(var.rag_enabled)
-    folder_uid           = var.existing_folder_uid
-    prometheus_site_path = var.prometheus_site_path
-    rag_address          = var.rag_enabled ? var.rag_address : ""
-    llm_address          = var.llm_address
-    desktop_host_address = var.desktop_host_address
-    typevt_host_address  = var.typevt_host_address
-    attention_enabled    = tostring(var.attention_enabled)
-    prod_host_enabled    = tostring(var.prod_host_enabled)
-    nas_address          = var.nas_address
-    nas_username         = var.nas_username
-    nas_syslog_enabled   = tostring(var.nas_syslog_enabled)
+    rag_enabled            = tostring(var.rag_enabled)
+    folder_uid             = var.existing_folder_uid
+    prometheus_site_path   = var.prometheus_site_path
+    rag_address            = var.rag_enabled ? var.rag_address : ""
+    llm_address            = var.llm_address
+    desktop_host_address   = var.desktop_host_address
+    typevt_host_address    = var.typevt_host_address
+    attention_enabled      = tostring(var.attention_enabled)
+    prod_host_enabled      = tostring(var.prod_host_enabled)
+    nas_address            = var.nas_address
+    nas_username           = var.nas_username
+    nas_syslog_enabled     = tostring(var.nas_syslog_enabled)
+    security_enabled       = tostring(var.security_enabled)
+    security_alerts_paused = tostring(var.security_alerts_paused)
+    security_channel_id    = var.security_channel_id
   }
 }
 

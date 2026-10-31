@@ -1,5 +1,34 @@
 # Production Grafana configuration adoption
 
+## OpenWrt securityとoffline解析の通知
+
+`security_enabled=true`は、既存prod monitoring siteを使う場合だけ指定する。既定は無効。
+専用dashboardとfile-provisioned log alertを追加し、既存dashboard、datasource、認証、保存領域を保持する。
+heartbeat欠落、feed検証異常、parser異常、解析失敗、coordinatorの受付停止を運用warningとして扱う。
+counterが無効の全drop数や、欠測のfeed ageを0へ補完しない。
+
+通知は各ruleの`notification_settings`で専用contact pointへ送る。`policies`と`resetPolicies`は
+provisionしないため、root notification policyは変更しない。01:00–06:30 Asia/Tokyoの抑止を明示し、
+評価は継続する。空vectorは正常、query errorはAlertingとする。
+contact pointはSlackを使い、既存`prod-alertmanager-slack-bot` Secretの`token`をGrafana Podの
+環境変数から参照する。tokenをTerraformやConfigMapへ渡さない。`security_channel_id`にはprivate入力の
+channel IDを指定する。Prometheus/Alertmanagerのrouteを変更しない。
+追加egressはGrafana Podのpublic IPv4向けTCP/443だけで、LAN・Pod・tailnet・loopback/link-localを除外する。
+標準NetworkPolicyではSlackのDNS名だけに制限できないため、通知endpointはsourceで固定する。
+このegressをpluginの自動導入・更新確認に使わせないよう、その2機能も明示無効にする。
+
+検知候補はdashboardへ表示する。現行の合成検証SIDだけを理由に侵害通知は送らない。
+実運用向けSIDの承認・通知条件は別途追加する。Loki停止中に、同じLokiにしか残らない解析障害を
+通知できるとは保証しない。prod全停止の外部監視もこの機能には含めない。
+
+隔離fixtureは同じGrafana image、実provisioning parserと通知処理を使用する。
+fixtureのLoki/Slackは新しい内部Docker networkだけに置き、host portを開かない。
+実機のsyslog・Loki・解析Jobを止めて失敗を作らない。
+
+通知停止・復旧時はまず`security_enabled=true`を保って`security_alerts_paused=true`を反映し、
+専用5 ruleの`isPaused`をAPIで確認する。fileを取り除くだけではSQLiteの既存ruleは削除されないため、
+`security_enabled=false`だけを通知停止として扱わない。他ownerのruleやroot policyを削除しない。
+
 ## QNAP NASのメトリクスとログ
 
 通常は無効。nas_addressにNASのIPv4、nas_usernameに読み取り専用SNMPv3ユーザー名を指定すると、
