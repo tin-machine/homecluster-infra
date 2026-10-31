@@ -17,6 +17,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'scripts'))
 import security_capture_trigger as trigger
+from security_lab_transfer import Runner
 
 
 class AuthorizerTests(unittest.TestCase):
@@ -114,6 +115,26 @@ class AuthorizerTests(unittest.TestCase):
         self.assertIn('-oIdentitiesOnly=yes', args)
         self.assertEqual(args[-2:], [self.config['router'], 'homecluster-security-trigger-v1'])
         self.assertEqual(self.client.transport.call_args.kwargs['limit'], 32768)
+        self.assertIs(self.client.transport.call_args.kwargs['return_failed_json'], True)
+
+    def test_fixed_remote_failure_is_distinct_from_transport_failure_and_never_leaks(self):
+        for reason, expected in [('router_load', 'router_load'), ('untrusted arbitrary text', 'unknown_reason')]:
+            self.client.transport.return_value = json.dumps({'status': 'failed', 'reason': reason}).encode()
+            with self.assertRaisesRegex(ValueError, '^trigger_router_refused:' + expected + '$'):
+                self.authorizer.router(self.authorizer.message('status'))
+
+    def test_real_runner_returns_only_opted_in_strict_failure_envelope(self):
+        runner = Runner()
+        def command(value, code=1):
+            return [sys.executable, '-c', 'import json,sys;print(json.dumps(' + repr(value) + '));sys.exit(' + str(code) + ')']
+        failure = {'status': 'failed', 'reason': 'router_load'}
+        with self.assertRaisesRegex(ValueError, 'ssh_command_failed:rc=1'):
+            runner.run(command(failure), timeout=5)
+        self.assertEqual(json.loads(runner.run(command(failure), timeout=5, return_failed_json=True)), failure)
+        for value, code in [({'status': 'accepted'}, 1), (dict(failure, extra='untrusted'), 1),
+                            (failure, 2), (['untrusted'], 1)]:
+            with self.subTest(value=value, code=code), self.assertRaisesRegex(ValueError, 'ssh_command_failed'):
+                runner.run(command(value, code), timeout=5, return_failed_json=True)
 
     def test_settlement_requires_analysis_success_and_destination_delivery(self):
         self.plan()

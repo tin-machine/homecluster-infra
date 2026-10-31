@@ -19,6 +19,24 @@ import uuid
 
 from security_lab_transfer import Client, SSH, TransferError, TARGET, NAME, HEX, CAPTURE, private_file, private_parent, require, save_receipt, json_response
 
+# Only these fixed, non-secret reason codes may reach operator output. Never
+# relay arbitrary stdout/stderr or exception text from a failing SSH command.
+ROUTER_REASONS = frozenset({
+    'router_load', 'router_memory', 'shared_storage_reserve', 'srv_not_mounted',
+    'spool_count_limit', 'spool_expired_requires_review', 'unexpected_spool_entry',
+    'request_pending_requires_review', 'configuration_changed', 'profile_not_allowed',
+    'procd_start_failed_request_preserved', 'trigger_unsettled_reservation',
+    'trigger_daily_limit', 'trigger_hourly_limit', 'trigger_target_cooldown',
+    'trigger_clock_rollback', 'trigger_replay', 'trigger_plan_or_observation_changed',
+    'trigger_profile_not_allowed', 'trigger_request_schema_or_time', 'trigger_action',
+    'trigger_forced_command', 'trigger_input_timeout', 'trigger_input_limit',
+    'trigger_duplicate_key', 'trigger_nonfinite_json', 'trigger_configuration',
+    'trigger_profile_binding', 'trigger_state_invalid', 'trigger_state_event_invalid',
+    'trigger_state_active_invalid', 'trigger_settled_invalid', 'trigger_private_file',
+    'trigger_private_directory', 'trigger_lock_invalid', 'trigger_settlement_mismatch',
+    'trigger_source_not_acknowledged', 'trigger_start_unknown',
+})
+
 LOKI_GUARD = r'''
 import ipaddress,json,subprocess,sys,time,urllib.parse,urllib.request
 p=json.load(sys.stdin)
@@ -92,7 +110,11 @@ class Authorizer:
         private_file(key)
         args = SSH + ['-F', '/dev/null', '-oIdentitiesOnly=yes', '-oIdentityAgent=none', '-i', str(key),
                       value['router'], 'homecluster-security-trigger-v1']
-        result = json_response(self.client.transport(args, data=json.dumps(request, allow_nan=False).encode(), limit=32768))
+        result = json_response(self.client.transport(args, data=json.dumps(request, allow_nan=False).encode(), limit=32768,
+                                                    return_failed_json=True))
+        if isinstance(result, dict) and result.get('status') == 'failed':
+            reason = result.get('reason')
+            raise TransferError('trigger_router_refused:' + (reason if isinstance(reason, str) and reason in ROUTER_REASONS else 'unknown_reason'))
         require(isinstance(result, dict) and result.get('status') not in (None, 'failed'), 'trigger_router_refused')
         return result
 
