@@ -8,6 +8,7 @@ import os
 import fcntl
 from pathlib import Path
 import struct
+import sys
 import tempfile
 import unittest
 import urllib.error
@@ -15,6 +16,7 @@ from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location("security_runtime", Path(__file__).with_name("runtime.py"))
 runtime = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = runtime
 spec.loader.exec_module(runtime)
 
 

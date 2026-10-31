@@ -133,3 +133,53 @@ receipt. A different destination or malformed receipt fails closed.
 file locking are required before analysis; changing a PV or StorageClass option
 alone does not validate an existing mount. Use the version required by the chosen
 NAS and never disable locking to bypass a failed probe.
+
+## Payload retention
+
+`security_lab_retention_enabled` defaults to false. Enable it only after the
+offline pipeline, durable delivery and NAS locking have been accepted. The
+coordinator checks up to 32 analyses every five minutes, only while no analysis
+owner or active engine Job/Pod exists. A persistent cursor reaches later runs.
+The directory scan has a 4096-entry bound; an oversized index needs explicit
+maintenance rather than an unbounded hot loop.
+
+Cleanup requires a terminal result from the current cluster, complete engine
+file inventories, a destination-bound receipt for **all** event IDs, confirmed
+source completion, and no operator hold or pending replay. All queue, finish,
+delivery-confirmation and source-confirmation timestamps must be valid and at
+least 72 hours old. Unknown, partial, old-cluster and undelivered data stay held.
+Each input/output tree retains its measured 1GiB budget; capacity pressure stops
+new intake/analysis rather than removing held or undelivered payloads. PVC
+requests are not physical disk quotas.
+
+The updated transfer helper records source completion on NAS after verifying
+the durable input and receiving the router's fixed ACK. A lost source-confirmation
+response leaves the router ACK in the local receipt; it can be recovered without
+re-capturing or re-running engines. Existing records without source evidence stay
+held. Use `register-source --receipt <path>` to reconcile an existing trusted
+receipt: a router source rechecks its idempotent ACK, while an explicitly recorded
+`synthetic-fixture` source uses `not_applicable`. Do not relabel real captures as
+synthetic to bypass source verification. Source evidence is an operator-side
+attestation, not an authentication mechanism for untrusted tenants.
+
+`hold --receipt <path>` and `release --receipt <path>` set an explicit NAS hold
+using the same attested staging identity. A hold is rejected after retirement
+has started; it cannot restore payloads that may already be removed. Inspect
+`runtime.py retention-status` through the attested coordinator for the last
+bounded sweep, held reasons, and measured per-volume usage. This read-only
+snapshot does not initiate cleanup or resolve unknown conditions as healthy.
+
+Before unlinking anything, cleanup saves an immutable, hash-bound file plan and
+a capture tombstone. It takes the global coordinator lock, intake lock and run
+mutation lock in that order. Symlinks, hardlinks, foreign owners, unexpected
+files, changed hashes or ambiguous identities hold that analysis. An interrupted
+cleanup revalidates evidence and resumes only the saved files; it never expands
+the deletion scope. The operator must reconcile partial JSON writes explicitly.
+
+Expired PCAP and engine payloads are removed. Small result manifests, file hashes,
+delivery evidence, IDs and tombstones remain; the outbox is reduced to identities
+without event bodies. Historical delivery checks continue to work, while replay,
+input verification and duplicate intake explicitly reject retired payloads.
+No age-only lock eviction or automatic reanalysis is introduced. Disable the
+retention flag to stop future cleanup; removed payloads cannot be recovered from
+these compact receipts. Do not treat Loki retention as a PCAP backup.

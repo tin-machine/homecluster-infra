@@ -250,7 +250,28 @@ class Client:
                 ack["pcap_sha256"] == receipt["pcap_sha256"], "router_ack_mismatch")
         receipt["router_ack"] = "acknowledged"
         save_receipt(path, receipt)
+        self.register_source(context, receipt, path)
         return ack
+
+    def register_source(self, context, receipt, path):
+        """Persist source completion only after NAS verification and router ACK."""
+        verified = self.verify_receipt_input(context, receipt)
+        require(verified["analysis_id"] == receipt["analysis_id"], "analysis_identity_changed")
+        if receipt.get("router") == "synthetic-fixture":
+            require(receipt.get("router_ack") == "not_applicable", "source_not_confirmed")
+            kind, confirmation = "synthetic", "not_applicable"
+        else:
+            require(TARGET.fullmatch(receipt.get("router", "")) and receipt["router"].startswith("root@") and
+                    receipt.get("router_ack") == "acknowledged", "source_not_confirmed")
+            kind, confirmation = "router", "acknowledged"
+        evidence = {"analysis_id": receipt["analysis_id"], "capture_id": receipt["capture_id"],
+                    "pcap_sha256": receipt["pcap_sha256"], "kind": kind, "confirmation": confirmation}
+        result = self.runtime(context, "retention-source", json.dumps(evidence))
+        require(result["status"] == "source_confirmed" and result["analysis_id"] == receipt["analysis_id"],
+                "source_ack_mismatch")
+        receipt["retention_source"] = "confirmed"
+        save_receipt(path, receipt)
+        return result
 
     def transfer(self, cid, router, key, path, acknowledge=False):
         require(CAPTURE.fullmatch(cid) and TARGET.fullmatch(router) and router.startswith("root@"),
@@ -291,6 +312,8 @@ class Client:
             save_receipt(path, receipt)
         if acknowledge and receipt.get("router_ack") != "acknowledged":
             self.acknowledge_router(context, receipt, path)
+        elif acknowledge:
+            self.register_source(context, receipt, path)
         return {"status": receipt["status"], "capture_id": cid, "analysis_id": receipt["analysis_id"],
                 "router_ack": receipt["router_ack"], "bytes": receipt["size_bytes"]}
 
@@ -400,7 +423,7 @@ class Client:
 def main(argv=None):
     os.umask(0o077)
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("transfer", "ack-router", "replay", "check-delivery"))
+    parser.add_argument("action", choices=("transfer", "ack-router", "replay", "check-delivery", "register-source", "hold", "release"))
     parser.add_argument("--server", required=True)
     parser.add_argument("--cluster-uid", required=True)
     parser.add_argument("--namespace-uid", required=True)
@@ -438,6 +461,18 @@ def main(argv=None):
             elif args.action == "ack-router":
                 client.acknowledge_router(context, receipt, args.receipt)
                 result = {"status": "acknowledged", "capture_id": receipt["capture_id"]}
+            elif args.action == "register-source":
+                if receipt.get("router") == "synthetic-fixture":
+                    result = client.register_source(context, receipt, args.receipt)
+                else:
+                    # Migrate an old receipt by rechecking the idempotent root ACK.
+                    client.acknowledge_router(context, receipt, args.receipt)
+                    result = {"status": "source_confirmed", "analysis_id": receipt["analysis_id"]}
+            elif args.action in ("hold", "release"):
+                result = client.runtime(context, "retention-hold", json.dumps({
+                    "analysis_id": receipt["analysis_id"], "held": args.action == "hold"}))
+                require(result["analysis_id"] == receipt["analysis_id"] and
+                        result["status"] == ("held" if args.action == "hold" else "released"), "retention_hold_mismatch")
             else:
                 result = client.runtime(context, "replay", receipt["analysis_id"])
                 require(result["status"] == "replay_queued", "replay_not_queued")
