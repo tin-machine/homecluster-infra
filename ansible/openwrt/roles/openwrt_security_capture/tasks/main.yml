@@ -1,0 +1,113 @@
+---
+- name: Security capture の有効化入力を検証
+  ansible.builtin.assert:
+    that: openwrt_security_capture_enabled is boolean
+
+- name: Security capture init の存在を確認
+  ansible.builtin.stat:
+    path: /etc/init.d/homecluster-security-capture
+  register: openwrt_security_capture_init
+
+- name: Security capture の現在の起動状態を確認
+  ansible.builtin.command: /etc/init.d/homecluster-security-capture running
+  register: openwrt_security_capture_running
+  changed_when: false
+  failed_when: openwrt_security_capture_running.rc not in [0, 1]
+  when:
+    - openwrt_security_capture_init.stat.exists
+    - not ansible_check_mode
+
+- name: Security capture 無効化時に実行中のcaptureを停止
+  ansible.builtin.command: /etc/init.d/homecluster-security-capture stop
+  changed_when: true
+  when:
+    - not openwrt_security_capture_enabled
+    - openwrt_security_capture_running.rc | default(1) == 0
+    - not ansible_check_mode
+
+- name: Security capture を構成
+  when: openwrt_security_capture_enabled
+  block:
+    - name: Security capture のprofile数を検証
+      ansible.builtin.assert:
+        that:
+          - openwrt_security_capture_profiles is mapping
+          - openwrt_security_capture_profiles | length >= 1
+          - openwrt_security_capture_profiles | length <= 8
+      no_log: true
+
+    - name: 実行中captureの設定差替えを拒否
+      ansible.builtin.assert:
+        that: openwrt_security_capture_running.rc | default(1) != 0
+        fail_msg: 実行中のbounded captureの終了後に再適用してください。
+
+    - name: Security capture の依存packageを導入
+      ansible.builtin.include_role:
+        name: openwrt_package
+      vars:
+        openwrt_package_names: [python3, tcpdump]
+        openwrt_package_state: present
+        openwrt_package_update_cache: false
+
+    - name: Security capture helper directory を作成
+      ansible.builtin.file:
+        path: /usr/libexec
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Security capture helper を配置
+      ansible.builtin.copy:
+        src: security_capture.py
+        dest: /usr/libexec/homecluster-security-capture.py
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Security capture の固定profileを検証して配置
+      ansible.builtin.template:
+        src: config.json.j2
+        dest: /etc/homecluster-security-capture.json
+        owner: root
+        group: root
+        mode: '0600'
+        validate: /usr/bin/python3 /usr/libexec/homecluster-security-capture.py validate %s
+      diff: false
+      no_log: true
+
+    - name: Security capture procd unit を配置
+      ansible.builtin.template:
+        src: service.init.j2
+        dest: /etc/init.d/homecluster-security-capture
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: 固定profile専用capture-shortを配置
+      ansible.builtin.copy:
+        src: capture-short
+        dest: /usr/sbin/capture-short
+        owner: root
+        group: root
+        mode: '0755'
+
+- name: Security capture のboot自動起動を無効化
+  ansible.builtin.shell: |
+    if /etc/init.d/homecluster-security-capture enabled; then
+      /etc/init.d/homecluster-security-capture disable
+      echo disabled
+    fi
+  args:
+    executable: /bin/ash
+  register: openwrt_security_capture_disable
+  changed_when: "'disabled' in openwrt_security_capture_disable.stdout"
+  when:
+    - openwrt_security_capture_enabled or openwrt_security_capture_init.stat.exists
+    - not ansible_check_mode
+
+- name: Security capture 無効化時に受付用設定を除去
+  ansible.builtin.file:
+    path: /etc/homecluster-security-capture.json
+    state: absent
+  when: not openwrt_security_capture_enabled
