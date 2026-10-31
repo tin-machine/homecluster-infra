@@ -302,3 +302,15 @@ variable "github_actions_runner_secret_name" {
   description = "Name of an existing Kubernetes Secret in the runner namespace containing ARC GitHub authentication"
   default     = ""
 }
+
+variable "security_lab_offline_enabled" {
+  type        = bool
+  description = "Opt in to restricted offline security analysis, its dedicated worker label and least-privilege launcher"
+  default     = false
+}
+
+variable "security_lab_worker_node" {
+  type        = string
+  description = "Existing staging ARM64 worker selected for security analysis; never a control-plane node"
+  default     = ""
+}
