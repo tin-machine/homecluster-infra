@@ -360,6 +360,7 @@ if command -v python3 >/dev/null 2>&1; then
   python3 scripts/ci/check-rpi5-common-kernel-identity-status.py
   python3 -B scripts/ci/test_host_dtb_patch.py
   if python3 -c 'import ansible.template' >/dev/null 2>&1; then
+    python3 -B scripts/ansible/test_builder_capacity_preflight.py
     python3 -B scripts/ci/test_pxe_host_dtb_contract.py
     python3 -B scripts/ci/test_host_tailscale_client_vars_contract.py
     python3 -B scripts/ci/test_kernel_distcc_contract.py
