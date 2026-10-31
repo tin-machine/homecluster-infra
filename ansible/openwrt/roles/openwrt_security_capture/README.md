@@ -34,3 +34,32 @@ CLIへ任意BPF、shell、出力先を渡さない。boot自動起動・respawn�
 source fixtureは合成PCAP、固定入力の不正値、容量/負荷guard、実Linuxの子process停止を試験する。
 実tcpdump/procd、SSH切断時の終了、capture対象、転送・受取先のhash/permissionは別の実機受入が必要。
 このroleだけでは転送・解析・通知は実行しない。
+
+## 閉じたartifactのread-only exportと転送確認
+
+`openwrt_security_capture_reader_public_key`に専用Ed25519公開鍵を指定すると、既存の
+`/etc/dropbear/authorized_keys`へ管理blockだけを追加する。管理用の既存keyは保持する。
+未指定・無効時には自分のblockだけを除去する。private keyをrouterや解析Podへ渡さない。
+
+専用keyでは次の2種類だけを受け付ける。capture IDは固定の時刻/乱数形式で検証する。
+
+```text
+manifest <capture-id>
+pcap <capture-id>
+```
+
+- 強制command、port/agent/X11 forwardingとPTYの禁止を使う。Dropbearの
+  [公式manual](https://github.com/mkj/dropbear/blob/main/manpages/dropbear.8)にある明示的な4つの`no-*`制約を指定する。
+- server全体の`-c`（keyのcommand上書き）や`-t`（旧版のcommand制約と非互換）がある場合、key追加前に拒否する。
+  server設定・SSH serviceは変更しない。実機の専用key接続で任意command・subsystem拒否を別途受け入れる。
+- 完了manifest、closed PCAPの全record/size/hash/owner/modeを再検証する。
+  `.part`、破損、symlink、別file名、path traversal、任意shell、ACKは専用keyから実行できない。
+- read操作は既存lockをread-onlyで開き、state fileやartifactを作成・更新しない。遅いreaderも120秒で打ち切る。
+- 転送先はsize/hashを検証し、同一filesystemのrenameとmanifest最後のpublishを完了してからACKする。
+  このroleは転送先確認を代行しない。
+
+ACKは既存の管理経路からのみ、`python3 /usr/libexec/homecluster-security-capture.py ack <capture-id> <sha256>`で行う。
+受取先の検証済みhashを照合し、そのcaptureの許可fileだけを削除する。未知fileがあれば削除を拒否する。
+先に`/srv/security-capture-acknowledged/<id>.json`へreceiptを書き、途中停止後は残りの削除を再開できる。
+同一ID/hashの再ACKは冪等、異なるhashは拒否。receiptは72時間、最大64件に制限する。
+転送未検証のcaptureを空き容量確保のためにACKしない。
