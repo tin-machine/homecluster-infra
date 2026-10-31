@@ -74,3 +74,9 @@ variable "existing_folder_uid" {
     error_message = "Invalid Grafana folder UID."
   }
 }
+
+variable "prod_host_enabled" {
+  description = "Opt in to a host exporter on the node named by site.prod_metrics_target.name and a Production hosts dashboard."
+  type        = bool
+  default     = false
+}
