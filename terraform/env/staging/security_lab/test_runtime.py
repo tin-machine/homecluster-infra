@@ -74,6 +74,57 @@ class RuntimeTests(unittest.TestCase):
         path.chmod(0o600)
         return path
 
+    def test_trigger_readiness_rejects_cold_busy_storage_and_partial_intake(self):
+        (self.input / 'control').mkdir(mode=0o700)
+        (self.input / 'captures').mkdir(mode=0o700)
+        outputs = {e: self.root / e for e in ('suricata', 'zeek')}
+        for root in outputs.values():
+            root.mkdir(mode=0o700)
+        node = {'metadata': {'labels': {'security-lab.home.arpa/analysis': 'true'}}, 'spec': {},
+                'status': {'nodeInfo': {'architecture': 'arm64'}, 'conditions': [
+                    {'type': k, 'status': v} for k,v in [('Ready', 'True'), ('MemoryPressure', 'False'),
+                                                       ('DiskPressure', 'False'), ('PIDPressure', 'False')]],
+                           'images': [{'names': [image]} for image in self.config['images'].values()]}}
+        jobs = []
+        class FakeAPI:
+            def call(self, method, path):
+                self.assert_read_only(method)
+                return node if '/nodes/' in path else {'items': jobs}
+            @staticmethod
+            def assert_read_only(method):
+                if method != 'GET': raise AssertionError('mutation forbidden')
+        with patch.object(runtime, 'API', FakeAPI), patch.object(runtime, 'OUTPUTS', outputs), \
+                patch.object(runtime, 'mem_available', return_value=4 * runtime.GIB), \
+                patch.object(runtime, 'space') as space:
+            self.assertEqual(runtime.trigger_readiness()['status'], 'ready')
+            images = node['status'].pop('images')
+            with self.assertRaisesRegex(ValueError, 'cold_image_cache'):
+                runtime.trigger_readiness()
+
+            node['status']['images'] = images
+            jobs.append({'status': {}})
+            with self.assertRaisesRegex(ValueError, 'job_active'):
+                runtime.trigger_readiness()
+            jobs.clear()
+            owner = self.input / 'control' / 'owner.json'; owner.write_text('{}')
+            with self.assertRaisesRegex(ValueError, 'owner_active'):
+                runtime.trigger_readiness()
+            owner.unlink()
+            space.side_effect = ValueError('filesystem_reserve_low')
+            with self.assertRaisesRegex(ValueError, 'reserve_low'):
+                runtime.trigger_readiness()
+            space.side_effect = None
+            partial = self.input / 'captures' / '.fixture.partial'; partial.mkdir(mode=0o700)
+            with self.assertRaisesRegex(ValueError, 'partial_intake'):
+                runtime.trigger_readiness()
+
+    def test_trigger_image_identity_keeps_repository_and_digest(self):
+        suffix = '@sha256:' + 'a' * 64
+        self.assertEqual(runtime.image_identity('python:3.12-alpine' + suffix), 'docker.io/library/python' + suffix)
+        self.assertEqual(runtime.image_identity('index.docker.io/python' + suffix), 'docker.io/library/python' + suffix)
+        self.assertNotEqual(runtime.image_identity('other/python' + suffix), runtime.image_identity('python' + suffix))
+        self.assertIsNone(runtime.image_identity('python:3.12-alpine'))
+
     def test_closed_pcap_validation(self):
         path = self.file("fixture.pcap", self.data)
         self.assertEqual(runtime.pcap(path)["packets"], 1)

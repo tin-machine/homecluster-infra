@@ -1,0 +1,117 @@
+---
+- name: Triggerの専用公開鍵を検証
+  ansible.builtin.assert:
+    that:
+      - openwrt_security_capture_trigger_public_key is string
+      - openwrt_security_capture_trigger_public_key | length <= 256
+      - openwrt_security_capture_trigger_public_key == '' or openwrt_security_capture_trigger_public_key is match('^ssh-ed25519 [A-Za-z0-9+/]{68}( [a-zA-Z0-9@._-]{1,64})?\Z')
+      - not openwrt_security_capture_trigger_enabled or openwrt_security_capture_trigger_public_key | length > 0
+      - not openwrt_security_capture_trigger_enabled or openwrt_security_capture_trigger_public_key.split()[1] != (openwrt_security_capture_reader_public_key.split() + ['', ''])[1]
+  no_log: true
+
+- name: Triggerの管理blockの有無だけ確認
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - -c
+      - >-
+        from pathlib import Path; import sys;
+        sys.exit(0 if b'# BEGIN HOMECLUSTER SECURITY CAPTURE TRIGGER' in Path('/etc/dropbear/authorized_keys').read_bytes() else 1)
+  register: openwrt_security_capture_trigger_marker
+  changed_when: false
+  failed_when: openwrt_security_capture_trigger_marker.rc not in [0, 1]
+  check_mode: false
+  when:
+    - openwrt_security_capture_reader_keys.stat.isreg | default(false)
+    - not (openwrt_security_capture_reader_keys.stat.islnk | default(false))
+
+- name: Triggerの既存鍵fileを保護
+  ansible.builtin.assert:
+    that:
+      - openwrt_security_capture_reader_keys.stat.isreg | default(false)
+      - not (openwrt_security_capture_reader_keys.stat.islnk | default(false))
+      - openwrt_security_capture_reader_keys.stat.uid | default(-1) == 0
+      - openwrt_security_capture_reader_keys.stat.mode | default('') == '0600'
+  when: openwrt_security_capture_trigger_enabled or openwrt_security_capture_trigger_marker.rc | default(1) == 0
+
+- name: 認証付きtriggerの設定
+  when: openwrt_security_capture_trigger_enabled
+  block:
+    - name: 固定profileと対象のallowlistを検証
+      ansible.builtin.assert:
+        that:
+          - openwrt_security_capture_trigger_targets is mapping
+          - openwrt_security_capture_trigger_targets | length >= 1
+          - openwrt_security_capture_trigger_targets | length <= 8
+          - openwrt_security_capture_trigger_targets.keys() | difference(openwrt_security_capture_profiles.keys()) | length == 0
+      no_log: true
+
+    - name: Trigger helperを配置
+      ansible.builtin.copy:
+        src: security_trigger.py
+        dest: /usr/libexec/homecluster-security-trigger.py
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: 永続trigger台帳directoryを確認
+      ansible.builtin.stat:
+        path: /srv/security-trigger
+      register: openwrt_security_trigger_ledger
+
+    - name: 初回のみtrigger台帳を初期化
+      ansible.builtin.command: /usr/bin/python3 /usr/libexec/homecluster-security-trigger.py initialize
+      changed_when: true
+      when:
+        - not openwrt_security_trigger_ledger.stat.exists
+        - not ansible_check_mode
+
+    - name: 台帳の破損や消失を拒否
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/python3
+          - -c
+          - >-
+            import importlib.util; s=importlib.util.spec_from_file_location('trigger','/usr/libexec/homecluster-security-trigger.py');
+            m=importlib.util.module_from_spec(s); s.loader.exec_module(m);
+            m.cap.private_directory(m.ROOT); m.load_state()
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: 固定profileと対象だけを設定
+      ansible.builtin.template:
+        src: trigger.json.j2
+        dest: /etc/homecluster-security-trigger.json
+        owner: root
+        group: root
+        mode: '0600'
+        validate: /usr/bin/python3 /usr/libexec/homecluster-security-trigger.py validate %s
+      diff: false
+      no_log: true
+
+    - name: Dropbearの固定command契約を検証
+      ansible.builtin.command: /usr/bin/python3 /usr/libexec/homecluster-security-capture.py validate-reader
+      changed_when: false
+      when: not ansible_check_mode
+
+- name: 無効時はtrigger設定だけを除去し台帳を保持
+  ansible.builtin.file:
+    path: /etc/homecluster-security-trigger.json
+    state: absent
+  when: not openwrt_security_capture_trigger_enabled
+
+- name: 起動専用鍵をreader鍵と別blockで管理
+  ansible.builtin.blockinfile:
+    path: /etc/dropbear/authorized_keys
+    create: false
+    marker: '# {mark} HOMECLUSTER SECURITY CAPTURE TRIGGER'
+    state: "{{ openwrt_security_capture_trigger_enabled | ternary('present', 'absent') }}"
+    owner: root
+    group: root
+    mode: '0600'
+    block: >-
+      no-port-forwarding,no-agent-forwarding,no-X11-forwarding,no-pty,command="/usr/bin/python3 /usr/libexec/homecluster-security-trigger.py ssh" {{ openwrt_security_capture_trigger_public_key }}
+  no_log: true
+  when:
+    - openwrt_security_capture_reader_keys.stat.exists
+    - openwrt_security_capture_trigger_enabled or openwrt_security_capture_trigger_marker.rc | default(1) == 0
