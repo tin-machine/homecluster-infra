@@ -18,7 +18,7 @@ HOST_JOBS = {"desktop": "ubuntu-desktop-node-exporter",
              "typevt": "typevt-node-exporter"}
 
 
-def build_manifest(site: dict, *, rag_address: str = "",
+def build_manifest(site: dict, *, rag_address: str = "", llm_address: str = "",
                    host_addresses: dict[str, str] | None = None) -> dict:
     source = outside.build_manifest(site)
     items = [x for x in source["items"]
@@ -65,6 +65,23 @@ def build_manifest(site: dict, *, rag_address: str = "",
         policy["spec"]["egress"].append({
             "to": [{"ipBlock": {"cidr": target + "/32"}}],
             "ports": [{"protocol": "TCP", "port": 9100}],
+        })
+    if llm_address:
+        address = ipaddress.IPv4Address(llm_address)
+        tailnet = address in ipaddress.IPv4Network("100.64.0.0/10")
+        if (not (address.is_private or tailnet) or address.is_loopback
+                or address.is_multicast or address.is_unspecified or str(address) != llm_address):
+            raise ValueError("LLM requires a specific private or tailnet IPv4")
+        config["scrape_configs"].append({
+            "job_name": "local-llm", "metrics_path": "/metrics", "scheme": "http",
+            "scrape_interval": "15s", "scrape_timeout": "5s", "sample_limit": 200,
+            "static_configs": [{"targets": [llm_address + ":8080"]}],
+            "metric_relabel_configs": [{"action": "keep", "source_labels": ["__name__"],
+                "regex": "llamacpp:requests_processing|llamacpp:requests_deferred"}],
+        })
+        policy["spec"]["egress"].append({
+            "to": [{"ipBlock": {"cidr": llm_address + "/32"}}],
+            "ports": [{"protocol": "TCP", "port": 8080}],
         })
     config_text = json.dumps(config, sort_keys=True)
     cm["data"]["prometheus.json"] = config_text

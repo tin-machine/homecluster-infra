@@ -32,4 +32,8 @@ class LlmMonitoringTests(unittest.TestCase):
         for value in ["8.8.8.8","127.0.0.1","0.0.0.0","224.0.0.1","10.0.0.0/24","host.local"]:
             with self.assertRaises(ValueError):build_manifest(fixture(),llm_address=value)
 
+    def test_llm_address_requires_prometheus_site(self):
+        with self.assertRaises(ValueError):
+            terraform_manifest(llm_address="192.0.2.23")
+
 if __name__=="__main__":unittest.main()

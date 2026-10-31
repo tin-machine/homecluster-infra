@@ -13,6 +13,7 @@ from prod_prometheus_config_render import build_manifest as prometheus_manifest
 
 def terraform_manifest(*, include_rag: bool = False, folder_uid: str = "",
                        prometheus_site: dict | None = None, rag_address: str = "",
+                       llm_address: str = "",
                        desktop_host_address: str = "", typevt_host_address: str = "",
                        include_attention: bool = False,
                        include_prod_host: bool = False) -> dict:
@@ -29,11 +30,13 @@ def terraform_manifest(*, include_rag: bool = False, folder_uid: str = "",
         raise ValueError("RAG requires both a Prometheus site and a scrape address")
     if host_addresses and prometheus_site is None:
         raise ValueError("host monitoring requires the Prometheus site")
+    if llm_address and prometheus_site is None:
+        raise ValueError("LLM monitoring requires the Prometheus site")
     if include_prod_host and (prometheus_site is None or not prometheus_site.get("prod_metrics_target")):
         raise ValueError("production host exporter requires an explicit prod metrics target")
     if prometheus_site is not None:
         manifest["items"].extend(prometheus_manifest(
-            prometheus_site, rag_address=rag_address,
+            prometheus_site, rag_address=rag_address, llm_address=llm_address,
             host_addresses=host_addresses)["items"])
     if include_prod_host:
         from prod_node_host_monitoring import add_dashboard, exporter
@@ -50,7 +53,7 @@ def terraform_manifest(*, include_rag: bool = False, folder_uid: str = "",
 
 def main() -> None:
     query = json.load(sys.stdin)
-    if set(query) - {"rag_enabled", "folder_uid", "prometheus_site_path", "rag_address",
+    if set(query) - {"rag_enabled", "folder_uid", "prometheus_site_path", "rag_address", "llm_address",
                       "desktop_host_address", "typevt_host_address", "attention_enabled", "prod_host_enabled"}:
         raise ValueError("unexpected renderer input")
     if query.get("rag_enabled", "false") not in ("true", "false"):
@@ -69,6 +72,7 @@ def main() -> None:
     manifest = terraform_manifest(include_rag=query.get("rag_enabled") == "true",
                                   folder_uid=query.get("folder_uid", ""),
                                   prometheus_site=site, rag_address=query.get("rag_address", ""),
+                                  llm_address=query.get("llm_address", ""),
                                   desktop_host_address=query.get("desktop_host_address", ""),
                                   typevt_host_address=query.get("typevt_host_address", ""),
                                   include_attention=query.get("attention_enabled") == "true",
