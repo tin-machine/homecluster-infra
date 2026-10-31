@@ -60,13 +60,6 @@ def server():
                 assert mode in ("normal", "firing", "error")
                 state["mode"] = mode
                 return self.reply({})
-            if self.path == "/mute":
-                path = Path("/fixture/provision/alerting/security.json")
-                value = json.loads(path.read_text())
-                value["muteTimes"][0]["time_intervals"] = [{
-                    "times": [{"start_time": "00:00", "end_time": "24:00"}], "location": "UTC"}]
-                path.write_text(json.dumps(value))
-                return self.reply({})
             if self.path.endswith("/chat.postMessage") or self.path.endswith("/chat.update"):
                 assert self.headers.get("Authorization") == "Bearer " + BOT_TOKEN
                 value = json.loads(body)
@@ -83,7 +76,7 @@ def server():
     ThreadingHTTPServer(("0.0.0.0", 8080), Handler).serve_forever()
 
 
-def client():
+def client(*, muted=False):
     def request(base, path, value=None):
         headers = {}
         if base.startswith("http://grafana-fixture:"):
@@ -125,24 +118,28 @@ def client():
 
     until(lambda: request(backend, "/state"), lambda x: x["queries"] > 0)
     until(rule, lambda x: x["state"] == "inactive" and x.get("health") == "ok")
-    assert request(backend, "/state")["deliveries"] == []
-    request(backend, "/mode", {"mode": "firing"})
-    until(rule, lambda x: x["state"] == "firing")
-    first = until(lambda: request(backend, "/state"), lambda x: bool(x["deliveries"]))
-    assert len(first["deliveries"]) == 1 and not first["deliveries"][0]["resolved"], json.dumps(first)
-    assert first["deliveries"][0]["channel"] == CHANNEL
-    time.sleep(22)  # More than two evaluations and the fixture group interval.
-    assert len(request(backend, "/state")["deliveries"]) == 1, "duplicate firing notification"
-    request(backend, "/mode", {"mode": "normal"})
-    until(rule, lambda x: x["state"] == "inactive")
-    resolved = until(lambda: request(backend, "/state"), lambda x: len(x["deliveries"]) == 2)
-    assert resolved["deliveries"][-1]["resolved"]
-    request(backend, "/mute", {})
-    request(gf, "/api/admin/provisioning/alerting/reload", {})
+    if not muted:
+        assert request(backend, "/state")["deliveries"] == []
+        request(backend, "/mode", {"mode": "firing"})
+        until(rule, lambda x: x["state"] == "firing")
+        first = until(lambda: request(backend, "/state"), lambda x: bool(x["deliveries"]))
+        assert len(first["deliveries"]) == 1 and not first["deliveries"][0]["resolved"], json.dumps(first)
+        assert first["deliveries"][0]["channel"] == CHANNEL
+        time.sleep(22)  # More than two evaluations and the fixture group interval.
+        assert len(request(backend, "/state")["deliveries"]) == 1, "duplicate firing notification"
+        request(backend, "/mode", {"mode": "normal"})
+        until(rule, lambda x: x["state"] == "inactive")
+        resolved = until(lambda: request(backend, "/state"), lambda x: len(x["deliveries"]) == 2)
+        assert resolved["deliveries"][-1]["resolved"]
+        assert request(gf, "/api/v1/provisioning/policies") == policy
+        print(json.dumps({"phase": "unmuted", "firing": 1, "resolved": 1, "duplicate_firing": 0}))
+        return
+    assert len(request(backend, "/state")["deliveries"]) == 2
     request(backend, "/mode", {"mode": "firing"})
     until(rule, lambda x: x["state"] == "firing")
     time.sleep(22)
-    assert len(request(backend, "/state")["deliveries"]) == 2, "muted firing was delivered"
+    received = request(backend, "/state")
+    assert len(received["deliveries"]) == 2, "muted firing was delivered: " + json.dumps(received)
     request(backend, "/mode", {"mode": "error"})
     until(rule, lambda x: x["state"] == "firing" and x.get("health") != "ok")
     assert request(gf, "/api/v1/provisioning/policies") == policy, "root notification policy changed"
@@ -187,7 +184,7 @@ def main():
                 "start_time": f"{hour:02d}:00", "end_time": f"{hour:02d}:01"}], "location": "UTC"}]
             alert = root / "provision/alerting/security.json"
             alert.write_text(json.dumps(value))
-            alert.chmod(0o666)  # Only synthetic settings, hot-reloaded by UID10001.
+            alert.chmod(0o644)
             ds = root / "provision/datasources/datasource.yaml"
             ds.write_text(json.dumps({"apiVersion": 1, "datasources": [{
                 "name": "prod-loki", "uid": "prod-loki", "type": "loki", "access": "proxy",
@@ -211,9 +208,9 @@ def main():
             created = True
             docker("run", "-d", "--name", helper, "--network", network, "--network-alias", "fixture-backend",
                    "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--user", "10001:10001",
-                   "--memory", "128m", "--cpus", "1", "--mount", f"type=bind,src={root},dst=/fixture",
+                   "--memory", "128m", "--cpus", "1", "--mount", f"type=bind,src={root},dst=/fixture,readonly",
                    HELPER, "python3", "/fixture/scripts/ci/test_prod_security_grafana_image.py", "--server")
-            docker("run", "-d", "--name", gf, "--network", network, "--network-alias", "grafana-fixture",
+            grafana_args = ["--name", gf, "--network", network, "--network-alias", "grafana-fixture",
                    "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--user", "472:472",
                    "--memory", "512m", "--cpus", "1",
                    "--tmpfs", "/var/lib/grafana:uid=472,gid=472,mode=0700,size=128m",
@@ -224,13 +221,23 @@ def main():
                    "-e", "GF_SECURITY_SLACK_TOKEN=" + BOT_TOKEN,
                    "-e", "GF_ANALYTICS_REPORTING_ENABLED=false", "-e", "GF_ANALYTICS_CHECK_FOR_UPDATES=false",
                    "-e", "GF_PLUGINS_PREINSTALL_DISABLED=true", "-e", "GF_PLUGINS_CHECK_FOR_UPDATES=false",
-                   "-e", "GF_UNIFIED_ALERTING_MIN_INTERVAL=10s", IMAGE)
-            result = docker("exec", helper, "python3", "/fixture/scripts/ci/test_prod_security_grafana_image.py", "--client", check=False)
-            if result.returncode:
-                print(result.stdout + result.stderr)
-                print(docker("logs", gf, check=False).stdout[-5000:])
-                raise AssertionError("isolated native Grafana acceptance failed")
-            print(result.stdout.strip())
+                   "-e", "GF_UNIFIED_ALERTING_MIN_INTERVAL=10s", IMAGE]
+            for phase in ["--client", "--client-muted"]:
+                if phase == "--client-muted":
+                    # Production publishes a new file through a Recreate rollout.
+                    # Test that same cold-start contract, not an asynchronous
+                    # admin reload racing an already queued notification.
+                    docker("rm", "-f", gf)
+                    value["muteTimes"][0]["time_intervals"] = [{
+                        "times": [{"start_time": "00:00", "end_time": "24:00"}], "location": "UTC"}]
+                    alert.write_text(json.dumps(value))
+                docker("run", "-d", *grafana_args)
+                result = docker("exec", helper, "python3", "/fixture/scripts/ci/test_prod_security_grafana_image.py", phase, check=False)
+                if result.returncode:
+                    print(result.stdout + result.stderr)
+                    print(docker("logs", gf, check=False).stdout[-5000:])
+                    raise AssertionError("isolated native Grafana acceptance failed: " + phase)
+                print(result.stdout.strip())
     finally:
         # Only this invocation's exact, random, fixed-name resources.
         for container in [gf, helper]:
@@ -244,5 +251,7 @@ if __name__ == "__main__":
         server()
     elif sys.argv[1:] == ["--client"]:
         client()
+    elif sys.argv[1:] == ["--client-muted"]:
+        client(muted=True)
     else:
         main()
