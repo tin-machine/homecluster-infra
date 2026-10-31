@@ -56,6 +56,7 @@ jobs:
             ansible/openwrt/roles/openwrt_banip/tests/test_refresh.py
           "${RUNNER_TEMP}/pxe-contract-venv/bin/python" -B \
             ansible/openwrt/roles/openwrt_security_monitor/tests/test_monitor.py
+          "${RUNNER_TEMP}/pxe-contract-venv/bin/python" -B scripts/ci/test_openwrt_security_otel.py
           "${RUNNER_TEMP}/pxe-contract-venv/bin/python" -B scripts/ci/test_pxe_host_dtb_contract.py
           "${RUNNER_TEMP}/pxe-contract-venv/bin/python" -B scripts/ci/test_host_tailscale_client_vars_contract.py
           "${RUNNER_TEMP}/pxe-contract-venv/bin/python" -B scripts/ci/test_kernel_distcc_contract.py
@@ -97,6 +98,7 @@ jobs:
         run: |
           terraform -chdir=terraform/env/staging init -backend=false -input=false -lockfile=readonly
           terraform -chdir=terraform/env/staging test -filter=tests/cli_workspace.tftest.hcl -no-color
+          terraform -chdir=terraform/env/staging test -filter=tests/openwrt_security_logs.tftest.hcl -no-color
 
       - name: Validate staging Loki rendered storage and binary config
         run: bash scripts/ci/check-staging-loki-compat.sh
