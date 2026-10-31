@@ -30,8 +30,8 @@ class SecurityMonitoringTests(unittest.TestCase):
         before = {x["kind"] + "/" + x["metadata"]["name"]: x for x in self.full()["items"]}
         after = {x["kind"] + "/" + x["metadata"]["name"]: x for x in self.full(True)["items"]}
         changed = {k for k in before if before[k] != after[k]}
-        self.assertEqual(changed, {"ConfigMap/prod-grafana-provisioning", "Deployment/prod-grafana", "NetworkPolicy/prod-grafana-restricted"})
-        self.assertEqual(set(after), set(before))
+        self.assertEqual(changed, {"ConfigMap/prod-grafana-provisioning", "Deployment/prod-grafana"})
+        self.assertEqual(set(after) - set(before), {"NetworkPolicy/prod-grafana-security-slack-egress"})
         a, b = before["ConfigMap/prod-grafana-provisioning"]["data"], after["ConfigMap/prod-grafana-provisioning"]["data"]
         for key in a:
             if key != "dashboard-provider.yaml":
@@ -109,9 +109,13 @@ class SecurityMonitoringTests(unittest.TestCase):
         a, b = self.full(), self.full(True)
         old = next(x for x in a["items"] if x["metadata"]["name"] == "prod-grafana-restricted")
         new = next(x for x in b["items"] if x["metadata"]["name"] == "prod-grafana-restricted")
-        self.assertEqual(old["spec"]["egress"], new["spec"]["egress"][:-1])
-        self.assertEqual(new["spec"]["egress"][-1]["ports"], [{"protocol": "TCP", "port": 443}])
-        block = new["spec"]["egress"][-1]["to"][0]["ipBlock"]
+        self.assertEqual(old, new)
+        dedicated = next(x for x in b["items"] if x["metadata"]["name"] == "prod-grafana-security-slack-egress")
+        self.assertEqual(dedicated["spec"]["podSelector"], old["spec"]["podSelector"])
+        self.assertEqual(dedicated["spec"]["policyTypes"], ["Egress"])
+        self.assertEqual(len(dedicated["spec"]["egress"]), 1)
+        self.assertEqual(dedicated["spec"]["egress"][0]["ports"], [{"protocol": "TCP", "port": 443}])
+        block = dedicated["spec"]["egress"][0]["to"][0]["ipBlock"]
         self.assertEqual(block["cidr"], "0.0.0.0/0")
         self.assertTrue({"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10"} <= set(block["except"]))
         for value in ["", "arbitrary-channel", "C\nINJECTION", None, 1]:

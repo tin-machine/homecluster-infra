@@ -16,6 +16,9 @@ channel IDを指定する。Prometheus/Alertmanagerのrouteを変更しない。
 追加egressはGrafana Podのpublic IPv4向けTCP/443だけで、LAN・Pod・tailnet・loopback/link-localを除外する。
 標準NetworkPolicyではSlackのDNS名だけに制限できないため、通知endpointはsourceで固定する。
 このegressをpluginの自動導入・更新確認に使わせないよう、その2機能も明示無効にする。
+追加egressは専用`prod-grafana-security-slack-egress` NetworkPolicyで管理し、既存policyを変更しない。
+既存のatomic egress fieldを別managerが所有していても、所有権の強制移管を必要としない。
+実機反映前は保存planだけでなく、pending manifestを同じfield managerのserver-side dry-runでも検証する。
 
 検知候補はdashboardへ表示する。現行の合成検証SIDだけを理由に侵害通知は送らない。
 実運用向けSIDの承認・通知条件は別途追加する。Loki停止中に、同じLokiにしか残らない解析障害を

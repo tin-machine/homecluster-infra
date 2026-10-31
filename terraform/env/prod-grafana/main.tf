@@ -63,6 +63,7 @@ resource "kubernetes_manifest" "grafana" {
       condition = each.value.metadata.namespace == "observability-prod" && contains([
         "ConfigMap/prod-grafana-provisioning", "Deployment/prod-grafana", "Service/prod-grafana",
         "NetworkPolicy/prod-grafana-restricted", "NetworkPolicy/prod-prometheus-grafana-ingress",
+        "NetworkPolicy/prod-grafana-security-slack-egress",
         "ConfigMap/prod-prometheus-config", "Deployment/prod-prometheus", "NetworkPolicy/prod-prometheus-restricted"
       ], each.key)
       error_message = "Only the existing production Grafana resources are allowed."
