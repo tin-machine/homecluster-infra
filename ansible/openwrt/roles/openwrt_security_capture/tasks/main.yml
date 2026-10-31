@@ -3,6 +3,14 @@
   ansible.builtin.assert:
     that: openwrt_security_capture_enabled is boolean
 
+- name: Security capture reader 公開鍵の形式を検証
+  ansible.builtin.assert:
+    that:
+      - openwrt_security_capture_reader_public_key is string
+      - openwrt_security_capture_reader_public_key | length <= 256
+      - openwrt_security_capture_reader_public_key == '' or openwrt_security_capture_reader_public_key is match('^ssh-ed25519 [A-Za-z0-9+/]{68}( [a-zA-Z0-9@._-]{1,64})?\Z')
+  no_log: true
+
 - name: Security capture init の存在を確認
   ansible.builtin.stat:
     path: /etc/init.d/homecluster-security-capture
@@ -111,3 +119,59 @@
     path: /etc/homecluster-security-capture.json
     state: absent
   when: not openwrt_security_capture_enabled
+
+- name: Security capture reader の既存authorized_keysを確認
+  ansible.builtin.stat:
+    path: /etc/dropbear/authorized_keys
+  register: openwrt_security_capture_reader_keys
+
+- name: Security capture reader の管理blockの有無だけ確認
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - -c
+      - >-
+        from pathlib import Path; import sys;
+        sys.exit(0 if b'# BEGIN HOMECLUSTER SECURITY CAPTURE READER' in Path('/etc/dropbear/authorized_keys').read_bytes() else 1)
+  register: openwrt_security_capture_reader_marker
+  changed_when: false
+  failed_when: openwrt_security_capture_reader_marker.rc not in [0, 1]
+  check_mode: false
+  when:
+    - openwrt_security_capture_reader_keys.stat.isreg | default(false)
+    - not (openwrt_security_capture_reader_keys.stat.islnk | default(false))
+
+- name: Security capture reader の保護された既存key fileを検証
+  ansible.builtin.assert:
+    that:
+      - openwrt_security_capture_reader_keys.stat.exists
+      - openwrt_security_capture_reader_keys.stat.isreg | default(false)
+      - not (openwrt_security_capture_reader_keys.stat.islnk | default(false))
+      - openwrt_security_capture_reader_keys.stat.uid | default(-1) == 0
+      - openwrt_security_capture_reader_keys.stat.mode | default('') == '0600'
+  when:
+    - (openwrt_security_capture_enabled and openwrt_security_capture_reader_public_key | length > 0) or openwrt_security_capture_reader_marker.rc | default(1) == 0
+
+- name: Dropbear の固定read-only command契約を検証
+  ansible.builtin.command: /usr/bin/python3 /usr/libexec/homecluster-security-capture.py validate-reader
+  changed_when: false
+  when:
+    - openwrt_security_capture_enabled
+    - openwrt_security_capture_reader_public_key | length > 0
+    - not ansible_check_mode
+
+- name: 完了済みcapture専用のread-only SSH鍵を管理
+  ansible.builtin.blockinfile:
+    path: /etc/dropbear/authorized_keys
+    create: false
+    marker: '# {mark} HOMECLUSTER SECURITY CAPTURE READER'
+    state: "{{ (openwrt_security_capture_enabled and openwrt_security_capture_reader_public_key | length > 0) | ternary('present', 'absent') }}"
+    owner: root
+    group: root
+    mode: '0600'
+    block: >-
+      no-port-forwarding,no-agent-forwarding,no-X11-forwarding,no-pty,command="/usr/bin/python3 /usr/libexec/homecluster-security-capture.py ssh-export" {{ openwrt_security_capture_reader_public_key }}
+  no_log: true
+  when:
+    - openwrt_security_capture_reader_keys.stat.exists
+    - (openwrt_security_capture_enabled and openwrt_security_capture_reader_public_key | length > 0) or openwrt_security_capture_reader_marker.rc | default(1) == 0

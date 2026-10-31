@@ -2,6 +2,7 @@
 """Synthetic files/processes only; never sniff a real interface."""
 import copy
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -134,6 +135,103 @@ class CaptureTest(unittest.TestCase):
                     self.assertEqual(result['packet_count'],1)
                     self.assertFalse((run/'capture.pcap.part').exists())
                 self.assertFalse((state/'request.json').exists())
+
+    def test_export_command_allowlist(self):
+        capture_id='20261031T000000Z-0123456789abcdef'
+        self.assertEqual(module.export_request('manifest '+capture_id), ['manifest',capture_id])
+        self.assertEqual(module.export_request('pcap '+capture_id), ['pcap',capture_id])
+        for command in ['', 'id', 'ack '+capture_id+' '+'0'*64, 'manifest ../shadow',
+                        'pcap '+capture_id+'; id', 'manifest '+capture_id+' extra',
+                        'manifest '+capture_id+'\nwhoami', 'manifest $(id)', 'x'*161]:
+            with self.subTest(command=command), self.assertRaises(ValueError):
+                module.export_request(command)
+
+    def closed_fixture(self):
+        spool=self.root/'spool';spool.mkdir(mode=0o700)
+        state=self.root/'state';state.mkdir(mode=0o700)
+        capture_id='20261031T000000Z-0123456789abcdef'
+        run=spool/capture_id;run.mkdir(mode=0o700)
+        packet=run/'capture.pcap';packet.write_bytes(self.frame());packet.chmod(0o600)
+        manifest=dict(module.pcap(packet),schema=1,capture_id=capture_id)
+        module.publish(run/'manifest.json',manifest)
+        module.publish(run/'started.json',{'capture_id':capture_id})
+        self.private_json('unused.json',{})
+        return spool,state,run,capture_id,manifest
+
+    def test_export_only_reads_completed_artifact(self):
+        spool,state,run,capture_id,manifest=self.closed_fixture()
+        stream=io.BytesIO()
+        with mock.patch.object(module,'SPOOL',spool), mock.patch.object(module,'STATE',state), \
+             mock.patch.object(module.os.path,'ismount',return_value=True):
+            with module.lock():pass
+            before={x.name:x.read_bytes() for x in run.iterdir()}
+            with mock.patch.dict(module.os.environ,{'SSH_ORIGINAL_COMMAND':'pcap '+capture_id}), \
+                 mock.patch.object(module.sys,'stdout',mock.Mock(buffer=stream)):
+                module.ssh_export()
+            self.assertEqual(stream.getvalue(),before['capture.pcap'])
+            self.assertEqual({x.name:x.read_bytes() for x in run.iterdir()},before)
+            (run/'capture.pcap.part').write_text('incomplete')
+            with self.assertRaisesRegex(ValueError,'artifact_incomplete'):
+                module.artifact(capture_id)
+
+    def test_export_does_not_create_runtime_state(self):
+        state=self.root/'absent-state'
+        with mock.patch.object(module,'STATE',state), mock.patch.dict(module.os.environ, {'SSH_ORIGINAL_COMMAND':'manifest 20261031T000000Z-0123456789abcdef'}):
+            with self.assertRaises(FileNotFoundError):
+                module.ssh_export()
+        self.assertFalse(state.exists())
+
+    def test_artifact_hash_and_symlink_rejected(self):
+        spool,state,run,capture_id,manifest=self.closed_fixture()
+        with mock.patch.object(module,'SPOOL',spool), mock.patch.object(module.os.path,'ismount',return_value=True):
+            packet=run/'capture.pcap'
+            packet.write_bytes(self.frame(included=b'EVIL'))
+            with self.assertRaisesRegex(ValueError,'artifact_hash_or_summary_mismatch'):
+                module.artifact(capture_id)
+            packet.unlink();packet.symlink_to(self.root/'elsewhere')
+            with self.assertRaisesRegex(ValueError,'private_file_contract'):
+                module.artifact(capture_id)
+
+    def test_ack_requires_hash_and_is_idempotent(self):
+        spool,state,run,capture_id,manifest=self.closed_fixture()
+        other=spool/'20261031T000000Z-fedcba9876543210';other.mkdir(mode=0o700)
+        with mock.patch.object(module,'SPOOL',spool), mock.patch.object(module,'STATE',state), \
+             mock.patch.object(module,'ACKROOT',self.root/'acks'), \
+             mock.patch.object(module.os.path,'ismount',return_value=True):
+            with self.assertRaisesRegex(ValueError,'acknowledgement_hash_mismatch'):
+                module.acknowledge(capture_id,'0'*64)
+            self.assertTrue((run/'capture.pcap').exists())
+            result=module.acknowledge(capture_id,manifest['pcap_sha256'])
+            self.assertEqual(result['status'],'acknowledged')
+            self.assertFalse(run.exists());self.assertTrue(other.exists())
+            self.assertTrue(module.acknowledge(capture_id,manifest['pcap_sha256'])['already_acknowledged'])
+            with self.assertRaisesRegex(ValueError,'acknowledgement_hash_mismatch'):
+                module.acknowledge(capture_id,'0'*64)
+
+    def test_ack_resumes_interrupted_cleanup_and_preserves_unknown_files(self):
+        spool,state,run,capture_id,manifest=self.closed_fixture()
+        acks=self.root/'acks';acks.mkdir(mode=0o700)
+        receipt={'schema':1,'status':'acknowledged','capture_id':capture_id,'pcap_sha256':manifest['pcap_sha256'],'epoch':time.time()}
+        module.publish(acks/(capture_id+'.json'),receipt)
+        (run/'capture.pcap').unlink()
+        unknown=run/'operator-note';unknown.write_text('keep')
+        with mock.patch.object(module,'SPOOL',spool), mock.patch.object(module,'STATE',state), \
+             mock.patch.object(module,'ACKROOT',acks), mock.patch.object(module.os.path,'ismount',return_value=True):
+            with self.assertRaisesRegex(ValueError,'unexpected_capture_entry'):
+                module.acknowledge(capture_id,manifest['pcap_sha256'])
+            self.assertTrue(unknown.exists());unknown.unlink()
+            self.assertEqual(module.acknowledge(capture_id,manifest['pcap_sha256'])['status'],'acknowledged')
+            self.assertFalse(run.exists())
+
+    def test_incompatible_dropbear_flags_are_rejected(self):
+        for flags in [[], ['-F','-t'], ['-F','-canything'], ['-Fct']]:
+            data={'dropbear':{'instances':{'main':{'command':['/usr/sbin/dropbear']+flags}}}}
+            with mock.patch.object(module.subprocess,'run',return_value=mock.Mock(stdout=json.dumps(data))):
+                if flags:
+                    with self.assertRaisesRegex(ValueError,'dropbear_reader_contract_incompatible'):
+                        module.validate_reader_server()
+                else:
+                    self.assertEqual(module.validate_reader_server()['status'],'pass')
 
     def test_resource_guards_fail_closed(self):
         spool = self.root/'spool'
