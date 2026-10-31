@@ -10,6 +10,8 @@
     - base
     - stg_base
   roles:
+    - role: common/nfs_client_policy
+      tags: [nfs_client_policy]
     - common/base
     - common/change_make_conf
     - common/zram_swap
@@ -163,6 +165,8 @@
             fail_msg: "k3s_stg_storage は k3s_stg_server の前に実行する必要があります"
       when: k3s_local_storage_enabled | default(false)
   roles:
+    - role: common/nfs_client_policy
+      tags: [nfs_client_policy]
     - role: k3s_log_limits
       tags:
         - k3s_log_limits
@@ -350,6 +354,8 @@
         - k3s_local_storage_enabled | default(false)
         - inventory_hostname in (groups['k3s_stg_agents'] | default([]))
   roles:
+    - role: common/nfs_client_policy
+      tags: [nfs_client_policy]
     - role: k3s_log_limits
       when:
         - k3s_stg_agent_play_enabled | bool
@@ -595,6 +601,8 @@
       changed_when: false
 
   roles:
+    - role: common/nfs_client_policy
+      tags: [nfs_client_policy]
     - k3s_log_limits
     - k3s_iptables_nft
     - role: xanmanning.k3s

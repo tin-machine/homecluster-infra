@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
+import re
 from typing import Any
 
 
@@ -793,6 +794,19 @@ def _generated_role_client_vars(
         )
         role_extra_vars["k3s_prd_storage"].update(_build_k3s_iscsi_session_vars(hv))
 
+
+    # Keep node-side NFS defaults in every boot path that starts k3s.
+    # Inline Pod NFS volumes cannot supply mountOptions of their own.
+    if "nfs_client_v3_servers" in hv:
+        servers = hv["nfs_client_v3_servers"]
+        if not isinstance(servers, list) or any(
+            not isinstance(server, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.:-]*", server)
+            for server in servers
+        ):
+            raise ValueError("invalid NFS v3 server list")
+        for policy_role in ("base", "k3s_stg_server", "k3s_stg_agent", "k3s_prd_server"):
+            if policy_role in role_names:
+                role_extra_vars.setdefault(policy_role, {})["nfs_client_v3_servers"] = list(servers)
 
     for role_name, role_vars in extra_vars_cfg.items():
         role_name_text = _clean_string(role_name)

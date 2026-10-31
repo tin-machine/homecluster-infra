@@ -1,0 +1,3 @@
+---
+# Exact mount-command server names; other NFS servers retain their own defaults.
+nfs_client_v3_servers: []
