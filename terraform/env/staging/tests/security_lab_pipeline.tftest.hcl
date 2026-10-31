@@ -71,6 +71,10 @@ run "pipeline_restricted_and_pinned" {
     error_message = "Coordinator must use the validated non-root UID and read-only root."
   }
   assert {
+    condition     = kubernetes_deployment_v1.security_lab_coordinator[0].spec[0].template[0].spec[0].container[0].security_context[0].run_as_non_root == true
+    error_message = "The provider must explicitly emit container runAsNonRoot=true; its false default overrides the restricted Pod setting."
+  }
+  assert {
     condition     = strcontains(kubernetes_config_map_v1.security_lab_runtime[0].data["suricata.yaml"], "[192.0.2.0/24]") && !strcontains(kubernetes_config_map_v1.security_lab_runtime[0].data["suricata.yaml"], "@HOME_NET@")
     error_message = "The explicit HOME_NET must replace the configuration placeholder."
   }

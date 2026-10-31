@@ -91,6 +91,8 @@ resource "kubernetes_deployment_v1" "security_lab_coordinator" {
           image   = local.security_lab_images.helper
           command = ["python3", "/config/runtime.py", "coordinate"]
           security_context {
+            # The provider's container default is false and overrides the Pod.
+            run_as_non_root            = true
             allow_privilege_escalation = false
             read_only_root_filesystem  = true
             capabilities { drop = ["ALL"] }
