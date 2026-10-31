@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import copy
 
 UID = "openwrt-security"
 LOKI = "prod-loki"
@@ -164,8 +165,16 @@ def add_monitoring(manifest: dict, channel_id: str, *, paused: bool = False) -> 
         template["spec"]["containers"][0]["volumeMounts"].append({
             "name": name, "mountPath": directory, "readOnly": True})
     template["metadata"]["annotations"]["checksum/provisioning"] = hashlib.sha256(encode(data).encode()).hexdigest()
-    by_name["NetworkPolicy", "prod-grafana-restricted"]["spec"]["egress"].append({
+    policy = {
         "to": [{"ipBlock": {"cidr": "0.0.0.0/0", "except": [
             "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10",
             "127.0.0.0/8", "169.254.0.0/16"]}}],
-        "ports": [{"protocol": "TCP", "port": 443}]})
+        "ports": [{"protocol": "TCP", "port": 443}]}
+    # Egress lists are atomic SSA fields. Keep the legacy policy and its field
+    # manager intact; Kubernetes unions the dedicated policy with existing ones.
+    manifest["items"].append({
+        "apiVersion": "networking.k8s.io/v1", "kind": "NetworkPolicy",
+        "metadata": {"name": "prod-grafana-security-slack-egress", "namespace": "observability-prod"},
+        "spec": {"podSelector": copy.deepcopy(by_name["NetworkPolicy", "prod-grafana-restricted"]["spec"]["podSelector"]),
+                 "policyTypes": ["Egress"], "egress": [policy]},
+    })
