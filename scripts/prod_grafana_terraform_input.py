@@ -17,7 +17,14 @@ def terraform_manifest(*, include_rag: bool = False, folder_uid: str = "",
                        desktop_host_address: str = "", typevt_host_address: str = "",
                        include_attention: bool = False,
                        include_prod_host: bool = False, nas_address: str = "",
-                       nas_username: str = "prometheus", include_nas_syslog: bool = False) -> dict:
+                       nas_username: str = "prometheus", include_nas_syslog: bool = False,
+                       include_security: bool = False, security_alerts_paused: bool = False) -> dict:
+    if not isinstance(include_security, bool) or not isinstance(security_alerts_paused, bool):
+        raise ValueError("invalid security monitoring opt-in")
+    if security_alerts_paused and not include_security:
+        raise ValueError("pausing alerts requires keeping their provisioning enabled")
+    if include_security and prometheus_site is None:
+        raise ValueError("security alerts require the existing production monitoring site")
     if not isinstance(nas_address, str):
         raise ValueError("invalid NAS address")
     if include_nas_syslog and (not nas_address or not prometheus_site
@@ -56,6 +63,9 @@ def terraform_manifest(*, include_rag: bool = False, folder_uid: str = "",
     if include_nas_syslog:
         from prod_nas_syslog import add_syslog
         add_syslog(manifest, nas_address, prometheus_site["prod_metrics_target"]["name"])
+    if include_security:
+        from prod_openwrt_security_monitoring import add_monitoring as add_security
+        add_security(manifest, paused=security_alerts_paused)
     for obj in manifest["items"]:
         # Kubernetes omits an empty ingress list on read. With policyTypes=Ingress,
         # absent and empty both mean deny all ingress; avoid an artificial import diff.
@@ -69,7 +79,7 @@ def main() -> None:
     query = json.load(sys.stdin)
     if set(query) - {"rag_enabled", "folder_uid", "prometheus_site_path", "rag_address", "llm_address",
                       "desktop_host_address", "typevt_host_address", "attention_enabled", "prod_host_enabled",
-                      "nas_address", "nas_username", "nas_syslog_enabled"}:
+                      "nas_address", "nas_username", "nas_syslog_enabled", "security_enabled", "security_alerts_paused"}:
         raise ValueError("unexpected renderer input")
     if query.get("rag_enabled", "false") not in ("true", "false"):
         raise ValueError("invalid rag_enabled")
@@ -79,6 +89,10 @@ def main() -> None:
         raise ValueError("invalid prod_host_enabled")
     if query.get("nas_syslog_enabled", "false") not in ("true", "false"):
         raise ValueError("invalid nas_syslog_enabled")
+    if query.get("security_enabled", "false") not in ("true", "false"):
+        raise ValueError("invalid security_enabled")
+    if query.get("security_alerts_paused", "false") not in ("true", "false"):
+        raise ValueError("invalid security_alerts_paused")
     site_path = query.get("prometheus_site_path", "")
     site = None
     if site_path:
@@ -96,7 +110,9 @@ def main() -> None:
                                   include_prod_host=query.get("prod_host_enabled") == "true",
                                   nas_address=query.get("nas_address", ""),
                                   nas_username=query.get("nas_username", "prometheus"),
-                                  include_nas_syslog=query.get("nas_syslog_enabled") == "true")
+                                  include_nas_syslog=query.get("nas_syslog_enabled") == "true",
+                                  include_security=query.get("security_enabled") == "true",
+                                  security_alerts_paused=query.get("security_alerts_paused") == "true")
     print(json.dumps({"manifest": json.dumps(manifest, sort_keys=True)}))
 
 

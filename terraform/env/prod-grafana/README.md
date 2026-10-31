@@ -1,5 +1,31 @@
 # Production Grafana configuration adoption
 
+## OpenWrt securityとoffline解析の通知
+
+`security_enabled=true`は、既存prod monitoring siteを使う場合だけ指定する。既定は無効。
+専用dashboardとfile-provisioned log alertを追加し、既存dashboard、datasource、認証、保存領域を保持する。
+heartbeat欠落、feed検証異常、parser異常、解析失敗、coordinatorの受付停止を運用warningとして扱う。
+counterが無効の全drop数や、欠測のfeed ageを0へ補完しない。
+
+通知は各ruleの`notification_settings`で専用contact pointへ送る。`policies`と`resetPolicies`は
+provisionしないため、root notification policyは変更しない。01:00–06:30 Asia/Tokyoの抑止を明示し、
+評価は継続する。空vectorは正常、query errorはAlertingとする。
+contact pointは内部の既存Alertmanagerに限定し、既存Secretに基づくSlack配送を再利用する。
+Grafanaへのtoken/channel複製、Prometheus/Alertmanagerのroute変更、外向けegress追加は行わない。
+反映前に既存Alertmanagerのidentity・readiness・設定契約も確認する。
+
+検知候補はdashboardへ表示する。現行の合成検証SIDだけを理由に侵害通知は送らない。
+実運用向けSIDの承認・通知条件は別途追加する。Loki停止中に、同じLokiにしか残らない解析障害を
+通知できるとは保証しない。prod全停止の外部監視もこの機能には含めない。
+
+隔離fixtureは同じGrafana image、実provisioning parserと通知処理を使用する。
+fixtureのLoki/Alertmanagerは新しい内部Docker networkだけに置き、host portを開かない。
+実機のsyslog・Loki・解析Jobを止めて失敗を作らない。
+
+通知停止・復旧時はまず`security_enabled=true`を保って`security_alerts_paused=true`を反映し、
+専用5 ruleの`isPaused`をAPIで確認する。fileを取り除くだけではSQLiteの既存ruleは削除されないため、
+`security_enabled=false`だけを通知停止として扱わない。他ownerのruleやroot policyを削除しない。
+
 ## QNAP NASのメトリクスとログ
 
 通常は無効。nas_addressにNASのIPv4、nas_usernameに読み取り専用SNMPv3ユーザー名を指定すると、
