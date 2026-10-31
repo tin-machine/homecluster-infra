@@ -1,0 +1,44 @@
+%YAML 1.1
+---
+vars:
+  address-groups:
+    HOME_NET: '@HOME_NET@'
+    EXTERNAL_NET: '!$HOME_NET'
+default-rule-path: /config
+default-log-dir: /result
+rule-files:
+- local.rules
+classification-file: /config/classification.config
+reference-config-file: /config/reference.config
+threshold-file: /config/threshold.config
+stream:
+  memcap: 64mb
+  reassembly:
+    memcap: 256mb
+    depth: 1mb
+unix-command:
+  enabled: false
+pid-file: /tmp/suricata.pid
+stats:
+  enabled: true
+  interval: 8
+logging:
+  default-log-level: notice
+  outputs:
+  - console:
+      enabled: true
+outputs:
+- eve-log:
+    enabled: true
+    filetype: regular
+    filename: eve.json
+    types:
+    - alert:
+        payload: false
+        packet: false
+    - stats:
+        totals: true
+        threads: false
+    - flow
+    - dns
+    - tls

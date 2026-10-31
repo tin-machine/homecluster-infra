@@ -314,3 +314,25 @@ variable "security_lab_worker_node" {
   description = "Existing staging ARM64 worker selected for security analysis; never a control-plane node"
   default     = ""
 }
+
+variable "security_lab_pipeline_enabled" {
+  type        = bool
+  description = "Enable the single persistent offline-analysis coordinator after boundary and NAS acceptance"
+  default     = false
+}
+
+variable "security_lab_pipeline_uid" {
+  type        = number
+  description = "Validated non-root numeric UID/GID used consistently for private NFS artifacts"
+  default     = 10001
+  validation {
+    condition     = var.security_lab_pipeline_uid >= 1000 && var.security_lab_pipeline_uid <= 65534 && floor(var.security_lab_pipeline_uid) == var.security_lab_pipeline_uid
+    error_message = "Use an integer non-root UID/GID between 1000 and 65534."
+  }
+}
+
+variable "security_lab_home_nets" {
+  type        = list(string)
+  description = "Explicit site HOME_NET CIDRs for offline analysis; no site subnet default"
+  default     = []
+}

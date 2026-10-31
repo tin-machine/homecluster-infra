@@ -103,6 +103,10 @@ jobs:
           terraform -chdir=terraform/env/staging test -filter=tests/cli_workspace.tftest.hcl -no-color
           terraform -chdir=terraform/env/staging test -filter=tests/openwrt_security_logs.tftest.hcl -no-color
           terraform -chdir=terraform/env/staging test -filter=tests/security_lab_offline.tftest.hcl -no-color
+          terraform -chdir=terraform/env/staging test -filter=tests/security_lab_pipeline.tftest.hcl -no-color
+
+      - name: Validate isolated offline security engines
+        run: python3 -B scripts/ci/check-security-lab-engines.py
 
       - name: Validate security lab with Terraform 1.14
         shell: bash
@@ -119,6 +123,7 @@ jobs:
           unzip -q "${compat_dir}/terraform.zip" -d "${compat_dir}"
           "${compat_dir}/terraform" -chdir=terraform/env/staging init -backend=false -input=false -lockfile=readonly
           "${compat_dir}/terraform" -chdir=terraform/env/staging test -filter=tests/security_lab_offline.tftest.hcl -no-color
+          "${compat_dir}/terraform" -chdir=terraform/env/staging test -filter=tests/security_lab_pipeline.tftest.hcl -no-color
 
       - name: Validate staging Loki rendered storage and binary config
         run: bash scripts/ci/check-staging-loki-compat.sh
