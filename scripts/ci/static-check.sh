@@ -363,6 +363,7 @@ if command -v python3 >/dev/null 2>&1; then
     python3 -B scripts/ansible/test_builder_capacity_preflight.py
     python3 -B scripts/ci/test_pxe_host_dtb_contract.py
     python3 -B scripts/ci/test_host_tailscale_client_vars_contract.py
+    python3 -B scripts/ci/test_nfs_v3_policy.py
     python3 -B scripts/ci/test_kernel_distcc_contract.py
     python3 -B scripts/ci/test_pxe_full_fleet_contract.py
   else
