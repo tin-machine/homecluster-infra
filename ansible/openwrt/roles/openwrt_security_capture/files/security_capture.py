@@ -7,10 +7,13 @@ import datetime as dt
 import fcntl
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
 import signal
+import shlex
+import sys
 import stat
 import struct
 import subprocess
@@ -20,6 +23,7 @@ import uuid
 CONFIG = Path('/etc/homecluster-security-capture.json')
 STATE = Path('/var/run/homecluster-security-capture')
 SPOOL = Path('/srv/security-capture')
+ACKROOT = Path('/srv/security-capture-acknowledged')
 LIMIT = 24 + 1000 * (16 + 65535)
 ID = re.compile(r'[0-9]{8}T[0-9]{6}Z-[0-9a-f]{16}\Z')
 NAME = re.compile(r'[a-z0-9][a-z0-9_.-]{0,63}\Z')
@@ -54,6 +58,10 @@ def read_private(path):
 
 def directory(path):
     path.mkdir(mode=0o700, exist_ok=True)
+    private_directory(path)
+
+
+def private_directory(path):
     info = path.lstat()
     if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o077:
         raise CaptureError('private_directory_contract')
@@ -307,13 +315,155 @@ def status():
     return result
 
 
+def artifact(capture_id):
+    if not os.path.ismount('/srv'):
+        raise CaptureError('srv_not_mounted')
+    if not isinstance(capture_id, str) or not ID.fullmatch(capture_id):
+        raise CaptureError('capture_id')
+    private_directory(SPOOL)
+    run = SPOOL/capture_id
+    private_directory(run)
+    manifest = read_private(run/'manifest.json')
+    packet_file = run/'capture.pcap'
+    info = packet_file.lstat()
+    if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o077 or info.st_nlink != 1:
+        raise CaptureError('private_file_contract')
+    if type(manifest.get('schema')) is not int or manifest['schema'] != 1 or manifest.get('capture_id') != capture_id or (run/'capture.pcap.part').exists():
+        raise CaptureError('artifact_incomplete')
+    summary = pcap(packet_file)
+    if any(manifest.get(k) != v for k, v in summary.items()):
+        raise CaptureError('artifact_hash_or_summary_mismatch')
+    return run, manifest
+
+
+def export_request(original):
+    if not isinstance(original, str) or len(original) > 160:
+        raise CaptureError('ssh_command_not_allowed')
+    try:
+        fields = shlex.split(original)
+    except ValueError:
+        raise CaptureError('ssh_command_not_allowed')
+    if len(fields) != 2 or fields[0] not in ['manifest', 'pcap'] or not ID.fullmatch(fields[1]):
+        raise CaptureError('ssh_command_not_allowed')
+    return fields
+
+
+def read_lock():
+    private_directory(STATE)
+    path = STATE/'capture.lock'
+    info = path.lstat()
+    if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o077:
+        raise CaptureError('private_file_contract')
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BaseException:
+        os.close(fd); raise
+    return os.fdopen(fd, 'r')
+
+
+def ssh_export():
+    kind, capture_id = export_request(os.environ.get('SSH_ORIGINAL_COMMAND', ''))
+    with read_lock():
+        run, _ = artifact(capture_id)
+        path = run/('manifest.json' if kind == 'manifest' else 'capture.pcap')
+        def expired(signum, frame):
+            raise CaptureError('export_timeout')
+        previous = signal.signal(signal.SIGALRM, expired)
+        signal.alarm(120)
+        try:
+            # Bound slow/disconnected readers; no filename or arbitrary command
+            # from SSH reaches a shell or open().
+            with path.open('rb') as source:
+                for chunk in iter(lambda: source.read(65536), b''):
+                    sys.stdout.buffer.write(chunk)
+                sys.stdout.buffer.flush()
+        finally:
+            signal.alarm(0); signal.signal(signal.SIGALRM, previous)
+
+
+def validate_reader_server():
+    r = subprocess.run(['ubus', 'call', 'service', 'list', '{"name":"dropbear"}'],
+                       capture_output=True, text=True, timeout=5, check=True)
+    commands = [x.get('command') for x in json.loads(r.stdout)['dropbear']['instances'].values()]
+    if not commands or any(not isinstance(x, list) or not x or x[0] != '/usr/sbin/dropbear' or not all(isinstance(a, str) for a in x) for x in commands):
+        raise CaptureError('dropbear_instance_unknown')
+    # A server-wide -c overrides per-key commands; older -t versions can bypass
+    # the per-key command. Never add a reader key under either setting.
+    if any(any(c in arg[1:] for c in ['c', 't']) for argv in commands for arg in argv if arg.startswith('-')):
+        raise CaptureError('dropbear_reader_contract_incompatible')
+    return {'status': 'pass', 'server_forced_command': False, 'password_plus_key': False}
+
+
+def acknowledged_receipts():
+    directory(ACKROOT)
+    entries = list(ACKROOT.iterdir())
+    for path in entries:
+        if path.suffix != '.json' or not ID.fullmatch(path.stem):
+            raise CaptureError('unexpected_acknowledgement_entry')
+        receipt = read_private(path)
+        if type(receipt.get('schema')) is not int or receipt['schema'] != 1 or receipt.get('capture_id') != path.stem or receipt.get('status') != 'acknowledged' or type(receipt.get('epoch')) not in [int, float] or not math.isfinite(receipt['epoch']) or receipt['epoch'] > time.time()+300:
+            raise CaptureError('acknowledgement_schema')
+        if time.time()-receipt['epoch'] > 72*3600:
+            path.unlink()
+    return len(list(ACKROOT.iterdir()))
+
+
+def acknowledge(capture_id, expected_sha256):
+    if not isinstance(capture_id, str) or not ID.fullmatch(capture_id) or not isinstance(expected_sha256, str) or not re.fullmatch(r'[0-9a-f]{64}', expected_sha256):
+        raise CaptureError('acknowledgement_input')
+    with lock():
+        if not os.path.ismount('/srv'):
+            raise CaptureError('srv_not_mounted')
+        count = acknowledged_receipts()
+        receipt_path = ACKROOT/(capture_id+'.json')
+        run = SPOOL/capture_id
+        if receipt_path.exists():
+            receipt = read_private(receipt_path)
+            if receipt.get('pcap_sha256') != expected_sha256:
+                raise CaptureError('acknowledgement_hash_mismatch')
+            if not run.exists():
+                return dict(receipt, already_acknowledged=True)
+        else:
+            if count >= 64:
+                raise CaptureError('acknowledgement_count_limit')
+            _, manifest = artifact(capture_id)
+            if manifest['pcap_sha256'] != expected_sha256:
+                raise CaptureError('acknowledgement_hash_mismatch')
+            receipt = {'schema': 1, 'status': 'acknowledged', 'capture_id': capture_id,
+                       'pcap_sha256': expected_sha256, 'epoch': time.time()}
+        private_directory(SPOOL); private_directory(run)
+        allowed = {'started.json', 'filter.bpf', 'capture.pcap', 'manifest.json'}
+        entries = list(run.iterdir())
+        if any(x.name not in allowed or x.is_symlink() or not stat.S_ISREG(x.lstat().st_mode) or
+               x.stat().st_uid != os.geteuid() for x in entries):
+            raise CaptureError('unexpected_capture_entry')
+        # Receipt first: an interrupted cleanup can resume, without declaring
+        # an incomplete/tampered capture transferable or deleting another run.
+        if not receipt_path.exists():
+            publish(receipt_path, receipt)
+        for path in entries:
+            path.unlink()
+        run.rmdir()
+        return receipt
+
+
 def main():
     os.umask(0o077)
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['request', 'serve', 'status', 'validate'])
+    parser.add_argument('action', choices=['request', 'serve', 'status', 'validate', 'ssh-export', 'validate-reader', 'ack'])
     parser.add_argument('profile', nargs='?')
+    parser.add_argument('sha256', nargs='?')
     args = parser.parse_args()
-    if args.action == 'validate' and args.profile:
+    if args.sha256 and args.action != 'ack':
+        parser.error('digest is only valid for ack')
+    if args.action == 'ssh-export' and not args.profile:
+        ssh_export()
+    elif args.action == 'validate-reader' and not args.profile:
+        print(json.dumps(validate_reader_server()))
+    elif args.action == 'ack' and args.profile and args.sha256:
+        print(json.dumps(acknowledge(args.profile, args.sha256)))
+    elif args.action == 'validate' and args.profile:
         config(Path(args.profile)); print(json.dumps({'status': 'valid'}))
     elif args.action == 'request' and args.profile:
         request(args.profile)
@@ -322,7 +472,7 @@ def main():
     elif args.action == 'status' and not args.profile:
         print(json.dumps(status()))
     else:
-        parser.error('request requires one fixed profile; other actions accept no profile')
+        parser.error('request/validate require one argument; ack requires ID and digest; other actions accept none')
 
 
 if __name__ == '__main__':
