@@ -10,7 +10,7 @@ locals {
   }
   security_lab_asset_sha256 = sha256(jsonencode({
     files = local.security_lab_assets, images = local.security_lab_images,
-    node  = var.security_lab_worker_node, uid = var.security_lab_pipeline_uid
+    node  = var.security_lab_worker_node, uid = var.security_lab_pipeline_uid, nfs_version = var.security_lab_nfs_version
   }))
   security_lab_config_name = "security-lab-runtime-${substr(local.security_lab_asset_sha256, 0, 16)}"
 }
@@ -32,7 +32,7 @@ resource "kubernetes_config_map_v1" "security_lab_runtime" {
       schema      = 1, node = var.security_lab_worker_node, uid = var.security_lab_pipeline_uid,
       cluster_uid = data.kubernetes_namespace_v1.security_lab_cluster_identity[0].metadata[0].uid,
       config_map  = local.security_lab_config_name, asset_sha256 = local.security_lab_asset_sha256,
-      images      = local.security_lab_images
+      images      = local.security_lab_images, nfs_version = var.security_lab_nfs_version
     })
   })
   lifecycle {

@@ -342,3 +342,13 @@ variable "security_lab_logs_enabled" {
   description = "Opt in to security-lab-only persistent file offsets, queue and native OTLP metadata"
   default     = false
 }
+
+variable "security_lab_nfs_version" {
+  type        = number
+  default     = 3
+  description = "Required actual NFS major version for all offline analysis volumes"
+  validation {
+    condition     = contains([3, 4], var.security_lab_nfs_version)
+    error_message = "Choose an explicit NFS major version 3 or 4."
+  }
+}

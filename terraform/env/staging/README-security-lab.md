@@ -94,3 +94,33 @@ file_storageのoffset/queueはk3s persistent data配下の専用hostPathへ保�
 queue飽和と再送を検証する。2048件のfixtureでenqueue失敗counterを実測し、未着を同じevent IDで
 再送して回復した。試験Docker volumeがext4/xfs以外なら、本番guardの拒否を確認してから、
 initializerの権限試験に限りmountinfoを模擬する。実機のpersistent mount受入は別に行う。
+
+## Router transfer and delivery receipts
+
+Use `scripts/security_lab_transfer.py --help` on the operator host. It requires
+explicit SSH targets, the expected staging cluster and namespace UIDs, and the
+selected worker. The helper rechecks the coordinator Pod UID before each exec.
+Keep the forced-reader key outside the repository with mode 0600. The receipt
+parent must be mode 0700; the local receipt contains metadata only. PCAP bytes
+pass through bounded memory and are written only to the private NAS input PVC.
+
+`transfer --capture-id <id> --reader-key <path> --receipt <path>` verifies the
+router manifest/hash/size, then waits for a durable NAS receipt. Add
+`--ack-router` to remove the router artifact after that receipt, or use
+`ack-router --receipt <path>` separately. An interrupted or mismatched transfer
+fails closed; inspect retained evidence rather than overwriting partial input.
+Repeating a completed transfer verifies existing input without requeueing engines.
+
+`check-delivery --receipt <path> --loki-reader <user@host>
+--loki-cluster-uid <uid>` queries native Loki through an attested SSH connection
+and compares every stored outbox event ID before saving the delivery receipt.
+Query errors or missing records stay pending. `--replay-missing` requests a single
+bounded retry of missing saved records through the coordinator main log stream;
+engine execution is not repeated. A standalone `replay` also queues a durable
+request: exec stdout itself is not a CRI log stream. Delivery may contain duplicate
+records with the same event ID; it does not provide exactly-once transport.
+
+`security_lab_nfs_version` defaults to 3. The actual mount version and remote
+file locking are required before analysis; changing a PV or StorageClass option
+alone does not validate an existing mount. Use the version required by the chosen
+NAS and never disable locking to bypass a failed probe.

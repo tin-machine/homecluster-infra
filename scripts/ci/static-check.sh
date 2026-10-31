@@ -371,6 +371,7 @@ if command -v python3 >/dev/null 2>&1; then
   python3 -B scripts/ci/test_rpi5_kernel_build_cleanup.py
   python3 scripts/ci/check-openwrt-srv-ext4-preflight.py
   python3 -B terraform/env/staging/security_lab/test_runtime.py
+  python3 -B scripts/ci/test_security_lab_transfer.py
   python3 scripts/github-actions-runner-acceptance.py --self-test
   python3 scripts/ci/check-github-actions-arc-observability.py
   python3 scripts/ansible/convert_openwrt_package_task.py --self-test

@@ -22,6 +22,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+import uuid
 
 GIB = 1024 ** 3
 MAX_PCAP = 65_551_024
@@ -143,9 +144,16 @@ def nfs_mount(root, mountinfo=Path("/proc/self/mountinfo")):
         left, right = row.split(" - ", 1)
         mount = left.split()[4].replace(r"\040", " ").replace(r"\134", "\\")
         if str(root) == mount or str(root).startswith(mount.rstrip("/") + "/"):
-            matches.append((len(mount), right.split()[0]))
+            fields = right.split()
+            matches.append((len(mount), fields[0], fields[2].split(",")))
     require(matches and max(matches)[1] in ("nfs", "nfs4"), "nfs_mount_missing")
-    return max(matches)[1]
+    _, kind, options = max(matches)
+    wanted = settings().get("nfs_version", 3)
+    require(type(wanted) is int and wanted in (3, 4), "nfs_version_policy_invalid")
+    versions = [o.split("=", 1)[1] for o in options if o.startswith("vers=")]
+    require(len(versions) == 1 and versions[0].split(".")[0] == str(wanted), "nfs_version_mismatch")
+    require("nolock" not in options and "local_lock=all" not in options, "nfs_remote_locking_required")
+    return kind
 
 
 def mem_available(path=Path("/proc/meminfo")):
@@ -232,6 +240,59 @@ def intake(manifest, source):
         return dict(info, status="durable", capture_id=cid, sha256=manifest["pcap_sha256"], analysis_id=aid, duplicate=False)
     finally:
         os.close(lock)
+
+
+def verify_input(cid):
+    """Read-only durable receipt; bytes never leave this process."""
+    capture_id(cid)
+    nfs_mount(INPUT)
+    captures = private_dir(INPUT / "captures")
+    regular(captures / ".intake.lock")
+    lock = os.open(captures / ".intake.lock", os.O_RDONLY | os.O_NOFOLLOW)
+    try:
+        fcntl.flock(lock, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        target = private_dir(captures / cid)
+        manifest = read_json(target / "manifest.json")
+        require(manifest["capture_id"] == cid and manifest["schema"] == 1, "capture_identity_mismatch")
+        packet = target / "capture.pcap"
+        info = pcap(packet)
+        require(info["bytes"] == manifest["size_bytes"] and digest(packet) == manifest["pcap_sha256"],
+                "durable_hash_mismatch")
+        require(info["packets"] == manifest["packet_count"] and info["snaplen"] == manifest["snaplen"] and
+                info["linktype"] == manifest["linktype"] and info["truncated_packets"] == manifest["truncated_packet_count"],
+                "pcap_manifest_summary_mismatch")
+        request = read_json(target / "request.json")
+        require(HEX.fullmatch(request["analysis_id"]), "invalid_queued_analysis_id")
+        return dict(info, status="durable", capture_id=cid, sha256=manifest["pcap_sha256"],
+                    analysis_id=request["analysis_id"])
+    finally:
+        os.close(lock)
+
+
+def stored_outbox(aid):
+    require(isinstance(aid, str) and HEX.fullmatch(aid), "invalid_analysis_id")
+    run = private_dir(INPUT / "control" / aid)
+    result = read_json(run / "result.json")
+    require(result["analysis_id"] == aid and result["status"] in ("succeeded", "failed"), "result_not_durable")
+    rows = read_json(run / "outbox.json", max_bytes=1024 * 1024)
+    require(isinstance(rows, list) and 1 <= len(rows) <= 64, "outbox_size")
+    require(all(row["analysis_id"] == aid and row["capture_id"] == result["capture_id"] and
+                isinstance(row["event_id"], str) and HEX.fullmatch(row["event_id"]) for row in rows), "outbox_identity")
+    require(len({row["event_id"] for row in rows}) == len(rows), "outbox_duplicate_identity")
+    return rows
+
+
+def outbox_info(aid):
+    require(isinstance(aid, str) and HEX.fullmatch(aid), "invalid_analysis_id")
+    control = private_dir(INPUT / "control")
+    run = control / aid
+    if not run.exists() or not (private_dir(run) / "result.json").exists():
+        return {"status": "pending", "analysis_id": aid}
+    rows = stored_outbox(aid)
+    result = read_json(run / "result.json")
+    return {"status": "ready", "analysis_id": aid, "capture_id": result["capture_id"],
+            "pcap_sha256": result["pcap_sha256"], "result_status": result["status"],
+            "rows": rows, "delivered": (run / "delivered.json").exists()}
 
 
 def security_context():
@@ -425,13 +486,80 @@ def envelope(aid, cid, kind, data):
     return row
 
 
-def publish(run):
+def publish(run, event_ids=None):
     """Once per durable submission marker. Explicit replay preserves event IDs."""
     rows = read_json(run / "outbox.json", max_bytes=1024 * 1024)
+    if event_ids is not None:
+        wanted = set(event_ids)
+        rows = [row for row in rows if row["event_id"] in wanted]
+        require(len(rows) == len(wanted), "replay_event_not_found")
     for row in rows:
         print(json.dumps(row, separators=(",", ":")), flush=True)
-    if not (run / "submitted.json").exists():
+    if event_ids is None and not (run / "submitted.json").exists():
         atomic(run / "submitted.json", {"at": time.time(), "events": [r["event_id"] for r in rows]})
+
+
+def request_replay(aid, event_ids=None):
+    rows = stored_outbox(aid)
+    all_ids = [r["event_id"] for r in rows]
+    if event_ids is None:
+        ids = all_ids
+    else:
+        require(isinstance(event_ids, list) and 1 <= len(event_ids) <= len(all_ids) and
+                all(isinstance(x, str) and HEX.fullmatch(x) for x in event_ids) and
+                len(set(event_ids)) == len(event_ids) and set(event_ids) <= set(all_ids), "invalid_replay_events")
+        ids = [x for x in all_ids if x in set(event_ids)]
+    run = private_dir(INPUT / "control" / aid)
+    require(not (run / "delivered.json").exists(), "already_delivered")
+    request = run / "replay-request.json"
+    if request.exists():
+        saved = read_json(request)
+        require(saved["event_ids"] == ids, "replay_request_changed")
+    else:
+        saved = {"schema": 1, "token": uuid.uuid4().hex, "event_ids": ids,
+                 "requested_at": time.time()}
+        atomic(request, saved)
+    return {"status": "replay_queued", "analysis_id": aid, "token": saved["token"], "events": len(ids)}
+
+
+REPLAY_WARNED = set()
+
+
+def process_replays():
+    """Only the coordinator's main stdout is a CRI log stream.
+
+    kubectl exec stdout goes to the caller. The exec action writes a durable
+    request, while this main-process publisher emits the saved envelopes.
+    """
+    control = private_dir(INPUT / "control")
+    for run in sorted(control.iterdir()):
+        if not HEX.fullmatch(run.name) or not run.is_dir():
+            continue
+        request = run / "replay-request.json"
+        if not request.exists():
+            continue
+        try:
+            private_dir(run)
+            rows = stored_outbox(run.name)
+            saved = read_json(request)
+            require(re.fullmatch(r"[a-f0-9]{32}", saved["token"]) and
+                    isinstance(saved["event_ids"], list) and 1 <= len(saved["event_ids"]) <= len(rows) and
+                    all(isinstance(x, str) and HEX.fullmatch(x) for x in saved["event_ids"]) and
+                    len(set(saved["event_ids"])) == len(saved["event_ids"]) and
+                    set(saved["event_ids"]) <= {r["event_id"] for r in rows}, "replay_request_invalid")
+            result_path = run / "replay-result.json"
+            previous = read_json(result_path) if result_path.exists() else {}
+            if previous.get("token") != saved["token"]:
+                if not (run / "delivered.json").exists():
+                    publish(run, saved["event_ids"])
+                atomic(result_path, {"token": saved["token"], "at": time.time(),
+                                     "status": "submitted", "events": saved["event_ids"]})
+            request.unlink()
+        except (ValueError, OSError, KeyError, TypeError) as error:
+            if run.name not in REPLAY_WARNED:
+                print(json.dumps({"schema": 1, "security_source": "pcap-analysis", "event_type": "coordinator_blocked",
+                                  "reason": "replay_unavailable:" + type(error).__name__, "at": time.time()}), flush=True)
+                REPLAY_WARNED.add(run.name)
 
 
 def engine_summary(result):
@@ -526,6 +654,7 @@ def execute(api, config, owner, owner_path):
         owner["job_uid"] = current["metadata"]["uid"]
         atomic(owner_path, owner)
     while not terminal(current):
+        process_replays()
         try:
             require(mem_available() >= GIB, "host_memory_reserve_low")
             node_ready(api.call("GET", "/api/v1/nodes/" + config["node"]))
@@ -562,6 +691,7 @@ def coordinate():
     last_error = None
     while True:
         try:
+            process_replays()
             if owner_path.exists():
                 execute(api, config, read_json(owner_path), owner_path)
             captures = private_dir(INPUT / "captures", create=True)
@@ -657,7 +787,8 @@ def probe():
 def main():
     os.umask(0o077)
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=("engine", "coordinate", "intake", "probe", "replay", "delivery-ack"))
+    parser.add_argument("action", choices=("engine", "coordinate", "intake", "verify-input", "read-outbox", "outbox-status",
+                                          "probe", "replay", "replay-missing", "delivery-ack"))
     parser.add_argument("value", nargs="?")
     args = parser.parse_args()
     if args.action == "engine":
@@ -669,17 +800,34 @@ def main():
         print(json.dumps(intake(json.loads(args.value), sys.stdin.buffer)), flush=True)
     elif args.action == "probe":
         probe()
+    elif args.action == "verify-input":
+        print(json.dumps(verify_input(args.value)), flush=True)
+    elif args.action == "read-outbox":
+        print(json.dumps(stored_outbox(args.value)), flush=True)
+    elif args.action == "outbox-status":
+        print(json.dumps(outbox_info(args.value)), flush=True)
+    elif args.action == "replay-missing":
+        require(args.value and len(args.value) < 8192, "missing_replay_request")
+        value = json.loads(args.value)
+        require(set(value) == {"analysis_id", "event_ids"}, "invalid_replay_request")
+        print(json.dumps(request_replay(value["analysis_id"], value["event_ids"])), flush=True)
     else:
         require(args.value and HEX.fullmatch(args.value), "invalid_analysis_id")
         run = private_dir(INPUT / "control" / args.value)
         require((run / "result.json").exists(), "result_not_durable")
         if args.action == "replay":
-            require(not (run / "delivered.json").exists(), "already_delivered")
-            publish(run)
+            print(json.dumps(request_replay(args.value)), flush=True)
         else:
-            rows = read_json(run / "outbox.json", max_bytes=1024 * 1024)
-            require(not (run / "delivered.json").exists(), "already_acknowledged")
-            atomic(run / "delivered.json", {"at": time.time(), "events": [r["event_id"] for r in rows]})
+            rows = stored_outbox(args.value)
+            target = run / "delivered.json"
+            ids = [r["event_id"] for r in rows]
+            duplicate = target.exists()
+            if duplicate:
+                require(read_json(target)["events"] == ids, "delivery_receipt_changed")
+            else:
+                atomic(target, {"at": time.time(), "events": ids})
+            print(json.dumps({"status": "delivered", "analysis_id": args.value,
+                              "events": len(ids), "already_acknowledged": duplicate}), flush=True)
     return 0
 
 
