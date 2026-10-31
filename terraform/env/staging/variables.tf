@@ -336,3 +336,9 @@ variable "security_lab_home_nets" {
   description = "Explicit site HOME_NET CIDRs for offline analysis; no site subnet default"
   default     = []
 }
+
+variable "security_lab_logs_enabled" {
+  type        = bool
+  description = "Opt in to security-lab-only persistent file offsets, queue and native OTLP metadata"
+  default     = false
+}

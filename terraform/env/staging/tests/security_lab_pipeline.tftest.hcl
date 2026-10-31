@@ -39,10 +39,12 @@ run "pipeline_default_off" {
 run "pipeline_restricted_and_pinned" {
   command = plan
   variables {
-    security_lab_offline_enabled  = true
-    security_lab_worker_node      = "fixture-worker"
-    security_lab_pipeline_enabled = true
-    security_lab_home_nets        = ["192.0.2.0/24"]
+    security_lab_offline_enabled   = true
+    security_lab_worker_node       = "fixture-worker"
+    security_lab_pipeline_enabled  = true
+    security_lab_logs_enabled      = true
+    o4_prod_container_logs_enabled = true
+    security_lab_home_nets         = ["192.0.2.0/24"]
   }
   plan_options {
     refresh = false
@@ -72,9 +74,11 @@ run "pipeline_restricted_and_pinned" {
 run "reject_pipeline_without_home_net" {
   command = plan
   variables {
-    security_lab_offline_enabled  = true
-    security_lab_worker_node      = "fixture-worker"
-    security_lab_pipeline_enabled = true
+    security_lab_offline_enabled   = true
+    security_lab_worker_node       = "fixture-worker"
+    security_lab_pipeline_enabled  = true
+    security_lab_logs_enabled      = true
+    o4_prod_container_logs_enabled = true
   }
   plan_options {
     refresh = false
@@ -85,10 +89,12 @@ run "reject_pipeline_without_home_net" {
 run "reject_invalid_home_net" {
   command = plan
   variables {
-    security_lab_offline_enabled  = true
-    security_lab_worker_node      = "fixture-worker"
-    security_lab_pipeline_enabled = true
-    security_lab_home_nets        = ["not-a-cidr"]
+    security_lab_offline_enabled   = true
+    security_lab_worker_node       = "fixture-worker"
+    security_lab_pipeline_enabled  = true
+    security_lab_logs_enabled      = true
+    o4_prod_container_logs_enabled = true
+    security_lab_home_nets         = ["not-a-cidr"]
   }
   plan_options {
     refresh = false
@@ -102,4 +108,19 @@ run "reject_root_uid" {
     security_lab_pipeline_uid = 0
   }
   expect_failures = [var.security_lab_pipeline_uid]
+}
+
+run "coordinator_requires_log_delivery" {
+  command = plan
+  variables {
+    security_lab_offline_enabled  = true
+    security_lab_worker_node      = "fixture-worker"
+    security_lab_pipeline_enabled = true
+    security_lab_home_nets        = ["192.0.2.0/24"]
+  }
+  plan_options {
+    refresh = false
+    target  = [kubernetes_deployment_v1.security_lab_coordinator]
+  }
+  expect_failures = [kubernetes_deployment_v1.security_lab_coordinator]
 }

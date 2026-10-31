@@ -19,6 +19,7 @@ module "observability_stack" {
   values_site_dir                = var.site_values_dir
   o4_prod_container_logs_enabled = var.o4_prod_container_logs_enabled
   openwrt_security_logs_enabled  = var.openwrt_security_logs_enabled
+  security_lab_logs_enabled      = var.security_lab_logs_enabled
   grafana_dashboard_files        = local.grafana_dashboard_files
   repo_root                      = local.repo_root
 

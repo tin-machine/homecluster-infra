@@ -26,7 +26,7 @@ with tempfile.TemporaryDirectory(prefix="security-engine-fixture-") as directory
         image = re.search(r"\b" + engine + r'\s*=\s*"([^"]+@sha256:[a-f0-9]{64})"', config).group(1)
         for sample, payload in fixtures.samples().items():
             code = """
-import os,sys,pathlib,base64,json
+import os,sys,pathlib,base64,json,hashlib
 os.umask(0o077)
 sys.path.insert(0,"/config")
 import runtime
@@ -35,7 +35,13 @@ pathlib.Path("/input/capture.pcap").write_bytes(base64.b64decode(encoded))
 rc=runtime.engine_run(engine)
 assert rc==0, "engine wrapper failed"
 result=json.loads(pathlib.Path("/result/engine.json").read_text())
+assert result["actual_version"]=={"suricata":"8.0.8","zeek":"9.0.1"}[engine]
+assert result["output_files"]
+for item in result["output_files"]:
+ assert hashlib.sha256((pathlib.Path("/result")/item["path"]).read_bytes()).hexdigest()==item["sha256"]
 if engine=="suricata":
+ assert result["enabled_sids"]==[1000001,1000002]
+ assert result["rules_sha256"]==hashlib.sha256(pathlib.Path("/config/local.rules").read_bytes()).hexdigest()
  rows=[json.loads(x) for x in pathlib.Path("/result/eve.json").read_text().splitlines()]
  sids=[x["alert"]["signature_id"] for x in rows if x.get("event_type")=="alert"]
  assert ({1000001,1000002}<=set(sids)) if sample=="positive" else not sids, sids

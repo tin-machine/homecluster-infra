@@ -99,7 +99,7 @@ def pcap(path):
         require(header[:4] in formats, "unsupported_pcap")
         endian, resolution = formats[header[:4]]
         major, minor, _, _, snap, link = struct.unpack(endian + "HHIIII", header[4:])
-        require((major, minor) == (2, 4) and 1 <= snap <= 65535 and link in (1, 101, 113, 276),
+        require((major, minor) == (2, 4) and snap == 65535 and link in (1, 101, 113, 276),
                 "unsupported_pcap_header")
         count = truncated = 0
         while True:
@@ -115,7 +115,7 @@ def pcap(path):
             truncated += included < original
             require(count <= 1000, "packet_budget_exceeded")
         require(count > 0, "empty_pcap")
-    return {"bytes": size, "packets": count, "truncated_packets": truncated, "linktype": link}
+    return {"bytes": size, "packets": count, "truncated_packets": truncated, "linktype": link, "snaplen": snap}
 
 
 def tree_bytes(root):
@@ -218,7 +218,7 @@ def intake(manifest, source):
         require(h.hexdigest() == manifest["pcap_sha256"], "input_hash_mismatch")
         info = pcap(part)
         expected = {"packet_count": info["packets"], "truncated_packet_count": info["truncated_packets"],
-                    "linktype": info["linktype"]}
+                    "linktype": info["linktype"], "snaplen": info["snaplen"]}
         require(all(type(manifest.get(k)) is int and manifest[k] == v for k, v in expected.items()),
                 "pcap_manifest_summary_mismatch")
         os.replace(part, target / "capture.pcap")
@@ -261,7 +261,7 @@ def job(config, cid, aid):
                              {"name": engine, "mountPath": "/result", "subPath": aid},
                              {"name": "tmp", "mountPath": "/tmp"}]})
     final = dict(containers[-1], name="terminal", image=config["images"]["helper"],
-                 command=["python3", "-c", "print('offline engines completed',flush=True)"],
+                 command=["python3", "-c", "pass"],
                  resources={"requests": {"cpu": "50m", "memory": "128Mi", "ephemeral-storage": "128Mi"},
                             "limits": {"cpu": "100m", "memory": "128Mi", "ephemeral-storage": "128Mi"}},
                  volumeMounts=[{"name": "tmp", "mountPath": "/tmp"}])
@@ -290,6 +290,7 @@ def engine_run(engine):
     os.umask(0o077)
     out = Path("/result")
     private_dir(out)
+    require(not any(out.iterdir()), "existing_engine_output_requires_reconciliation")
     pcap(INPUT / "capture.pcap")
     require(mem_available() >= GIB, "host_memory_reserve_low")
     config = CONFIG / "suricata.yaml"
@@ -297,11 +298,13 @@ def engine_run(engine):
         rules = [line for line in (CONFIG / "local.rules").read_text().splitlines()
                  if line.strip() and not line.lstrip().startswith("#")]
         require(rules, "empty_rules")
-        commands = [["/usr/bin/suricata", "-T", "-c", str(config), "-S", "/config/local.rules", "-l", str(out)],
+        commands = [["/usr/bin/suricata", "-V"],
+                    ["/usr/bin/suricata", "-T", "-c", str(config), "-S", "/config/local.rules", "-l", str(out)],
                     ["/usr/bin/suricata", "--runmode", "single", "-c", str(config), "-S", "/config/local.rules",
                      "-r", "/input/capture.pcap", "-l", str(out)]]
     else:
-        commands = [["/usr/local/zeek/bin/zeek", "-r", "/input/capture.pcap", "LogAscii::use_json=T"]]
+        commands = [["/usr/local/zeek/bin/zeek", "--version"],
+                    ["/usr/local/zeek/bin/zeek", "-r", "/input/capture.pcap", "LogAscii::use_json=T"]]
     started = time.time()
     result = {"schema": 1, "engine": engine, "status": "running", "started_at": started,
               "checksum_override": False, "exit_code": None}
@@ -327,6 +330,10 @@ def engine_run(engine):
                     space(out)
                     time.sleep(1)
                 require(child.returncode == 0, "engine_exit_" + str(child.returncode))
+        version_match = re.search(r"version[^0-9]*([0-9]+\.[0-9]+\.[0-9]+)", (out / "engine-0.log").read_text(), re.I)
+        require(version_match and version_match[1] == {"suricata": "8.0.8", "zeek": "9.0.1"}[engine],
+                "engine_version_mismatch")
+        result["actual_version"] = version_match[1]
         if engine == "suricata":
             count = alerts = decoded = 0
             with (out / "eve.json").open() as rows:
@@ -347,7 +354,19 @@ def engine_run(engine):
             for row in rows:
                 json.loads(row)
             result.update(connections=len(rows))
-        result.update(status="succeeded", exit_code=0)
+        tree_bytes(out)
+        files = sorted(p for p in out.rglob("*") if p.is_file())
+        require(len(files) <= 128, "output_file_count_exceeded")
+        outputs = []
+        for path in files:
+            info = regular(path)
+            with path.open("rb") as stream:
+                os.fsync(stream.fileno())
+            outputs.append({"path": str(path.relative_to(out)), "bytes": info.st_size, "sha256": digest(path)})
+        result.update(status="succeeded", exit_code=0, output_files=outputs,
+                      config_sha256=digest(CONFIG / "suricata.yaml") if engine == "suricata" else None,
+                      rules_sha256=digest(CONFIG / "local.rules") if engine == "suricata" else None,
+                      enabled_sids=sorted(int(x) for x in re.findall(r"sid:([0-9]+);", (CONFIG / "local.rules").read_text())) if engine == "suricata" else [])
     except Exception as error:
         result.update(status="failed", reason=str(error)[:160],
                       exit_code=child.returncode if child and child.poll() is not None else None)
@@ -415,6 +434,19 @@ def publish(run):
         atomic(run / "submitted.json", {"at": time.time(), "events": [r["event_id"] for r in rows]})
 
 
+def engine_summary(result):
+    keys = ("status", "reason", "exit_code", "actual_version", "events", "alerts", "decoded_packets",
+            "connections", "peak_child_rss_bytes", "config_sha256", "rules_sha256", "enabled_sids")
+    value = {k: result[k] for k in keys if k in result}
+    outputs = result.get("output_files", [])
+    value["output_file_count"] = len(outputs)
+    value["output_bytes"] = sum(row["bytes"] for row in outputs)
+    terminated = result.get("kubernetes_state", {}).get("terminated", {}) if result.get("kubernetes_state") else {}
+    if terminated:
+        value["kubernetes_termination"] = {k: terminated[k] for k in ("reason", "exitCode", "signal") if k in terminated}
+    return value
+
+
 def collect_result(api, config, owner, current):
     aid, cid = owner["analysis_id"], owner["capture_id"]
     run = private_dir(INPUT / "control" / aid)
@@ -450,7 +482,8 @@ def collect_result(api, config, owner, current):
                     "src_port": value.get("src_port"), "dest_port": value.get("dest_port")}))
                 if len(rows) >= 32:
                     break
-    rows.append(envelope(aid, cid, "analysis_summary", {"status": result["status"], "engines": results,
+    rows.append(envelope(aid, cid, "analysis_summary", {"status": result["status"],
+                                                     "engines": {e: engine_summary(r) for e, r in results.items()},
                                                      "images": config["images"], "config_sha256": config["asset_sha256"],
                                                      "candidate_records_published": len(rows)}))
     if not (run / "result.json").exists():
@@ -559,6 +592,10 @@ def coordinate():
                 require(digest(directory / "capture.pcap") == manifest["pcap_sha256"], "input_hash_changed")
                 for root in (INPUT, *OUTPUTS.values()):
                     space(root)
+                for root in OUTPUTS.values():
+                    target = root / aid
+                    require(not target.exists() or not any(private_dir(target).iterdir()),
+                            "existing_engine_output_requires_reconciliation")
                 for root in OUTPUTS.values():
                     private_dir(root / aid, create=True)
                 private_dir(run, create=True)
