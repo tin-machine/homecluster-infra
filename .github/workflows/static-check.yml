@@ -52,6 +52,9 @@ jobs:
           python3 -m venv "${RUNNER_TEMP}/pxe-contract-venv"
           "${RUNNER_TEMP}/pxe-contract-venv/bin/python" -m pip install 'ansible-core==2.20.1'
           "${RUNNER_TEMP}/pxe-contract-venv/bin/python" -B scripts/ansible/test_builder_capacity_preflight.py
+          PATH="${RUNNER_TEMP}/pxe-contract-venv/bin:${PATH}" \
+            "${RUNNER_TEMP}/pxe-contract-venv/bin/python" -B \
+            ansible/openwrt/roles/openwrt_banip/tests/test_refresh.py
           "${RUNNER_TEMP}/pxe-contract-venv/bin/python" -B scripts/ci/test_pxe_host_dtb_contract.py
           "${RUNNER_TEMP}/pxe-contract-venv/bin/python" -B scripts/ci/test_host_tailscale_client_vars_contract.py
           "${RUNNER_TEMP}/pxe-contract-venv/bin/python" -B scripts/ci/test_kernel_distcc_contract.py

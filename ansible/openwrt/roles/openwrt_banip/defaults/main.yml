@@ -10,3 +10,8 @@ openwrt_banip_loginbound: false
 openwrt_banip_logoutbound: false
 openwrt_banip_logprerouting: false
 openwrt_banip_nftcount: false
+
+# reload refreshes remote feeds; start/restart may restore cached backups.
+openwrt_banip_refresh_enabled: false
+openwrt_banip_refresh_hour: 4
+openwrt_banip_refresh_minute: 17
