@@ -93,7 +93,7 @@ def save_receipt(path, value):
 
 class Runner:
     """Bound stdout/stderr while sending binary stdin, including blocked peers."""
-    def run(self, args, data=None, limit=1024 * 1024, timeout=150):
+    def run(self, args, data=None, limit=1024 * 1024, timeout=150, return_failed_json=False):
         require(0 < limit <= MAX_PCAP + 65536 and 0 < timeout <= 300, "transport_budget")
         process = subprocess.Popen(args, stdin=subprocess.PIPE if data is not None else subprocess.DEVNULL,
                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0)
@@ -134,7 +134,15 @@ class Runner:
                 code = process.wait(timeout=max(.01, deadline - time.monotonic()))
             except subprocess.TimeoutExpired as error:
                 raise TransferError("transport_timeout") from error
-            require(code == 0, "ssh_command_failed:rc=" + str(code))
+            controlled_failure = False
+            if return_failed_json is True and code == 1:
+                try:
+                    value = json.loads(output)
+                    controlled_failure = (isinstance(value, dict) and set(value) == {"status", "reason"} and
+                                          value["status"] == "failed" and isinstance(value["reason"], str))
+                except (ValueError, TypeError):
+                    pass
+            require(code == 0 or controlled_failure, "ssh_command_failed:rc=" + str(code))
             return bytes(output)
         finally:
             selector.close()
@@ -166,10 +174,11 @@ class Client:
         self.runner = runner or Runner()
         self.deadline = time.monotonic() + 300
 
-    def transport(self, args, data=None, limit=1024 * 1024):
+    def transport(self, args, data=None, limit=1024 * 1024, return_failed_json=False):
         remaining = self.deadline - time.monotonic()
         require(remaining > 0, "action_deadline")
-        return self.runner.run(args, data=data, limit=limit, timeout=min(150, remaining))
+        options = {"return_failed_json": True} if return_failed_json is True else {}
+        return self.runner.run(args, data=data, limit=limit, timeout=min(150, remaining), **options)
 
     def ssh(self, args, data=None, limit=1024 * 1024):
         return self.transport(SSH + [self.server, shlex.join(args)], data=data, limit=limit)
