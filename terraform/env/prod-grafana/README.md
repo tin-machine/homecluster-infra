@@ -1,5 +1,40 @@
 # Production Grafana configuration adoption
 
+## QNAP NASのメトリクスとログ
+
+通常は無効。nas_addressにNASのIPv4、nas_usernameに読み取り専用SNMPv3ユーザー名を指定すると、
+SNMP exporterとNAS専用Grafana画面を追加する。既存のdatasource、dashboard UID、PVCは維持する。
+このprofileはTS-469 / QTS 4.3.4向け。SNMPv3のnoAuthNoPrivを使い、
+exporterの送信先を指定NASの/32・UDP/161へ、HTTP入口をprod Prometheus Podだけへ制限する。
+認証・暗号化を有効にする場合は、別途Secret参照を含む設定変更が必要。
+
+MIBの説明と返値の単位が一致しないため、空きメモリとボリューム容量・空き容量をKiBからbyteへ変換する。
+総メモリと物理ディスク容量はbyteのまま。現在量へrate()を使わない。
+HDD状態はMIBの列挙に従い0=Readyとする。欠測を0や正常状態で補完しない。
+別機種・firmwareへ転用する前に実際の返値と単位を確認する。
+
+nas_syslog_enabled=trueでは、明示したsite.prod_metrics_target.nameのnodeにAlloyを配置する。
+NASのSyslog Clientから、そのnodeのUDP/31514へRFC3164形式でsystem eventを送る。
+最初はsystem eventのみを対象にし、connection logは発生量を確認してから選ぶ。
+NodePortはexternalTrafficPolicy=Localで送信元を保持し、指定NASだけを許可する。
+collectorのmetrics用ServiceはClusterIP。Loki本体は公開せず、内部TCP/3100へ転送する。
+ログの固定labelはenvironment=production、source=qnap-syslog、service_name=qnap-nas。
+重大度はlevelへ正規化し、時刻は受信時刻を使う。
+
+UDP配送とPod再作成中の無損失は保証しない。queue・message長・stream数・retryを制限し、永続WALは使わない。
+不正形式のUDP datagramは破棄され得る。upstreamのparsing-error counterが0でも無損失と判断しない。
+NASの実際のsyslog形式と配送成功は、receiver配置後の実機受入で確認する。
+
+source検証はNAS fixture、公式snmp_exporterの設定読込、公式Alloyを使ったlocalhost UDPから
+合成Loki push先へのWarning/Info配送と不正入力拒否、ARM64 image manifestで行う。
+prod反映はcluster UIDと保存planを照合した独立した承認後に行う。
+新規11リソースはstateless。既存4リソースの設定更新に伴いPrometheusとGrafanaが再起動する。
+反映後はNAS scrape、単位、Grafana検索、collector送信・破棄counter、Lokiの増加量、既存UIDとscrapeを確認する。
+切り戻しは以前の入力でplanをレビューし、追加したstatelessリソースだけを除去する。
+既存監視データの削除やterraform destroyは行わない。
+
+## 既存リソースの管理
+
 This root manages the five existing Grafana resources rendered by
 `scripts/prod_grafana_render.py`. With `prometheus_site_path`, it also adopts
 three existing Prometheus configuration resources (ConfigMap, Deployment,

@@ -140,6 +140,12 @@ jobs:
       - name: Validate prod Grafana renderer and provisioning fixtures
         run: python3 -m unittest discover -s scripts -p 'test_prod_grafana*.py' -v
 
+      - name: Validate opt-in NAS metrics and syslog contracts
+        run: python3 -m unittest discover -s scripts -p 'test_prod_nas*.py' -v
+
+      - name: Validate pinned NAS exporters and isolated UDP log delivery
+        run: python3 scripts/ci/check-prod-nas-images.py
+
       - name: Validate prod O3 alert rule source-only fixtures
         run: python3 -m unittest discover -s scripts -p 'test_prod_alert_rules_render.py' -v
 

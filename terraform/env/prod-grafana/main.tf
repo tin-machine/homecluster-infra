@@ -10,6 +10,9 @@ data "external" "grafana" {
     typevt_host_address  = var.typevt_host_address
     attention_enabled    = tostring(var.attention_enabled)
     prod_host_enabled    = tostring(var.prod_host_enabled)
+    nas_address          = var.nas_address
+    nas_username         = var.nas_username
+    nas_syslog_enabled   = tostring(var.nas_syslog_enabled)
   }
 }
 
@@ -18,6 +21,13 @@ data "kubernetes_namespace_v1" "cluster_identity" {
 }
 
 locals {
+  nas_names = toset([
+    "ConfigMap/prod-nas-snmp-config", "Deployment/prod-nas-snmp-exporter",
+    "Service/prod-nas-snmp-exporter", "NetworkPolicy/prod-nas-snmp-restricted",
+    "NetworkPolicy/prod-nas-prometheus-egress", "ConfigMap/prod-nas-syslog-config",
+    "Deployment/prod-nas-syslog", "Service/prod-nas-syslog", "Service/prod-nas-syslog-metrics",
+    "NetworkPolicy/prod-nas-syslog-restricted", "NetworkPolicy/prod-nas-loki-ingress"
+  ])
   rendered = jsondecode(data.external.grafana.result.manifest)
   resources = {
     for resource in local.rendered.items :
@@ -32,7 +42,7 @@ locals {
 }
 
 resource "kubernetes_manifest" "grafana" {
-  for_each = { for key, value in local.resources : key => value if value.kind != "Deployment" && value.kind != "DaemonSet" }
+  for_each = { for key, value in local.resources : key => value if value.kind != "Deployment" && value.kind != "DaemonSet" && !contains(local.nas_names, key) }
   manifest = each.value
 
   field_manager {
@@ -87,7 +97,7 @@ resource "kubernetes_manifest" "host_exporter" {
 }
 
 resource "kubernetes_manifest" "workload" {
-  for_each = { for key, value in local.resources : key => value if value.kind == "Deployment" }
+  for_each = { for key, value in local.resources : key => value if value.kind == "Deployment" && !contains(local.nas_names, key) }
   # Updating the spec also invalidates the computed annotation map so that the
   # controller-owned deployment revision can advance during rollout.
   manifest = merge(each.value, {
@@ -97,7 +107,7 @@ resource "kubernetes_manifest" "workload" {
       })
     })
   })
-  depends_on = [kubernetes_manifest.grafana, kubernetes_manifest.host_exporter]
+  depends_on = [kubernetes_manifest.grafana, kubernetes_manifest.host_exporter, kubernetes_manifest.nas_workload]
 
   wait { rollout = true }
   timeouts { update = "5m" }
@@ -120,6 +130,50 @@ resource "kubernetes_manifest" "workload" {
         "ConfigMap/prod-prometheus-config", "Deployment/prod-prometheus", "NetworkPolicy/prod-prometheus-restricted"
       ], each.key)
       error_message = "Only the existing production Grafana resources are allowed."
+    }
+  }
+}
+
+resource "kubernetes_manifest" "nas_support" {
+  for_each = { for key, value in local.resources : key => value if contains(local.nas_names, key) && value.kind != "Deployment" }
+  manifest = each.value
+  field_manager { name = "terraform-prod-grafana" }
+  lifecycle {
+    precondition {
+      condition     = data.kubernetes_namespace_v1.cluster_identity.metadata[0].uid == var.expected_kube_system_uid
+      error_message = "Production cluster identity does not match the expected kube-system UID."
+    }
+    precondition {
+      condition     = contains(local.nas_names, each.key) && each.value.metadata.namespace == "observability-prod"
+      error_message = "Only the opt-in NAS monitoring resources are allowed."
+    }
+  }
+}
+
+resource "kubernetes_manifest" "nas_workload" {
+  for_each = { for key, value in local.resources : key => value if contains(local.nas_names, key) && value.kind == "Deployment" }
+  manifest = merge(each.value, {
+    metadata = merge(each.value.metadata, {
+      annotations = merge(try(each.value.metadata.annotations, {}), {
+        "homecluster.io/workload-spec-checksum" = sha256(jsonencode(each.value.spec))
+      })
+    })
+  })
+  depends_on = [kubernetes_manifest.nas_support]
+  field_manager { name = "terraform-prod-grafana" }
+  wait { rollout = true }
+  timeouts {
+    create = "5m"
+    update = "5m"
+  }
+  lifecycle {
+    precondition {
+      condition     = data.kubernetes_namespace_v1.cluster_identity.metadata[0].uid == var.expected_kube_system_uid
+      error_message = "Production cluster identity does not match the expected kube-system UID."
+    }
+    precondition {
+      condition     = contains(["Deployment/prod-nas-snmp-exporter", "Deployment/prod-nas-syslog"], each.key) && each.value.metadata.namespace == "observability-prod"
+      error_message = "Only the opt-in NAS monitoring workloads are allowed."
     }
   }
 }
