@@ -1,0 +1,114 @@
+---
+- name: Security monitor の有効化入力を検証
+  ansible.builtin.assert:
+    that: openwrt_security_monitor_enabled is boolean
+
+- name: Security monitor init の存在を確認
+  ansible.builtin.stat:
+    path: /etc/init.d/homecluster-security-monitor
+  register: openwrt_security_monitor_init
+
+- name: Security monitor の現在の起動状態を確認
+  ansible.builtin.command: /etc/init.d/homecluster-security-monitor running
+  register: openwrt_security_monitor_running
+  changed_when: false
+  failed_when: openwrt_security_monitor_running.rc not in [0, 1]
+  when:
+    - openwrt_security_monitor_init.stat.exists
+    - not ansible_check_mode
+
+- name: Security monitor の起動前状態を記録
+  ansible.builtin.set_fact:
+    openwrt_security_monitor_was_running: "{{ openwrt_security_monitor_running.rc | default(1) == 0 }}"
+
+- name: Security monitor を構成
+  when: openwrt_security_monitor_enabled
+  block:
+    - name: Security monitor の設定を検証
+      ansible.builtin.assert:
+        that:
+          - openwrt_security_monitor_sensor is string
+          - openwrt_security_monitor_sensor is match('^[a-z0-9][a-z0-9_.-]{0,63}\Z')
+          - openwrt_security_monitor_interval_seconds is integer
+          - openwrt_security_monitor_interval_seconds is not boolean
+          - openwrt_security_monitor_interval_seconds >= 60
+          - openwrt_security_monitor_interval_seconds <= 300
+
+    - name: Security monitor helper directory を作成
+      ansible.builtin.file:
+        path: /usr/libexec
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Security monitor helper を配置
+      ansible.builtin.copy:
+        src: security_monitor.py
+        dest: /usr/libexec/homecluster-security-monitor.py
+        owner: root
+        group: root
+        mode: '0755'
+      notify: Restart homecluster security monitor
+
+    - name: Security monitor 設定を配置
+      ansible.builtin.template:
+        src: config.json.j2
+        dest: /etc/homecluster-security-monitor.json
+        owner: root
+        group: root
+        mode: '0600'
+      notify: Restart homecluster security monitor
+
+    - name: Security monitor procd unit を配置
+      ansible.builtin.template:
+        src: service.init.j2
+        dest: /etc/init.d/homecluster-security-monitor
+        owner: root
+        group: root
+        mode: '0755'
+      notify: Restart homecluster security monitor
+
+    - name: Security monitor の自動起動を有効化
+      ansible.builtin.shell: |
+        if /etc/init.d/homecluster-security-monitor enabled; then exit 0; fi
+        /etc/init.d/homecluster-security-monitor enable
+        echo enabled
+      args:
+        executable: /bin/ash
+      register: openwrt_security_monitor_enable
+      changed_when: "'enabled' in openwrt_security_monitor_enable.stdout"
+      when: not ansible_check_mode
+
+    - name: Security monitor を起動
+      ansible.builtin.shell: |
+        if /etc/init.d/homecluster-security-monitor running; then exit 0; fi
+        /etc/init.d/homecluster-security-monitor start
+        echo started
+      args:
+        executable: /bin/ash
+      register: openwrt_security_monitor_start
+      changed_when: "'started' in openwrt_security_monitor_start.stdout"
+      when: not ansible_check_mode
+
+- name: 無効化された Security monitor を停止
+  ansible.builtin.command: /etc/init.d/homecluster-security-monitor stop
+  changed_when: true
+  when:
+    - not openwrt_security_monitor_enabled
+    - openwrt_security_monitor_was_running
+    - not ansible_check_mode
+
+- name: 無効化された Security monitor の自動起動を無効化
+  ansible.builtin.shell: |
+    if ! /etc/init.d/homecluster-security-monitor enabled; then exit 0; fi
+    /etc/init.d/homecluster-security-monitor disable
+    echo disabled
+  args:
+    executable: /bin/ash
+  register: openwrt_security_monitor_disable
+  changed_when: "'disabled' in openwrt_security_monitor_disable.stdout"
+  when:
+    - not openwrt_security_monitor_enabled
+    - openwrt_security_monitor_init.stat.exists
+    - not ansible_check_mode
