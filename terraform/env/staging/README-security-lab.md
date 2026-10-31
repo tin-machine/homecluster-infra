@@ -120,6 +120,15 @@ engine execution is not repeated. A standalone `replay` also queues a durable
 request: exec stdout itself is not a CRI log stream. Delivery may contain duplicate
 records with the same event ID; it does not provide exactly-once transport.
 
+Undelivered captures older than the Loki retention window can still replay saved
+IDs: queries cover the recent retention window and replay uses a new CRI delivery
+timestamp. A confirmed delivery receipt binds all IDs to the destination cluster.
+Later checks can return `confirmation=historical_receipt` with
+`loki_availability=not_checked`; this preserves the original verification time and
+does not claim that expired Loki records remain available. Legacy receipts without
+a destination require a fresh complete-ID query or a matching local historical
+receipt. A different destination or malformed receipt fails closed.
+
 `security_lab_nfs_version` defaults to 3. The actual mount version and remote
 file locking are required before analysis; changing a PV or StorageClass option
 alone does not validate an existing mount. Use the version required by the chosen

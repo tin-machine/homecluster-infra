@@ -4,6 +4,7 @@ import argparse
 import fcntl
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -299,9 +300,14 @@ class Client:
             require(str(uuid.UUID(cluster_uid)) == cluster_uid, "invalid_loki_cluster_uid")
         except (ValueError, AttributeError) as error:
             raise TransferError("invalid_loki_cluster_uid") from error
-        require(time.time() - receipt["started_at"] < 72 * 3600, "delivery_query_retention_expired")
+        now = time.time()
+        require(type(receipt["started_at"]) in (int, float) and math.isfinite(receipt["started_at"]) and
+                0 < receipt["started_at"] <= now + 300, "delivery_time_invalid")
+        # Replayed saved records receive a new CRI delivery timestamp. An old
+        # undelivered capture must remain recoverable after Loki retention.
+        start = max(0, receipt["started_at"] - 300, now - (72 * 3600 - 300))
         query = {"cluster_uid": cluster_uid, "analysis_id": receipt["analysis_id"], "capture_id": receipt["capture_id"],
-                 "start_ns": max(0, int((receipt["started_at"] - 300) * 10 ** 9))}
+                 "start_ns": int(start * 10 ** 9)}
         response = json_response(self.transport(SSH + [reader, shlex.join(["sudo", "python3", "-c", LOKI_QUERY])],
                                                 data=json.dumps(query).encode()))
         require(response["status"] == "ok" and isinstance(response["event_counts"], dict), "loki_query_invalid")
@@ -311,6 +317,11 @@ class Client:
 
     def check_delivery(self, path, reader, cluster_uid, wait_seconds=90, replay_missing=False):
         require(0 <= wait_seconds <= 120, "delivery_wait_budget")
+        require(TARGET.fullmatch(reader), "invalid_loki_reader")
+        try:
+            require(str(uuid.UUID(cluster_uid)) == cluster_uid, "invalid_loki_cluster_uid")
+        except (ValueError, AttributeError) as error:
+            raise TransferError("invalid_loki_cluster_uid") from error
         private_file(path)
         receipt = json.loads(path.read_text())
         self.bind_receipt(receipt)
@@ -330,10 +341,39 @@ class Client:
                 require(all(row["analysis_id"] == receipt["analysis_id"] and
                             row["capture_id"] == receipt["capture_id"] for row in outbox["rows"]), "outbox_rows_invalid")
                 expected = set(ids)
+                proof = outbox.get("delivery")
+                if proof is not None:
+                    require(isinstance(proof, dict) and proof.get("events") == ids and
+                            type(proof.get("at")) in (int, float) and math.isfinite(proof["at"]) and
+                            0 < proof["at"] <= time.time() + 300, "historical_delivery_invalid")
+                    target = proof.get("loki_cluster_uid")
+                    verified = proof.get("confirmed_at", proof["at"])
+                    if target is None and time.time() - proof["at"] >= 72 * 3600:
+                        # A legacy NAS marker did not bind its destination.
+                        # Recover only with the matching operator-side proof.
+                        local = receipt.get("delivery", {})
+                        if (not isinstance(local, dict) or local.get("status") != "delivered" or
+                                local.get("event_ids") != sorted(expected) or not local.get("loki_cluster_uid")):
+                            return {"status": "pending", "analysis_id": receipt["analysis_id"],
+                                    "reason": "legacy_delivery_target_receipt_required", "replayed": False}
+                        target, verified = local["loki_cluster_uid"], local.get("verified_at")
+                    if target is not None:
+                        require(target == cluster_uid, "delivery_target_changed")
+                        require(type(verified) in (int, float) and math.isfinite(verified) and
+                                0 < verified <= time.time() + 300, "historical_delivery_invalid")
+                        receipt["delivery"] = {"status": "delivered", "event_ids": sorted(expected),
+                                               "verified_at": verified, "loki_cluster_uid": cluster_uid}
+                        save_receipt(path, receipt)
+                        return {"status": "delivered", "analysis_id": receipt["analysis_id"],
+                                "events": len(expected), "duplicate_records": None,
+                                "analysis_status": outbox["result_status"], "replayed": False,
+                                "confirmation": "historical_receipt", "loki_availability": "not_checked"}
                 counts = self.loki_events(reader, cluster_uid, receipt)
                 missing = expected - counts.keys()
                 if not missing:
-                    ack = self.runtime(context, "delivery-ack", receipt["analysis_id"])
+                    evidence = {"analysis_id": receipt["analysis_id"], "event_ids": sorted(expected),
+                                "loki_cluster_uid": cluster_uid}
+                    ack = self.runtime(context, "delivery-ack", json.dumps(evidence))
                     require(ack["status"] == "delivered" and ack["analysis_id"] == receipt["analysis_id"] and
                             ack["events"] == len(expected), "delivery_ack_mismatch")
                     receipt["delivery"] = {"status": "delivered", "event_ids": sorted(expected),

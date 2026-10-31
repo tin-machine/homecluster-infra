@@ -289,6 +289,83 @@ class RuntimeTests(unittest.TestCase):
         runtime.atomic(path, owner)
         return owner, path
 
+    def delivery_fixture(self):
+        owner, path = self.owner()
+        aid = owner["analysis_id"]
+        run = path.parent / aid
+        runtime.atomic(run / "result.json", dict(owner, status="succeeded", pcap_sha256=self.manifest["pcap_sha256"]))
+        rows = [runtime.envelope(aid, self.cid, "analysis_summary", {"status": "succeeded"})]
+        runtime.atomic(run / "outbox.json", rows)
+        return aid, run, [row["event_id"] for row in rows]
+
+    def test_delivery_ack_binds_the_entire_event_set_and_destination(self):
+        aid, run, ids = self.delivery_fixture()
+        target = "00000000-0000-0000-0000-000000000003"
+        evidence = {"analysis_id": aid, "event_ids": ids, "loki_cluster_uid": target}
+        with self.assertRaisesRegex(ValueError, "delivery_event_set_mismatch"):
+            runtime.acknowledge_delivery(aid, dict(evidence, event_ids=[]))
+        self.assertFalse((run / "delivered.json").exists())
+        first = runtime.acknowledge_delivery(aid, evidence)
+        receipt = (run / "delivered.json").read_bytes()
+        self.assertFalse(first["already_acknowledged"])
+        self.assertTrue(runtime.acknowledge_delivery(aid, evidence)["already_acknowledged"])
+        self.assertEqual((run / "delivered.json").read_bytes(), receipt)
+        self.assertEqual(runtime.outbox_info(aid)["delivery"]["loki_cluster_uid"], target)
+        with self.assertRaisesRegex(ValueError, "delivery_target_changed"):
+            runtime.acknowledge_delivery(aid, dict(evidence, loki_cluster_uid="00000000-0000-0000-0000-000000000004"))
+
+    def test_legacy_receipt_is_readable_and_can_be_bound_after_full_query(self):
+        aid, run, ids = self.delivery_fixture()
+        runtime.atomic(run / "delivered.json", {"at": runtime.time.time() - 3600, "events": ids})
+        before = runtime.outbox_info(aid)["delivery"]["at"]
+        self.assertTrue(runtime.outbox_info(aid)["delivered"])
+        self.assertNotIn("loki_cluster_uid", runtime.outbox_info(aid)["delivery"])
+        runtime.acknowledge_delivery(aid, {"analysis_id": aid, "event_ids": ids,
+                                          "loki_cluster_uid": "00000000-0000-0000-0000-000000000003"})
+        after = runtime.outbox_info(aid)["delivery"]
+        self.assertEqual(after["at"], before)
+        self.assertGreater(after["confirmed_at"], before)
+        self.assertEqual(after["schema"], 2)
+
+    def test_bad_delivery_timestamp_or_event_ids_never_count_as_delivered(self):
+        aid, run, ids = self.delivery_fixture()
+        for value in ({"at": True, "events": ids}, {"at": float("nan"), "events": ids},
+                      {"at": runtime.time.time() + 3600, "events": ids},
+                      {"at": runtime.time.time(), "events": []},
+                      {"schema": True, "at": runtime.time.time(), "events": ids}):
+            (run / "delivered.json").write_text(json.dumps(value))
+            (run / "delivered.json").chmod(0o600)
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "invalid_delivery_receipt"):
+                runtime.outbox_info(aid)
+
+    def test_completed_capture_is_not_requeued_after_runtime_revision_changes(self):
+        receipt = runtime.intake(self.manifest, io.BytesIO(self.data))
+        control = self.input / "control"
+        control.mkdir(mode=0o700)
+        run = control / receipt["analysis_id"]
+        run.mkdir(mode=0o700)
+        runtime.atomic(run / "result.json", {"analysis_id": receipt["analysis_id"], "status": "succeeded"})
+        request = self.input / "captures" / self.cid / "request.json"
+        before = request.read_bytes()
+        self.config["asset_sha256"] = "f" * 64
+        descriptors = []
+        original_open = os.open
+        def observed_open(path, *args):
+            fd = original_open(path, *args)
+            if Path(path).name == "global.lock":
+                descriptors.append(fd)
+            return fd
+        try:
+            with patch.object(runtime, "API") as api, patch.object(runtime.os, "open", side_effect=observed_open), \
+                    patch.object(runtime.time, "sleep", side_effect=StopIteration):
+                with self.assertRaises(StopIteration):
+                    runtime.coordinate()
+                api.return_value.call.assert_not_called()
+        finally:
+            for fd in descriptors:
+                os.close(fd)
+        self.assertEqual(request.read_bytes(), before)
+
     def test_global_lock_contention_never_creates_job(self):
         control = self.input / "control"
         control.mkdir(mode=0o700)
