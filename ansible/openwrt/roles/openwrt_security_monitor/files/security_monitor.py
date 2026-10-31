@@ -4,8 +4,11 @@
 import argparse
 from datetime import datetime, timezone
 import json
+import math
+import os
 from pathlib import Path
 import re
+import selectors
 import signal
 import subprocess
 import threading
@@ -14,6 +17,9 @@ import time
 
 RUNTIME = Path("/var/run/banIP/banIP.runtime.json")
 LAST_RUN = re.compile(r"^mode: ([a-z]+), date / time: (\d{2}/\d{2}/\d{4} \d{2}:\d{2}:\d{2}),")
+FEED_PROOF_COMMAND = ("/usr/libexec/homecluster-banip-feed-proof.py", "status", "--config",
+                      "/etc/homecluster-security/banip-proof.json")
+FEED_PROOF_TIMEOUT = 12
 
 
 def read_json(path, maximum):
@@ -35,10 +41,75 @@ def config(path):
         raise ValueError("invalid_sensor")
     if type(interval) is not int or not 60 <= interval <= 300:
         raise ValueError("invalid_interval")
+    if type(data.get("feed_verification_enabled", False)) is not bool:
+        raise ValueError("invalid_feed_verification_flag")
     return data
 
 
-def heartbeat(sensor, *, runtime=RUNTIME, now=None):
+def read_feed_proof():
+    # The fixed status action never reloads banIP. Its own session contains
+    # only this read-only helper and any UCI/nft readers it starts.
+    child = subprocess.Popen(FEED_PROOF_COMMAND, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                             stderr=subprocess.DEVNULL, start_new_session=True)
+    selector = selectors.DefaultSelector()
+    selector.register(child.stdout, selectors.EVENT_READ)
+    output, deadline = bytearray(), time.monotonic() + FEED_PROOF_TIMEOUT
+    try:
+        while selector.get_map():
+            if time.monotonic() >= deadline:
+                raise ValueError("feed_proof_timeout")
+            for key, _ in selector.select(.05):
+                block = os.read(key.fd, 4096)
+                if not block:
+                    selector.unregister(key.fileobj)
+                else:
+                    output.extend(block)
+                    if len(output) > 2048:
+                        raise ValueError("oversized_feed_proof")
+        if child.wait(timeout=max(.1, deadline - time.monotonic())) != 0:
+            raise ValueError("feed_proof_unavailable")
+        return json.loads(output)
+    finally:
+        selector.close()
+        child.stdout.close()
+        if child.poll() is None:
+            os.killpg(child.pid, signal.SIGKILL)
+            child.wait(timeout=5)
+
+
+def checked_feed_proof(value, now):
+    if not isinstance(value, dict) or value.get("status") not in {"verified", "error", "unknown", "stale"}:
+        raise ValueError("invalid_feed_proof")
+    rows = value.get("feeds")
+    if not isinstance(rows, list) or not 1 <= len(rows) <= 2:
+        raise ValueError("invalid_feed_proof")
+    result = []
+    for row in rows:
+        if not isinstance(row, dict) or row.get("feed") not in {"dshield.v4", "feodo.v4"} or row.get("status") not in {"verified", "error", "unknown", "stale"}:
+            raise ValueError("invalid_feed_proof")
+        stamp, age, count = row.get("verified_at"), row.get("age_seconds"), row.get("last_verified_count")
+        if stamp is None:
+            if age is not None or count is not None or row["status"] in {"verified", "stale"}:
+                raise ValueError("invalid_feed_proof")
+        else:
+            if (type(stamp) not in (int, float) or not math.isfinite(stamp) or not 1_600_000_000 <= stamp <= now + 300 or
+                    type(age) is not int or age < 0 or abs(age - max(0, int(now - stamp))) > 30 or
+                    type(count) is not int or not 1 <= count <= 5000 or
+                    (row["status"] == "verified" and age > 48 * 3600)):
+                raise ValueError("invalid_feed_proof")
+        result.append(dict(feed=row["feed"], status=row["status"], verified_at=stamp, age_seconds=age,
+                           last_verified_count=count))
+    if len({x["feed"] for x in result}) != len(result):
+        raise ValueError("invalid_feed_proof")
+    combined = next((status for status in ("error", "unknown", "stale") if any(x["status"] == status for x in result)), "verified")
+    ages = [x["age_seconds"] for x in result if x["age_seconds"] is not None]
+    maximum = max(ages) if len(ages) == len(result) else None
+    if value["status"] != combined or value.get("age_seconds") != maximum:
+        raise ValueError("invalid_feed_proof")
+    return {"banip_feed_verification": combined, "banip_feed_max_age_seconds": maximum, "banip_feed_results": result}
+
+
+def heartbeat(sensor, *, runtime=RUNTIME, now=None, feed_verification=False, proof_reader=None):
     now = time.time() if now is None else now
     record = {
         "schema": 1, "security_source": "openwrt", "sensor": sensor,
@@ -85,6 +156,14 @@ def heartbeat(sensor, *, runtime=RUNTIME, now=None):
     except (ValueError, TypeError):
         record["banip_status"] = "unknown"
         record["banip_error"] = "runtime_invalid"
+    if feed_verification and record["banip_status"] == "active" and "banip_error" not in record:
+        try:
+            if type(feed_verification) is not bool:
+                raise ValueError("invalid_feed_verification_flag")
+            record.update(checked_feed_proof((proof_reader or read_feed_proof)(), now))
+        except (OSError, ValueError, TypeError, subprocess.SubprocessError):
+            record.update(banip_feed_verification="unknown", banip_feed_error="proof_unavailable",
+                          banip_feed_max_age_seconds=None, banip_feed_results=None)
     return record
 
 
@@ -101,7 +180,8 @@ def main():
     for sig in (signal.SIGTERM, signal.SIGINT):
         signal.signal(sig, lambda *_: stop.set())
     while not stop.is_set():
-        message = json.dumps(heartbeat(settings["sensor"]), separators=(",", ":"))
+        message = json.dumps(heartbeat(settings["sensor"], feed_verification=settings.get("feed_verification_enabled", False)),
+                             separators=(",", ":"))
         if args.once:
             print(message)
             return

@@ -85,6 +85,26 @@ class RefreshCronTest(unittest.TestCase):
             self.assertIn("17 4 * * * /etc/init.d/banip reload", store.read_text())
             self.assertEqual(store.read_text().count("#Ansible: homecluster-banip-refresh"), 1)
             self.assertIn("changed=0", run())
+            verified = {"openwrt_banip_feed_verification_enabled": True,
+                        "openwrt_banip_feeds": ["dshield", "feodo"]}
+            previous = store.read_text()
+            run(verified, check=True)
+            self.assertEqual(store.read_text(), previous)
+            run(verified)
+            self.assertIn(OTHER, store.read_text())
+            self.assertIn("17 4 * * * /usr/libexec/homecluster-banip-feed-proof.py refresh --config /etc/homecluster-security/banip-proof.json", store.read_text())
+            self.assertEqual(store.read_text().count("#Ansible: homecluster-banip-refresh"), 1)
+            self.assertIn("changed=0", run(verified))
+            for fields in [{"openwrt_banip_feeds": ["unsupported"]},
+                           {"openwrt_banip_feeds": ["feodo", "feodo"]},
+                           {"openwrt_banip_feeds": []},
+                           {"openwrt_banip_refresh_enabled": False},
+                           {"openwrt_banip_enabled": False}]:
+                previous = store.read_text()
+                run({**verified, **fields}, expected=1)
+                self.assertEqual(store.read_text(), previous)
+            run()
+            self.assertIn("17 4 * * * /etc/init.d/banip reload", store.read_text())
             for key, value in [
                 ("openwrt_banip_refresh_hour", -1),
                 ("openwrt_banip_refresh_hour", 24),
@@ -92,6 +112,7 @@ class RefreshCronTest(unittest.TestCase):
                 ("openwrt_banip_refresh_hour", "4\n* * * * /bin/false"),
                 ("openwrt_banip_refresh_minute", True),
                 ("openwrt_banip_refresh_enabled", "yes"),
+                ("openwrt_banip_feed_verification_enabled", "yes"),
             ]:
                 previous = store.read_text()
                 run({key: value}, expected=1)

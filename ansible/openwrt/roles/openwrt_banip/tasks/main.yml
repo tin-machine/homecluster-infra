@@ -181,5 +181,8 @@
     - not ansible_check_mode
     - openwrt_banip_enabled | bool
 
+- name: banIP feed 検証を構成
+  ansible.builtin.import_tasks: proof.yml
+
 - name: banIP 定期更新を管理
   ansible.builtin.import_tasks: refresh.yml
