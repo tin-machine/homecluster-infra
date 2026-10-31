@@ -159,6 +159,12 @@ resource "kubernetes_deployment_v1" "security_lab_coordinator" {
       }
     }
   }
+  lifecycle {
+    precondition {
+      condition     = var.security_lab_logs_enabled && var.o4_prod_container_logs_enabled
+      error_message = "Enable the dedicated security-lab Collector delivery before the analysis coordinator."
+    }
+  }
   depends_on = [kubernetes_network_policy_v1.security_lab_coordinator_api, kubernetes_role_binding_v1.security_lab_launcher,
   kubernetes_cluster_role_binding_v1.security_lab_node_reader]
 }

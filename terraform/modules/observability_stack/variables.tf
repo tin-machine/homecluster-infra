@@ -131,3 +131,9 @@ variable "loki_objectstore_secret_key" {
   default     = null
   nullable    = true
 }
+
+variable "security_lab_logs_enabled" {
+  type        = bool
+  description = "Opt in to security-lab-only persistent file offsets, queue and native OTLP metadata"
+  default     = false
+}

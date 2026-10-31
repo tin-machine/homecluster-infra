@@ -51,7 +51,7 @@ class RuntimeTests(unittest.TestCase):
             p.start()
         self.data = fixture()
         self.cid = "20261031T000000Z-0123456789abcdef"
-        self.manifest = {"schema": 1, "capture_id": self.cid, "packet_count": 1, "truncated_packet_count": 0, "linktype": 1,
+        self.manifest = {"schema": 1, "capture_id": self.cid, "packet_count": 1, "truncated_packet_count": 0, "linktype": 1, "snaplen": 65535,
                          "pcap_sha256": hashlib.sha256(self.data).hexdigest(), "size_bytes": len(self.data)}
         self.config = {"schema": 1, "node": "fixture-worker", "uid": 10001, "cluster_uid": "cluster-a",
                        "config_map": "fixture-runtime", "asset_sha256": "0" * 64,
@@ -314,6 +314,29 @@ class RuntimeTests(unittest.TestCase):
         result = runtime.read_json(output / "engine.json")
         self.assertEqual(result["status"], "failed")
         self.assertEqual(result["reason"], "host_memory_reserve_low")
+
+    def test_existing_engine_evidence_is_not_overwritten(self):
+        output = self.root / "existing-output"
+        output.mkdir(mode=0o700)
+        runtime.atomic(output / "engine.json", {"status": "succeeded", "previous": True})
+        def mapped_path(value):
+            return output if value == "/result" else Path(value)
+        with patch.object(runtime, "Path", side_effect=mapped_path), patch.object(runtime.subprocess, "Popen") as child:
+            with self.assertRaisesRegex(ValueError, "existing_engine_output_requires_reconciliation"):
+                runtime.engine_run("suricata")
+            child.assert_not_called()
+        self.assertEqual(runtime.read_json(output / "engine.json"), {"status": "succeeded", "previous": True})
+
+    def test_stdout_summary_is_bounded_without_losing_durable_output_inventory(self):
+        result = {"status": "succeeded", "actual_version": "fixture",
+                  "output_files": [{"path": "x" * 200, "bytes": 1000, "sha256": "a" * 64} for _ in range(128)]}
+        summary = runtime.engine_summary(result)
+        self.assertEqual(summary["output_file_count"], 128)
+        self.assertEqual(summary["output_bytes"], 128000)
+        self.assertNotIn("output_files", summary)
+        row = runtime.envelope("a" * 64, self.cid, "analysis_summary", {"engines": {"suricata": summary, "zeek": summary}})
+        self.assertLess(len(json.dumps(row)), 16384)
+        self.assertEqual(len(result["output_files"]), 128)
 
     def test_missing_and_duplicate_node_conditions_fail_closed(self):
         node = {"metadata": {"labels": {"security-lab.home.arpa/analysis": "true"}},

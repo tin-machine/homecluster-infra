@@ -73,3 +73,24 @@ Job UIDだけを停止する。OOM/欠落結果/Job Completeだけを成功へ�
 `python3 -B scripts/ci/check-security-lab-engines.py`による固定imageの実config/正例・負例。
 Docker daemonが別filesystemなら、共有しているfixture directoryをTMPDIRに指定する。
 CIのnative image検証だけでARM64/NFS実行を受け入れたとは扱わない。
+
+## Dedicated log delivery
+
+`security_lab_logs_enabled`は既定falseで、O4の認証付きprod配送を必要とする。
+解析coordinatorの有効化にはこのflagも必要。専用overlayを最後に重ね、security-labのPodログだけを
+beginningから読み、通常Podのstart_at=endは保持する。通常receiverから同namespaceを除外し、二重収集しない。
+resource service.nameはpcap-analysis、event種別・engine・parser結果はmetadata、個々のIDはbodyに保つ。
+
+file_storageのoffset/queueはk3s persistent data配下の専用hostPathへ保存する。初期化containerは
+そのdirectoryだけを準備し、ext4/xfs・512MiB空き・専用marker・10001:0/0700を検証する。
+不明な非empty directoryを採用せず、RAM overlayやPVC全体の所有権変更も行わない。
+既存O4 volume/mountを保持し、他のログpipelineは変えない。
+
+永続queueでも、満杯時の未受理batchが再起動で失われる場合がある。Job/提出完了を配送成功と扱わず、
+管理側が保存済みoutboxのevent IDとLoki到着を照合してからdelivery-ackする。
+未着分は保存済みevent IDで再送し、engineを再実行しない。
+
+`test_security_lab_otel.py`は実Collectorの短命ログ・parser・record上限・offset再起動・rotation・
+queue飽和と再送を検証する。2048件のfixtureでenqueue失敗counterを実測し、未着を同じevent IDで
+再送して回復した。試験Docker volumeがext4/xfs以外なら、本番guardの拒否を確認してから、
+initializerの権限試験に限りmountinfoを模擬する。実機のpersistent mount受入は別に行う。

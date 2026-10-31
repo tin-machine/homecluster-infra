@@ -1,0 +1,193 @@
+# Opt-in: security-lab only, persistent offsets and queue, existing O4 paths preserved.
+config:
+  extensions:
+    file_storage/security-lab:
+      directory: /var/lib/otel/security-lab
+      fsync: true
+      compaction:
+        on_start: true
+        on_rebound: true
+        directory: /var/lib/otel/security-lab
+        rebound_needed_threshold_mib: 64
+        rebound_trigger_threshold_mib: 8
+  receivers:
+    filelog/pods:
+      exclude:
+      - /var/log/pods/security-lab_*/*/*.log
+    filelog/security-lab:
+      include:
+      - /var/log/pods/security-lab_*/*/*.log
+      start_at: beginning
+      storage: file_storage/security-lab
+      include_file_name: false
+      include_file_path: true
+      max_log_size: 64KiB
+      max_concurrent_files: 64
+      operators:
+      - type: container
+      retry_on_failure:
+        enabled: true
+        initial_interval: 1s
+        max_interval: 15s
+        max_elapsed_time: 0s
+  processors:
+    resource/security-lab:
+      attributes:
+      - key: service.name
+        value: pcap-analysis
+        action: upsert
+    transform/security-lab:
+      error_mode: ignore
+      log_statements:
+      - context: log
+        statements:
+        - set(attributes["security_parser_status"], "invalid")
+        - merge_maps(cache, ParseJSON(body), "upsert")
+        - set(cache["valid"], false)
+        - set(cache["valid"], true) where cache["schema"] == 1 and cache["security_source"] == "pcap-analysis" and IsString(cache["analysis_id"]) and IsMatch(cache["analysis_id"], "^[a-f0-9]{64}$") and IsString(cache["event_id"]) and IsMatch(cache["event_id"], "^[a-f0-9]{64}$") and IsString(cache["capture_id"])
+          and IsMatch(cache["capture_id"], "^[0-9]{8}T[0-9]{6}Z-[a-f0-9]{16}$") and cache["event_type"] == "analysis_summary" and (cache["status"] == "succeeded" or cache["status"] == "failed") and IsMap(cache["engines"]) and IsMap(cache["engines"]["suricata"]) and IsMap(cache["engines"]["zeek"]) and
+          (cache["status"] != "succeeded" or (cache["engines"]["suricata"]["status"] == "succeeded" and cache["engines"]["zeek"]["status"] == "succeeded"))
+        - set(cache["valid"], true) where cache["schema"] == 1 and cache["security_source"] == "pcap-analysis" and IsString(cache["analysis_id"]) and IsMatch(cache["analysis_id"], "^[a-f0-9]{64}$") and IsString(cache["event_id"]) and IsMatch(cache["event_id"], "^[a-f0-9]{64}$") and IsString(cache["capture_id"])
+          and IsMatch(cache["capture_id"], "^[0-9]{8}T[0-9]{6}Z-[a-f0-9]{16}$") and cache["event_type"] == "detection_candidate" and cache["engine"] == "suricata" and (IsInt(cache["sid"]) or IsDouble(cache["sid"])) and cache["sid"] > 0 and Int(cache["sid"]) == cache["sid"]
+        - set(cache["valid"], true) where cache["schema"] == 1 and cache["event_type"] == "coordinator_blocked" and cache["security_source"] == "pcap-analysis" and IsString(cache["reason"])
+        - set(cache["valid"], true) where cache["schema"] == 1 and (cache["engine"] == "suricata" or cache["engine"] == "zeek") and (cache["status"] == "succeeded" or cache["status"] == "failed") and cache["event_type"] == nil
+        - set(attributes["security_source"], "pcap-analysis") where cache["valid"] == true
+        - set(attributes["event_type"], cache["event_type"]) where cache["valid"] == true and IsString(cache["event_type"])
+        - set(attributes["event_type"], "engine_status") where cache["valid"] == true and cache["event_type"] == nil
+        - set(attributes["engine"], cache["engine"]) where cache["valid"] == true and (cache["engine"] == "suricata" or cache["engine"] == "zeek")
+        - set(attributes["analysis_status"], cache["status"]) where cache["valid"] == true and (cache["status"] == "succeeded" or cache["status"] == "failed")
+        - set(attributes["security_parser_status"], "ok") where cache["valid"] == true
+    batch/security-lab:
+      send_batch_size: 16
+      send_batch_max_size: 32
+      timeout: 1s
+  exporters:
+    otlphttp/prod-security-lab:
+      endpoint: ${env:PROD_LOKI_OTLP_BASE}
+      headers:
+        Authorization: Basic ${env:PROD_LOKI_BASIC_B64}
+      tls:
+        ca_file: /etc/otel/prod-loki-ca/ca.crt
+      timeout: 10s
+      sending_queue:
+        enabled: true
+        num_consumers: 1
+        queue_size: 32
+        storage: file_storage/security-lab
+      retry_on_failure:
+        enabled: true
+        initial_interval: 1s
+        max_interval: 15s
+        max_elapsed_time: 0s
+  service:
+    extensions:
+    - health_check
+    - file_storage/security-lab
+    pipelines:
+      logs/security-lab:
+        receivers:
+        - filelog/security-lab
+        processors:
+        - resource/environment
+        - resource/security-lab
+        - transform/security-lab
+        - batch/security-lab
+        exporters:
+        - otlphttp/prod-security-lab
+extraVolumes:
+- name: varlog
+  hostPath:
+    path: /var/log
+    type: Directory
+- name: host-proc
+  hostPath:
+    path: /proc
+    type: Directory
+- name: host-sys
+  hostPath:
+    path: /sys
+    type: Directory
+- name: host-run
+  hostPath:
+    path: /run
+    type: Directory
+- name: prod-loki-ca
+  secret:
+    secretName: staging-prod-loki-push
+    items:
+    - key: ca.crt
+      path: ca.crt
+- name: security-lab-log-state
+  hostPath:
+    path: /var/lib/rancher/k3s/agent/security-lab-log-state
+    type: DirectoryOrCreate
+extraVolumeMounts:
+- name: varlog
+  mountPath: /var/log
+  readOnly: true
+- name: host-proc
+  mountPath: /host/proc
+  readOnly: true
+- name: host-sys
+  mountPath: /host/sys
+  readOnly: true
+- name: host-run
+  mountPath: /host/run
+  readOnly: true
+- name: prod-loki-ca
+  mountPath: /etc/otel/prod-loki-ca
+  readOnly: true
+- name: security-lab-log-state
+  mountPath: /var/lib/otel/security-lab
+  readOnly: false
+initContainers:
+- name: security-lab-state-directory
+  image: python:3.12-alpine@sha256:e6dae589c1c05976188fd3bd019afd091445fc533ed2ea29001beddc7368a9c8
+  command:
+  - python3
+  - -c
+  - |
+    import json,os,pathlib,stat
+    p=pathlib.Path('/offsets');s=p.lstat()
+    assert stat.S_ISDIR(s.st_mode) and not p.is_symlink(), 'unsafe state directory'
+    mounts=[]
+    for row in pathlib.Path('/proc/self/mountinfo').read_text().splitlines():
+     left,right=row.split(' - ',1);mount=left.split()[4]
+     if str(p)==mount or str(p).startswith(mount.rstrip('/')+'/'):mounts.append((len(mount),right.split()[0]))
+    assert mounts and max(mounts)[1] in ('ext4','xfs'), 'state directory must use persistent block storage'
+    v=os.statvfs(p);assert v.f_bavail*v.f_frsize>=512*1024*1024, 'state storage reserve low'
+    marker=p/'.security-lab-log-state';expected={'schema':1,'uid':10001,'gid':0}
+    if marker.exists():
+     s=marker.lstat();assert stat.S_ISREG(s.st_mode) and s.st_nlink==1 and s.st_size<1024
+     assert json.loads(marker.read_text())==expected, 'state owner marker mismatch'
+     assert p.stat().st_uid==10001 and p.stat().st_gid==0 and stat.S_IMODE(p.stat().st_mode)==0o700
+    else:
+     assert not list(p.iterdir()), 'refuse adoption of nonempty unowned state directory'
+     fd=os.open(marker,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
+     os.write(fd,json.dumps(expected).encode());os.fsync(fd);os.fchown(fd,10001,0);os.close(fd)
+     os.chmod(p,0o700);os.chown(p,10001,0)
+     fd=os.open(p,os.O_RDONLY|os.O_DIRECTORY);os.fsync(fd);os.close(fd)
+    print('security-lab state directory ready')
+  securityContext:
+    runAsUser: 0
+    runAsGroup: 0
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop:
+      - ALL
+      add:
+      - CHOWN
+      - DAC_OVERRIDE
+    seccompProfile:
+      type: RuntimeDefault
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 64Mi
+  volumeMounts:
+  - name: security-lab-log-state
+    mountPath: /offsets
