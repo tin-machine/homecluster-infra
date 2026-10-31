@@ -259,13 +259,13 @@ def serve():
         try:
             filter_file = run/'filter.bpf'
             filter_file.write_text(profile['filter']+'\n'); filter_file.chmod(0o600)
-            compile_result = subprocess.run(['/usr/sbin/tcpdump', '-i', profile['interface'], '-ddd', '-F', str(filter_file)],
+            compile_result = subprocess.run(['/usr/bin/tcpdump', '-i', profile['interface'], '-ddd', '-F', str(filter_file)],
                                             capture_output=True, timeout=10)
             if compile_result.returncode:
                 raise CaptureError('filter_compile_failed')
             offload = offload_state()
             part = run/'capture.pcap.part'
-            argv = ['/usr/sbin/tcpdump', '-i', profile['interface'], '-nn', '-p', '-s', '65535', '-c', '1000',
+            argv = ['/usr/bin/tcpdump', '-i', profile['interface'], '-nn', '-p', '-s', '65535', '-c', '1000',
                     '-U', '-Z', 'root', '-w', str(part), '-F', str(filter_file)]
             stop_reason, drops = run_tcpdump(argv, profile['duration_seconds'])
             summary = pcap(part)
