@@ -14,7 +14,10 @@ HDD状態はMIBの列挙に従い0=Readyとする。欠測を0や正常状態で
 別機種・firmwareへ転用する前に実際の返値と単位を確認する。
 
 nas_syslog_enabled=trueでは、明示したsite.prod_metrics_target.nameのnodeにAlloyを配置する。
-NASのSyslog Clientから、そのnodeのUDP/31514へRFC3164形式でsystem eventを送る。
+NASのSyslog Clientから、そのnodeのUDP/31514へsystem eventを送る。
+旧QNAPの0埋め日付（Nov 01）は厳密なRFC3164 parserが拒否するため、固定版Alloyのraw形式と
+loki.processでheaderを検証する。rawにはstability.level=experimentalが必要。
+PRIの重大度だけを正規化し、検証用の月labelは送信前に除去する。不正headerはcounter付きで破棄する。
 最初はsystem eventのみを対象にし、connection logは発生量を確認してから選ぶ。
 NodePortはexternalTrafficPolicy=Localで送信元を保持し、指定NASだけを許可する。
 collectorのmetrics用ServiceはClusterIP。Loki本体は公開せず、内部TCP/3100へ転送する。
@@ -26,7 +29,7 @@ UDP配送とPod再作成中の無損失は保証しない。queue・message長�
 NASの実際のsyslog形式と配送成功は、receiver配置後の実機受入で確認する。
 
 source検証はNAS fixture、公式snmp_exporterの設定読込、公式Alloyを使ったlocalhost UDPから
-合成Loki push先へのWarning/Info配送と不正入力拒否、ARM64 image manifestで行う。
+合成Loki push先への0埋め日付・空白埋め日付、8重大度の配送と不正入力拒否、ARM64 image manifestで行う。
 prod反映はcluster UIDと保存planを照合した独立した承認後に行う。
 新規11リソースはstateless。既存4リソースの設定更新に伴いPrometheusとGrafanaが再起動する。
 反映後はNAS scrape、単位、Grafana検索、collector送信・破棄counter、Lokiの増加量、既存UIDとscrapeを確認する。

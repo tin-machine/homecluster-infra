@@ -120,6 +120,30 @@ def unsnappy(data):
     return bytes(out)
 
 
+def protobuf_bytes(data):
+    """Read length-delimited fields from the real Loki PushRequest fixture."""
+    pos = 0
+    def varint():
+        nonlocal pos
+        value = shift = 0
+        while True:
+            byte = data[pos]; pos += 1
+            value |= (byte & 127) << shift
+            if byte < 128:
+                return value
+            shift += 7
+    while pos < len(data):
+        tag = varint()
+        if tag & 7 == 2:
+            length = varint()
+            yield tag >> 3, data[pos:pos + length]
+            pos += length
+        elif tag & 7 == 0:
+            varint()
+        else:
+            raise ValueError("unexpected fixture protobuf wire type")
+
+
 @unittest.skipUnless(os.environ.get("ALLOY_BIN"), "set ALLOY_BIN for the native UDP/push contract")
 class AlloyContractTests(unittest.TestCase):
     def test_real_parser_severity_delivery_and_malformed_input(self):
@@ -145,7 +169,7 @@ class AlloyContractTests(unittest.TestCase):
                 path = Path(directory) / "config.alloy"; path.write_text(config)
                 with (Path(directory) / "alloy.log").open("w+") as output:
                     process = subprocess.Popen([
-                        os.environ["ALLOY_BIN"], "run", "--disable-reporting",
+                        os.environ["ALLOY_BIN"], "run", "--disable-reporting", "--stability.level=experimental",
                         f"--server.http.listen-addr=127.0.0.1:{port}",
                         f"--storage.path={directory}/data", str(path)],
                         stdout=output, stderr=subprocess.STDOUT, start_new_session=True)
@@ -163,31 +187,65 @@ class AlloyContractTests(unittest.TestCase):
                             self.fail("Alloy not ready")
                         sender = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
                         try:
-                            for pri, marker in [(12, "fixture-warning"), (14, "fixture-info")]:
-                                sender.sendto(f"<{pri}>Oct 31 12:00:00 fixture-nas QNAP: {marker}".encode(),
+                            fixtures = [(12, "Oct 31", "fixture-warning"),
+                                        (14, "Nov  1", "fixture-info"),
+                                        (188, "Nov 01", "fixture-qnap-warning"),
+                                        (190, "Nov 01", "fixture-qnap-info")]
+                            fixtures += [(184 + i, "Nov 01", "fixture-level-" + level) for i, level in enumerate(
+                                ["emerg", "alert", "critical", "error", "warn", "notice", "info", "debug"])]
+                            for pri, stamp, marker in fixtures:
+                                sender.sendto(f"<{pri}>{stamp} 12:00:00 fixture-nas qlogd[123]: {marker}".encode(),
                                               ("127.0.0.1", udp))
+                                time.sleep(.01)
                             sender.sendto(b"fixture-malformed", ("127.0.0.1", udp))
+                            sender.sendto(b"<bad>Nov 01 12:00:00 fixture-nas fixture-bad-priority", ("127.0.0.1", udp))
+                            sender.sendto(b"<14>Bad 01 12:00:00 fixture-nas fixture-bad-stamp", ("127.0.0.1", udp))
                         finally:
                             sender.close()
                         for _ in range(100):
                             payload = b"".join(body for _, body in received)
-                            if b"fixture-warning" in payload and b"fixture-info" in payload:
+                            if all(marker.encode() in payload for _, _, marker in fixtures):
                                 break
                             time.sleep(.1)
+                        for _, _, marker in fixtures:
+                            self.assertIn(marker.encode(), payload)
+                        streams = []
+                        for _, body in received:
+                            for field, stream in protobuf_bytes(body):
+                                if field != 1:
+                                    continue
+                                fields = list(protobuf_bytes(stream))
+                                labels = next(value.decode() for key, value in fields if key == 1)
+                                lines = [line.decode() for key, entry in fields if key == 2
+                                         for subkey, line in protobuf_bytes(entry) if subkey == 2]
+                                streams.append((labels, lines))
+                        for level in ["emerg", "alert", "critical", "error", "warn", "notice", "info", "debug"]:
+                            # Each stream must pair its normalized label and marker.
+                            self.assertTrue(any('level="' + level + '"' in labels and
+                                                any('fixture-level-' + level in line for line in lines)
+                                                for labels, lines in streams))
+                        for marker, level in [("fixture-qnap-warning", "warn"), ("fixture-qnap-info", "info")]:
+                            self.assertTrue(any('level="' + level + '"' in labels and
+                                                any(marker in line for line in lines) for labels, lines in streams))
                         self.assertIn(b'level="warn"', payload)
                         self.assertIn(b'level="info"', payload)
                         self.assertIn(b'source="qnap-syslog"', payload)
                         self.assertNotIn(b"fixture-malformed", payload)
+                        self.assertNotIn(b"fixture-bad-priority", payload)
+                        self.assertNotIn(b"fixture-bad-stamp", payload)
+                        self.assertNotIn(b'priority="', payload)
+                        self.assertNotIn(b'nas_month="', payload)
                         self.assertTrue(all(path == "/loki/api/v1/push" for path, _ in received))
                         metrics = urllib.request.urlopen(f"http://127.0.0.1:{port}/metrics", timeout=3).read().decode()
-                        errors = [float(line.split()[-1]) for line in metrics.splitlines()
-                                  if line.startswith("loki_source_syslog_parsing_errors_total")]
-                        # Upstream UDP can reject a datagram before incrementing
-                        # this counter; zero is not evidence of loss-free delivery.
-                        self.assertTrue(errors)
+                        dropped = [float(line.split()[-1]) for line in metrics.splitlines()
+                                   if line.startswith("loki_process_dropped_lines_total") and
+                                   'reason="nas_invalid_header"' in line]
+                        self.assertGreaterEqual(sum(dropped), 1)
                         entries = [float(line.split()[-1]) for line in metrics.splitlines()
                                    if line.startswith("loki_source_syslog_entries_total")]
-                        self.assertEqual(sum(entries), 2)
+                        # The UDP transport may reject malformed PRI before
+                        # incrementing its counters. Verify delivery separately.
+                        self.assertGreaterEqual(sum(entries), len(fixtures))
                     finally:
                         os.killpg(process.pid, signal.SIGTERM)
                         try:

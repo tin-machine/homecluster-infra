@@ -16,8 +16,13 @@ NODE_PORT = 31514
 
 
 def alloy_config() -> str:
-    # Receipt timestamps avoid RFC3164's absent year/timezone. Never index payload,
-    # remote hostname, file path, PID, or client address as arbitrary labels.
+    # Old QNAP uses strftime("%b %d %T"): Nov 01 is rejected by the strict
+    # RFC3164 parser. Parse this bounded legacy header with receipt timestamps.
+    # The raw source still parses PRI and exposes severity to relabel rules.
+    # Only a bounded month marker is temporary; hostname/PID are never labels.
+    header = (r"^(?P<month>Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) "
+              r"(?: [1-9]|0[1-9]|[12][0-9]|3[01]) "
+              r"(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9] [^ ]+ (?P<body>.+)$")
     rules = []
     for regex, level in [("0|emerg|emergency", "emerg"), ("1|alert", "alert"),
                          ("2|crit|critical", "critical"), ("3|err|error", "error"),
@@ -34,8 +39,7 @@ loki.source.syslog "nas" {
   listener {
     address = "0.0.0.0:1514"
     protocol = "udp"
-    syslog_format = "rfc3164"
-    use_incoming_timestamp = false
+    syslog_format = "raw"
     max_message_length = 8192
     udp_queue_size = 128
     udp_host_cache_size = 16
@@ -47,7 +51,32 @@ loki.source.syslog "nas" {
     }
   }
   relabel_rules = loki.relabel.nas.rules
+  forward_to = [loki.process.nas.receiver]
+}
+loki.process "nas" {
   forward_to = [loki.write.prod.receiver]
+  stage.regex {
+    expression = ''' + json.dumps(header) + '''
+  }
+  stage.labels {
+    values = { nas_month = "month", }
+  }
+  stage.match {
+    selector = "{source=\\"qnap-syslog\\",nas_month=\\"\\"}"
+    action = "drop"
+    drop_counter_reason = "nas_invalid_header"
+  }
+  stage.match {
+    selector = "{source=\\"qnap-syslog\\",level=\\"unknown\\"}"
+    action = "drop"
+    drop_counter_reason = "nas_invalid_severity"
+  }
+  stage.label_drop {
+    values = ["nas_month"]
+  }
+  stage.output {
+    source = "body"
+  }
 }
 loki.write "prod" {
   max_streams = 16
@@ -110,7 +139,8 @@ def resources(address: str, node: str) -> list[dict]:
                                     for role in ("control-plane", "master")],
                     "containers": [{
                         "name": "alloy", "image": IMAGE, "imagePullPolicy": "IfNotPresent",
-                        "args": ["run", "--disable-reporting", "--server.http.listen-addr=0.0.0.0:12345",
+                        "args": ["run", "--disable-reporting", "--stability.level=experimental",
+                                 "--server.http.listen-addr=0.0.0.0:12345",
                                  "--storage.path=/var/lib/alloy", "/etc/alloy/config.alloy"],
                         "ports": [{"name": "syslog", "containerPort": 1514, "protocol": "UDP"},
                                   {"name": "http", "containerPort": 12345, "protocol": "TCP"}],
@@ -142,7 +172,7 @@ def add_syslog(manifest: dict, address: str, node: str) -> None:
         "job_name": COLLECTOR_JOB, "scrape_interval": "60s", "scrape_timeout": "5s", "sample_limit": 1000,
         "static_configs": [{"targets": [METRICS + ":12345"]}],
         "metric_relabel_configs": [{"action": "keep", "source_labels": ["__name__"],
-                                    "regex": "loki_source_syslog_.*|loki_write_.*|alloy_component_.*"}]})
+                                    "regex": "loki_source_syslog_.*|loki_process_.*|loki_write_.*|alloy_component_.*"}]})
     from prod_nas_monitoring import update_prometheus_config
     update_prometheus_config(manifest, cfg)
     find("NetworkPolicy", "prod-nas-prometheus-egress")["spec"]["egress"].append({

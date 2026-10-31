@@ -143,8 +143,8 @@ def dashboard() -> dict:
         ("NAS-reported memory usage", "100 * (1 - qnap_memory_free_bytes" + s
          + " / qnap_memory_total_bytes" + s + ")", "percent", "", "timeseries"),
         ("Host uptime", "qnap_uptime_seconds" + s, "s", "", "stat"),
-        ("CPU and system temperature", "qnap_cpu_temperature_celsius" + s
-         + " or qnap_system_temperature_celsius" + s, "celsius", "{{__name__}}", "timeseries"),
+        ("CPU and system temperature", '{__name__=~"qnap_(cpu|system)_temperature_celsius",job="'
+         + JOB + '"}', "celsius", "{{__name__}}", "timeseries"),
         ("Disk temperature", "qnap_disk_temperature_celsius" + s, "celsius", "Disk {{disk}}", "timeseries"),
         ("Fan speed", "qnap_fan_rpm" + s, "rpm", "Fan {{fan}}", "timeseries"),
         ("Volume capacity", "qnap_volume_size_bytes" + s, "bytes", "Volume {{volume}}", "timeseries"),
