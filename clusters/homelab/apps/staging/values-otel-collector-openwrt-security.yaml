@@ -22,11 +22,18 @@ config:
             - merge_maps(cache, ParseJSON(attributes["message"]), "upsert")
             - set(cache["valid"], false)
             - set(cache["valid"], true) where cache["schema"] == 1 and cache["security_source"] == "openwrt" and cache["log_type"] == "heartbeat" and IsString(cache["sensor"]) and IsMatch(cache["sensor"], "^[a-z0-9][a-z0-9_.-]{0,63}$")
+            # A claimed verified result requires a valid bounded numeric age.
+            # Legacy unknown heartbeats remain valid without this optional field.
+            - set(cache["feed_age_valid"], false)
+            - set(cache["feed_age_valid"], true) where (IsInt(cache["banip_feed_max_age_seconds"]) or IsDouble(cache["banip_feed_max_age_seconds"])) and cache["banip_feed_max_age_seconds"] >= 0 and cache["banip_feed_max_age_seconds"] <= 172800
+            - set(cache["valid"], false) where cache["valid"] == true and cache["banip_feed_verification"] == "verified" and cache["feed_age_valid"] != true
             - set(attributes["sensor"], cache["sensor"]) where cache["valid"] == true
             - set(attributes["log_type"], "heartbeat") where cache["valid"] == true
             - set(attributes["banip_status"], cache["banip_status"]) where cache["valid"] == true and IsString(cache["banip_status"])
             - set(attributes["banip_run_age_seconds"], cache["banip_run_age_seconds"]) where cache["valid"] == true and (IsInt(cache["banip_run_age_seconds"]) or IsDouble(cache["banip_run_age_seconds"])) and cache["banip_run_age_seconds"] >= 0
-            - set(attributes["banip_feed_verification"], cache["banip_feed_verification"]) where cache["valid"] == true and IsString(cache["banip_feed_verification"])
+            - set(attributes["banip_feed_verification"], "unknown") where cache["valid"] == true
+            - set(attributes["banip_feed_verification"], cache["banip_feed_verification"]) where cache["valid"] == true and (cache["banip_feed_verification"] == "verified" or cache["banip_feed_verification"] == "unknown" or cache["banip_feed_verification"] == "error" or cache["banip_feed_verification"] == "stale")
+            - set(attributes["banip_feed_max_age_seconds"], cache["banip_feed_max_age_seconds"]) where cache["valid"] == true and (IsInt(cache["banip_feed_max_age_seconds"]) or IsDouble(cache["banip_feed_max_age_seconds"])) and cache["banip_feed_max_age_seconds"] >= 0
             - set(attributes["security_parser_status"], "ok") where cache["valid"] == true
   service:
     pipelines:

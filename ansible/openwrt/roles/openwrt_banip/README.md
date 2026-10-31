@@ -19,3 +19,36 @@ daemonを停止して無効化する操作はこのroleでは行わない。
 ```sh
 python3 ansible/openwrt/roles/openwrt_banip/tests/test_refresh.py
 ```
+
+## Feed別の内容検証
+
+`openwrt_banip_feed_verification_enabled: true`は、banIPと定期更新を有効にし、
+feedを既存の`dshield` / `feodo`の1–2件に限定した場合に使う。既定false。
+Python 3のSSL/urllibと有効なCA storeを必要とする。roleは取得やreloadを即時起動しない。
+
+有効時のcronは固定helperの`refresh`を呼ぶ。既存`banip reload`が新しいactive状態へ移るまで
+最大120秒待ち、HTTPSで取得した現在のfeedと実nft setの内容を照合する。
+helperの`verify`はreloadを行わず同じ照合を実行し、`status`は取得を行わず保存済み記録と現在のsetを確認する。
+helperは`/usr/libexec/homecluster-banip-feed-proof.py`、設定は
+`/etc/homecluster-security/banip-proof.json`。全actionに`--config`で同設定を渡す。
+
+検証範囲は`independent_https_content_equals_active_nft_set`。
+banIP本体のdownload logとは別に、検証済み内容が現在のkernel setと一致した時刻を管理する。
+`dshield`はstart/end/prefix length、`feodo`はIPv4単体の形式を検証し、CIDRを正規化して
+nftのauto-mergeによる表現差を吸収する。現registryはIPv4だけを扱い、IPv6の検証成功へ拡張しない。
+設定済みfeed・stockのURL/rule・active familyが異なれば不明/失敗となる。
+
+取得はTLS検証付きHTTPS、許可hostへのHTTPS redirectだけ、HTTP 200、各1MiB/5000 records以内。
+socket/wall timeoutを設け、空・HTML・不正range・reserved prefix・未知nft表現は拒否する。
+取得前後のruntime generationとsetが変わった場合も成功にしない。
+検証helperはnft policyを変更せず、banIP packageのfileもpatchしない。
+
+記録は`/etc/homecluster-security/banip-proof-state.json`へatomic/fsyncで保存する。
+directory 0700、file 0600、所有者・symlink/hardlink・部分書込を検査し、verify/refreshはflockで直列化する。
+IP一覧は保存せず、時刻・内容hash・件数・結果だけを残す。取得失敗や内容不一致では最終成功を保持し、
+新しい失敗を別に記録する。`status`は実setとの一致と48時間以内の記録を必要とし、古い成功をfreshへ補完しない。
+不明なstateや`.part`はoperatorが照合するまで保持する。設定変更でproofの定義hashが変わった場合も再照合が必要。
+
+```sh
+python3 ansible/openwrt/roles/openwrt_banip/tests/test_feed_proof.py
+```

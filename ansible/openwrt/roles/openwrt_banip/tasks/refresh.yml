@@ -5,7 +5,7 @@
     user: root
     minute: "{{ openwrt_banip_refresh_minute }}"
     hour: "{{ openwrt_banip_refresh_hour }}"
-    job: /etc/init.d/banip reload
+    job: "{{ openwrt_banip_feed_verification_enabled | ternary('/usr/libexec/homecluster-banip-feed-proof.py refresh --config /etc/homecluster-security/banip-proof.json', '/etc/init.d/banip reload') }}"
     state: "{{ (openwrt_banip_enabled | bool and openwrt_banip_refresh_enabled) | ternary('present', 'absent') }}"
   register: openwrt_banip_refresh_cron
 
