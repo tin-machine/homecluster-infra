@@ -108,11 +108,17 @@ variable "llm_address" {
 variable "security_enabled" {
   type        = bool
   default     = false
-  description = "Opt in to security dashboards, file-provisioned log alerts and scoped Grafana-to-existing-Alertmanager notifications."
+  description = "Opt in to security dashboards, file-provisioned log alerts and scoped Slack notifications using the existing Secret."
 }
 
 variable "security_alerts_paused" {
   type        = bool
   default     = false
   description = "Pause only the owned security rules while keeping their file provisioning present."
+}
+
+variable "security_channel_id" {
+  type        = string
+  default     = ""
+  description = "Private Slack channel ID for the security contact point. Token is referenced only through the existing Kubernetes Secret."
 }

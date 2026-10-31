@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Real Grafana on an isolated Docker network, with synthetic Loki/AM only."""
+"""Real Grafana on an isolated Docker network, with synthetic Loki/Slack only."""
 import base64
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -19,6 +19,8 @@ sys.path.insert(0, str(ROOT / "scripts"))
 PASSWORD = "fixture-only-admin"
 IMAGE = "grafana/grafana:13.2.3"
 HELPER = "python:3.12-alpine@sha256:e6dae589c1c05976188fd3bd019afd091445fc533ed2ea29001beddc7368a9c8"
+CHANNEL = "CFIXTURE1234"
+BOT_TOKEN = "fixture-not-a-real-token"
 
 
 def server():
@@ -65,13 +67,17 @@ def server():
                     "times": [{"start_time": "00:00", "end_time": "24:00"}], "location": "UTC"}]
                 path.write_text(json.dumps(value))
                 return self.reply({})
-            if self.path.endswith("/api/v2/alerts") or self.path.endswith("/api/v1/alerts"):
-                for alert in json.loads(body):
-                    end = datetime.fromisoformat(alert["endsAt"].replace("Z", "+00:00")).timestamp()
-                    state["deliveries"].append({"resolved": end > 0 and end <= time.time() + 2,
-                                                "ends_at": alert["endsAt"],
-                                                "labels": alert["labels"]})
-                return self.reply({})
+            if self.path.endswith("/chat.postMessage") or self.path.endswith("/chat.update"):
+                assert self.headers.get("Authorization") == "Bearer " + BOT_TOKEN
+                value = json.loads(body)
+                attachments = value["attachments"]
+                if isinstance(attachments, str):
+                    attachments = json.loads(attachments)
+                title = attachments[0]["title"]
+                assert title in ("firing: OpenWrt security", "resolved: OpenWrt security")
+                assert value["channel"] == CHANNEL
+                state["deliveries"].append({"resolved": title.startswith("resolved:"), "channel": value["channel"]})
+                return self.reply({"ok": True, "channel": CHANNEL, "ts": str(time.time())})
             return self.reply({}, 404)
 
     ThreadingHTTPServer(("0.0.0.0", 8080), Handler).serve_forever()
@@ -124,7 +130,7 @@ def client():
     until(rule, lambda x: x["state"] == "firing")
     first = until(lambda: request(backend, "/state"), lambda x: bool(x["deliveries"]))
     assert len(first["deliveries"]) == 1 and not first["deliveries"][0]["resolved"], json.dumps(first)
-    assert first["deliveries"][0]["labels"]["scope"] == "openwrt-security"
+    assert first["deliveries"][0]["channel"] == CHANNEL
     time.sleep(22)  # More than two evaluations and the fixture group interval.
     assert len(request(backend, "/state")["deliveries"]) == 1, "duplicate firing notification"
     request(backend, "/mode", {"mode": "normal"})
@@ -140,7 +146,8 @@ def client():
     request(backend, "/mode", {"mode": "error"})
     until(rule, lambda x: x["state"] == "firing" and x.get("health") != "ok")
     assert request(gf, "/api/v1/provisioning/policies") == policy, "root notification policy changed"
-    print(json.dumps({"status": "pass", "image": IMAGE, "empty_vector": "normal",
+    print(json.dumps({"status": "pass", "image": IMAGE, "notifier": "slack",
+                      "token_environment_expansion": True, "empty_vector": "normal",
                       "firing": 1, "resolved": 1, "duplicate_firing": 0,
                       "muted_firing": 0, "query_error": "alerting", "root_policy_unchanged": True}))
 
@@ -165,13 +172,13 @@ def main():
                          root / "provision/dashboards", root / "dashboards"]:
                 path.mkdir(mode=0o755,exist_ok=True)
                 path.chmod(0o755)
-            value = provisioning()
+            value = provisioning(CHANNEL)
             value["groups"][0]["interval"] = "10s"
             for inactive in value["groups"][0]["rules"][1:]:
                 inactive["isPaused"] = True
             value["groups"][0]["rules"][0]["for"] = "0s"
             value["groups"][0]["rules"][0]["notification_settings"].update(group_wait="1s", group_interval="10s")
-            value["contactPoints"][0]["receivers"][0]["settings"]["url"] = "http://fixture-backend:8080"
+            value["contactPoints"][0]["receivers"][0]["settings"]["endpointUrl"] = "http://fixture-backend:8080/api/chat.postMessage"
             # Fixture starts unmuted regardless of the real time. Later it is
             # hot-reloaded to all-day mute. Production Tokyo timing is unit-tested.
             now = datetime.now(timezone.utc).hour
@@ -187,7 +194,7 @@ def main():
                 "url": "http://fixture-backend:8080"}]}))
             ds.chmod(0o644)
             manifest = build_manifest()
-            add_monitoring(manifest)
+            add_monitoring(manifest, CHANNEL)
             cm = next(o for o in manifest["items"] if o["kind"] == "ConfigMap")
             provider = json.loads(cm["data"]["dashboard-provider.yaml"])
             provider["providers"] = [p for p in provider["providers"] if p["name"] == "openwrt-security"]
@@ -214,6 +221,7 @@ def main():
                    "--mount", f"type=bind,src={root}/provision,dst=/etc/grafana/provisioning,readonly",
                    "--mount", f"type=bind,src={root}/dashboards,dst=/etc/grafana/security-dashboards,readonly",
                    "-e", "GF_SECURITY_ADMIN_PASSWORD=" + PASSWORD, "-e", "GF_LOG_LEVEL=error",
+                   "-e", "GF_SECURITY_SLACK_TOKEN=" + BOT_TOKEN,
                    "-e", "GF_ANALYTICS_REPORTING_ENABLED=false", "-e", "GF_ANALYTICS_CHECK_FOR_UPDATES=false",
                    "-e", "GF_PLUGINS_PREINSTALL_DISABLED=true", "-e", "GF_PLUGINS_CHECK_FOR_UPDATES=false",
                    "-e", "GF_UNIFIED_ALERTING_MIN_INTERVAL=10s", IMAGE)

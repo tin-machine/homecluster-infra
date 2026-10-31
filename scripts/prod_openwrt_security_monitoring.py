@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 
 UID = "openwrt-security"
 LOKI = "prod-loki"
@@ -66,9 +67,11 @@ def rule(key: str, expression: str, title: str, pending: str) -> dict:
     }
 
 
-def provisioning(*, paused: bool = False) -> dict:
+def provisioning(channel_id: str, *, paused: bool = False) -> dict:
     if not isinstance(paused, bool):
         raise ValueError("invalid security alert pause flag")
+    if not isinstance(channel_id, str) or not re.fullmatch(r"[CG][A-Z0-9]{8,20}", channel_id):
+        raise ValueError("invalid private Slack channel ID")
     titles = {
         "heartbeat": "OpenWrt security heartbeat欠落",
         "feed": "OpenWrt reputation feed検証異常",
@@ -81,12 +84,14 @@ def provisioning(*, paused: bool = False) -> dict:
         "groups": [{"orgId": 1, "name": UID, "folder": "OpenWrt security", "interval": "60s",
                     "rules": [rule(k, v, titles[k], "5m" if k in ("heartbeat", "feed", "parser") else "0s")
                               for k, v in queries().items()]}],
-        # Reuse the existing authenticated Slack delivery in Alertmanager. No
-        # token/channel copy, internet egress, root policy, or Prometheus changes.
+        # Environment expansion happens inside Grafana. The token is never read
+        # by Terraform or placed into a ConfigMap/state/renderer argument.
         "contactPoints": [{"orgId": 1, "name": UID, "receivers": [{
-            "uid": "ow-security-alertmanager", "type": "prometheus-alertmanager",
+            "uid": "ow-security-slack", "type": "slack",
             "disableResolveMessage": False,
-            "settings": {"url": "http://prod-alertmanager:9093"},
+            "settings": {"recipient": channel_id, "token": "$GF_SECURITY_SLACK_TOKEN",
+                         "title": "{{ .Status }}: OpenWrt security",
+                         "text": "{{ .CommonLabels.alertname }} severity={{ .CommonLabels.severity }} status={{ .Status }}"},
         }]}],
         "muteTimes": [{"orgId": 1, "name": MUTE, "time_intervals": [{
             "times": [{"start_time": "01:00", "end_time": "06:30"}],
@@ -128,14 +133,14 @@ def dashboard() -> dict:
             "description": "Counter無効の全drop数は不明。検証用SIDの検知は通知対象外。Loki配送停止時は解析の完了と区別して調査する。"}
 
 
-def add_monitoring(manifest: dict, *, paused: bool = False) -> None:
+def add_monitoring(manifest: dict, channel_id: str, *, paused: bool = False) -> None:
     by_name = {(x["kind"], x["metadata"]["name"]): x for x in manifest["items"]}
     cm = by_name["ConfigMap", "prod-grafana-provisioning"]
     dep = by_name["Deployment", "prod-grafana"]
     data = cm["data"]
     assert "openwrt-security.json" not in data and "security-alerting.json" not in data
     data["openwrt-security.json"] = encode(dashboard())
-    data["security-alerting.json"] = encode(provisioning(paused=paused))
+    data["security-alerting.json"] = encode(provisioning(channel_id, paused=paused))
     provider = json.loads(data["dashboard-provider.yaml"])
     provider["providers"].append({
         "name": UID, "orgId": 1, "type": "file", "folder": "OpenWrt security",
@@ -144,6 +149,13 @@ def add_monitoring(manifest: dict, *, paused: bool = False) -> None:
     })
     data["dashboard-provider.yaml"] = encode(provider)
     template = dep["spec"]["template"]
+    template["spec"]["containers"][0]["env"].append({
+        "name": "GF_SECURITY_SLACK_TOKEN", "valueFrom": {"secretKeyRef": {
+            "name": "prod-alertmanager-slack-bot", "key": "token"}}})
+    template["spec"]["containers"][0]["env"].extend([
+        {"name": "GF_PLUGINS_PREINSTALL_DISABLED", "value": "true"},
+        {"name": "GF_PLUGINS_CHECK_FOR_UPDATES", "value": "false"},
+    ])
     for name, directory, key in [
             ("security-dashboards", "/etc/grafana/security-dashboards", "openwrt-security.json"),
             ("security-alerting", "/etc/grafana/provisioning/alerting", "security-alerting.json")]:
@@ -152,13 +164,8 @@ def add_monitoring(manifest: dict, *, paused: bool = False) -> None:
         template["spec"]["containers"][0]["volumeMounts"].append({
             "name": name, "mountPath": directory, "readOnly": True})
     template["metadata"]["annotations"]["checksum/provisioning"] = hashlib.sha256(encode(data).encode()).hexdigest()
-    grafana = {"app.kubernetes.io/name": "prod-grafana", "app.kubernetes.io/part-of": "prod-outside-in"}
-    alertmanager = {"app.kubernetes.io/name": "prod-alertmanager", "app.kubernetes.io/part-of": "prod-outside-in"}
     by_name["NetworkPolicy", "prod-grafana-restricted"]["spec"]["egress"].append({
-        "to": [{"podSelector": {"matchLabels": alertmanager}}],
-        "ports": [{"protocol": "TCP", "port": 9093}]})
-    manifest["items"].append({"apiVersion": "networking.k8s.io/v1", "kind": "NetworkPolicy",
-        "metadata": {"name": "prod-alertmanager-security-grafana", "namespace": "observability-prod"},
-        "spec": {"podSelector": {"matchLabels": alertmanager}, "policyTypes": ["Ingress"],
-                 "ingress": [{"from": [{"podSelector": {"matchLabels": grafana}}],
-                              "ports": [{"protocol": "TCP", "port": 9093}]}]}})
+        "to": [{"ipBlock": {"cidr": "0.0.0.0/0", "except": [
+            "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10",
+            "127.0.0.0/8", "169.254.0.0/16"]}}],
+        "ports": [{"protocol": "TCP", "port": 443}]})

@@ -15,6 +15,7 @@ data "external" "grafana" {
     nas_syslog_enabled     = tostring(var.nas_syslog_enabled)
     security_enabled       = tostring(var.security_enabled)
     security_alerts_paused = tostring(var.security_alerts_paused)
+    security_channel_id    = var.security_channel_id
   }
 }
 
@@ -62,7 +63,6 @@ resource "kubernetes_manifest" "grafana" {
       condition = each.value.metadata.namespace == "observability-prod" && contains([
         "ConfigMap/prod-grafana-provisioning", "Deployment/prod-grafana", "Service/prod-grafana",
         "NetworkPolicy/prod-grafana-restricted", "NetworkPolicy/prod-prometheus-grafana-ingress",
-        "NetworkPolicy/prod-alertmanager-security-grafana",
         "ConfigMap/prod-prometheus-config", "Deployment/prod-prometheus", "NetworkPolicy/prod-prometheus-restricted"
       ], each.key)
       error_message = "Only the existing production Grafana resources are allowed."
