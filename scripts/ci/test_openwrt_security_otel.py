@@ -30,14 +30,25 @@ def main():
     base = yaml.safe_load((ROOT / "clusters/homelab/apps/base/values-otel-collector.yaml").read_text())
     env = yaml.safe_load((ROOT / "clusters/homelab/apps/staging/values-otel-collector.yaml").read_text())["config"]
     overlay = yaml.safe_load((ROOT / "clusters/homelab/apps/staging/values-otel-collector-o4-prod-logs.yaml").read_text())["config"]
+    security = yaml.safe_load((ROOT / "clusters/homelab/apps/staging/values-otel-collector-openwrt-security.yaml").read_text())["config"]
+
+    def merge(left, right):
+        if isinstance(left, dict) and isinstance(right, dict):
+            result = copy.deepcopy(left)
+            for key, value in right.items():
+                result[key] = merge(result.get(key), value)
+            return result
+        return copy.deepcopy(right)
+
+    active = merge(merge(env, overlay), security)
     image = base["image"]["repository"] + ":" + str(base["image"]["tag"])
-    pipeline = copy.deepcopy(overlay["service"]["pipelines"]["logs/openwrt"])
+    pipeline = copy.deepcopy(active["service"]["pipelines"]["logs/openwrt"])
     assert pipeline["exporters"] == ["otlphttp/prod-logs"]
     assert overlay["service"]["pipelines"]["logs"]["exporters"] == ["otlphttp/prod-logs"]
     # Use the actual receiver and ordered processors; only the final sink is
     # replaced by a local debug exporter so the fixture cannot reach a site.
     pipeline["exporters"] = ["debug"]
-    processors = {**env["processors"], **overlay["processors"]}
+    processors = active["processors"]
     configuration = {
         "receivers": {"syslog/openwrt": env["receivers"]["syslog/openwrt"]},
         "processors": {name: processors[name] for name in pipeline["processors"]},

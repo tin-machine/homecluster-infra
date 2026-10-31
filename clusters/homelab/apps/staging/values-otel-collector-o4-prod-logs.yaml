@@ -8,33 +8,6 @@ tolerations:
     effect: NoSchedule
 config:
   processors:
-    resource/openwrt-security:
-      attributes:
-        - key: service.name
-          value: openwrt-security
-          action: upsert
-        - key: security_source
-          value: openwrt
-          action: upsert
-    transform/openwrt-security:
-      error_mode: ignore
-      log_statements:
-        - context: log
-          conditions:
-            - attributes["appname"] == "homecluster-security"
-          statements:
-            - set(attributes["security_parser_status"], "invalid")
-            # Native syslog body includes the RFC3164 header. The parsed
-            # message attribute contains the JSON envelope from the monitor.
-            - merge_maps(cache, ParseJSON(attributes["message"]), "upsert")
-            - set(cache["valid"], false)
-            - set(cache["valid"], true) where cache["schema"] == 1 and cache["security_source"] == "openwrt" and cache["log_type"] == "heartbeat" and IsString(cache["sensor"]) and IsMatch(cache["sensor"], "^[a-z0-9][a-z0-9_.-]{0,63}$")
-            - set(attributes["sensor"], cache["sensor"]) where cache["valid"] == true
-            - set(attributes["log_type"], "heartbeat") where cache["valid"] == true
-            - set(attributes["banip_status"], cache["banip_status"]) where cache["valid"] == true and IsString(cache["banip_status"])
-            - set(attributes["banip_run_age_seconds"], cache["banip_run_age_seconds"]) where cache["valid"] == true and (IsInt(cache["banip_run_age_seconds"]) or IsDouble(cache["banip_run_age_seconds"])) and cache["banip_run_age_seconds"] >= 0
-            - set(attributes["banip_feed_verification"], cache["banip_feed_verification"]) where cache["valid"] == true and IsString(cache["banip_feed_verification"])
-            - set(attributes["security_parser_status"], "ok") where cache["valid"] == true
     batch/o4-prod-logs:
       send_batch_size: 128
       send_batch_max_size: 256
@@ -72,7 +45,7 @@ config:
         exporters: [otlphttp/prod-logs]
       "logs/openwrt":
         receivers: [syslog/openwrt]
-        processors: [attributes/openwrt, resource/environment, resource/openwrt-security, transform/openwrt-security, batch/o4-prod-logs]
+        processors: [attributes/openwrt, resource/environment, batch/o4-prod-logs]
         exporters: [otlphttp/prod-logs]
       "logs/journal":
         receivers: [otlp]
