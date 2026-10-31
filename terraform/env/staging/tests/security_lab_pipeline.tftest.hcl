@@ -59,6 +59,10 @@ run "pipeline_restricted_and_pinned" {
     error_message = "The required actual NFS version must reach the runtime mount validator."
   }
   assert {
+    condition     = !jsondecode(kubernetes_config_map_v1.security_lab_runtime[0].data["settings.json"]).retention_enabled && contains(keys(kubernetes_config_map_v1.security_lab_runtime[0].data), "retention.py")
+    error_message = "Ship the immutable retention mechanism but keep automatic payload cleanup explicitly opt-in."
+  }
+  assert {
     condition     = tonumber(kubernetes_deployment_v1.security_lab_coordinator[0].spec[0].replicas) == 1 && kubernetes_deployment_v1.security_lab_coordinator[0].spec[0].strategy[0].type == "Recreate" && !kubernetes_deployment_v1.security_lab_coordinator[0].spec[0].template[0].spec[0].automount_service_account_token
     error_message = "Only one coordinator may own the projected, restricted API token."
   }
@@ -85,6 +89,35 @@ run "reject_unknown_nfs_version" {
     security_lab_nfs_version = 0
   }
   expect_failures = [var.security_lab_nfs_version]
+}
+
+run "retention_opt_in" {
+  command = plan
+  variables {
+    security_lab_offline_enabled   = true
+    security_lab_worker_node       = "fixture-worker"
+    security_lab_pipeline_enabled  = true
+    security_lab_logs_enabled      = true
+    o4_prod_container_logs_enabled = true
+    security_lab_home_nets         = ["192.0.2.0/24"]
+    security_lab_retention_enabled = true
+  }
+  plan_options {
+    refresh = false
+    target  = [kubernetes_config_map_v1.security_lab_runtime, kubernetes_deployment_v1.security_lab_coordinator]
+  }
+  assert {
+    condition     = jsondecode(kubernetes_config_map_v1.security_lab_runtime[0].data["settings.json"]).retention_enabled
+    error_message = "An explicit retention opt-in must reach the coordinator."
+  }
+}
+
+run "retention_requires_pipeline" {
+  command = plan
+  variables {
+    security_lab_retention_enabled = true
+  }
+  expect_failures = [var.security_lab_retention_enabled]
 }
 run "reject_pipeline_without_home_net" {
   command = plan

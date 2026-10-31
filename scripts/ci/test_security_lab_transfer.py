@@ -41,6 +41,8 @@ class FakeRunner:
         self.acked = False
         self.query_error = False
         self.delivery = None
+        self.source = None
+        self.source_transport_loss_once = False
         self.queries = []
         self.on_ack = None
         self.counts = {"a" * 64: 1, "b" * 64: 1}
@@ -115,6 +117,16 @@ class FakeRunner:
                 if not self.nas_exists:
                     raise transfer.TransferError("fixture_nas_missing")
                 result = self.durable()
+            elif action == "retention-source":
+                evidence = json.loads(value)
+                assert evidence == {"analysis_id": AID, "capture_id": CID, "pcap_sha256": self.manifest["pcap_sha256"],
+                                    "kind": "router", "confirmation": "acknowledged"}
+                assert self.acked
+                if self.source_transport_loss_once:
+                    self.source_transport_loss_once = False
+                    raise transfer.TransferError("fixture_source_transport_unknown")
+                self.source = evidence
+                result = {"status": "source_confirmed", "analysis_id": AID}
             elif action == "outbox-status":
                 result = {"status": "ready", "analysis_id": AID, "capture_id": CID,
                           "pcap_sha256": self.manifest["pcap_sha256"], "rows": self.rows, "result_status": "succeeded",
@@ -216,6 +228,30 @@ class TransferTests(unittest.TestCase):
         self.assertEqual(result["router_ack"], "acknowledged")
         self.assertEqual(sum(action == "intake" for action, _ in self.runner.actions), 1)
         self.assertEqual(sum(args[-1] == "pcap " + CID for args, _ in self.runner.calls), 1)
+
+    def test_source_confirmation_never_precedes_actual_router_ack(self):
+        self.send(ack=True)
+        actions = [x[0] for x in self.runner.actions]
+        self.assertLess(actions.index("ack-router"), actions.index("retention-source"))
+        self.assertEqual(json.loads(self.receipt.read_text())["retention_source"], "confirmed")
+
+    def test_source_confirmation_transport_loss_preserves_router_ack_and_recovers(self):
+        self.runner.source_transport_loss_once = True
+        with self.assertRaisesRegex(transfer.TransferError, "fixture_source_transport_unknown"):
+            self.send(ack=True)
+        self.assertEqual(json.loads(self.receipt.read_text())["router_ack"], "acknowledged")
+        self.assertNotIn("retention_source", json.loads(self.receipt.read_text()))
+        self.send(ack=True)
+        self.assertEqual(sum(x[0] == "ack-router" for x in self.runner.actions), 1)
+        self.assertEqual(sum(x[0] == "intake" for x in self.runner.actions), 1)
+        self.assertEqual(json.loads(self.receipt.read_text())["retention_source"], "confirmed")
+
+    def test_pending_source_cannot_enable_retirement(self):
+        self.send()
+        record = json.loads(self.receipt.read_text())
+        with self.assertRaisesRegex(transfer.TransferError, "source_not_confirmed"):
+            self.client.register_source(self.client.context(), record, self.receipt)
+        self.assertIsNone(self.runner.source)
 
     def test_all_event_ids_must_reach_loki_before_delivery_ack(self):
         self.send()

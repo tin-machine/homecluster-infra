@@ -173,6 +173,7 @@ def settings():
     value = json.loads((CONFIG / "settings.json").read_text())
     require(value["schema"] == 1 and value["uid"] >= 1000, "invalid_settings")
     require(value["node"] and value["cluster_uid"] and value["config_map"], "missing_identity")
+    require(type(value.get("retention_enabled", False)) is bool, "invalid_retention_setting")
     for engine in ("suricata", "zeek", "helper"):
         require(re.fullmatch(r"[a-z0-9./:_-]+@sha256:[a-f0-9]{64}", value["images"][engine]),
                 "image_not_pinned")
@@ -202,6 +203,7 @@ def intake(manifest, source):
         target = root / cid
         if target.exists():
             private_dir(target)
+            require(not (target / "retired.json").exists(), "capture_retired")
             saved = read_json(target / "manifest.json")
             require(saved == manifest and digest(target / "capture.pcap") == manifest["pcap_sha256"],
                     "capture_collision_or_partial_intake")
@@ -254,6 +256,7 @@ def verify_input(cid):
     try:
         fcntl.flock(lock, fcntl.LOCK_SH | fcntl.LOCK_NB)
         target = private_dir(captures / cid)
+        require(not (target / "retired.json").exists(), "capture_retired")
         manifest = read_json(target / "manifest.json")
         require(manifest["capture_id"] == cid and manifest["schema"] == 1, "capture_identity_mismatch")
         packet = target / "capture.pcap"
@@ -566,6 +569,7 @@ def envelope(aid, cid, kind, data):
 
 def publish(run, event_ids=None):
     """Once per durable submission marker. Explicit replay preserves event IDs."""
+    require(not (run / "cleanup-plan.json").exists(), "payload_retired")
     rows = read_json(run / "outbox.json", max_bytes=1024 * 1024)
     if event_ids is not None:
         wanted = set(event_ids)
@@ -578,6 +582,14 @@ def publish(run, event_ids=None):
 
 
 def request_replay(aid, event_ids=None):
+    require(isinstance(aid, str) and HEX.fullmatch(aid), "invalid_analysis_id")
+    run = private_dir(INPUT / "control" / aid)
+    with run_lock(run):
+        require(not (run / "cleanup-plan.json").exists(), "payload_retired")
+        return request_replay_locked(aid, event_ids)
+
+
+def request_replay_locked(aid, event_ids=None):
     rows = stored_outbox(aid)
     all_ids = [r["event_id"] for r in rows]
     if event_ids is None:
@@ -767,9 +779,13 @@ def coordinate():
     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     owner_path = control / "owner.json"
     last_error = None
+    next_cleanup = 0
     while True:
         try:
             process_replays()
+            if config.get("retention_enabled", False) and not owner_path.exists() and time.monotonic() >= next_cleanup:
+                retention_store().sweep(api, config)
+                next_cleanup = time.monotonic() + 300
             if owner_path.exists():
                 execute(api, config, read_json(owner_path), owner_path)
             captures = private_dir(INPUT / "captures", create=True)
@@ -862,11 +878,17 @@ def probe():
     print(json.dumps(result), flush=True)
 
 
+def retention_store():
+    from retention import Store
+    return Store(sys.modules[__name__])
+
+
 def main():
     os.umask(0o077)
     parser = argparse.ArgumentParser()
     parser.add_argument("action", choices=("engine", "coordinate", "intake", "verify-input", "read-outbox", "outbox-status",
-                                          "probe", "replay", "replay-missing", "delivery-ack"))
+                                          "probe", "replay", "replay-missing", "delivery-ack",
+                                          "retention-source", "retention-hold", "retention-status"))
     parser.add_argument("value", nargs="?")
     args = parser.parse_args()
     if args.action == "engine":
@@ -878,6 +900,13 @@ def main():
         print(json.dumps(intake(json.loads(args.value), sys.stdin.buffer)), flush=True)
     elif args.action == "probe":
         probe()
+    elif args.action == "retention-status":
+        print(json.dumps(retention_store().status()), flush=True)
+    elif args.action in ("retention-source", "retention-hold"):
+        require(args.value and len(args.value) <= 8192, "missing_retention_evidence")
+        value = json.loads(args.value)
+        store = retention_store()
+        print(json.dumps(store.register_source(value) if args.action == "retention-source" else store.hold(value)), flush=True)
     elif args.action == "verify-input":
         print(json.dumps(verify_input(args.value)), flush=True)
     elif args.action == "read-outbox":

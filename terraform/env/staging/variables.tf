@@ -352,3 +352,13 @@ variable "security_lab_nfs_version" {
     error_message = "Choose an explicit NFS major version 3 or 4."
   }
 }
+
+variable "security_lab_retention_enabled" {
+  type        = bool
+  description = "Retire delivered, source-confirmed payloads after 72h while retaining identity tombstones; explicit holds always win"
+  default     = false
+  validation {
+    condition     = !var.security_lab_retention_enabled || var.security_lab_pipeline_enabled
+    error_message = "Retention requires the identity-bound analysis coordinator."
+  }
+}

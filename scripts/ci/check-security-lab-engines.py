@@ -18,7 +18,7 @@ results = []
 with tempfile.TemporaryDirectory(prefix="security-engine-fixture-") as directory:
     mount = Path(directory)
     mount.chmod(0o755)
-    for name in ("runtime.py", "suricata.yaml", "local.rules", "classification.config", "reference.config", "threshold.config"):
+    for name in ("runtime.py", "retention.py", "suricata.yaml", "local.rules", "classification.config", "reference.config", "threshold.config"):
         target = mount / name
         target.write_text((ASSETS / name).read_text().replace("@HOME_NET@", "[192.0.2.0/24]"))
         target.chmod(0o644)
