@@ -41,6 +41,8 @@
       when: (openwrt_banip_install | default(false) | bool) or (openwrt_banip_enabled | default(false) | bool)
     - role: openwrt_security_monitor
       tags: ['security_monitor', 'openwrt_security_monitor']
+    - role: openwrt_security_capture
+      tags: ['security_capture', 'openwrt_security_capture']
     - role: openwrt_admin_tools
       tags: ['admin_tools', 'openwrt_admin_tools']
       when: openwrt_enable_admin_tools | default(false) | bool
