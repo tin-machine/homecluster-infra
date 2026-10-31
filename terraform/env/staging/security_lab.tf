@@ -7,12 +7,17 @@ locals {
 resource "kubernetes_namespace_v1" "security_lab" {
   metadata {
     name = "security-lab"
-    labels = {
+    labels = merge({
       "app.kubernetes.io/name"     = "security-lab"
       "app.kubernetes.io/instance" = "security-lab"
       "app.kubernetes.io/part-of"  = "security-monitoring"
       environment                  = "staging"
-    }
+      }, var.security_lab_offline_enabled ? {
+      "pod-security.kubernetes.io/enforce"         = "restricted"
+      "pod-security.kubernetes.io/enforce-version" = "latest"
+      "pod-security.kubernetes.io/audit"           = "restricted"
+      "pod-security.kubernetes.io/warn"            = "restricted"
+    } : {})
     annotations = {
       (var.security_lab_default_node_selector_annotation_key) = local.security_lab_default_node_selector_annotation_value
     }
@@ -187,52 +192,58 @@ resource "kubernetes_network_policy_v1" "security_lab_allow_dns_and_loki_egress"
     pod_selector {}
     policy_types = ["Egress"]
 
-    egress {
-      to {
-        namespace_selector {
-          match_labels = {
-            "kubernetes.io/metadata.name" = "kube-system"
+    dynamic "egress" {
+      for_each = var.security_lab_offline_enabled ? [] : [1]
+      content {
+        to {
+          namespace_selector {
+            match_labels = {
+              "kubernetes.io/metadata.name" = "kube-system"
+            }
+          }
+
+          pod_selector {
+            match_labels = {
+              "k8s-app" = "kube-dns"
+            }
           }
         }
 
-        pod_selector {
-          match_labels = {
-            "k8s-app" = "kube-dns"
-          }
+        ports {
+          protocol = "UDP"
+          port     = "53"
         }
-      }
 
-      ports {
-        protocol = "UDP"
-        port     = "53"
-      }
-
-      ports {
-        protocol = "TCP"
-        port     = "53"
+        ports {
+          protocol = "TCP"
+          port     = "53"
+        }
       }
     }
 
-    egress {
-      to {
-        namespace_selector {
-          match_labels = {
-            "kubernetes.io/metadata.name" = "observability-stg"
+    dynamic "egress" {
+      for_each = var.security_lab_offline_enabled ? [] : [1]
+      content {
+        to {
+          namespace_selector {
+            match_labels = {
+              "kubernetes.io/metadata.name" = "observability-stg"
+            }
+          }
+
+          pod_selector {
+            match_labels = {
+              "app.kubernetes.io/instance"  = "stg-loki"
+              "app.kubernetes.io/name"      = "loki"
+              "app.kubernetes.io/component" = "gateway"
+            }
           }
         }
 
-        pod_selector {
-          match_labels = {
-            "app.kubernetes.io/instance"  = "stg-loki"
-            "app.kubernetes.io/name"      = "loki"
-            "app.kubernetes.io/component" = "gateway"
-          }
+        ports {
+          protocol = "TCP"
+          port     = "80"
         }
-      }
-
-      ports {
-        protocol = "TCP"
-        port     = "80"
       }
     }
   }

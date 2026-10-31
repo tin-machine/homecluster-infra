@@ -1,0 +1,714 @@
+[
+  {
+    "metadata": [
+      {
+        "annotations": {},
+        "generation": 1,
+        "labels": {
+          "kubernetes.io/hostname": "fixture-worker",
+          "node-role.kubernetes.io/worker": "true"
+        },
+        "name": "fixture-worker",
+        "resource_version": "1",
+        "uid": "fixture-worker-uid"
+      }
+    ],
+    "spec": [
+      {
+        "pod_cidr": "192.0.2.0/24",
+        "pod_cidrs": [
+          "192.0.2.0/24"
+        ],
+        "provider_id": "",
+        "taints": [],
+        "unschedulable": false
+      }
+    ],
+    "status": [
+      {
+        "addresses": [],
+        "allocatable": {
+          "cpu": "4",
+          "memory": "8Gi"
+        },
+        "capacity": {
+          "cpu": "4",
+          "memory": "8Gi"
+        },
+        "conditions": [
+          {
+            "last_heartbeat_time": "2026-01-01T00:00:00Z",
+            "last_transition_time": "2026-01-01T00:00:00Z",
+            "message": "fixture",
+            "reason": "fixture",
+            "status": "True",
+            "type": "Ready"
+          },
+          {
+            "last_heartbeat_time": "2026-01-01T00:00:00Z",
+            "last_transition_time": "2026-01-01T00:00:00Z",
+            "message": "fixture",
+            "reason": "fixture",
+            "status": "False",
+            "type": "MemoryPressure"
+          },
+          {
+            "last_heartbeat_time": "2026-01-01T00:00:00Z",
+            "last_transition_time": "2026-01-01T00:00:00Z",
+            "message": "fixture",
+            "reason": "fixture",
+            "status": "False",
+            "type": "DiskPressure"
+          },
+          {
+            "last_heartbeat_time": "2026-01-01T00:00:00Z",
+            "last_transition_time": "2026-01-01T00:00:00Z",
+            "message": "fixture",
+            "reason": "fixture",
+            "status": "False",
+            "type": "PIDPressure"
+          }
+        ],
+        "node_info": [
+          {
+            "architecture": "arm64",
+            "boot_id": "fixture",
+            "container_runtime_version": "containerd://fixture",
+            "kernel_version": "fixture",
+            "kube_proxy_version": "",
+            "kubelet_version": "v1.36.4",
+            "machine_id": "fixture",
+            "operating_system": "linux",
+            "os_image": "fixture",
+            "system_uuid": "fixture"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "metadata": [
+      {
+        "annotations": {},
+        "generation": 1,
+        "labels": {
+          "kubernetes.io/hostname": "fixture-control-plane",
+          "node-role.kubernetes.io/worker": "true",
+          "node-role.kubernetes.io/control-plane": "true"
+        },
+        "name": "fixture-control-plane",
+        "resource_version": "1",
+        "uid": "fixture-worker-uid"
+      }
+    ],
+    "spec": [
+      {
+        "pod_cidr": "192.0.2.0/24",
+        "pod_cidrs": [
+          "192.0.2.0/24"
+        ],
+        "provider_id": "",
+        "taints": [],
+        "unschedulable": false
+      }
+    ],
+    "status": [
+      {
+        "addresses": [
+          {
+            "address": "192.0.2.2",
+            "type": "InternalIP"
+          },
+          {
+            "address": "fixture-control-plane",
+            "type": "Hostname"
+          }
+        ],
+        "allocatable": {
+          "cpu": "4",
+          "memory": "8Gi"
+        },
+        "capacity": {
+          "cpu": "4",
+          "memory": "8Gi"
+        },
+        "conditions": [
+          {
+            "last_heartbeat_time": "2026-01-01T00:00:00Z",
+            "last_transition_time": "2026-01-01T00:00:00Z",
+            "message": "fixture",
+            "reason": "fixture",
+            "status": "True",
+            "type": "Ready"
+          },
+          {
+            "last_heartbeat_time": "2026-01-01T00:00:00Z",
+            "last_transition_time": "2026-01-01T00:00:00Z",
+            "message": "fixture",
+            "reason": "fixture",
+            "status": "False",
+            "type": "MemoryPressure"
+          },
+          {
+            "last_heartbeat_time": "2026-01-01T00:00:00Z",
+            "last_transition_time": "2026-01-01T00:00:00Z",
+            "message": "fixture",
+            "reason": "fixture",
+            "status": "False",
+            "type": "DiskPressure"
+          },
+          {
+            "last_heartbeat_time": "2026-01-01T00:00:00Z",
+            "last_transition_time": "2026-01-01T00:00:00Z",
+            "message": "fixture",
+            "reason": "fixture",
+            "status": "False",
+            "type": "PIDPressure"
+          }
+        ],
+        "node_info": [
+          {
+            "architecture": "arm64",
+            "boot_id": "fixture",
+            "container_runtime_version": "containerd://fixture",
+            "kernel_version": "fixture",
+            "kube_proxy_version": "",
+            "kubelet_version": "v1.36.4",
+            "machine_id": "fixture",
+            "operating_system": "linux",
+            "os_image": "fixture",
+            "system_uuid": "fixture"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "metadata": [
+      {
+        "annotations": {},
+        "generation": 1,
+        "labels": {
+          "kubernetes.io/hostname": "fixture-unknown",
+          "node-role.kubernetes.io/worker": "true"
+        },
+        "name": "fixture-unknown",
+        "resource_version": "1",
+        "uid": "fixture-worker-uid"
+      }
+    ],
+    "spec": [
+      {
+        "pod_cidr": "192.0.2.0/24",
+        "pod_cidrs": [
+          "192.0.2.0/24"
+        ],
+        "provider_id": "",
+        "taints": [],
+        "unschedulable": false
+      }
+    ],
+    "status": [
+      {
+        "addresses": [],
+        "allocatable": {
+          "cpu": "4",
+          "memory": "8Gi"
+        },
+        "capacity": {
+          "cpu": "4",
+          "memory": "8Gi"
+        },
+        "conditions": [
+          {
+            "last_heartbeat_time": "2026-01-01T00:00:00Z",
+            "last_transition_time": "2026-01-01T00:00:00Z",
+            "message": "fixture",
+            "reason": "fixture",
+            "status": "True",
+            "type": "Ready"
+          },
+          {
+            "last_heartbeat_time": "2026-01-01T00:00:00Z",
+            "last_transition_time": "2026-01-01T00:00:00Z",
+            "message": "fixture",
+            "reason": "fixture",
+            "status": "False",
+            "type": "MemoryPressure"
+          },
+          {
+            "last_heartbeat_time": "2026-01-01T00:00:00Z",
+            "last_transition_time": "2026-01-01T00:00:00Z",
+            "message": "fixture",
+            "reason": "fixture",
+            "status": "False",
+            "type": "DiskPressure"
+          }
+        ],
+        "node_info": [
+          {
+            "architecture": "arm64",
+            "boot_id": "fixture",
+            "container_runtime_version": "containerd://fixture",
+            "kernel_version": "fixture",
+            "kube_proxy_version": "",
+            "kubelet_version": "v1.36.4",
+            "machine_id": "fixture",
+            "operating_system": "linux",
+            "os_image": "fixture",
+            "system_uuid": "fixture"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "metadata": [
+      {
+        "annotations": {},
+        "generation": 1,
+        "labels": {
+          "kubernetes.io/hostname": "fixture-pressure",
+          "node-role.kubernetes.io/worker": "true"
+        },
+        "name": "fixture-pressure",
+        "resource_version": "1",
+        "uid": "fixture-worker-uid"
+      }
+    ],
+    "spec": [
+      {
+        "pod_cidr": "192.0.2.0/24",
+        "pod_cidrs": [
+          "192.0.2.0/24"
+        ],
+        "provider_id": "",
+        "taints": [],
+        "unschedulable": false
+      }
+    ],
+    "status": [
+      {
+        "addresses": [],
+        "allocatable": {
+          "cpu": "4",
+          "memory": "8Gi"
+        },
+        "capacity": {
+          "cpu": "4",
+          "memory": "8Gi"
+        },
+        "conditions": [
+          {
+            "last_heartbeat_time": "2026-01-01T00:00:00Z",
+            "last_transition_time": "2026-01-01T00:00:00Z",
+            "message": "fixture",
+            "reason": "fixture",
+            "status": "True",
+            "type": "Ready"
+          },
+          {
+            "last_heartbeat_time": "2026-01-01T00:00:00Z",
+            "last_transition_time": "2026-01-01T00:00:00Z",
+            "message": "fixture",
+            "reason": "fixture",
+            "status": "True",
+            "type": "MemoryPressure"
+          },
+          {
+            "last_heartbeat_time": "2026-01-01T00:00:00Z",
+            "last_transition_time": "2026-01-01T00:00:00Z",
+            "message": "fixture",
+            "reason": "fixture",
+            "status": "False",
+            "type": "DiskPressure"
+          },
+          {
+            "last_heartbeat_time": "2026-01-01T00:00:00Z",
+            "last_transition_time": "2026-01-01T00:00:00Z",
+            "message": "fixture",
+            "reason": "fixture",
+            "status": "False",
+            "type": "PIDPressure"
+          }
+        ],
+        "node_info": [
+          {
+            "architecture": "arm64",
+            "boot_id": "fixture",
+            "container_runtime_version": "containerd://fixture",
+            "kernel_version": "fixture",
+            "kube_proxy_version": "",
+            "kubelet_version": "v1.36.4",
+            "machine_id": "fixture",
+            "operating_system": "linux",
+            "os_image": "fixture",
+            "system_uuid": "fixture"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "metadata": [
+      {
+        "annotations": {},
+        "generation": 1,
+        "labels": {
+          "kubernetes.io/hostname": "fixture-suspended",
+          "node-role.kubernetes.io/worker": "true"
+        },
+        "name": "fixture-suspended",
+        "resource_version": "1",
+        "uid": "fixture-worker-uid"
+      }
+    ],
+    "spec": [
+      {
+        "pod_cidr": "192.0.2.0/24",
+        "pod_cidrs": [
+          "192.0.2.0/24"
+        ],
+        "provider_id": "",
+        "taints": [],
+        "unschedulable": true
+      }
+    ],
+    "status": [
+      {
+        "addresses": [],
+        "allocatable": {
+          "cpu": "4",
+          "memory": "8Gi"
+        },
+        "capacity": {
+          "cpu": "4",
+          "memory": "8Gi"
+        },
+        "conditions": [
+          {
+            "last_heartbeat_time": "2026-01-01T00:00:00Z",
+            "last_transition_time": "2026-01-01T00:00:00Z",
+            "message": "fixture",
+            "reason": "fixture",
+            "status": "True",
+            "type": "Ready"
+          },
+          {
+            "last_heartbeat_time": "2026-01-01T00:00:00Z",
+            "last_transition_time": "2026-01-01T00:00:00Z",
+            "message": "fixture",
+            "reason": "fixture",
+            "status": "False",
+            "type": "MemoryPressure"
+          },
+          {
+            "last_heartbeat_time": "2026-01-01T00:00:00Z",
+            "last_transition_time": "2026-01-01T00:00:00Z",
+            "message": "fixture",
+            "reason": "fixture",
+            "status": "False",
+            "type": "DiskPressure"
+          },
+          {
+            "last_heartbeat_time": "2026-01-01T00:00:00Z",
+            "last_transition_time": "2026-01-01T00:00:00Z",
+            "message": "fixture",
+            "reason": "fixture",
+            "status": "False",
+            "type": "PIDPressure"
+          }
+        ],
+        "node_info": [
+          {
+            "architecture": "arm64",
+            "boot_id": "fixture",
+            "container_runtime_version": "containerd://fixture",
+            "kernel_version": "fixture",
+            "kube_proxy_version": "",
+            "kubelet_version": "v1.36.4",
+            "machine_id": "fixture",
+            "operating_system": "linux",
+            "os_image": "fixture",
+            "system_uuid": "fixture"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "metadata": [
+      {
+        "annotations": {},
+        "generation": 1,
+        "labels": {
+          "kubernetes.io/hostname": "fixture-tainted",
+          "node-role.kubernetes.io/worker": "true"
+        },
+        "name": "fixture-tainted",
+        "resource_version": "1",
+        "uid": "fixture-worker-uid"
+      }
+    ],
+    "spec": [
+      {
+        "pod_cidr": "192.0.2.0/24",
+        "pod_cidrs": [
+          "192.0.2.0/24"
+        ],
+        "provider_id": "",
+        "taints": [
+          {
+            "key": "fixture",
+            "value": "blocked",
+            "effect": "NoSchedule"
+          }
+        ],
+        "unschedulable": false
+      }
+    ],
+    "status": [
+      {
+        "addresses": [],
+        "allocatable": {
+          "cpu": "4",
+          "memory": "8Gi"
+        },
+        "capacity": {
+          "cpu": "4",
+          "memory": "8Gi"
+        },
+        "conditions": [
+          {
+            "last_heartbeat_time": "2026-01-01T00:00:00Z",
+            "last_transition_time": "2026-01-01T00:00:00Z",
+            "message": "fixture",
+            "reason": "fixture",
+            "status": "True",
+            "type": "Ready"
+          },
+          {
+            "last_heartbeat_time": "2026-01-01T00:00:00Z",
+            "last_transition_time": "2026-01-01T00:00:00Z",
+            "message": "fixture",
+            "reason": "fixture",
+            "status": "False",
+            "type": "MemoryPressure"
+          },
+          {
+            "last_heartbeat_time": "2026-01-01T00:00:00Z",
+            "last_transition_time": "2026-01-01T00:00:00Z",
+            "message": "fixture",
+            "reason": "fixture",
+            "status": "False",
+            "type": "DiskPressure"
+          },
+          {
+            "last_heartbeat_time": "2026-01-01T00:00:00Z",
+            "last_transition_time": "2026-01-01T00:00:00Z",
+            "message": "fixture",
+            "reason": "fixture",
+            "status": "False",
+            "type": "PIDPressure"
+          }
+        ],
+        "node_info": [
+          {
+            "architecture": "arm64",
+            "boot_id": "fixture",
+            "container_runtime_version": "containerd://fixture",
+            "kernel_version": "fixture",
+            "kube_proxy_version": "",
+            "kubelet_version": "v1.36.4",
+            "machine_id": "fixture",
+            "operating_system": "linux",
+            "os_image": "fixture",
+            "system_uuid": "fixture"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "metadata": [
+      {
+        "annotations": {},
+        "generation": 1,
+        "labels": {
+          "kubernetes.io/hostname": "fixture-wrong-arch",
+          "node-role.kubernetes.io/worker": "true"
+        },
+        "name": "fixture-wrong-arch",
+        "resource_version": "1",
+        "uid": "fixture-worker-uid"
+      }
+    ],
+    "spec": [
+      {
+        "pod_cidr": "192.0.2.0/24",
+        "pod_cidrs": [
+          "192.0.2.0/24"
+        ],
+        "provider_id": "",
+        "taints": [],
+        "unschedulable": false
+      }
+    ],
+    "status": [
+      {
+        "addresses": [],
+        "allocatable": {
+          "cpu": "4",
+          "memory": "8Gi"
+        },
+        "capacity": {
+          "cpu": "4",
+          "memory": "8Gi"
+        },
+        "conditions": [
+          {
+            "last_heartbeat_time": "2026-01-01T00:00:00Z",
+            "last_transition_time": "2026-01-01T00:00:00Z",
+            "message": "fixture",
+            "reason": "fixture",
+            "status": "True",
+            "type": "Ready"
+          },
+          {
+            "last_heartbeat_time": "2026-01-01T00:00:00Z",
+            "last_transition_time": "2026-01-01T00:00:00Z",
+            "message": "fixture",
+            "reason": "fixture",
+            "status": "False",
+            "type": "MemoryPressure"
+          },
+          {
+            "last_heartbeat_time": "2026-01-01T00:00:00Z",
+            "last_transition_time": "2026-01-01T00:00:00Z",
+            "message": "fixture",
+            "reason": "fixture",
+            "status": "False",
+            "type": "DiskPressure"
+          },
+          {
+            "last_heartbeat_time": "2026-01-01T00:00:00Z",
+            "last_transition_time": "2026-01-01T00:00:00Z",
+            "message": "fixture",
+            "reason": "fixture",
+            "status": "False",
+            "type": "PIDPressure"
+          }
+        ],
+        "node_info": [
+          {
+            "architecture": "amd64",
+            "boot_id": "fixture",
+            "container_runtime_version": "containerd://fixture",
+            "kernel_version": "fixture",
+            "kube_proxy_version": "",
+            "kubelet_version": "v1.36.4",
+            "machine_id": "fixture",
+            "operating_system": "linux",
+            "os_image": "fixture",
+            "system_uuid": "fixture"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "metadata": [
+      {
+        "annotations": {},
+        "generation": 1,
+        "labels": {
+          "kubernetes.io/hostname": "fixture-worker",
+          "node-role.kubernetes.io/worker": "true"
+        },
+        "name": "fixture-duplicate",
+        "resource_version": "1",
+        "uid": "fixture-worker-uid"
+      }
+    ],
+    "spec": [
+      {
+        "pod_cidr": "192.0.2.0/24",
+        "pod_cidrs": [
+          "192.0.2.0/24"
+        ],
+        "provider_id": "",
+        "taints": [],
+        "unschedulable": false
+      }
+    ],
+    "status": [
+      {
+        "addresses": [],
+        "allocatable": {
+          "cpu": "4",
+          "memory": "8Gi"
+        },
+        "capacity": {
+          "cpu": "4",
+          "memory": "8Gi"
+        },
+        "conditions": [
+          {
+            "last_heartbeat_time": "2026-01-01T00:00:00Z",
+            "last_transition_time": "2026-01-01T00:00:00Z",
+            "message": "fixture",
+            "reason": "fixture",
+            "status": "True",
+            "type": "Ready"
+          },
+          {
+            "last_heartbeat_time": "2026-01-01T00:00:00Z",
+            "last_transition_time": "2026-01-01T00:00:00Z",
+            "message": "fixture",
+            "reason": "fixture",
+            "status": "False",
+            "type": "MemoryPressure"
+          },
+          {
+            "last_heartbeat_time": "2026-01-01T00:00:00Z",
+            "last_transition_time": "2026-01-01T00:00:00Z",
+            "message": "fixture",
+            "reason": "fixture",
+            "status": "False",
+            "type": "DiskPressure"
+          },
+          {
+            "last_heartbeat_time": "2026-01-01T00:00:00Z",
+            "last_transition_time": "2026-01-01T00:00:00Z",
+            "message": "fixture",
+            "reason": "fixture",
+            "status": "False",
+            "type": "PIDPressure"
+          },
+          {
+            "last_heartbeat_time": "2026-01-01T00:00:00Z",
+            "last_transition_time": "2026-01-01T00:00:00Z",
+            "message": "fixture",
+            "reason": "fixture",
+            "status": "False",
+            "type": "Ready"
+          }
+        ],
+        "node_info": [
+          {
+            "architecture": "arm64",
+            "boot_id": "fixture",
+            "container_runtime_version": "containerd://fixture",
+            "kernel_version": "fixture",
+            "kube_proxy_version": "",
+            "kubelet_version": "v1.36.4",
+            "machine_id": "fixture",
+            "operating_system": "linux",
+            "os_image": "fixture",
+            "system_uuid": "fixture"
+          }
+        ]
+      }
+    ]
+  }
+]
