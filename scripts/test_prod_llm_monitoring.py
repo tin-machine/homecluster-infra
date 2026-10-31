@@ -15,7 +15,7 @@ class LlmMonitoringTests(unittest.TestCase):
         self.assertEqual(b["scrape_configs"][:-1],a["scrape_configs"])
         self.assertEqual(b["rule_files"],a["rule_files"]);self.assertEqual(b["alerting"],a["alerting"])
         job=b["scrape_configs"][-1]
-        self.assertEqual(job["job_name"],"rpi5-03-llm")
+        self.assertEqual(job["job_name"],"local-llm")
         self.assertEqual(job["static_configs"],[{"targets":["192.0.2.23:8080"]}])
         self.assertEqual(job["scrape_interval"],"15s");self.assertEqual(job["scrape_timeout"],"5s")
         self.assertEqual(job["sample_limit"],200)
