@@ -1,6 +1,11 @@
 """Executable producer/consumer contracts for opt-in NAS monitoring."""
 import copy
 import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
 import unittest
 
 import prod_nas_monitoring as nas
@@ -134,6 +139,26 @@ class NasMonitoringTests(unittest.TestCase):
         expected = copy.deepcopy(site)
         terraform_manifest(prometheus_site=site, nas_address="192.0.2.10")
         self.assertEqual(site, expected)
+
+    def test_external_query_preserves_concurrent_llm_monitoring(self):
+        old = terraform_manifest(prometheus_site=fixture(), llm_address="192.0.2.11")
+        with tempfile.TemporaryDirectory(prefix="nas-llm-contract-") as directory:
+            path = Path(directory) / "site.json"
+            path.write_text(json.dumps(fixture()))
+            path.chmod(0o600)
+            query = {"prometheus_site_path": str(path), "llm_address": "192.0.2.11",
+                     "nas_address": "192.0.2.10", "nas_username": "monitor"}
+            result = subprocess.run(
+                [sys.executable, str(Path(__file__).with_name("prod_grafana_terraform_input.py"))],
+                input=json.dumps(query), capture_output=True, text=True,
+                env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}, timeout=10, check=True)
+        new = json.loads(json.loads(result.stdout)["manifest"])
+        key = "ConfigMap/prod-prometheus-config"
+        old_cfg = json.loads(index(old)[key]["data"]["prometheus.json"])
+        new_cfg = json.loads(index(new)[key]["data"]["prometheus.json"])
+        self.assertEqual(new_cfg["scrape_configs"][:-1], old_cfg["scrape_configs"])
+        self.assertIn("192.0.2.11", json.dumps(new_cfg))
+        self.assertEqual(new_cfg["scrape_configs"][-1]["job_name"], nas.JOB)
 
 
 if __name__ == "__main__":

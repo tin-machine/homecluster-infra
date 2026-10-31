@@ -5,6 +5,7 @@ data "external" "grafana" {
     folder_uid           = var.existing_folder_uid
     prometheus_site_path = var.prometheus_site_path
     rag_address          = var.rag_enabled ? var.rag_address : ""
+    llm_address          = var.llm_address
     desktop_host_address = var.desktop_host_address
     typevt_host_address  = var.typevt_host_address
     attention_enabled    = tostring(var.attention_enabled)

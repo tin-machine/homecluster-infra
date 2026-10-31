@@ -98,3 +98,9 @@ variable "nas_syslog_enabled" {
   type        = bool
   default     = false
 }
+
+variable "llm_address" {
+  type        = string
+  default     = ""
+  description = "Optional private or tailnet IPv4 address for local LLM queue metrics."
+}
