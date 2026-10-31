@@ -1,3 +1,4 @@
 ---
 openwrt_security_capture_enabled: false
 openwrt_security_capture_profiles: {}
+openwrt_security_capture_reader_public_key: ""
