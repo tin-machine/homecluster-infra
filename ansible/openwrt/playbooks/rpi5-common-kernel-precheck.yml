@@ -23,7 +23,8 @@
   gather_facts: false
   become: false
   vars:
-    homecluster_common_kernel_builder_min_free_kib: 8388608
+    # Reserve build peak plus k3s imagefs reclaim headroom, aligned with cleanup.
+    homecluster_common_kernel_builder_min_free_kib: 50331648
     homecluster_common_kernel_build_source_repo_default: https://github.com/raspberrypi/linux.git
   environment:
     LC_ALL: C
@@ -120,7 +121,14 @@
         probe="$path"
         while [ ! -e "$probe" ] && [ "$probe" != / ]; do probe="$(dirname "$probe")"; done
         available="$(df -Pk "$probe" | awk 'NR==2 {print $4}')"
-        test "$available" -ge "{{ homecluster_common_kernel_builder_min_free_kib | int }}"
+        required="{{ homecluster_common_kernel_builder_min_free_kib | int }}"
+        test "$available" -ge 0
+        test "$required" -gt 0
+        if [ "$available" -lt "$required" ]; then
+          printf 'Pi5 builder capacity gate failed: available=%sKiB required=%sKiB\n' "$available" "$required" >&2
+          exit 1
+        fi
+        printf 'Pi5 builder capacity gate passed: available=%sKiB required=%sKiB\n' "$available" "$required"
       args:
         executable: /bin/bash
       changed_when: false

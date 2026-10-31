@@ -199,6 +199,21 @@ def runtime_checks(root: Path, inventory: Path) -> tuple[str, list[str]]:
         timeout=1200,
     )
     if completed.returncode != 0:
+        builder = re.search(
+            r"Pi5 builder capacity gate failed: available=([0-9]+)KiB required=([0-9]+)KiB",
+            completed.stdout + completed.stderr,
+        )
+        if builder is not None:
+            available, required = (int(value) for value in builder.groups())
+            if 0 <= available < required <= (1 << 63) - 1:
+                raise PrecheckError(
+                    "builder_capacity_insufficient",
+                    diagnostics=(
+                        f"builder_available_kib={available}",
+                        f"builder_required_kib={required}",
+                        f"builder_shortfall_kib={required - available}",
+                    ),
+                )
         capacity = re.search(
             r"OpenWrt /srv capacity gate failed: available=([0-9]+)KiB required=([0-9]+)KiB",
             completed.stdout + completed.stderr,
