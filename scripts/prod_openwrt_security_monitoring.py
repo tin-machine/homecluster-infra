@@ -89,7 +89,7 @@ def provisioning(channel_id: str, *, paused: bool = False) -> dict:
         "contactPoints": [{"orgId": 1, "name": UID, "receivers": [{
             "uid": "ow-security-slack", "type": "slack",
             "disableResolveMessage": False,
-            "settings": {"recipient": channel_id, "token": "$GF_SECURITY_SLACK_TOKEN",
+            "settings": {"recipient": channel_id, "token": "$HOMECLUSTER_SECURITY_SLACK_TOKEN",
                          "title": "{{ .Status }}: OpenWrt security",
                          "text": "{{ .CommonLabels.alertname }} severity={{ .CommonLabels.severity }} status={{ .Status }}"},
         }]}],
@@ -150,7 +150,7 @@ def add_monitoring(manifest: dict, channel_id: str, *, paused: bool = False) -> 
     data["dashboard-provider.yaml"] = encode(provider)
     template = dep["spec"]["template"]
     template["spec"]["containers"][0]["env"].append({
-        "name": "GF_SECURITY_SLACK_TOKEN", "valueFrom": {"secretKeyRef": {
+        "name": "HOMECLUSTER_SECURITY_SLACK_TOKEN", "valueFrom": {"secretKeyRef": {
             "name": "prod-alertmanager-slack-bot", "key": "token"}}})
     template["spec"]["containers"][0]["env"].extend([
         {"name": "GF_PLUGINS_PREINSTALL_DISABLED", "value": "true"},

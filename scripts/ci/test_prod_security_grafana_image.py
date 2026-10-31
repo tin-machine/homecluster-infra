@@ -218,7 +218,7 @@ def main():
                    "--mount", f"type=bind,src={root}/provision,dst=/etc/grafana/provisioning,readonly",
                    "--mount", f"type=bind,src={root}/dashboards,dst=/etc/grafana/security-dashboards,readonly",
                    "-e", "GF_SECURITY_ADMIN_PASSWORD=" + PASSWORD, "-e", "GF_LOG_LEVEL=error",
-                   "-e", "GF_SECURITY_SLACK_TOKEN=" + BOT_TOKEN,
+                   "-e", "HOMECLUSTER_SECURITY_SLACK_TOKEN=" + BOT_TOKEN,
                    "-e", "GF_ANALYTICS_REPORTING_ENABLED=false", "-e", "GF_ANALYTICS_CHECK_FOR_UPDATES=false",
                    "-e", "GF_PLUGINS_PREINSTALL_DISABLED=true", "-e", "GF_PLUGINS_CHECK_FOR_UPDATES=false",
                    "-e", "GF_UNIFIED_ALERTING_MIN_INTERVAL=10s", IMAGE]

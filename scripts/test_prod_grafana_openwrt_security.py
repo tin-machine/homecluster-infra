@@ -47,7 +47,7 @@ class SecurityMonitoringTests(unittest.TestCase):
         self.assertEqual(old["containers"][0]["volumeMounts"], new["containers"][0]["volumeMounts"][:-2])
         new["volumes"] = new["volumes"][:-2]
         new["containers"][0]["volumeMounts"] = new["containers"][0]["volumeMounts"][:-2]
-        self.assertEqual(new["containers"][0]["env"][-3], {"name": "GF_SECURITY_SLACK_TOKEN",
+        self.assertEqual(new["containers"][0]["env"][-3], {"name": "HOMECLUSTER_SECURITY_SLACK_TOKEN",
             "valueFrom": {"secretKeyRef": {"name": "prod-alertmanager-slack-bot", "key": "token"}}})
         self.assertEqual(new["containers"][0]["env"][-2:], [
             {"name": "GF_PLUGINS_PREINSTALL_DISABLED", "value": "true"},
@@ -61,7 +61,7 @@ class SecurityMonitoringTests(unittest.TestCase):
         receiver = p["contactPoints"][0]["receivers"][0]
         self.assertEqual(receiver["type"], "slack")
         self.assertEqual(receiver["settings"]["recipient"], CHANNEL)
-        self.assertEqual(receiver["settings"]["token"], "$GF_SECURITY_SLACK_TOKEN")
+        self.assertEqual(receiver["settings"]["token"], "$HOMECLUSTER_SECURITY_SLACK_TOKEN")
         self.assertFalse(receiver["disableResolveMessage"])
         self.assertNotIn("annotations", receiver["settings"]["text"])
         self.assertNotIn("url", receiver["settings"])
