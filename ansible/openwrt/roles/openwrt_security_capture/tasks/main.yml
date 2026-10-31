@@ -1,7 +1,10 @@
 ---
 - name: Security capture の有効化入力を検証
   ansible.builtin.assert:
-    that: openwrt_security_capture_enabled is boolean
+    that:
+      - openwrt_security_capture_enabled is boolean
+      - openwrt_security_capture_trigger_enabled is boolean
+      - not openwrt_security_capture_trigger_enabled or openwrt_security_capture_enabled
 
 - name: Security capture reader 公開鍵の形式を検証
   ansible.builtin.assert:
@@ -175,3 +178,6 @@
   when:
     - openwrt_security_capture_reader_keys.stat.exists
     - (openwrt_security_capture_enabled and openwrt_security_capture_reader_public_key | length > 0) or openwrt_security_capture_reader_marker.rc | default(1) == 0
+
+- name: 確認付きcapture起動の構成と専用鍵を管理
+  ansible.builtin.include_tasks: trigger.yml

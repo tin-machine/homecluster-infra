@@ -843,6 +843,57 @@ def coordinate():
         time.sleep(10)
 
 
+def image_identity(value):
+    """CRI may expand Docker Hub and omit the tag of a digest-pinned image."""
+    if not isinstance(value, str) or '@sha256:' not in value:
+        return None
+    repository, digest_value = value.rsplit('@', 1)
+    if not re.fullmatch('sha256:[a-f0-9]{64}', digest_value):
+        return None
+    parts = repository.split('/')
+    parts[-1] = parts[-1].split(':', 1)[0]
+    if len(parts) == 1 or not any(x in parts[0] for x in ('.', ':')) and parts[0] != 'localhost':
+        parts.insert(0, 'docker.io')
+    if parts[0] == 'index.docker.io':
+        parts[0] = 'docker.io'
+    if len(parts) == 2 and parts[0] == 'docker.io':
+        parts.insert(1, 'library')
+    return '/'.join(parts) + '@' + digest_value
+
+
+def trigger_readiness():
+    """Read-only admission evidence; no image pulls, jobs, replay or cleanup."""
+    config, api = settings(), API()
+    node = api.call('GET', '/api/v1/nodes/' + config['node'])
+    node_ready(node)
+    cached = {image_identity(name) for image in node.get('status', {}).get('images', []) for name in image.get('names', [])}
+    require(all(image_identity(image) in cached for image in config['images'].values()), 'trigger_cold_image_cache')
+    require(mem_available() >= 3 * GIB, 'host_memory_reserve_low')
+    roots = (INPUT, *OUTPUTS.values())
+    for root in roots:
+        nfs_mount(root)
+        space(root)
+    control = private_dir(INPUT / 'control')
+    require(not (control / 'owner.json').exists(), 'trigger_analysis_owner_active')
+    require(not any(not terminal(job) for job in api.call('GET', JOBS)['items']), 'trigger_analysis_job_active')
+    captures = private_dir(INPUT / 'captures')
+    for directory in captures.iterdir():
+        if directory.name.startswith('.'):
+            require(directory.name == '.intake.lock', 'trigger_partial_intake')
+            continue
+        capture_id(directory.name)
+        private_dir(directory)
+        require((directory / 'manifest.json').exists() and (directory / 'request.json').exists(), 'trigger_partial_intake')
+        request = read_json(directory / 'request.json')
+        aid = request.get('analysis_id')
+        require(isinstance(aid, str) and HEX.fullmatch(aid), 'trigger_invalid_queue')
+        result = read_json(control / aid / 'result.json')
+        require(result.get('analysis_id') == aid and result.get('capture_id') == directory.name and
+                result.get('status') in ('succeeded', 'failed'), 'trigger_unfinished_analysis')
+    return {'status': 'ready', 'cluster_uid': config['cluster_uid'], 'worker': config['node'],
+            'configuration_sha256': config['asset_sha256'], 'images_cached': len(config['images']), 'automatic': False}
+
+
 def probe():
     """Read metadata and test only this tool's own per-PVC private directory."""
     result = {"schema": 1, "uid": os.getuid(), "gid": os.getgid(), "mem_available": mem_available(), "volumes": {}}
@@ -888,7 +939,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("action", choices=("engine", "coordinate", "intake", "verify-input", "read-outbox", "outbox-status",
                                           "probe", "replay", "replay-missing", "delivery-ack",
-                                          "retention-source", "retention-hold", "retention-status"))
+                                          "retention-source", "retention-hold", "retention-status", "trigger-readiness"))
     parser.add_argument("value", nargs="?")
     args = parser.parse_args()
     if args.action == "engine":
@@ -900,6 +951,9 @@ def main():
         print(json.dumps(intake(json.loads(args.value), sys.stdin.buffer)), flush=True)
     elif args.action == "probe":
         probe()
+    elif args.action == "trigger-readiness":
+        require(args.value is None, 'trigger_readiness_no_arguments')
+        print(json.dumps(trigger_readiness()), flush=True)
     elif args.action == "retention-status":
         print(json.dumps(retention_store().status()), flush=True)
     elif args.action in ("retention-source", "retention-hold"):

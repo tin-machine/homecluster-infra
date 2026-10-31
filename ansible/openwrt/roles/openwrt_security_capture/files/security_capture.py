@@ -226,15 +226,19 @@ def run_tcpdump(argv, duration):
             process.kill(); process.communicate()
 
 
-def request(profile):
+def request(profile, expected_sha256=None, planned_capture_id=None):
     data = config()
     if profile not in data['profiles']:
         raise CaptureError('profile_not_allowed')
     with lock():
+        if expected_sha256 is not None and digest(CONFIG) != expected_sha256:
+            raise CaptureError('configuration_changed')
         if (STATE/'request.json').exists():
             raise CaptureError('request_pending_requires_review')
         guards()
-        capture_id = dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ-')+uuid.uuid4().hex[:16]
+        capture_id = planned_capture_id or dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ-')+uuid.uuid4().hex[:16]
+        if not isinstance(capture_id, str) or not ID.fullmatch(capture_id):
+            raise CaptureError('capture_id')
         publish(STATE/'request.json', {'schema': 1, 'capture_id': capture_id, 'profile': profile,
                                     'created_epoch': time.time(), 'configuration_sha256': digest(CONFIG)})
         publish(STATE/'last-result.json', {'status': 'pending', 'capture_id': capture_id})
