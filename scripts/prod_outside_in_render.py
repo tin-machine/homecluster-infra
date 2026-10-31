@@ -86,17 +86,37 @@ def validate_site(document: object) -> dict:
         raise ValueError("OpenWrt metrics target must differ from staging metrics targets")
     prod = document.get("prod_metrics_target")
     if prod is not None:
-        prod = _names([prod], "prod_metrics_target", 1)[0]
+        if (not isinstance(prod, dict) or not {"name", "target"} <= set(prod)
+                or set(prod) - {"name", "target", "address"}):
+            raise ValueError("prod metrics target requires name, target and optional address")
+        explicit_address = prod.get("address")
+        address_supplied = "address" in prod
+        prod = _names([{key: prod[key] for key in ("name", "target")}],
+                      "prod_metrics_target", 1)[0]
         authority = urlsplit("tcp://" + prod["target"])
         try:
             address = ipaddress.IPv4Address(authority.hostname or "")
-        except ipaddress.AddressValueError as exc:
-            raise ValueError("prod metrics target must use IPv4:9100") from exc
-        if (not _valid_host(str(address)) or authority.port != 9100
+        except ipaddress.AddressValueError:
+            address = None
+        host = authority.hostname or ""
+        if (not _valid_host(host) or authority.port != 9100
                 or authority.username is not None or authority.password is not None
                 or authority.netloc != prod["target"] or authority.path
                 or authority.query or authority.fragment):
-            raise ValueError("prod metrics target must use IPv4:9100")
+            raise ValueError("prod metrics target must use a safe host:9100 authority")
+        if address is None:
+            if (re.fullmatch(r"[0-9.]+", host) or any(
+                    re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label) is None
+                    for label in host.split(".")) or not address_supplied):
+                raise ValueError("prod DNS target needs valid labels and an explicit IPv4 address")
+        if address_supplied:
+            if not isinstance(explicit_address, str):
+                raise ValueError("prod egress address must be canonical IPv4")
+            scoped = ipaddress.IPv4Address(explicit_address)
+            if (str(scoped) != explicit_address or not _valid_host(str(scoped))
+                    or (address is not None and scoped != address)):
+                raise ValueError("prod egress address must match an IPv4 target and be safe")
+            prod["address"] = str(scoped)
         others = metrics + ([openwrt] if openwrt else [])
         if any(prod["name"] == x["name"] or prod["target"] == x["target"] for x in others):
             raise ValueError("prod target must differ from staging and OpenWrt targets")
@@ -387,7 +407,8 @@ def build_manifest(site: dict) -> dict:
             "ports": [{"protocol": "TCP", "port": 9100}],
         })
     if site["prod_metrics_target"]:
-        address = site["prod_metrics_target"]["target"].split(":", 1)[0]
+        target = site["prod_metrics_target"]
+        address = target.get("address", target["target"].split(":", 1)[0])
         prometheus_egress.append({
             "to": [{"ipBlock": {"cidr": address + "/32"}}],
             "ports": [{"protocol": "TCP", "port": 9100}],

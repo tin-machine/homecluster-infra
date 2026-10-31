@@ -87,3 +87,45 @@ and fixed folder UIDs. Re-run plan with ownership takeover disabled and require
 zero changes. Roll back by restoring the previous source/site settings through
 Terraform; do not delete resources, state, or monitoring data. Keep the folder UID
 pinned when removing the RAG dashboard so URLs remain stable.
+
+## Production host monitoring
+
+`prod_host_enabled=true` adds one node-exporter DaemonSet and a **Production /
+Production hosts** dashboard. The default remains disabled. Set the existing
+outside-in site's `prod_metrics_target` explicitly:
+
+```json
+"prod_metrics_target": {
+  "name": "prod-node-1",
+  "target": "prod-node-1.lab.example.invalid:9100",
+  "address": "192.0.2.50"
+}
+```
+
+`name` must match the intended node's `kubernetes.io/hostname` label. The existing
+site contract requires four declared staging metric targets. The exporter is
+scheduled only on that production node; the host does not need a reboot. Host
+network/PID namespaces and a read-only host-root mount provide host metrics,
+following the [node-exporter container deployment guidance](https://github.com/prometheus/node_exporter/blob/v1.9.1/README.md#docker).
+It binds the node's actual host IP on TCP 9100. It does not listen on every host
+interface, install packages, or receive a Kubernetes service-account token.
+
+Prometheus scrapes the DNS name itself. Resolve it from the Prometheus Pod and
+verify the result equals `address` before applying. Only the explicit address's
+`/32` is added to egress; the source renderer performs no DNS lookup. An address
+change therefore requires reviewing both DNS and the egress input. Moving Grafana
+or Prometheus does not change the monitored host identity. Existing IPv4-only
+`prod_metrics_target` inputs remain supported without `address`.
+
+Review a no-change baseline with the previous inputs, then a saved desired plan
+containing only the new exporter and the intended existing configuration updates.
+The existing cluster-UID checks and data-resource destruction guards remain.
+Terraform waits for the single exporter to become Ready before rolling Grafana
+and Prometheus. Verify `up{job="prod-node-exporter"}=1`, host CPU/memory/filesystem
+series, the Production dashboard, existing scrapes, and unchanged PVC/PV UIDs.
+Missing measurements are shown as unobserved; rate panels need fresh samples.
+
+For rollback, restore the previous site input and disable `prod_host_enabled`,
+then review/apply that exact plan. The stateless exporter has its own resource
+and may be removed; existing monitoring data/resources keep `prevent_destroy`.
+Do not use `terraform destroy`, discard state, or delete persistent monitoring data.

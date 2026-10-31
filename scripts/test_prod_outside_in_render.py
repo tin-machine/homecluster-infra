@@ -34,6 +34,38 @@ def objects(manifest: dict) -> dict:
 
 
 class ProductionOutsideInTest(unittest.TestCase):
+    def test_prod_dns_keeps_hostname_and_separate_ipv4_egress(self):
+        site = fixture()
+        site["metrics_targets"] = [{"name": f"worker-{n}", "target": f"192.0.2.{n}:9100"}
+                                   for n in range(1, 5)]
+        site["prod_metrics_target"] = {
+            "name": "prod-worker", "target": "prod-worker.lab.example.invalid:9100",
+            "address": "198.51.100.5",
+        }
+        result = objects(r.build_manifest(site))
+        config = json.loads(result["prod-prometheus-config"]["data"]["prometheus.json"])
+        job = next(x for x in config["scrape_configs"] if x["job_name"] == "prod-node-exporter")
+        self.assertEqual(job["static_configs"], [{
+            "targets": ["prod-worker.lab.example.invalid:9100"],
+            "labels": {"node_name": "prod-worker"}}])
+        egress = result["prod-prometheus-restricted"]["spec"]["egress"]
+        self.assertIn({"to": [{"ipBlock": {"cidr": "198.51.100.5/32"}}],
+                       "ports": [{"protocol": "TCP", "port": 9100}]}, egress)
+        self.assertNotIn("prod-worker.lab", json.dumps(egress))
+        for change in ({"address": None}, {"address": "127.0.0.1"},
+                       {"address": "169.254.1.1"}, {"address": "198.51.100.0/24"},
+                       {"target": "-worker.lab:9100"}, {"target": "worker-.lab:9100"},
+                       {"target": "worker..lab:9100"}, {"target": "worker.lab:9100?"},
+                       {"target": "worker.lab:9100#"}, {"target": "worker.lab:9100/metrics"},
+                       {"target": "user@worker.lab:9100"}, {"target": "worker.lab:22"},
+                       {"target": "a" * 64 + ".lab:9100"}, {"extra": "rejected"}):
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                r.build_manifest({**site, "prod_metrics_target": {
+                    **site["prod_metrics_target"], **change}})
+        del site["prod_metrics_target"]["address"]
+        with self.assertRaises(ValueError):
+            r.build_manifest(site)
+
     def test_kernel_workers_include_isolated_prod_metrics_and_extended_series(self):
         import re
         site = fixture()

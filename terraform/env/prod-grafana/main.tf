@@ -8,6 +8,7 @@ data "external" "grafana" {
     desktop_host_address = var.desktop_host_address
     typevt_host_address  = var.typevt_host_address
     attention_enabled    = tostring(var.attention_enabled)
+    prod_host_enabled    = tostring(var.prod_host_enabled)
   }
 }
 
@@ -30,7 +31,7 @@ locals {
 }
 
 resource "kubernetes_manifest" "grafana" {
-  for_each = { for key, value in local.resources : key => value if value.kind != "Deployment" }
+  for_each = { for key, value in local.resources : key => value if value.kind != "Deployment" && value.kind != "DaemonSet" }
   manifest = each.value
 
   field_manager {
@@ -55,6 +56,35 @@ resource "kubernetes_manifest" "grafana" {
   }
 }
 
+resource "kubernetes_manifest" "host_exporter" {
+  for_each = { for key, value in local.resources : key => value if value.kind == "DaemonSet" }
+  manifest = each.value
+
+  field_manager { name = "terraform-prod-grafana" }
+  wait {
+    fields = {
+      "status.desiredNumberScheduled" = "1"
+      "status.numberReady"            = "1"
+    }
+  }
+  timeouts {
+    create = "5m"
+    update = "5m"
+    delete = "2m"
+  }
+
+  lifecycle {
+    precondition {
+      condition     = data.kubernetes_namespace_v1.cluster_identity.metadata[0].uid == var.expected_kube_system_uid
+      error_message = "Production cluster identity does not match the expected kube-system UID."
+    }
+    precondition {
+      condition     = each.key == "DaemonSet/prod-node-exporter" && each.value.metadata.namespace == "observability-prod"
+      error_message = "Only the opt-in production host exporter is allowed."
+    }
+  }
+}
+
 resource "kubernetes_manifest" "workload" {
   for_each = { for key, value in local.resources : key => value if value.kind == "Deployment" }
   # Updating the spec also invalidates the computed annotation map so that the
@@ -66,7 +96,7 @@ resource "kubernetes_manifest" "workload" {
       })
     })
   })
-  depends_on = [kubernetes_manifest.grafana]
+  depends_on = [kubernetes_manifest.grafana, kubernetes_manifest.host_exporter]
 
   wait { rollout = true }
   timeouts { update = "5m" }
