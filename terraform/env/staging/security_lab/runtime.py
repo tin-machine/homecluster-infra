@@ -5,10 +5,12 @@ No shell commands, capture credentials or external network clients are used.
 Only the coordinator has a projected, namespace-limited Kubernetes token.
 """
 import argparse
+from contextlib import contextmanager
 import ctypes
 import fcntl
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -290,9 +292,85 @@ def outbox_info(aid):
         return {"status": "pending", "analysis_id": aid}
     rows = stored_outbox(aid)
     result = read_json(run / "result.json")
+    receipt = delivery_info(run, [row["event_id"] for row in rows])
     return {"status": "ready", "analysis_id": aid, "capture_id": result["capture_id"],
             "pcap_sha256": result["pcap_sha256"], "result_status": result["status"],
-            "rows": rows, "delivered": (run / "delivered.json").exists()}
+            "rows": rows, "delivered": receipt is not None, "delivery": receipt}
+
+
+def valid_epoch(value):
+    return type(value) in (int, float) and math.isfinite(value) and 0 < value <= time.time() + 300
+
+
+def canonical_uid(value):
+    try:
+        return isinstance(value, str) and str(uuid.UUID(value)) == value
+    except ValueError:
+        return False
+
+
+def delivery_info(run, ids):
+    """A validated historical receipt, separate from current Loki availability."""
+    path = run / "delivered.json"
+    if not path.exists():
+        return None
+    value = read_json(path)
+    require(isinstance(value, dict) and set(value) <= {"schema", "at", "confirmed_at", "events", "loki_cluster_uid"},
+            "invalid_delivery_receipt")
+    require(type(value.get("schema", 1)) is int and value.get("schema", 1) in (1, 2) and value.get("events") == ids and
+            valid_epoch(value.get("at")), "invalid_delivery_receipt")
+    if "confirmed_at" in value:
+        require(valid_epoch(value["confirmed_at"]), "invalid_delivery_receipt")
+    if "loki_cluster_uid" in value:
+        require(canonical_uid(value["loki_cluster_uid"]), "invalid_delivery_target")
+    return value
+
+
+@contextmanager
+def run_lock(run, blocking=True):
+    """Serialize receipt changes and later cleanup for this one analysis."""
+    private_dir(run)
+    path = run / "mutation.lock"
+    fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    try:
+        regular(path)
+        fcntl.flock(fd, fcntl.LOCK_EX | (0 if blocking else fcntl.LOCK_NB))
+        yield
+    finally:
+        os.close(fd)
+
+
+def acknowledge_delivery(aid, evidence=None):
+    require(isinstance(aid, str) and HEX.fullmatch(aid), "invalid_analysis_id")
+    run = private_dir(INPUT / "control" / aid)
+    with run_lock(run):
+        return acknowledge_delivery_locked(aid, run, evidence)
+
+
+def acknowledge_delivery_locked(aid, run, evidence):
+    rows = stored_outbox(aid)
+    ids = [row["event_id"] for row in rows]
+    prior = delivery_info(run, ids)
+    if evidence is not None:
+        require(isinstance(evidence, dict) and set(evidence) == {"analysis_id", "event_ids", "loki_cluster_uid"} and evidence["analysis_id"] == aid,
+                "invalid_delivery_evidence")
+        supplied = evidence["event_ids"]
+        require(isinstance(supplied, list) and len(supplied) == len(ids) and
+                all(isinstance(x, str) and HEX.fullmatch(x) for x in supplied) and set(supplied) == set(ids),
+                "delivery_event_set_mismatch")
+        require(canonical_uid(evidence["loki_cluster_uid"]), "invalid_delivery_target")
+        require(not prior or prior.get("loki_cluster_uid", evidence["loki_cluster_uid"]) == evidence["loki_cluster_uid"],
+                "delivery_target_changed")
+    if prior is None:
+        value = {"at": time.time(), "events": ids}
+        if evidence:
+            value.update(schema=2, loki_cluster_uid=evidence["loki_cluster_uid"])
+        atomic(run / "delivered.json", value)
+    elif evidence and "loki_cluster_uid" not in prior:
+        # Upgrade a legacy receipt only after a fresh complete-ID query.
+        atomic(run / "delivered.json", dict(prior, schema=2, confirmed_at=time.time(),
+                                           loki_cluster_uid=evidence["loki_cluster_uid"]))
+    return {"status": "delivered", "analysis_id": aid, "events": len(ids), "already_acknowledged": prior is not None}
 
 
 def security_context():
@@ -811,23 +889,16 @@ def main():
         value = json.loads(args.value)
         require(set(value) == {"analysis_id", "event_ids"}, "invalid_replay_request")
         print(json.dumps(request_replay(value["analysis_id"], value["event_ids"])), flush=True)
+    elif args.action == "delivery-ack":
+        require(args.value and len(args.value) <= 8192, "missing_delivery_evidence")
+        evidence = json.loads(args.value) if args.value.startswith("{") else None
+        aid = evidence["analysis_id"] if evidence else args.value
+        print(json.dumps(acknowledge_delivery(aid, evidence)), flush=True)
     else:
         require(args.value and HEX.fullmatch(args.value), "invalid_analysis_id")
         run = private_dir(INPUT / "control" / args.value)
         require((run / "result.json").exists(), "result_not_durable")
-        if args.action == "replay":
-            print(json.dumps(request_replay(args.value)), flush=True)
-        else:
-            rows = stored_outbox(args.value)
-            target = run / "delivered.json"
-            ids = [r["event_id"] for r in rows]
-            duplicate = target.exists()
-            if duplicate:
-                require(read_json(target)["events"] == ids, "delivery_receipt_changed")
-            else:
-                atomic(target, {"at": time.time(), "events": ids})
-            print(json.dumps({"status": "delivered", "analysis_id": args.value,
-                              "events": len(ids), "already_acknowledged": duplicate}), flush=True)
+        print(json.dumps(request_replay(args.value)), flush=True)
     return 0
 
 

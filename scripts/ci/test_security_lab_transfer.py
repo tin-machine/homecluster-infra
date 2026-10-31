@@ -40,6 +40,8 @@ class FakeRunner:
         self.ack_transport_loss_once = False
         self.acked = False
         self.query_error = False
+        self.delivery = None
+        self.queries = []
         self.on_ack = None
         self.counts = {"a" * 64: 1, "b" * 64: 1}
         self.rows = [{"analysis_id": AID, "capture_id": CID, "event_id": letter * 64} for letter in ("a", "b")]
@@ -62,6 +64,7 @@ class FakeRunner:
         if command == "pcap " + CID:
             return self.packet + b"x" if self.bad_packet else self.packet
         if args[-2] == "reader@prod.example.test":
+            self.queries.append(json.loads(data))
             if self.query_error:
                 raise transfer.TransferError("fixture_query_error")
             return json.dumps({"status": "ok", "event_counts": self.counts}).encode()
@@ -114,13 +117,19 @@ class FakeRunner:
                 result = self.durable()
             elif action == "outbox-status":
                 result = {"status": "ready", "analysis_id": AID, "capture_id": CID,
-                          "pcap_sha256": self.manifest["pcap_sha256"], "rows": self.rows, "result_status": "succeeded"}
+                          "pcap_sha256": self.manifest["pcap_sha256"], "rows": self.rows, "result_status": "succeeded",
+                          "delivery": self.delivery, "delivered": self.delivery is not None}
             elif action == "replay-missing":
                 replay = json.loads(value)
                 for event_id in replay["event_ids"]:
                     self.counts[event_id] = 1
                 result = {"status": "replay_queued", "events": len(replay["event_ids"]), "analysis_id": AID}
             elif action == "delivery-ack":
+                evidence = json.loads(value)
+                assert evidence["analysis_id"] == AID and evidence["loki_cluster_uid"] == PROD
+                assert set(evidence["event_ids"]) == {x["event_id"] for x in self.rows}
+                self.delivery = {"schema": 2, "at": time.time(), "events": [x["event_id"] for x in self.rows],
+                                 "loki_cluster_uid": PROD}
                 result = {"status": "delivered", "analysis_id": AID, "events": len(self.rows)}
             else:
                 raise AssertionError(parts)
@@ -222,6 +231,62 @@ class TransferTests(unittest.TestCase):
             self.client.check_delivery(self.receipt, "reader@prod.example.test", PROD, wait_seconds=0)
         self.assertNotIn("delivery", json.loads(self.receipt.read_text()))
         self.assertFalse(any(action == "delivery-ack" for action, _ in self.runner.actions))
+
+    def test_old_undelivered_capture_can_replay_with_a_recent_query_window(self):
+        self.send()
+        saved = json.loads(self.receipt.read_text())
+        saved["started_at"] = time.time() - 96 * 3600
+        transfer.save_receipt(self.receipt, saved)
+        self.runner.counts = {"a" * 64: 1}
+        with patch.object(transfer.time, "sleep", return_value=None):
+            result = self.client.check_delivery(self.receipt, "reader@prod.example.test", PROD,
+                                                wait_seconds=0, replay_missing=True)
+        self.assertEqual(result["status"], "delivered")
+        self.assertTrue(result["replayed"])
+        self.assertTrue(all(q["start_ns"] > (time.time() - 72 * 3600) * 10 ** 9 for q in self.runner.queries))
+        self.assertEqual(sum(action == "intake" for action, _ in self.runner.actions), 1)
+
+    def test_historical_receipt_is_not_a_claim_of_current_loki_availability(self):
+        self.send()
+        self.client.check_delivery(self.receipt, "reader@prod.example.test", PROD, wait_seconds=0)
+        proof_at = self.runner.delivery["at"] = time.time() - 96 * 3600
+        self.runner.query_error = True
+        count = len(self.runner.queries)
+        result = self.client.check_delivery(self.receipt, "reader@prod.example.test", PROD, wait_seconds=0)
+        self.assertEqual(result["confirmation"], "historical_receipt")
+        self.assertEqual(result["loki_availability"], "not_checked")
+        self.assertIsNone(result["duplicate_records"])
+        self.assertEqual(len(self.runner.queries), count)
+        self.assertEqual(json.loads(self.receipt.read_text())["delivery"]["verified_at"], proof_at)
+        self.runner.delivery["loki_cluster_uid"] = CLUSTER
+        with self.assertRaisesRegex(transfer.TransferError, "delivery_target_changed"):
+            self.client.check_delivery(self.receipt, "reader@prod.example.test", PROD, wait_seconds=0)
+
+    def test_malformed_historical_event_receipt_never_becomes_delivered(self):
+        self.send()
+        self.runner.delivery = {"at": time.time(), "events": ["a" * 64], "loki_cluster_uid": PROD}
+        with self.assertRaisesRegex(transfer.TransferError, "historical_delivery_invalid"):
+            self.client.check_delivery(self.receipt, "reader@prod.example.test", PROD, wait_seconds=0)
+        self.assertFalse(any(action == "delivery-ack" for action, _ in self.runner.actions))
+
+    def test_expired_legacy_marker_needs_matching_local_destination_proof(self):
+        self.send()
+        at = time.time() - 96 * 3600
+        self.runner.delivery = {"at": at, "events": ["a" * 64, "b" * 64]}
+        self.runner.query_error = True
+        result = self.client.check_delivery(self.receipt, "reader@prod.example.test", PROD,
+                                            wait_seconds=0, replay_missing=True)
+        self.assertEqual(result["reason"], "legacy_delivery_target_receipt_required")
+        self.assertFalse(self.runner.queries)
+        self.assertFalse(any(action == "replay-missing" for action, _ in self.runner.actions))
+        record = json.loads(self.receipt.read_text())
+        record["delivery"] = {"status": "delivered", "event_ids": ["a" * 64, "b" * 64],
+                              "verified_at": at, "loki_cluster_uid": PROD}
+        transfer.save_receipt(self.receipt, record)
+        recovered = self.client.check_delivery(self.receipt, "reader@prod.example.test", PROD, wait_seconds=0)
+        self.assertEqual(recovered["confirmation"], "historical_receipt")
+        self.assertEqual(json.loads(self.receipt.read_text())["delivery"]["verified_at"], at)
+        self.assertFalse(self.runner.queries)
 
     def test_only_missing_events_are_queued_for_main_process_replay(self):
         self.send()
