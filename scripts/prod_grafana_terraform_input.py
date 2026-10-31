@@ -15,7 +15,13 @@ def terraform_manifest(*, include_rag: bool = False, folder_uid: str = "",
                        prometheus_site: dict | None = None, rag_address: str = "",
                        desktop_host_address: str = "", typevt_host_address: str = "",
                        include_attention: bool = False,
-                       include_prod_host: bool = False) -> dict:
+                       include_prod_host: bool = False, nas_address: str = "",
+                       nas_username: str = "prometheus", include_nas_syslog: bool = False) -> dict:
+    if not isinstance(nas_address, str):
+        raise ValueError("invalid NAS address")
+    if include_nas_syslog and (not nas_address or not prometheus_site
+                              or not prometheus_site.get("prod_metrics_target")):
+        raise ValueError("NAS syslog requires a NAS address and an explicit production node")
     if folder_uid and not re.fullmatch(r"[A-Za-z0-9_-]{1,40}", folder_uid):
         raise ValueError("invalid folder UID")
     host_addresses = {name: address for name, address in
@@ -39,6 +45,14 @@ def terraform_manifest(*, include_rag: bool = False, folder_uid: str = "",
         from prod_node_host_monitoring import add_dashboard, exporter
         add_dashboard(manifest)
         manifest["items"].append(exporter(prometheus_site["prod_metrics_target"]["name"]))
+    if nas_address:
+        if prometheus_site is None:
+            raise ValueError("NAS monitoring requires the Prometheus site")
+        from prod_nas_monitoring import add_monitoring
+        add_monitoring(manifest, nas_address, nas_username)
+    if include_nas_syslog:
+        from prod_nas_syslog import add_syslog
+        add_syslog(manifest, nas_address, prometheus_site["prod_metrics_target"]["name"])
     for obj in manifest["items"]:
         # Kubernetes omits an empty ingress list on read. With policyTypes=Ingress,
         # absent and empty both mean deny all ingress; avoid an artificial import diff.
@@ -51,7 +65,8 @@ def terraform_manifest(*, include_rag: bool = False, folder_uid: str = "",
 def main() -> None:
     query = json.load(sys.stdin)
     if set(query) - {"rag_enabled", "folder_uid", "prometheus_site_path", "rag_address",
-                      "desktop_host_address", "typevt_host_address", "attention_enabled", "prod_host_enabled"}:
+                      "desktop_host_address", "typevt_host_address", "attention_enabled", "prod_host_enabled",
+                      "nas_address", "nas_username", "nas_syslog_enabled"}:
         raise ValueError("unexpected renderer input")
     if query.get("rag_enabled", "false") not in ("true", "false"):
         raise ValueError("invalid rag_enabled")
@@ -59,6 +74,8 @@ def main() -> None:
         raise ValueError("invalid attention_enabled")
     if query.get("prod_host_enabled", "false") not in ("true", "false"):
         raise ValueError("invalid prod_host_enabled")
+    if query.get("nas_syslog_enabled", "false") not in ("true", "false"):
+        raise ValueError("invalid nas_syslog_enabled")
     site_path = query.get("prometheus_site_path", "")
     site = None
     if site_path:
@@ -72,7 +89,10 @@ def main() -> None:
                                   desktop_host_address=query.get("desktop_host_address", ""),
                                   typevt_host_address=query.get("typevt_host_address", ""),
                                   include_attention=query.get("attention_enabled") == "true",
-                                  include_prod_host=query.get("prod_host_enabled") == "true")
+                                  include_prod_host=query.get("prod_host_enabled") == "true",
+                                  nas_address=query.get("nas_address", ""),
+                                  nas_username=query.get("nas_username", "prometheus"),
+                                  include_nas_syslog=query.get("nas_syslog_enabled") == "true")
     print(json.dumps({"manifest": json.dumps(manifest, sort_keys=True)}))
 
 

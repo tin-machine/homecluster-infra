@@ -80,3 +80,21 @@ variable "prod_host_enabled" {
   type        = bool
   default     = false
 }
+
+variable "nas_address" {
+  description = "Opt-in private IPv4 of a QNAP TS-469/QTS 4.3.4 NAS using the calibrated legacy numeric SNMP profile; empty disables it."
+  type        = string
+  default     = ""
+}
+
+variable "nas_username" {
+  description = "Dedicated read-only SNMPv3 noAuthNoPriv username. Not a NAS login or password."
+  type        = string
+  default     = "prometheus"
+}
+
+variable "nas_syslog_enabled" {
+  description = "Opt in to a NAS-only RFC3164 UDP receiver on the explicit prod metrics node, UDP NodePort 31514, forwarding to internal Loki."
+  type        = bool
+  default     = false
+}

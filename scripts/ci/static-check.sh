@@ -264,6 +264,11 @@ else
   echo "python3 not found; skipping changed markdown style check"
 fi
 
+print_section "NAS monitoring contracts"
+if ! PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts -p 'test_prod_nas*.py'; then
+  fail=1
+fi
+
 print_section "terraform fmt"
 if command -v terraform >/dev/null 2>&1; then
   terraform fmt -check -recursive
