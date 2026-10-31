@@ -1,0 +1,13 @@
+---
+rpi_sd_wifi_build_enabled: false
+rpi_sd_wifi_sysroot: ""
+rpi_sd_wifi_tftp_dir: ""
+rpi_sd_wifi_work_root: ""
+rpi_sd_wifi_output_root: ""
+rpi_sd_wifi_image_id: ""
+rpi_sd_wifi_kernel_release: ""
+rpi_sd_wifi_source_revision: ""
+rpi_sd_wifi_size_mib: 512
+rpi_sd_wifi_build_timeout: 7200
+rpi_sd_wifi_extra_tool_dir: ""
+rpi_sd_wifi_local_payload_dir: "{{ lookup('env', 'HOME') }}/.cache/homecluster-sd-wifi"
