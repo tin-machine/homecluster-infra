@@ -96,6 +96,9 @@ jobs:
         shell: bash
         run: bash scripts/ci/check-kubernetes-namespace-metadata.sh
 
+      - name: Validate NFS v3 chart and boot policy
+        run: '"${RUNNER_TEMP}/pxe-contract-venv/bin/python" -B scripts/ci/test_nfs_v3_policy.py'
+
       - name: Validate CLI workspace retained storage and image pin
         shell: bash
         run: |

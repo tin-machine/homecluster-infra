@@ -1,0 +1,6 @@
+# Managed by Ansible. Exact server match; no global NFS version override.
+# Explicit Pod/PV mount options must agree with this policy.
+{% for server in nfs_client_v3_servers | unique | sort %}
+[ Server "{{ server }}" ]
+Nfsvers=3
+{% endfor %}

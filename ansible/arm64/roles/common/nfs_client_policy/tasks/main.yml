@@ -1,0 +1,29 @@
+---
+- name: NFS v3 server policy の形式を検証
+  ansible.builtin.assert:
+    that:
+      - nfs_client_v3_servers is sequence
+      - nfs_client_v3_servers is not string
+      - nfs_client_v3_servers is not mapping
+      - nfs_client_v3_servers | select('string') | list | length == nfs_client_v3_servers | length
+      - nfs_client_v3_servers | select('match', '^[A-Za-z0-9][A-Za-z0-9.:-]*$') | list | length == nfs_client_v3_servers | length
+    fail_msg: "nfs_client_v3_servers は引用符や改行を含まないserver名のlistにしてください"
+
+- name: NFS client policy directory を配置
+  become: true
+  ansible.builtin.file:
+    path: /etc/nfsmount.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: 指定serverの新規mountをNFS v3に固定
+  become: true
+  ansible.builtin.template:
+    src: server-v3.conf.j2
+    dest: /etc/nfsmount.conf.d/90-homecluster-v3.conf
+    owner: root
+    group: root
+    mode: '0644'
+  # No service restart or remount: existing users must be reviewed separately.

@@ -151,6 +151,16 @@ resource "helm_release" "nfs_provisioner" {
     nfs = {
       server = var.nfs_server
       path   = var.nfs_path
+      # The chart consumes this nested key for both the provisioner root PV
+      # and the StorageClass. A top-level mountOptions key is ignored.
+      mountOptions = [
+        "vers=3",
+        "rsize=1048576",
+        "wsize=1048576",
+        "hard",
+        "timeo=600",
+        "retrans=2",
+      ]
     }
     storageClass = {
       name            = "nfs-client"
@@ -159,13 +169,5 @@ resource "helm_release" "nfs_provisioner" {
       archiveOnDelete = true
       onDelete        = "retain"
     }
-    mountOptions = [
-      "vers=3",
-      "rsize=1048576",
-      "wsize=1048576",
-      "hard",
-      "timeo=600",
-      "retrans=2",
-    ]
   })]
 }
