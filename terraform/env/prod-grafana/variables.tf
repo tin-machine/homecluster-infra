@@ -122,3 +122,13 @@ variable "security_channel_id" {
   default     = ""
   description = "Private Slack channel ID for the security contact point. Token is referenced only through the existing Kubernetes Secret."
 }
+
+variable "nas_nfs_image" {
+  type        = string
+  default     = ""
+  description = "Opt-in digest-pinned NAS NFS statistics collector runtime image."
+  validation {
+    condition     = var.nas_nfs_image == "" || can(regex("^[A-Za-z0-9][A-Za-z0-9._:/-]*@sha256:[0-9a-f]{64}$", var.nas_nfs_image))
+    error_message = "NAS NFS collector image must be digest pinned."
+  }
+}
