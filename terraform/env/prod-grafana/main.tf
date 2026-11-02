@@ -10,6 +10,7 @@ data "external" "grafana" {
     typevt_host_address    = var.typevt_host_address
     attention_enabled      = tostring(var.attention_enabled)
     prod_host_enabled      = tostring(var.prod_host_enabled)
+    nas_nfs_image          = var.nas_nfs_image
     nas_address            = var.nas_address
     nas_username           = var.nas_username
     nas_syslog_enabled     = tostring(var.nas_syslog_enabled)
@@ -29,7 +30,9 @@ locals {
     "Service/prod-nas-snmp-exporter", "NetworkPolicy/prod-nas-snmp-restricted",
     "NetworkPolicy/prod-nas-prometheus-egress", "ConfigMap/prod-nas-syslog-config",
     "Deployment/prod-nas-syslog", "Service/prod-nas-syslog", "Service/prod-nas-syslog-metrics",
-    "NetworkPolicy/prod-nas-syslog-restricted", "NetworkPolicy/prod-nas-loki-ingress"
+    "NetworkPolicy/prod-nas-syslog-restricted", "NetworkPolicy/prod-nas-loki-ingress",
+    "ConfigMap/prod-nas-nfs-config", "Service/prod-nas-nfs-collector", "Deployment/prod-nas-nfs-collector",
+    "NetworkPolicy/prod-nas-nfs-restricted", "NetworkPolicy/prod-nas-nfs-prometheus-egress"
   ])
   rendered = jsondecode(data.external.grafana.result.manifest)
   resources = {
@@ -176,7 +179,7 @@ resource "kubernetes_manifest" "nas_workload" {
       error_message = "Production cluster identity does not match the expected kube-system UID."
     }
     precondition {
-      condition     = contains(["Deployment/prod-nas-snmp-exporter", "Deployment/prod-nas-syslog"], each.key) && each.value.metadata.namespace == "observability-prod"
+      condition     = contains(["Deployment/prod-nas-snmp-exporter", "Deployment/prod-nas-syslog", "Deployment/prod-nas-nfs-collector"], each.key) && each.value.metadata.namespace == "observability-prod"
       error_message = "Only the opt-in NAS monitoring workloads are allowed."
     }
   }

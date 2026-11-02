@@ -19,7 +19,7 @@ def terraform_manifest(*, include_rag: bool = False, folder_uid: str = "",
                        include_prod_host: bool = False, nas_address: str = "",
                        nas_username: str = "prometheus", include_nas_syslog: bool = False,
                        include_security: bool = False, security_alerts_paused: bool = False,
-                       security_channel_id: str = "") -> dict:
+                       security_channel_id: str = "", nas_nfs_image: str = "") -> dict:
     if not isinstance(include_security, bool) or not isinstance(security_alerts_paused, bool):
         raise ValueError("invalid security monitoring opt-in")
     if security_alerts_paused and not include_security:
@@ -64,6 +64,11 @@ def terraform_manifest(*, include_rag: bool = False, folder_uid: str = "",
     if include_nas_syslog:
         from prod_nas_syslog import add_syslog
         add_syslog(manifest, nas_address, prometheus_site["prod_metrics_target"]["name"])
+    if nas_nfs_image:
+        if not nas_address or prometheus_site is None:
+            raise ValueError("NAS NFS requires NAS address and Prometheus site")
+        from prod_nas_nfs import add_monitoring as add_nfs
+        add_nfs(manifest, nas_address, nas_nfs_image)
     if include_security:
         from prod_openwrt_security_monitoring import add_monitoring as add_security
         add_security(manifest, security_channel_id, paused=security_alerts_paused)
@@ -80,7 +85,7 @@ def main() -> None:
     query = json.load(sys.stdin)
     if set(query) - {"rag_enabled", "folder_uid", "prometheus_site_path", "rag_address", "llm_address",
                       "desktop_host_address", "typevt_host_address", "attention_enabled", "prod_host_enabled",
-                      "nas_address", "nas_username", "nas_syslog_enabled", "security_enabled", "security_alerts_paused", "security_channel_id"}:
+                      "nas_address", "nas_username", "nas_syslog_enabled", "security_enabled", "security_alerts_paused", "security_channel_id", "nas_nfs_image"}:
         raise ValueError("unexpected renderer input")
     if query.get("rag_enabled", "false") not in ("true", "false"):
         raise ValueError("invalid rag_enabled")
@@ -114,7 +119,8 @@ def main() -> None:
                                   include_nas_syslog=query.get("nas_syslog_enabled") == "true",
                                   include_security=query.get("security_enabled") == "true",
                                   security_alerts_paused=query.get("security_alerts_paused") == "true",
-                                  security_channel_id=query.get("security_channel_id", ""))
+                                  security_channel_id=query.get("security_channel_id", ""),
+                                  nas_nfs_image=query.get("nas_nfs_image", ""))
     print(json.dumps({"manifest": json.dumps(manifest, sort_keys=True)}))
 
 
