@@ -1,0 +1,8 @@
+*
+!Dockerfile
+!requirements.lock
+!adapter.py
+!prepare_model.py
+!http_client.py
+!model.lock.json
+!model-e5.lock.json

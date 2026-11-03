@@ -1,0 +1,5 @@
+knowledge-rag[server]==4.11.1
+fastembed==0.9.1
+onnxruntime==1.31.0
+chromadb==1.5.9
+mcp==2.3.0
