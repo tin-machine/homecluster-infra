@@ -16,6 +16,7 @@ IDENTITIES = {"ConfigMap/prod-prometheus-config", "Deployment/prod-prometheus",
               "NetworkPolicy/prod-prometheus-restricted"}
 HOST_JOBS = {"desktop": "ubuntu-desktop-node-exporter",
              "typevt": "typevt-node-exporter"}
+TYPEVT_SERVICE = "typevt-node-exporter-tailnet.observability-prod.svc.cluster.local"
 
 
 def build_manifest(site: dict, *, rag_address: str = "", llm_address: str = "",
@@ -49,11 +50,25 @@ def build_manifest(site: dict, *, rag_address: str = "", llm_address: str = "",
     for host, target in sorted((host_addresses or {}).items()):
         if host not in HOST_JOBS:
             raise ValueError("unexpected host monitoring target")
-        address = ipaddress.IPv4Address(target)
-        tailnet = address in ipaddress.IPv4Network("100.64.0.0/10")
-        if (not (address.is_private or tailnet) or address.is_loopback
-                or address.is_multicast or address.is_unspecified or str(address) != target):
-            raise ValueError("host monitoring requires a specific private or tailnet IPv4")
+        if host == "typevt" and target == TYPEVT_SERVICE:
+            # ExternalName resolves to the Operator's headless Service, so select
+            # the actual egress proxy Pods rather than a transient Service IP.
+            peer = {
+                "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "tailscale"}},
+                "podSelector": {"matchLabels": {
+                    "tailscale.com/managed": "true",
+                    "tailscale.com/parent-resource-type": "svc",
+                    "tailscale.com/parent-resource-ns": "observability-prod",
+                    "tailscale.com/parent-resource": "typevt-node-exporter-tailnet",
+                }},
+            }
+        else:
+            address = ipaddress.IPv4Address(target)
+            tailnet = address in ipaddress.IPv4Network("100.64.0.0/10")
+            if (not (address.is_private or tailnet) or address.is_loopback
+                    or address.is_multicast or address.is_unspecified or str(address) != target):
+                raise ValueError("host monitoring requires a specific private or tailnet IPv4")
+            peer = {"ipBlock": {"cidr": target + "/32"}}
         job = {"job_name": HOST_JOBS[host], "metrics_path": "/metrics", "scheme": "http",
                "scrape_interval": "60s", "scrape_timeout": "8s", "sample_limit": 5000,
                "static_configs": [{"targets": [target + ":9100"]}],
@@ -63,7 +78,7 @@ def build_manifest(site: dict, *, rag_address: str = "", llm_address: str = "",
                ]}
         config["scrape_configs"].append(job)
         policy["spec"]["egress"].append({
-            "to": [{"ipBlock": {"cidr": target + "/32"}}],
+            "to": [peer],
             "ports": [{"protocol": "TCP", "port": 9100}],
         })
     if llm_address:

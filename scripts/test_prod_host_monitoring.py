@@ -4,11 +4,42 @@ import unittest
 from prod_grafana_terraform_input import terraform_manifest
 from prod_attention_dashboard import WARN_LEVELS, dashboard as attention_dashboard
 from prod_host_monitoring_dashboard import dashboard
-from prod_prometheus_config_render import build_manifest as prometheus_manifest
+from prod_prometheus_config_render import TYPEVT_SERVICE, build_manifest as prometheus_manifest
 from test_prod_outside_in_render import fixture
 
 
 class HostMonitoringTests(unittest.TestCase):
+    def test_typevt_egress_uses_only_its_production_proxy_and_keeps_existing_jobs(self):
+        old = {obj["kind"]: obj for obj in prometheus_manifest(fixture())["items"]}
+        new = {obj["kind"]: obj for obj in prometheus_manifest(
+            fixture(), host_addresses={"typevt": TYPEVT_SERVICE})["items"]}
+        old_config = json.loads(old["ConfigMap"]["data"]["prometheus.json"])
+        config = json.loads(new["ConfigMap"]["data"]["prometheus.json"])
+        self.assertEqual(config["scrape_configs"][:-1], old_config["scrape_configs"])
+        self.assertEqual(config["scrape_configs"][-1]["static_configs"],
+                         [{"targets": [TYPEVT_SERVICE + ":9100"]}])
+        self.assertEqual(new["NetworkPolicy"]["spec"]["egress"][:-1],
+                         old["NetworkPolicy"]["spec"]["egress"])
+        rule = new["NetworkPolicy"]["spec"]["egress"][-1]
+        self.assertEqual(rule["ports"], [{"protocol": "TCP", "port": 9100}])
+        self.assertEqual(rule["to"], [{
+            "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "tailscale"}},
+            "podSelector": {"matchLabels": {
+                "tailscale.com/managed": "true",
+                "tailscale.com/parent-resource-type": "svc",
+                "tailscale.com/parent-resource-ns": "observability-prod",
+                "tailscale.com/parent-resource": "typevt-node-exporter-tailnet",
+            }},
+        }])
+        # DNS acceptance is limited to this exact TypeVT Service, not arbitrary
+        # hosts, staging Services, URLs, ports, or a Desktop route through it.
+        for host, address in (("desktop", TYPEVT_SERVICE),
+                              ("typevt", TYPEVT_SERVICE.replace("-prod", "-stg")),
+                              ("typevt", TYPEVT_SERVICE + ":9100"),
+                              ("typevt", "arbitrary.default.svc.cluster.local")):
+            with self.subTest(host=host, address=address), self.assertRaises(ValueError):
+                prometheus_manifest(fixture(), host_addresses={host: address})
+
     def test_adds_two_jobs_and_exact_egress_without_changing_old_jobs(self):
         old = {obj["kind"]: obj for obj in prometheus_manifest(fixture())["items"]}
         new = {obj["kind"]: obj for obj in prometheus_manifest(

@@ -7,7 +7,7 @@ data "external" "grafana" {
     rag_address            = var.rag_enabled ? var.rag_address : ""
     llm_address            = var.llm_address
     desktop_host_address   = var.desktop_host_address
-    typevt_host_address    = var.typevt_host_address
+    typevt_host_address    = var.typevt_tailnet_fqdn != "" ? "typevt-node-exporter-tailnet.observability-prod.svc.cluster.local" : var.typevt_host_address
     attention_enabled      = tostring(var.attention_enabled)
     prod_host_enabled      = tostring(var.prod_host_enabled)
     nas_nfs_image          = var.nas_nfs_image
@@ -114,7 +114,7 @@ resource "kubernetes_manifest" "workload" {
       })
     })
   })
-  depends_on = [kubernetes_manifest.grafana, kubernetes_manifest.host_exporter, kubernetes_manifest.nas_workload]
+  depends_on = [kubernetes_manifest.grafana, kubernetes_manifest.host_exporter, kubernetes_manifest.nas_workload, kubernetes_service_v1.typevt_node_exporter_tailnet]
 
   wait { rollout = true }
   timeouts { update = "5m" }

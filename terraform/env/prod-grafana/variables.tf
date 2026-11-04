@@ -59,6 +59,16 @@ variable "typevt_host_address" {
   default     = ""
 }
 
+variable "typevt_tailnet_fqdn" {
+  description = "Opt-in TypeVT MagicDNS FQDN through the existing production Tailscale Operator; mutually exclusive with typevt_host_address. Empty disables the egress Service."
+  type        = string
+  default     = ""
+  validation {
+    condition     = var.typevt_tailnet_fqdn == "" || can(regex("^[a-z0-9]([a-z0-9-]*[a-z0-9])?\\.tail[a-z0-9]+\\.ts\\.net$", var.typevt_tailnet_fqdn))
+    error_message = "TypeVT requires a full device MagicDNS name without a scheme, port or trailing dot."
+  }
+}
+
 variable "attention_enabled" {
   description = "Provision the Warn+ and unknown-level log dashboard with existing Loki streams."
   type        = bool
