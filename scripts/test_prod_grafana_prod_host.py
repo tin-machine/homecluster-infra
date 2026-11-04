@@ -82,6 +82,11 @@ class ProductionHostTests(unittest.TestCase):
                          if arg.startswith("--collector.filesystem.fs-types-exclude="))
         self.assertIsNone(re.fullmatch(fs_filter, "overlay"))
         self.assertIsNotNone(re.fullmatch(fs_filter, "proc"))
+        # Unnecessary log suppression: the readiness probe checks the root endpoint,
+        # not the metrics path.
+        self.assertEqual(container["readinessProbe"]["httpGet"]["path"], "/")
+        self.assertEqual(container["readinessProbe"]["periodSeconds"], 15)
+        self.assertEqual(container["readinessProbe"]["timeoutSeconds"], 5)
 
     def test_name_based_scrape_and_scoped_egress(self):
         result = objects(terraform_manifest(prometheus_site=site(), include_prod_host=True))

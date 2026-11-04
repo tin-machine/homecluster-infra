@@ -48,7 +48,7 @@ def exporter(node_name: str) -> dict:
                                         "seccompProfile": {"type": "RuntimeDefault"}},
                     "resources": {"requests": {"cpu": "10m", "memory": "32Mi"},
                                   "limits": {"cpu": "200m", "memory": "96Mi"}},
-                    "readinessProbe": {"httpGet": {"path": "/metrics", "port": "metrics"},
+                    "readinessProbe": {"httpGet": {"path": "/", "port": "metrics"},
                                        "periodSeconds": 15, "timeoutSeconds": 5},
                     "volumeMounts": [{"name": "host-root", "mountPath": "/host",
                                       "readOnly": True, "mountPropagation": "HostToContainer"}],
