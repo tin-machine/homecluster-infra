@@ -1,5 +1,24 @@
 # Production Grafana configuration adoption
 
+## TypeVTのtailnet経由収集
+
+`typevt_tailnet_fqdn`へ端末の完全なMagicDNS名を指定すると、既存prod Tailscale Operatorを使う
+`typevt-node-exporter-tailnet` ExternalName Serviceを追加する。既定は無効。
+`prometheus_site_path`が必要で、直接収集用の`typevt_host_address`とは併用できない。
+Operatorは別rootで管理する既存releaseを利用するため、先にReadyであることと、そのproxy tagから
+端末のTCP/9100へ接続できるtailnet policyを確認する。OAuthや端末側の待受設定は変更しない。
+
+Prometheusは固定のprod Service DNS名を60秒間隔・8秒timeoutで収集する。
+追加egressは`tailscale` namespace内の当該Service専用proxy PodのTCP/9100だけを許可する。
+stagingのproxyや一時的なPod IPには依存しない。Operatorが書き換える`externalName`はTerraformで無視する。
+Prometheus設定の更新により短時間の再起動が発生する。PVCと既存dashboard UIDは保持する。
+
+反映後はServiceの`TailscaleProxyReady`、Prometheus PodからのHTTP応答、
+`up{job="typevt-node-exporter"}=1`、既存scrape、GrafanaのTypeVT画面、再planの差分ゼロを確認する。
+端末のsleepや切断時は未観測として扱い、正常値や0へ置き換えない。
+切り戻しは当該入力を空にした保存planを確認し、収集jobと追加Serviceだけを除去する。
+Operator、認証情報、監視の保存データは削除しない。
+
 ## OpenWrt securityとoffline解析の通知
 
 `security_enabled=true`は、既存prod monitoring siteを使う場合だけ指定する。既定は無効。
