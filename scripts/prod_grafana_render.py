@@ -275,7 +275,7 @@ def build_manifest(*, include_rag: bool = False, folder_uid: str = "",
         },
         "resources": {
             "requests": {"cpu": "50m", "memory": "96Mi"},
-            "limits": {"cpu": "350m", "memory": "512Mi"},
+            "limits": {"cpu": "350m", "memory": "1536Mi"},
         },
     }
     volumes = [
