@@ -215,7 +215,7 @@ def build_manifest(*, include_rag: bool = False, folder_uid: str = "",
     if include_attention:
         provider["providers"].append({
             "name": "home-attention", "orgId": 1, "type": "file", "folder": "要対応",
-            "folderUid": "home-attention", "disableDeletion": True,
+            "folderUid": "home-attention-folder", "disableDeletion": True,
             "allowUiUpdates": False, "updateIntervalSeconds": 30,
             "options": {"path": "/etc/grafana/attention-dashboards"},
         })

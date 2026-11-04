@@ -93,7 +93,7 @@ def add_dashboard(manifest: dict) -> None:
     providers = json.loads(config["dashboard-provider.yaml"])
     providers["providers"].append({
         "name": "production-hosts", "orgId": 1, "type": "file", "folder": "Production",
-        "folderUid": "prod-hosts", "disableDeletion": True, "allowUiUpdates": False,
+        "folderUid": "prod-hosts-folder", "disableDeletion": True, "allowUiUpdates": False,
         "updateIntervalSeconds": 30, "options": {"path": "/etc/grafana/prod-host-dashboards"},
     })
     encode = lambda value: json.dumps(value, sort_keys=True, separators=(",", ":"))

@@ -26,6 +26,21 @@ class SecurityMonitoringTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             terraform_manifest(include_security=True)
 
+    def test_folder_uids_cannot_recurse_into_dashboard_children(self):
+        manifest = self.full(True)
+        cm = next(x for x in manifest["items"] if x["kind"] == "ConfigMap" and
+                  x["metadata"]["name"] == "prod-grafana-provisioning")
+        providers = json.loads(cm["data"]["dashboard-provider.yaml"])["providers"]
+        folder_uids = [x["folderUid"] for x in providers if x.get("folderUid")]
+        dashboards = [json.loads(value) for key, value in cm["data"].items()
+                      if key.endswith(".json")]
+        dashboard_uids = {x["uid"] for x in dashboards if "panels" in x}
+        self.assertEqual(len(folder_uids), len(set(folder_uids)))
+        self.assertFalse(set(folder_uids) & dashboard_uids)
+        unchanged = {"prod-hosts", "qnap-nas", "home-attention", "openwrt-security"}
+        self.assertTrue(unchanged <= dashboard_uids)
+        self.assertTrue({uid + "-folder" for uid in unchanged} <= set(folder_uids))
+
     def test_other_workloads_and_existing_dashboards_preserved(self):
         before = {x["kind"] + "/" + x["metadata"]["name"]: x for x in self.full()["items"]}
         after = {x["kind"] + "/" + x["metadata"]["name"]: x for x in self.full(True)["items"]}
