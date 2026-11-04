@@ -145,7 +145,7 @@ def add_monitoring(manifest: dict, channel_id: str, *, paused: bool = False) -> 
     provider = json.loads(data["dashboard-provider.yaml"])
     provider["providers"].append({
         "name": UID, "orgId": 1, "type": "file", "folder": "OpenWrt security",
-        "folderUid": UID, "disableDeletion": True, "allowUiUpdates": False,
+        "folderUid": UID + "-folder", "disableDeletion": True, "allowUiUpdates": False,
         "updateIntervalSeconds": 30, "options": {"path": "/etc/grafana/security-dashboards"},
     })
     data["dashboard-provider.yaml"] = encode(provider)

@@ -46,7 +46,7 @@ class ProductionHostTests(unittest.TestCase):
                 self.assertEqual(before[key], after[key], key)
         providers = json.loads(after["dashboard-provider.yaml"])["providers"]
         self.assertEqual(providers[:-1], json.loads(before["dashboard-provider.yaml"])["providers"])
-        self.assertEqual(providers[-1]["folderUid"], "prod-hosts")
+        self.assertEqual(providers[-1]["folderUid"], "prod-hosts-folder")
         self.assertEqual(providers[-1]["folder"], "Production")
         self.assertIn("prod-hosts.json", after)
         old_template = old["Deployment/prod-grafana"]["spec"]["template"]

@@ -203,7 +203,7 @@ def add_monitoring(manifest: dict, address: str, username: str) -> None:
     data = find("ConfigMap", "prod-grafana-provisioning")["data"]
     providers = json.loads(data["dashboard-provider.yaml"])
     providers["providers"].append({
-        "name": "qnap-nas", "orgId": 1, "type": "file", "folder": "NAS", "folderUid": "qnap-nas",
+        "name": "qnap-nas", "orgId": 1, "type": "file", "folder": "NAS", "folderUid": "qnap-nas-folder",
         "disableDeletion": True, "allowUiUpdates": False, "updateIntervalSeconds": 30,
         "options": {"path": "/etc/grafana/nas-dashboards"}})
     data["dashboard-provider.yaml"] = encode(providers)
