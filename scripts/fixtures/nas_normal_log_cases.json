@@ -318,6 +318,810 @@
       "message": "qlogd[123]: conn log: Users: sample, Source IP: 192.0.2.1, Computer name: ---, Connection type: SSH, Accessed resources: ---, Action: Login OK\u0000",
       "normal": false,
       "level": "info"
+    },
+    {
+      "kind": "storage",
+      "message": "Volume_Enumerate_General_Volumes: got called with (0x171c890, 772).",
+      "normal": true,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "2026-11-05 13:53:14 [25990 snmpd          ] Volume_Enumerate_General_Volumes: got called with (0x171c890, 772).",
+      "normal": true,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Volume_Enumerate_General_Volumes: got called with (0x171c890, 772).",
+      "normal": false,
+      "level": "warning"
+    },
+    {
+      "kind": "storage",
+      "message": "Volume_Enumerate_General_Volumes: got called with (0x171c890, 772). unexpected suffix",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "hal",
+      "message": "Volume_Enumerate_General_Volumes: got called with (0x171c890, 772).",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Perform cmd \"/bin/df -k /share/CACHEDEV1_DATA 2>>/dev/null | /usr/bin/tail -n1 | /bin/awk -F ' ' '{print $(NF-3)}'\" OK, cmd_rsp=0, reason code:0.",
+      "normal": true,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "2026-11-05 13:53:14 [25990 snmpd          ] Perform cmd \"/bin/df -k /share/CACHEDEV1_DATA 2>>/dev/null | /usr/bin/tail -n1 | /bin/awk -F ' ' '{print $(NF-3)}'\" OK, cmd_rsp=0, reason code:0.",
+      "normal": true,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Perform cmd \"/bin/df -k /share/CACHEDEV1_DATA 2>>/dev/null | /usr/bin/tail -n1 | /bin/awk -F ' ' '{print $(NF-3)}'\" OK, cmd_rsp=0, reason code:0.",
+      "normal": false,
+      "level": "warning"
+    },
+    {
+      "kind": "storage",
+      "message": "Perform cmd \"/bin/df -k /share/CACHEDEV1_DATA 2>>/dev/null | /usr/bin/tail -n1 | /bin/awk -F ' ' '{print $(NF-3)}'\" OK, cmd_rsp=0, reason code:0. unexpected suffix",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "hal",
+      "message": "Perform cmd \"/bin/df -k /share/CACHEDEV1_DATA 2>>/dev/null | /usr/bin/tail -n1 | /bin/awk -F ' ' '{print $(NF-3)}'\" OK, cmd_rsp=0, reason code:0.",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Perform cmd \"/bin/df -k /share/CACHEDEV1_DATA 2>>/dev/null | /usr/bin/tail -n1 | /bin/awk -F ' ' '{print $(NF-3)}'\" failed, cmd_rsp=256, reason code:1.",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Perform cmd \"/bin/df -k /share/CACHEDEV1_DATA 2>>/dev/null | /usr/bin/tail -n1 | /bin/awk -F ' ' '{print $(NF-3)}'\" OK, cmd_rsp=1, reason code:0.",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Perform cmd \"/bin/df -k /share/CACHEDEV1_DATA 2>>/dev/null | /usr/bin/tail -n1 | /bin/awk -F ' ' '{print $(NF-3)}'\" OK, cmd_rsp=0, reason code:1.",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "SystemHdTableEx_handler: hdindex=1, model=ST8000DM004-2CX188.",
+      "normal": true,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "2026-11-05 13:53:14 [25990 snmpd          ] SystemHdTableEx_handler: hdindex=1, model=ST8000DM004-2CX188.",
+      "normal": true,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "SystemHdTableEx_handler: hdindex=1, model=ST8000DM004-2CX188.",
+      "normal": false,
+      "level": "warning"
+    },
+    {
+      "kind": "storage",
+      "message": "SystemHdTableEx_handler: hdindex=1, model=ST8000DM004-2CX188. unexpected suffix",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "hal",
+      "message": "SystemHdTableEx_handler: hdindex=1, model=ST8000DM004-2CX188.",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Volume_Enumerate_Data_Volumes: got called with (0x7f0db8001470, 772).",
+      "normal": true,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "2026-11-05 13:53:14 [25990 snmpd          ] Volume_Enumerate_Data_Volumes: got called with (0x7f0db8001470, 772).",
+      "normal": true,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Volume_Enumerate_Data_Volumes: got called with (0x7f0db8001470, 772).",
+      "normal": false,
+      "level": "warning"
+    },
+    {
+      "kind": "storage",
+      "message": "Volume_Enumerate_Data_Volumes: got called with (0x7f0db8001470, 772). unexpected suffix",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "hal",
+      "message": "Volume_Enumerate_Data_Volumes: got called with (0x7f0db8001470, 772).",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Blk_Dev_Generate_Mount_Point: mount point for \"/dev/mapper/cachedev1\" is \"/share/CACHEDEV1_DATA\", is_internal is 1.",
+      "normal": true,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "2026-11-05 13:53:14 [25990 snmpd          ] Blk_Dev_Generate_Mount_Point: mount point for \"/dev/mapper/cachedev1\" is \"/share/CACHEDEV1_DATA\", is_internal is 1.",
+      "normal": true,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Blk_Dev_Generate_Mount_Point: mount point for \"/dev/mapper/cachedev1\" is \"/share/CACHEDEV1_DATA\", is_internal is 1.",
+      "normal": false,
+      "level": "warning"
+    },
+    {
+      "kind": "storage",
+      "message": "Blk_Dev_Generate_Mount_Point: mount point for \"/dev/mapper/cachedev1\" is \"/share/CACHEDEV1_DATA\", is_internal is 1. unexpected suffix",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "hal",
+      "message": "Blk_Dev_Generate_Mount_Point: mount point for \"/dev/mapper/cachedev1\" is \"/share/CACHEDEV1_DATA\", is_internal is 1.",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Perform cmd \"/sbin/vgs vg1 --unit S -o vg_size --noheadings 2>>/dev/null | /bin/sed s/^[[:space:]]*// 2>>/dev/null\" OK, cmd_rsp=0, reason code:0.",
+      "normal": true,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "2026-11-05 13:53:14 [25990 snmpd          ] Perform cmd \"/sbin/vgs vg1 --unit S -o vg_size --noheadings 2>>/dev/null | /bin/sed s/^[[:space:]]*// 2>>/dev/null\" OK, cmd_rsp=0, reason code:0.",
+      "normal": true,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Perform cmd \"/sbin/vgs vg1 --unit S -o vg_size --noheadings 2>>/dev/null | /bin/sed s/^[[:space:]]*// 2>>/dev/null\" OK, cmd_rsp=0, reason code:0.",
+      "normal": false,
+      "level": "warning"
+    },
+    {
+      "kind": "storage",
+      "message": "Perform cmd \"/sbin/vgs vg1 --unit S -o vg_size --noheadings 2>>/dev/null | /bin/sed s/^[[:space:]]*// 2>>/dev/null\" OK, cmd_rsp=0, reason code:0. unexpected suffix",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "hal",
+      "message": "Perform cmd \"/sbin/vgs vg1 --unit S -o vg_size --noheadings 2>>/dev/null | /bin/sed s/^[[:space:]]*// 2>>/dev/null\" OK, cmd_rsp=0, reason code:0.",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Perform cmd \"/sbin/vgs vg1 --unit S -o vg_size --noheadings 2>>/dev/null | /bin/sed s/^[[:space:]]*// 2>>/dev/null\" failed, cmd_rsp=256, reason code:1.",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Perform cmd \"/sbin/vgs vg1 --unit S -o vg_size --noheadings 2>>/dev/null | /bin/sed s/^[[:space:]]*// 2>>/dev/null\" OK, cmd_rsp=1, reason code:0.",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Perform cmd \"/sbin/vgs vg1 --unit S -o vg_size --noheadings 2>>/dev/null | /bin/sed s/^[[:space:]]*// 2>>/dev/null\" OK, cmd_rsp=0, reason code:1.",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Perform cmd \"/sbin/vgs vg1 --unit S -o vg_free --noheadings 2>>/dev/null | /bin/sed s/^[[:space:]]*// 2>>/dev/null\" OK, cmd_rsp=0, reason code:0.",
+      "normal": true,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "2026-11-05 13:53:14 [25990 snmpd          ] Perform cmd \"/sbin/vgs vg1 --unit S -o vg_free --noheadings 2>>/dev/null | /bin/sed s/^[[:space:]]*// 2>>/dev/null\" OK, cmd_rsp=0, reason code:0.",
+      "normal": true,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Perform cmd \"/sbin/vgs vg1 --unit S -o vg_free --noheadings 2>>/dev/null | /bin/sed s/^[[:space:]]*// 2>>/dev/null\" OK, cmd_rsp=0, reason code:0.",
+      "normal": false,
+      "level": "warning"
+    },
+    {
+      "kind": "storage",
+      "message": "Perform cmd \"/sbin/vgs vg1 --unit S -o vg_free --noheadings 2>>/dev/null | /bin/sed s/^[[:space:]]*// 2>>/dev/null\" OK, cmd_rsp=0, reason code:0. unexpected suffix",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "hal",
+      "message": "Perform cmd \"/sbin/vgs vg1 --unit S -o vg_free --noheadings 2>>/dev/null | /bin/sed s/^[[:space:]]*// 2>>/dev/null\" OK, cmd_rsp=0, reason code:0.",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Perform cmd \"/sbin/vgs vg1 --unit S -o vg_free --noheadings 2>>/dev/null | /bin/sed s/^[[:space:]]*// 2>>/dev/null\" failed, cmd_rsp=256, reason code:1.",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Perform cmd \"/sbin/vgs vg1 --unit S -o vg_free --noheadings 2>>/dev/null | /bin/sed s/^[[:space:]]*// 2>>/dev/null\" OK, cmd_rsp=1, reason code:0.",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Perform cmd \"/sbin/vgs vg1 --unit S -o vg_free --noheadings 2>>/dev/null | /bin/sed s/^[[:space:]]*// 2>>/dev/null\" OK, cmd_rsp=0, reason code:1.",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Perform cmd \"/sbin/lvs /dev/mapper/vg1-tp1 --unit S -o lv_size --noheadings 2>>/dev/null | /bin/sed s/^[[:space:]]*// 2>>/dev/null\" OK, cmd_rsp=0, reason code:0.",
+      "normal": true,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "2026-11-05 13:53:14 [25990 snmpd          ] Perform cmd \"/sbin/lvs /dev/mapper/vg1-tp1 --unit S -o lv_size --noheadings 2>>/dev/null | /bin/sed s/^[[:space:]]*// 2>>/dev/null\" OK, cmd_rsp=0, reason code:0.",
+      "normal": true,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Perform cmd \"/sbin/lvs /dev/mapper/vg1-tp1 --unit S -o lv_size --noheadings 2>>/dev/null | /bin/sed s/^[[:space:]]*// 2>>/dev/null\" OK, cmd_rsp=0, reason code:0.",
+      "normal": false,
+      "level": "warning"
+    },
+    {
+      "kind": "storage",
+      "message": "Perform cmd \"/sbin/lvs /dev/mapper/vg1-tp1 --unit S -o lv_size --noheadings 2>>/dev/null | /bin/sed s/^[[:space:]]*// 2>>/dev/null\" OK, cmd_rsp=0, reason code:0. unexpected suffix",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "hal",
+      "message": "Perform cmd \"/sbin/lvs /dev/mapper/vg1-tp1 --unit S -o lv_size --noheadings 2>>/dev/null | /bin/sed s/^[[:space:]]*// 2>>/dev/null\" OK, cmd_rsp=0, reason code:0.",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Perform cmd \"/sbin/lvs /dev/mapper/vg1-tp1 --unit S -o lv_size --noheadings 2>>/dev/null | /bin/sed s/^[[:space:]]*// 2>>/dev/null\" failed, cmd_rsp=256, reason code:1.",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Perform cmd \"/sbin/lvs /dev/mapper/vg1-tp1 --unit S -o lv_size --noheadings 2>>/dev/null | /bin/sed s/^[[:space:]]*// 2>>/dev/null\" OK, cmd_rsp=1, reason code:0.",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Perform cmd \"/sbin/lvs /dev/mapper/vg1-tp1 --unit S -o lv_size --noheadings 2>>/dev/null | /bin/sed s/^[[:space:]]*// 2>>/dev/null\" OK, cmd_rsp=0, reason code:1.",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Perform cmd \"/sbin/lvs /dev/mapper/vg1-tp1 -o used_data_blocks --noheadings  2>>/dev/null | /bin/sed s/^[[:space:]]*//  2>>/dev/null\" OK, cmd_rsp=0, reason code:0.",
+      "normal": true,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "2026-11-05 13:53:14 [25990 snmpd          ] Perform cmd \"/sbin/lvs /dev/mapper/vg1-tp1 -o used_data_blocks --noheadings  2>>/dev/null | /bin/sed s/^[[:space:]]*//  2>>/dev/null\" OK, cmd_rsp=0, reason code:0.",
+      "normal": true,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Perform cmd \"/sbin/lvs /dev/mapper/vg1-tp1 -o used_data_blocks --noheadings  2>>/dev/null | /bin/sed s/^[[:space:]]*//  2>>/dev/null\" OK, cmd_rsp=0, reason code:0.",
+      "normal": false,
+      "level": "warning"
+    },
+    {
+      "kind": "storage",
+      "message": "Perform cmd \"/sbin/lvs /dev/mapper/vg1-tp1 -o used_data_blocks --noheadings  2>>/dev/null | /bin/sed s/^[[:space:]]*//  2>>/dev/null\" OK, cmd_rsp=0, reason code:0. unexpected suffix",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "hal",
+      "message": "Perform cmd \"/sbin/lvs /dev/mapper/vg1-tp1 -o used_data_blocks --noheadings  2>>/dev/null | /bin/sed s/^[[:space:]]*//  2>>/dev/null\" OK, cmd_rsp=0, reason code:0.",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Perform cmd \"/sbin/lvs /dev/mapper/vg1-tp1 -o used_data_blocks --noheadings  2>>/dev/null | /bin/sed s/^[[:space:]]*//  2>>/dev/null\" failed, cmd_rsp=256, reason code:1.",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Perform cmd \"/sbin/lvs /dev/mapper/vg1-tp1 -o used_data_blocks --noheadings  2>>/dev/null | /bin/sed s/^[[:space:]]*//  2>>/dev/null\" OK, cmd_rsp=1, reason code:0.",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Perform cmd \"/sbin/lvs /dev/mapper/vg1-tp1 -o used_data_blocks --noheadings  2>>/dev/null | /bin/sed s/^[[:space:]]*//  2>>/dev/null\" OK, cmd_rsp=0, reason code:1.",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Perform cmd \"/sbin/dmsetup info --noheadings --columns -o minor vg1-tp1-tpool 2>>/dev/null\" OK, cmd_rsp=0, reason code:0.",
+      "normal": true,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "2026-11-05 13:53:14 [25990 snmpd          ] Perform cmd \"/sbin/dmsetup info --noheadings --columns -o minor vg1-tp1-tpool 2>>/dev/null\" OK, cmd_rsp=0, reason code:0.",
+      "normal": true,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Perform cmd \"/sbin/dmsetup info --noheadings --columns -o minor vg1-tp1-tpool 2>>/dev/null\" OK, cmd_rsp=0, reason code:0.",
+      "normal": false,
+      "level": "warning"
+    },
+    {
+      "kind": "storage",
+      "message": "Perform cmd \"/sbin/dmsetup info --noheadings --columns -o minor vg1-tp1-tpool 2>>/dev/null\" OK, cmd_rsp=0, reason code:0. unexpected suffix",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "hal",
+      "message": "Perform cmd \"/sbin/dmsetup info --noheadings --columns -o minor vg1-tp1-tpool 2>>/dev/null\" OK, cmd_rsp=0, reason code:0.",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Perform cmd \"/sbin/dmsetup info --noheadings --columns -o minor vg1-tp1-tpool 2>>/dev/null\" failed, cmd_rsp=256, reason code:1.",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Perform cmd \"/sbin/dmsetup info --noheadings --columns -o minor vg1-tp1-tpool 2>>/dev/null\" OK, cmd_rsp=1, reason code:0.",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Perform cmd \"/sbin/dmsetup info --noheadings --columns -o minor vg1-tp1-tpool 2>>/dev/null\" OK, cmd_rsp=0, reason code:1.",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Perform cmd \"/sbin/vgs vg1 -o vg_extent_size --noheadings 2>>/dev/null  | /bin/sed s/^[[:space:]]*//  2>>/dev/null\" OK, cmd_rsp=0, reason code:0.",
+      "normal": true,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "2026-11-05 13:53:14 [25990 snmpd          ] Perform cmd \"/sbin/vgs vg1 -o vg_extent_size --noheadings 2>>/dev/null  | /bin/sed s/^[[:space:]]*//  2>>/dev/null\" OK, cmd_rsp=0, reason code:0.",
+      "normal": true,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Perform cmd \"/sbin/vgs vg1 -o vg_extent_size --noheadings 2>>/dev/null  | /bin/sed s/^[[:space:]]*//  2>>/dev/null\" OK, cmd_rsp=0, reason code:0.",
+      "normal": false,
+      "level": "warning"
+    },
+    {
+      "kind": "storage",
+      "message": "Perform cmd \"/sbin/vgs vg1 -o vg_extent_size --noheadings 2>>/dev/null  | /bin/sed s/^[[:space:]]*//  2>>/dev/null\" OK, cmd_rsp=0, reason code:0. unexpected suffix",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "hal",
+      "message": "Perform cmd \"/sbin/vgs vg1 -o vg_extent_size --noheadings 2>>/dev/null  | /bin/sed s/^[[:space:]]*//  2>>/dev/null\" OK, cmd_rsp=0, reason code:0.",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Perform cmd \"/sbin/vgs vg1 -o vg_extent_size --noheadings 2>>/dev/null  | /bin/sed s/^[[:space:]]*//  2>>/dev/null\" failed, cmd_rsp=256, reason code:1.",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Perform cmd \"/sbin/vgs vg1 -o vg_extent_size --noheadings 2>>/dev/null  | /bin/sed s/^[[:space:]]*//  2>>/dev/null\" OK, cmd_rsp=1, reason code:0.",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Perform cmd \"/sbin/vgs vg1 -o vg_extent_size --noheadings 2>>/dev/null  | /bin/sed s/^[[:space:]]*//  2>>/dev/null\" OK, cmd_rsp=0, reason code:1.",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Perform cmd \"/sbin/lvs -a /dev/mapper/vg1-tp1_tmeta -o lv_size --unit S 2>>/dev/null | /bin/awk 'NR==2 {print $1}' 2>>/dev/null\" OK, cmd_rsp=0, reason code:0.",
+      "normal": true,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "2026-11-05 13:53:14 [25990 snmpd          ] Perform cmd \"/sbin/lvs -a /dev/mapper/vg1-tp1_tmeta -o lv_size --unit S 2>>/dev/null | /bin/awk 'NR==2 {print $1}' 2>>/dev/null\" OK, cmd_rsp=0, reason code:0.",
+      "normal": true,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Perform cmd \"/sbin/lvs -a /dev/mapper/vg1-tp1_tmeta -o lv_size --unit S 2>>/dev/null | /bin/awk 'NR==2 {print $1}' 2>>/dev/null\" OK, cmd_rsp=0, reason code:0.",
+      "normal": false,
+      "level": "warning"
+    },
+    {
+      "kind": "storage",
+      "message": "Perform cmd \"/sbin/lvs -a /dev/mapper/vg1-tp1_tmeta -o lv_size --unit S 2>>/dev/null | /bin/awk 'NR==2 {print $1}' 2>>/dev/null\" OK, cmd_rsp=0, reason code:0. unexpected suffix",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "hal",
+      "message": "Perform cmd \"/sbin/lvs -a /dev/mapper/vg1-tp1_tmeta -o lv_size --unit S 2>>/dev/null | /bin/awk 'NR==2 {print $1}' 2>>/dev/null\" OK, cmd_rsp=0, reason code:0.",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Perform cmd \"/sbin/lvs -a /dev/mapper/vg1-tp1_tmeta -o lv_size --unit S 2>>/dev/null | /bin/awk 'NR==2 {print $1}' 2>>/dev/null\" failed, cmd_rsp=256, reason code:1.",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Perform cmd \"/sbin/lvs -a /dev/mapper/vg1-tp1_tmeta -o lv_size --unit S 2>>/dev/null | /bin/awk 'NR==2 {print $1}' 2>>/dev/null\" OK, cmd_rsp=1, reason code:0.",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Perform cmd \"/sbin/lvs -a /dev/mapper/vg1-tp1_tmeta -o lv_size --unit S 2>>/dev/null | /bin/awk 'NR==2 {print $1}' 2>>/dev/null\" OK, cmd_rsp=0, reason code:1.",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Pool_TP_Get_Size: [Pool(1)] *lldatalP: 46488879104, *llfreeP: 14274527232, *llmetaP: 33554432, *llmeta_spareP: 0",
+      "normal": true,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "2026-11-05 13:53:14 [25990 snmpd          ] Pool_TP_Get_Size: [Pool(1)] *lldatalP: 46488879104, *llfreeP: 14274527232, *llmetaP: 33554432, *llmeta_spareP: 0",
+      "normal": true,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Pool_TP_Get_Size: [Pool(1)] *lldatalP: 46488879104, *llfreeP: 14274527232, *llmetaP: 33554432, *llmeta_spareP: 0",
+      "normal": false,
+      "level": "warning"
+    },
+    {
+      "kind": "storage",
+      "message": "Pool_TP_Get_Size: [Pool(1)] *lldatalP: 46488879104, *llfreeP: 14274527232, *llmetaP: 33554432, *llmeta_spareP: 0 unexpected suffix",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "hal",
+      "message": "Pool_TP_Get_Size: [Pool(1)] *lldatalP: 46488879104, *llfreeP: 14274527232, *llmetaP: 33554432, *llmeta_spareP: 0",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "hal",
+      "message": "GPIO_Set_NAS_Status_LED: event = 0x1000,status = 0, value = 0x0, formatting_count = 0",
+      "normal": true,
+      "level": "unknown"
+    },
+    {
+      "kind": "hal",
+      "message": "2026-11-05 13:53:14 [25990 snmpd          ] GPIO_Set_NAS_Status_LED: event = 0x1000,status = 0, value = 0x0, formatting_count = 0",
+      "normal": true,
+      "level": "unknown"
+    },
+    {
+      "kind": "hal",
+      "message": "GPIO_Set_NAS_Status_LED: event = 0x1000,status = 0, value = 0x0, formatting_count = 0",
+      "normal": false,
+      "level": "warning"
+    },
+    {
+      "kind": "hal",
+      "message": "GPIO_Set_NAS_Status_LED: event = 0x1000,status = 0, value = 0x0, formatting_count = 0 unexpected suffix",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "GPIO_Set_NAS_Status_LED: event = 0x1000,status = 0, value = 0x0, formatting_count = 0",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Pool_Is_Full: [Pool(1)] full: 0, *thin_lv_exist: 0, *snapshot_exist: 0, free_size: 14274527232, limit: 2097152.",
+      "normal": true,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "2026-11-05 13:53:14 [25990 snmpd          ] Pool_Is_Full: [Pool(1)] full: 0, *thin_lv_exist: 0, *snapshot_exist: 0, free_size: 14274527232, limit: 2097152.",
+      "normal": true,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Pool_Is_Full: [Pool(1)] full: 0, *thin_lv_exist: 0, *snapshot_exist: 0, free_size: 14274527232, limit: 2097152.",
+      "normal": false,
+      "level": "warning"
+    },
+    {
+      "kind": "storage",
+      "message": "Pool_Is_Full: [Pool(1)] full: 0, *thin_lv_exist: 0, *snapshot_exist: 0, free_size: 14274527232, limit: 2097152. unexpected suffix",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "hal",
+      "message": "Pool_Is_Full: [Pool(1)] full: 0, *thin_lv_exist: 0, *snapshot_exist: 0, free_size: 14274527232, limit: 2097152.",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Volume_Enumerate_General_Volumes: got called with (0x171c890, 773).",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Volume_Enumerate_General_Volumes: got called with (0x0G, 772).",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "SystemHdTableEx_handler: hdindex=0, model=ST8000DM004-2CX188.",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "SystemHdTableEx_handler: hdindex=5, model=ST8000DM004-2CX188.",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "SystemHdTableEx_handler: hdindex=1, model=UNKNOWN.",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Volume_Enumerate_Data_Volumes: got called with (0x7f0db8001470, 0).",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Blk_Dev_Generate_Mount_Point: mount point for \"/dev/mapper/cachedev2\" is \"/share/CACHEDEV1_DATA\", is_internal is 1.",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Blk_Dev_Generate_Mount_Point: mount point for \"/dev/mapper/cachedev1\" is \"/share/CACHEDEV2_DATA\", is_internal is 1.",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Blk_Dev_Generate_Mount_Point: mount point for \"/dev/mapper/cachedev1\" is \"/share/CACHEDEV1_DATA\", is_internal is 0.",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Pool_TP_Get_Size: [Pool(2)] *lldatalP: 46488879104, *llfreeP: 14274527232, *llmetaP: 33554432, *llmeta_spareP: 0",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Pool_TP_Get_Size: [Pool(1)] *lldatalP: 0, *llfreeP: 14274527232, *llmetaP: 33554432, *llmeta_spareP: 0",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Pool_TP_Get_Size: [Pool(1)] *lldatalP: 46488879104, *llfreeP: 0, *llmetaP: 33554432, *llmeta_spareP: 0",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Pool_TP_Get_Size: [Pool(1)] *lldatalP: 46488879104, *llfreeP: 46488879105, *llmetaP: 33554432, *llmeta_spareP: 0",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Pool_TP_Get_Size: [Pool(1)] *lldatalP: 46488879104, *llfreeP: -1, *llmetaP: 33554432, *llmeta_spareP: 0",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Pool_TP_Get_Size: [Pool(1)] *lldatalP: 46488879104, *llfreeP: 14274527232, *llmetaP: 0, *llmeta_spareP: 0",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Pool_TP_Get_Size: [Pool(1)] *lldatalP: 46488879104, *llfreeP: 14274527232, *llmetaP: 33554432, *llmeta_spareP: 1",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "hal",
+      "message": "GPIO_Set_NAS_Status_LED: event = 0x1001,status = 0, value = 0x0, formatting_count = 0",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "hal",
+      "message": "GPIO_Set_NAS_Status_LED: event = 0x1000,status = 1, value = 0x0, formatting_count = 0",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "hal",
+      "message": "GPIO_Set_NAS_Status_LED: event = 0x1000,status = 0, value = 0x1, formatting_count = 0",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "hal",
+      "message": "GPIO_Set_NAS_Status_LED: event = 0x1000,status = 0, value = 0x0, formatting_count = 1",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Pool_Is_Full: [Pool(2)] full: 0, *thin_lv_exist: 0, *snapshot_exist: 0, free_size: 14274527232, limit: 2097152.",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Pool_Is_Full: [Pool(1)] full: 1, *thin_lv_exist: 0, *snapshot_exist: 0, free_size: 14274527232, limit: 2097152.",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Pool_Is_Full: [Pool(1)] full: 0, *thin_lv_exist: 1, *snapshot_exist: 0, free_size: 14274527232, limit: 2097152.",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Pool_Is_Full: [Pool(1)] full: 0, *thin_lv_exist: 0, *snapshot_exist: 1, free_size: 14274527232, limit: 2097152.",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Pool_Is_Full: [Pool(1)] full: 0, *thin_lv_exist: 0, *snapshot_exist: 0, free_size: 0, limit: 2097152.",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Pool_Is_Full: [Pool(1)] full: 0, *thin_lv_exist: 0, *snapshot_exist: 0, free_size: 2097152, limit: 2097152.",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Pool_Is_Full: [Pool(1)] full: 0, *thin_lv_exist: 0, *snapshot_exist: 0, free_size: 2097151, limit: 2097152.",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Pool_Is_Full: [Pool(1)] full: 0, *thin_lv_exist: 0, *snapshot_exist: 0, free_size: 14274527232, limit: 0.",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Perform cmd \"/sbin/unknown\" OK, cmd_rsp=0, reason code:0.",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "2026-11-05 13:53:14 [25990 snmpd          ] Perform cmd \"/sbin/lvs vg1/tp1 2>>/dev/null -o segtype --noheadings | /bin/grep 'tier-thin-pool' &>/dev/null 2>>/dev/null\" failed, cmd_rsp=256, reason code:1.",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "hal",
+      "message": "GPIO_Set_NAS_Status_LED: event = 0x2000,status = 0, value = 0x0, formatting_count = 0",
+      "normal": true,
+      "level": "unknown"
+    },
+    {
+      "kind": "hal",
+      "message": "GPIO_Set_NAS_Status_LED: event = 0x2000,status = 1, value = 0x0, formatting_count = 0",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "hal",
+      "message": "GPIO_Set_NAS_Status_LED: event = 0x2000,status = 0, value = 0x1, formatting_count = 0",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "hal",
+      "message": "GPIO_Set_NAS_Status_LED: event = 0x2000,status = 0, value = 0x0, formatting_count = 1",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "hal",
+      "message": "GPIO_Set_NAS_Status_LED: event = 0x3000,status = 0, value = 0x0, formatting_count = 0",
+      "normal": false,
+      "level": "unknown"
     }
   ],
   "normal_ssh_sources": [
