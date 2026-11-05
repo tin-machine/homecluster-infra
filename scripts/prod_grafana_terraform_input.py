@@ -19,7 +19,8 @@ def terraform_manifest(*, include_rag: bool = False, folder_uid: str = "",
                        include_prod_host: bool = False, nas_address: str = "",
                        nas_username: str = "prometheus", include_nas_syslog: bool = False,
                        include_security: bool = False, security_alerts_paused: bool = False,
-                       security_channel_id: str = "", nas_nfs_image: str = "") -> dict:
+                       security_channel_id: str = "", nas_nfs_image: str = "",
+                       nas_file_logs_image: str = "", nas_normal_filter_enabled: bool = False) -> dict:
     if not isinstance(include_security, bool) or not isinstance(security_alerts_paused, bool):
         raise ValueError("invalid security monitoring opt-in")
     if security_alerts_paused and not include_security:
@@ -31,6 +32,10 @@ def terraform_manifest(*, include_rag: bool = False, folder_uid: str = "",
     if include_nas_syslog and (not nas_address or not prometheus_site
                               or not prometheus_site.get("prod_metrics_target")):
         raise ValueError("NAS syslog requires a NAS address and an explicit production node")
+    if not isinstance(nas_normal_filter_enabled, bool):
+        raise ValueError("invalid NAS normal filter opt-in")
+    if nas_normal_filter_enabled and not (include_nas_syslog or nas_file_logs_image):
+        raise ValueError("NAS normal filtering requires an enabled log collector")
     if folder_uid and not re.fullmatch(r"[A-Za-z0-9_-]{1,40}", folder_uid):
         raise ValueError("invalid folder UID")
     host_addresses = {name: address for name, address in
@@ -63,12 +68,20 @@ def terraform_manifest(*, include_rag: bool = False, folder_uid: str = "",
         add_monitoring(manifest, nas_address, nas_username)
     if include_nas_syslog:
         from prod_nas_syslog import add_syslog
-        add_syslog(manifest, nas_address, prometheus_site["prod_metrics_target"]["name"])
+        add_syslog(manifest, nas_address, prometheus_site["prod_metrics_target"]["name"],
+                   filter_normal=nas_normal_filter_enabled,
+                   normal_ssh_source=prometheus_site["prod_metrics_target"].get("address", ""))
     if nas_nfs_image:
         if not nas_address or prometheus_site is None:
             raise ValueError("NAS NFS requires NAS address and Prometheus site")
         from prod_nas_nfs import add_monitoring as add_nfs
         add_nfs(manifest, nas_address, nas_nfs_image)
+    if nas_file_logs_image:
+        if not nas_address or not prometheus_site or not prometheus_site.get("prod_metrics_target"):
+            raise ValueError("NAS file logs require NAS address and explicit production node")
+        from prod_nas_file_logs import add_monitoring as add_file_logs
+        add_file_logs(manifest, nas_address, prometheus_site["prod_metrics_target"]["name"],
+                      nas_file_logs_image, nas_normal_filter_enabled)
     if include_security:
         from prod_openwrt_security_monitoring import add_monitoring as add_security
         add_security(manifest, security_channel_id, paused=security_alerts_paused)
@@ -85,7 +98,7 @@ def main() -> None:
     query = json.load(sys.stdin)
     if set(query) - {"rag_enabled", "folder_uid", "prometheus_site_path", "rag_address", "llm_address",
                       "desktop_host_address", "typevt_host_address", "attention_enabled", "prod_host_enabled",
-                      "nas_address", "nas_username", "nas_syslog_enabled", "security_enabled", "security_alerts_paused", "security_channel_id", "nas_nfs_image"}:
+                      "nas_address", "nas_username", "nas_syslog_enabled", "security_enabled", "security_alerts_paused", "security_channel_id", "nas_nfs_image", "nas_file_logs_image", "nas_normal_filter_enabled"}:
         raise ValueError("unexpected renderer input")
     if query.get("rag_enabled", "false") not in ("true", "false"):
         raise ValueError("invalid rag_enabled")
@@ -99,6 +112,8 @@ def main() -> None:
         raise ValueError("invalid security_enabled")
     if query.get("security_alerts_paused", "false") not in ("true", "false"):
         raise ValueError("invalid security_alerts_paused")
+    if query.get("nas_normal_filter_enabled", "false") not in ("true", "false"):
+        raise ValueError("invalid nas_normal_filter_enabled")
     site_path = query.get("prometheus_site_path", "")
     site = None
     if site_path:
@@ -120,7 +135,9 @@ def main() -> None:
                                   include_security=query.get("security_enabled") == "true",
                                   security_alerts_paused=query.get("security_alerts_paused") == "true",
                                   security_channel_id=query.get("security_channel_id", ""),
-                                  nas_nfs_image=query.get("nas_nfs_image", ""))
+                                  nas_nfs_image=query.get("nas_nfs_image", ""),
+                                  nas_file_logs_image=query.get("nas_file_logs_image", ""),
+                                  nas_normal_filter_enabled=query.get("nas_normal_filter_enabled") == "true")
     print(json.dumps({"manifest": json.dumps(manifest, sort_keys=True)}))
 
 

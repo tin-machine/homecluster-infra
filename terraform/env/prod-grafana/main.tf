@@ -1,22 +1,24 @@
 data "external" "grafana" {
   program = ["python3", "${path.module}/../../../scripts/prod_grafana_terraform_input.py"]
   query = {
-    rag_enabled            = tostring(var.rag_enabled)
-    folder_uid             = var.existing_folder_uid
-    prometheus_site_path   = var.prometheus_site_path
-    rag_address            = var.rag_enabled ? var.rag_address : ""
-    llm_address            = var.llm_address
-    desktop_host_address   = var.desktop_host_address
-    typevt_host_address    = var.typevt_tailnet_fqdn != "" ? "typevt-node-exporter-tailnet.observability-prod.svc.cluster.local" : var.typevt_host_address
-    attention_enabled      = tostring(var.attention_enabled)
-    prod_host_enabled      = tostring(var.prod_host_enabled)
-    nas_nfs_image          = var.nas_nfs_image
-    nas_address            = var.nas_address
-    nas_username           = var.nas_username
-    nas_syslog_enabled     = tostring(var.nas_syslog_enabled)
-    security_enabled       = tostring(var.security_enabled)
-    security_alerts_paused = tostring(var.security_alerts_paused)
-    security_channel_id    = var.security_channel_id
+    rag_enabled               = tostring(var.rag_enabled)
+    folder_uid                = var.existing_folder_uid
+    prometheus_site_path      = var.prometheus_site_path
+    rag_address               = var.rag_enabled ? var.rag_address : ""
+    llm_address               = var.llm_address
+    desktop_host_address      = var.desktop_host_address
+    typevt_host_address       = var.typevt_tailnet_fqdn != "" ? "typevt-node-exporter-tailnet.observability-prod.svc.cluster.local" : var.typevt_host_address
+    attention_enabled         = tostring(var.attention_enabled)
+    prod_host_enabled         = tostring(var.prod_host_enabled)
+    nas_nfs_image             = var.nas_nfs_image
+    nas_file_logs_image       = var.nas_file_logs_image
+    nas_normal_filter_enabled = tostring(var.nas_normal_filter_enabled)
+    nas_address               = var.nas_address
+    nas_username              = var.nas_username
+    nas_syslog_enabled        = tostring(var.nas_syslog_enabled)
+    security_enabled          = tostring(var.security_enabled)
+    security_alerts_paused    = tostring(var.security_alerts_paused)
+    security_channel_id       = var.security_channel_id
   }
 }
 
@@ -32,7 +34,10 @@ locals {
     "Deployment/prod-nas-syslog", "Service/prod-nas-syslog", "Service/prod-nas-syslog-metrics",
     "NetworkPolicy/prod-nas-syslog-restricted", "NetworkPolicy/prod-nas-loki-ingress",
     "ConfigMap/prod-nas-nfs-config", "Service/prod-nas-nfs-collector", "Deployment/prod-nas-nfs-collector",
-    "NetworkPolicy/prod-nas-nfs-restricted", "NetworkPolicy/prod-nas-nfs-prometheus-egress"
+    "NetworkPolicy/prod-nas-nfs-restricted", "NetworkPolicy/prod-nas-nfs-prometheus-egress",
+    "ConfigMap/prod-nas-file-logs-config", "Deployment/prod-nas-file-logs", "Service/prod-nas-file-logs",
+    "PersistentVolumeClaim/prod-nas-file-logs-state", "NetworkPolicy/prod-nas-file-logs-restricted",
+    "NetworkPolicy/prod-nas-file-logs-prometheus-egress", "NetworkPolicy/prod-nas-file-logs-loki-ingress"
   ])
   rendered = jsondecode(data.external.grafana.result.manifest)
   resources = {
@@ -142,7 +147,7 @@ resource "kubernetes_manifest" "workload" {
 }
 
 resource "kubernetes_manifest" "nas_support" {
-  for_each = { for key, value in local.resources : key => value if contains(local.nas_names, key) && value.kind != "Deployment" }
+  for_each = { for key, value in local.resources : key => value if contains(local.nas_names, key) && value.kind != "Deployment" && value.kind != "PersistentVolumeClaim" }
   manifest = each.value
   field_manager { name = "terraform-prod-grafana" }
   lifecycle {
@@ -166,7 +171,7 @@ resource "kubernetes_manifest" "nas_workload" {
       })
     })
   })
-  depends_on = [kubernetes_manifest.nas_support]
+  depends_on = [kubernetes_manifest.nas_support, kubernetes_manifest.nas_log_state]
   field_manager { name = "terraform-prod-grafana" }
   wait { rollout = true }
   timeouts {
@@ -179,7 +184,7 @@ resource "kubernetes_manifest" "nas_workload" {
       error_message = "Production cluster identity does not match the expected kube-system UID."
     }
     precondition {
-      condition     = contains(["Deployment/prod-nas-snmp-exporter", "Deployment/prod-nas-syslog", "Deployment/prod-nas-nfs-collector"], each.key) && each.value.metadata.namespace == "observability-prod"
+      condition     = contains(["Deployment/prod-nas-snmp-exporter", "Deployment/prod-nas-syslog", "Deployment/prod-nas-nfs-collector", "Deployment/prod-nas-file-logs"], each.key) && each.value.metadata.namespace == "observability-prod"
       error_message = "Only the opt-in NAS monitoring workloads are allowed."
     }
   }
@@ -194,4 +199,17 @@ moved {
 moved {
   from = kubernetes_manifest.grafana["Deployment/prod-prometheus"]
   to   = kubernetes_manifest.workload["Deployment/prod-prometheus"]
+}
+
+resource "kubernetes_manifest" "nas_log_state" {
+  for_each = { for key, value in local.resources : key => value if key == "PersistentVolumeClaim/prod-nas-file-logs-state" }
+  manifest = each.value
+  field_manager { name = "terraform-prod-grafana" }
+  lifecycle {
+    prevent_destroy = true
+    precondition {
+      condition     = data.kubernetes_namespace_v1.cluster_identity.metadata[0].uid == var.expected_kube_system_uid && each.value.metadata.namespace == "observability-prod"
+      error_message = "NAS log state requires the expected production cluster."
+    }
+  }
 }

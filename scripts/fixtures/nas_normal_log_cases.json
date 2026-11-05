@@ -1,0 +1,320 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "kind": "storage",
+      "message": "md_get_status: /dev/md1 : status=0, progress=100.000000.",
+      "normal": true,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "NAS_Disk_Check_Conf: ret = 0, wwnP = (null).",
+      "normal": true,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "Do_Get_Volume_Func: index = 0, count=1.",
+      "normal": true,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "md_get_status: /dev/md1 : status=1, progress=100.000000.",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "md_get_status: /dev/md1 : status=0, progress=99.000000.",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "NAS_Disk_Check_Conf: ret = 1, wwnP = (null).",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "SSDCacheGroup_Get_Pool_Id: [SSDCacheGroup(0)] lv_id: -12, pool_id: -1.",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "storage",
+      "message": "unknown new diagnostic",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "hal",
+      "message": "PD_Get_Sys_Name: Retrieve pd_sys_name value from /etc/enclosure_0.conf!",
+      "normal": true,
+      "level": "unknown"
+    },
+    {
+      "kind": "hal",
+      "message": "id = 197, name = Current_Pending_Sector, status_flag = 0x32, value = 100,worst = 99, thresh = 0,raw = 0",
+      "normal": true,
+      "level": "unknown"
+    },
+    {
+      "kind": "hal",
+      "message": "id = 197, name = Current_Pending_Sector, status_flag = 0x32, value = 100,worst = 99, thresh = 0,raw = 1",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "hal",
+      "message": "id = 198, name = Uncorrectable_Sector_Count, status_flag = 0x32, value = 100,worst = 99, thresh = 0,raw = 0",
+      "normal": true,
+      "level": "unknown"
+    },
+    {
+      "kind": "hal",
+      "message": "id = 198, name = Uncorrectable_Sector_Count, status_flag = 0x32, value = 100,worst = 99, thresh = 0,raw = 1",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "hal",
+      "message": "id = 199, name = SATA_R-Error_Count, status_flag = 0x32, value = 100,worst = 99, thresh = 0,raw = 0",
+      "normal": true,
+      "level": "unknown"
+    },
+    {
+      "kind": "hal",
+      "message": "id = 199, name = SATA_R-Error_Count, status_flag = 0x32, value = 100,worst = 99, thresh = 0,raw = 1",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "hal",
+      "message": "id = 5, name = Retired_Block_Count, status_flag = 0x32, value = 100,worst = 99, thresh = 0,raw = 0",
+      "normal": true,
+      "level": "unknown"
+    },
+    {
+      "kind": "hal",
+      "message": "id = 5, name = Retired_Block_Count, status_flag = 0x32, value = 100,worst = 99, thresh = 0,raw = 1",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "hal",
+      "message": "id = 188, name = Command_Timeout, status_flag = 0x32, value = 100,worst = 99, thresh = 0,raw = 0",
+      "normal": true,
+      "level": "unknown"
+    },
+    {
+      "kind": "hal",
+      "message": "id = 188, name = Command_Timeout, status_flag = 0x32, value = 100,worst = 99, thresh = 0,raw = 1",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "hal",
+      "message": "id = 999, name = New_Attribute, status_flag = 0x32, value = 100,worst = 100, thresh = 0,raw = 0",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "hal",
+      "message": "id = 5, name = Retired_Block_Count, status_flag = 0x33, value = 9,worst = 9, thresh = 10,raw = 0",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "sdmd",
+      "message": "SDM: total enc = 4",
+      "normal": true,
+      "level": "unknown"
+    },
+    {
+      "kind": "sdmd",
+      "message": "SDM: scan 0th enc, total enc = 4",
+      "normal": true,
+      "level": "unknown"
+    },
+    {
+      "kind": "sdmd",
+      "message": "SDM: enc = 0 is internal.",
+      "normal": true,
+      "level": "unknown"
+    },
+    {
+      "kind": "sdmd",
+      "message": "SDM: enc = 33 is not internal.",
+      "normal": true,
+      "level": "unknown"
+    },
+    {
+      "kind": "sdmd",
+      "message": "SDM: start predict enc = 0 port = 2 device",
+      "normal": true,
+      "level": "unknown"
+    },
+    {
+      "kind": "sdmd",
+      "message": "SDM_Health_Predict:Start to predict sata disk",
+      "normal": true,
+      "level": "unknown"
+    },
+    {
+      "kind": "sdmd",
+      "message": "SDM_Health_Predict:Disk health prediction failed",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "hal_daemon",
+      "message": "netdev_ip_addr_change(2390):unknown rta->rta_type = 6",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "kernel",
+      "message": "<6>[ 1.000] raid6test: test_disks(4, 16): faila=  0(D)  failb=  1(D)  OK",
+      "normal": true,
+      "level": "unknown"
+    },
+    {
+      "kind": "kernel",
+      "message": "<6>[ 1.000] raid6test: complete (268 tests, 0 failures)",
+      "normal": true,
+      "level": "unknown"
+    },
+    {
+      "kind": "kernel",
+      "message": "<3>[ 1.000] raid6test: complete (268 tests, 1 failures)",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "kernel",
+      "message": "<3>[ 41.0] device-mapper: thin metadata: sb_check failed: csum 1: wanted 2",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "kernel",
+      "message": "<1>[ 417.0] BUG: unable to handle kernel NULL pointer dereference",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "kernel",
+      "message": "<5>[ 41.0] md/raid:md1: not clean -- starting background reconstruction",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "samba",
+      "message": "[2026/11/05 12:00:00.0, 0] dnsupdate\n  Failed DNS update - NT_STATUS_IO_DEVICE_ERROR",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "samba",
+      "message": "server role active directory domain controller not compatible with running nmbd standalone.",
+      "normal": false,
+      "level": "unknown"
+    },
+    {
+      "kind": "syslog",
+      "message": "qlogd[123]: event log: Users: System, Source IP: 127.0.0.1, Computer name: localhost, Content: [Disk S.M.A.R.T.] Host: Disk 4 Rapid Test result: Completed without error.\u0000",
+      "normal": true,
+      "level": "info"
+    },
+    {
+      "kind": "syslog",
+      "message": "qlogd[123]: event log: Users: System, Source IP: 127.0.0.1, Computer name: localhost, Content: [Disk S.M.A.R.T.] Host: Disk 4 Rapid Test result: Completed without error.\u0000",
+      "normal": false,
+      "level": "warn"
+    },
+    {
+      "kind": "syslog",
+      "message": "qlogd[123]: event log: Users: System, Source IP: 127.0.0.1, Computer name: localhost, Content: [Disk S.M.A.R.T.] Host: Disk 4 Complete Test started.\u0000",
+      "normal": true,
+      "level": "info"
+    },
+    {
+      "kind": "syslog",
+      "message": "qlogd[123]: event log: Users: System, Source IP: 127.0.0.1, Computer name: localhost, Content: [Disk S.M.A.R.T.] Host: Disk 4 Complete Test started.\u0000",
+      "normal": false,
+      "level": "warn"
+    },
+    {
+      "kind": "syslog",
+      "message": "qlogd[123]: event log: Users: System, Source IP: 127.0.0.1, Computer name: localhost, Content: [Malware Remover] Scan completed.\u0000",
+      "normal": true,
+      "level": "info"
+    },
+    {
+      "kind": "syslog",
+      "message": "qlogd[123]: event log: Users: System, Source IP: 127.0.0.1, Computer name: localhost, Content: [Malware Remover] Scan completed.\u0000",
+      "normal": false,
+      "level": "warn"
+    },
+    {
+      "kind": "syslog",
+      "message": "qlogd[123]: event log: Users: System, Source IP: 127.0.0.1, Computer name: localhost, Content: [Malware Remover] Started scanning.\u0000",
+      "normal": true,
+      "level": "info"
+    },
+    {
+      "kind": "syslog",
+      "message": "qlogd[123]: event log: Users: System, Source IP: 127.0.0.1, Computer name: localhost, Content: [Malware Remover] Started scanning.\u0000",
+      "normal": false,
+      "level": "warn"
+    },
+    {
+      "kind": "syslog",
+      "message": "qlogd[123]: event log: Users: System, Source IP: 127.0.0.1, Computer name: localhost, Content: [Disk S.M.A.R.T.] Host: Disk 4 Complete Test result: Failed.",
+      "normal": false,
+      "level": "info"
+    },
+    {
+      "kind": "syslog",
+      "message": "qlogd[123]: event log: Users: System, Source IP: 127.0.0.1, Computer name: localhost, Content: [Malware Remover] Malware detected.",
+      "normal": false,
+      "level": "info"
+    },
+    {
+      "kind": "syslog",
+      "message": "qlogd[123]: event log: Users: System, Source IP: 127.0.0.1, Computer name: localhost, Content: [Pool 1] Resyncing done with RAID Group 1.",
+      "normal": false,
+      "level": "info"
+    },
+    {
+      "kind": "syslog",
+      "message": "qlogd[123]: conn log: Users: sample, Source IP: 192.0.2.1, Computer name: ---, Connection type: SSH, Accessed resources: ---, Action: Login OK\u0000",
+      "normal": true,
+      "level": "info"
+    },
+    {
+      "kind": "syslog",
+      "message": "qlogd[123]: conn log: Users: sample, Source IP: 192.0.2.1, Computer name: ---, Connection type: SSH, Accessed resources: ---, Action: Login Fail\u0000",
+      "normal": false,
+      "level": "info"
+    },
+    {
+      "kind": "syslog",
+      "message": "qlogd[123]: conn log: Users: sample, Source IP: 192.0.2.1, Computer name: ---, Connection type: SSH, Accessed resources: ---, Action: Login OK\u0000",
+      "normal": false,
+      "level": "warn"
+    },
+    {
+      "kind": "syslog",
+      "message": "qlogd[123]: conn log: Users: sample, Source IP: 192.0.2.99, Computer name: ---, Connection type: SSH, Accessed resources: ---, Action: Login OK",
+      "normal": false,
+      "level": "info"
+    }
+  ],
+  "normal_ssh_sources": [
+    "192.0.2.1"
+  ]
+}
