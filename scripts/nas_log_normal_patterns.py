@@ -2,7 +2,7 @@
 import ipaddress
 import re
 
-RULE_VERSION = '2026-11-05.1'
+RULE_VERSION = '2026-11-05.2'
 BAD_LEVELS = {'warn', 'warning', 'error', 'critical', 'alert', 'emerg'}
 PREFIX = re.compile(r'^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \[[^\]\r\n]+\] ')
 KERNEL = re.compile(r'^<([0-7])>\[\s*[0-9]+\.[0-9]+\] ')
@@ -54,7 +54,30 @@ READ_COMMANDS = [
     "/bin/df -k /share/CACHEDEV1_DATA 2>>/dev/null | /usr/bin/tail -n1 | /bin/awk -F ' ' '{print $(NF-2)}'",
     '/sbin/lvs /dev/mapper/vg1-tp1 --unit S -o chunk_size --noheadings 2>>/dev/null | /bin/sed s/^[[:space:]]*// 2>>/dev/null',
 ]
-READ_SUCCESS = {f'Perform cmd "{cmd}" OK, cmd_rsp=0, reason code:0.' for cmd in READ_COMMANDS}
+NEW_READ_COMMANDS = [
+    "/bin/df -k /share/CACHEDEV1_DATA 2>>/dev/null | /usr/bin/tail -n1 | /bin/awk -F ' ' '{print $(NF-3)}'",
+    "/sbin/vgs vg1 --unit S -o vg_size --noheadings 2>>/dev/null | /bin/sed s/^[[:space:]]*// 2>>/dev/null",
+    "/sbin/vgs vg1 --unit S -o vg_free --noheadings 2>>/dev/null | /bin/sed s/^[[:space:]]*// 2>>/dev/null",
+    "/sbin/lvs /dev/mapper/vg1-tp1 --unit S -o lv_size --noheadings 2>>/dev/null | /bin/sed s/^[[:space:]]*// 2>>/dev/null",
+    "/sbin/lvs /dev/mapper/vg1-tp1 -o used_data_blocks --noheadings  2>>/dev/null | /bin/sed s/^[[:space:]]*//  2>>/dev/null",
+    "/sbin/dmsetup info --noheadings --columns -o minor vg1-tp1-tpool 2>>/dev/null",
+    "/sbin/vgs vg1 -o vg_extent_size --noheadings 2>>/dev/null  | /bin/sed s/^[[:space:]]*//  2>>/dev/null",
+    "/sbin/lvs -a /dev/mapper/vg1-tp1_tmeta -o lv_size --unit S 2>>/dev/null | /bin/awk 'NR==2 {print $1}' 2>>/dev/null",
+]
+READ_SUCCESS = {f'Perform cmd "{cmd}" OK, cmd_rsp=0, reason code:0.'
+                for cmd in READ_COMMANDS + NEW_READ_COMMANDS}
+
+ENUM = re.compile(
+    r'Volume_Enumerate_(General|Data)_Volumes: got called with \(0x[0-9A-Fa-f]+, 772\)\.')
+HD = re.compile(r'SystemHdTableEx_handler: hdindex=[1-4], model=ST8000DM004-2CX188\.')
+BLK = re.compile(
+    r'Blk_Dev_Generate_Mount_Point: mount point for "/dev/mapper/cachedev1" is "/share/CACHEDEV1_DATA", is_internal is 1\.')
+POOLSIZE = re.compile(
+    r'Pool_TP_Get_Size: \[Pool\(1\)\] \*lldatalP: ([0-9]+), \*llfreeP: ([0-9]+), \*llmetaP: ([0-9]+), \*llmeta_spareP: ([0-9]+)')
+POOLFULL = re.compile(
+    r'Pool_Is_Full: \[Pool\(1\)\] full: 0, \*thin_lv_exist: 0, \*snapshot_exist: 0, free_size: ([0-9]+), limit: ([0-9]+)\.')
+LED = re.compile(
+    r'GPIO_Set_NAS_Status_LED: event = 0x(?:1000|2000),status = 0, value = 0x0, formatting_count = 0')
 
 
 def normal_pattern(kind, message, level='unknown', ssh_source=''):
@@ -75,9 +98,28 @@ def normal_pattern(kind, message, level='unknown', ssh_source=''):
     for source, name, regex in COMPILED:
         if source == kind and regex.fullmatch(body):
             return name
-    if kind == 'storage' and body in READ_SUCCESS:
-        return 'storage_read_success'
+    if kind == 'storage':
+        if body in READ_SUCCESS:
+            return 'storage_read_success'
+        if ENUM.fullmatch(body):
+            return 'storage_volume_enumerate'
+        if HD.fullmatch(body):
+            return 'storage_system_hd_table_ex'
+        if BLK.fullmatch(body):
+            return 'storage_blk_dev_mount'
+        if (m := POOLSIZE.fullmatch(body)):
+            total, free, meta, spare = map(int, m.groups())
+            if total > 0 and 0 < free <= total and meta > 0 and spare == 0:
+                return 'storage_pool_tp_get_size'
+            return None
+        if (m := POOLFULL.fullmatch(body)):
+            free, limit = map(int, m.groups())
+            if limit > 0 and free > limit:
+                return 'storage_pool_is_full'
+            return None
     if kind == 'hal':
+        if LED.fullmatch(body):
+            return 'hal_gpio_led'
         match = SMART.fullmatch(body)
         if match:
             ident, name, value, worst, threshold, raw = match.groups()
