@@ -142,3 +142,19 @@ variable "nas_nfs_image" {
     error_message = "NAS NFS collector image must be digest pinned."
   }
 }
+
+variable "nas_file_logs_image" {
+  description = "Opt-in digest-pinned Python/OpenSSH runtime for NAS file logs; credentials remain outside Terraform."
+  type        = string
+  default     = ""
+  validation {
+    condition     = var.nas_file_logs_image == "" || can(regex("^[A-Za-z0-9][A-Za-z0-9._:/-]*@sha256:[0-9a-f]{64}$", var.nas_file_logs_image))
+    error_message = "NAS file log image must be digest pinned."
+  }
+}
+
+variable "nas_normal_filter_enabled" {
+  description = "Drop reviewed normal NAS messages only; retain unknown messages and expose drop counters."
+  type        = bool
+  default     = false
+}

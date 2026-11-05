@@ -163,7 +163,7 @@ class AlloyContractTests(unittest.TestCase):
         port = http_probe.getsockname()[1]; http_probe.close()
         try:
             with tempfile.TemporaryDirectory(prefix="nas-alloy-fixture-") as directory:
-                config = logs.alloy_config().replace("0.0.0.0:1514", f"127.0.0.1:{udp}").replace(
+                config = logs.alloy_config(True, "192.0.2.1").replace("0.0.0.0:1514", f"127.0.0.1:{udp}").replace(
                     "http://prod-loki:3100/loki/api/v1/push",
                     f"http://127.0.0.1:{server.server_port}/loki/api/v1/push")
                 path = Path(directory) / "config.alloy"; path.write_text(config)
@@ -195,6 +195,16 @@ class AlloyContractTests(unittest.TestCase):
                                 ["emerg", "alert", "critical", "error", "warn", "notice", "info", "debug"])]
                             for pri, stamp, marker in fixtures:
                                 sender.sendto(f"<{pri}>{stamp} 12:00:00 fixture-nas qlogd[123]: {marker}".encode(),
+                                              ("127.0.0.1", udp))
+                                time.sleep(.01)
+                            from nas_log_normal_patterns import normal_pattern
+                            cases = json.loads((Path(__file__).parent / 'fixtures/nas_normal_log_cases.json').read_text())['cases']
+                            for case in cases:
+                                if case['kind'] != 'syslog':
+                                    continue
+                                level = case.get('level', 'info')
+                                pri = 188 if level == 'warn' else 190
+                                sender.sendto(f"<{pri}>Nov 01 12:00:00 fixture-nas {case['message']}".encode(),
                                               ("127.0.0.1", udp))
                                 time.sleep(.01)
                             sender.sendto(b"fixture-malformed", ("127.0.0.1", udp))
@@ -236,11 +246,25 @@ class AlloyContractTests(unittest.TestCase):
                         self.assertNotIn(b'priority="', payload)
                         self.assertNotIn(b'nas_month="', payload)
                         self.assertTrue(all(path == "/loki/api/v1/push" for path, _ in received))
+                        all_lines = [line for _, lines in streams for line in lines]
+                        for case in cases:
+                            if case['kind'] == 'syslog':
+                                expected_drop = normal_pattern('syslog', case['message'], case.get('level', 'info'), '192.0.2.1')
+                                matches = [line for line in all_lines if case['message'].rstrip('\0') in line]
+                                if not expected_drop:
+                                    self.assertTrue(matches, case)
+                                else:
+                                    info_matches = [line for labels, lines in streams if 'level="info"' in labels
+                                                    for line in lines if case['message'].rstrip('\0') in line]
+                                    self.assertFalse(info_matches, case)
                         metrics = urllib.request.urlopen(f"http://127.0.0.1:{port}/metrics", timeout=3).read().decode()
                         dropped = [float(line.split()[-1]) for line in metrics.splitlines()
                                    if line.startswith("loki_process_dropped_lines_total") and
                                    'reason="nas_invalid_header"' in line]
                         self.assertGreaterEqual(sum(dropped), 1)
+                        normal_dropped = [float(line.split()[-1]) for line in metrics.splitlines()
+                                          if line.startswith('loki_process_dropped_lines_total') and 'reason="nas_normal_' in line]
+                        self.assertGreater(sum(normal_dropped), 0)
                         entries = [float(line.split()[-1]) for line in metrics.splitlines()
                                    if line.startswith("loki_source_syslog_entries_total")]
                         # The UDP transport may reject malformed PRI before

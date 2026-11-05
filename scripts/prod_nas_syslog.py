@@ -15,7 +15,7 @@ COLLECTOR_JOB = "qnap-nas-collector"
 NODE_PORT = 31514
 
 
-def alloy_config() -> str:
+def alloy_config(filter_normal=False, normal_ssh_source="") -> str:
     # Old QNAP uses strftime("%b %d %T"): Nov 01 is rejected by the strict
     # RFC3164 parser. Parse this bounded legacy header with receipt timestamps.
     # The raw source still parses PRI and exposes severity to relabel rules.
@@ -31,7 +31,7 @@ def alloy_config() -> str:
         rules.append('  rule {\n    source_labels = ["__syslog_message_severity"]\n'
                      f'    regex = "{regex}"\n    target_label = "level"\n'
                      f'    replacement = "{level}"\n  }}')
-    return '''loki.relabel "nas" {
+    text = '''loki.relabel "nas" {
   forward_to = []
 ''' + "\n".join(rules) + '''
 }
@@ -94,11 +94,23 @@ loki.write "prod" {
 '''
 
 
-def resources(address: str, node: str) -> list[dict]:
+    if filter_normal:
+        from nas_log_normal_patterns import syslog_normal_patterns
+        stages = '  stage.match {\n    selector = "{level=\\"info\\"}"\n'
+        for name, regex in syslog_normal_patterns(normal_ssh_source):
+            stages += ('    stage.drop {\n      source = "body"\n'
+                       + '      expression = ' + json.dumps(regex) + '\n'
+                       + '      drop_counter_reason = "nas_normal_' + name + '"\n    }\n')
+        stages += '  }\n'
+        text = text.replace('  stage.label_drop {', stages + '  stage.label_drop {')
+    return text
+
+
+def resources(address: str, node: str, filter_normal=False, normal_ssh_source="") -> list[dict]:
     validate(address, "prometheus")
     if not isinstance(node, str) or not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", node):
         raise ValueError("syslog requires an explicit production node hostname")
-    text = alloy_config()
+    text = alloy_config(filter_normal, normal_ssh_source)
     selector = {"matchLabels": labels(NAME)}
     prom = {"matchLabels": labels("prod-prometheus")}
     loki = {"matchLabels": labels("prod-loki")}
@@ -162,8 +174,8 @@ def resources(address: str, node: str) -> list[dict]:
     ]
 
 
-def add_syslog(manifest: dict, address: str, node: str) -> None:
-    additions = resources(address, node)
+def add_syslog(manifest: dict, address: str, node: str, filter_normal=False, normal_ssh_source="") -> None:
+    additions = resources(address, node, filter_normal, normal_ssh_source)
     def find(kind: str, name: str) -> dict:
         return next(x for x in manifest["items"] if x["kind"] == kind and x["metadata"]["name"] == name)
     prom = find("ConfigMap", "prod-prometheus-config")
@@ -185,7 +197,7 @@ def add_syslog(manifest: dict, address: str, node: str) -> None:
     dash["panels"].append(panel(n + 1, "Syslog collector UP",
                                'up{job="' + COLLECTOR_JOB + '"}', "short", kind="stat"))
     dash["panels"].append({
-        "id": n + 2, "title": "NAS system logs", "type": "logs",
+        "id": n + 2, "title": "NAS system / connection logs (non-normal / unclassified)" if filter_normal else "NAS system logs", "type": "logs",
         "datasource": {"type": "loki", "uid": "prod-loki"},
         "targets": [{"refId": "A", "expr": '{environment="production",source="qnap-syslog"}'}],
         "gridPos": {"x": 0, "y": ((n + 2) // 2) * 8, "w": 24, "h": 12},
