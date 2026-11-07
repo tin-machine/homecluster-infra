@@ -3,7 +3,11 @@
 set -eu
 PATH=/usr/bin:/bin:/sbin:/usr/sbin
 export PATH
-[ "${SSH_ORIGINAL_COMMAND:-}" = nas-logs-v1 ] || exit 64
+case "${SSH_ORIGINAL_COMMAND:-}" in
+    nas-logs-v1) ;;
+    nas-smart-v1) exec /bin/sh "$(dirname "$0")/nas_smart_snapshot.sh" ;;
+    *) exit 64 ;;
+esac
 MAX_FILE_BYTES=2097152
 MAX_TOTAL_BYTES=25165824
 TOTAL_BYTES=0

@@ -13,6 +13,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.request import Request, urlopen
 
 from nas_file_logs_core import MAX_SNAPSHOT, MAX_STATE, initial_state, parse_snapshot, prepare, validate_state
+from nas_smart import Collector as SmartCollector
 
 LOKI_URL = 'http://prod-loki:3100/loki/api/v1/push'
 
@@ -161,6 +162,7 @@ def main():
     parser.add_argument('--filter-normal', choices=('true', 'false'), default='false')
     args = parser.parse_args()
     collector = Collector(args.host, args.state, args.filter_normal == 'true')
+    smart = SmartCollector(ssh_args(args.host), Path(args.state).with_name('smart-state.json'))
     stop = threading.Event()
 
     class Handler(BaseHTTPRequestHandler):
@@ -168,7 +170,7 @@ def main():
             pass
 
         def do_GET(self):
-            body = collector.metrics().encode() if self.path == '/metrics' else b'ok'
+            body = (collector.metrics() + smart.metrics()).encode() if self.path == '/metrics' else b'ok'
             self.send_response(200 if self.path in ('/metrics', '/healthz') else 404)
             self.send_header('Content-Type', 'text/plain; version=0.0.4')
             self.send_header('Content-Length', str(len(body)))
@@ -178,6 +180,8 @@ def main():
     server = ThreadingHTTPServer(('0.0.0.0', 9188), Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
+    smart_thread = threading.Thread(target=smart.run, args=(stop,), daemon=True)
+    smart_thread.start()
     for sig in (signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, lambda *_: stop.set())
     try:
@@ -186,6 +190,8 @@ def main():
             collector.poll_once()
             stop.wait(max(1, 60 - (time.monotonic() - started)))
     finally:
+        stop.set()
+        smart_thread.join(timeout=25)
         server.shutdown()
         server.server_close()
         thread.join()

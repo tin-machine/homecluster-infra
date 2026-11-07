@@ -26,7 +26,7 @@ class IntegrationTests(unittest.TestCase):
         after = json.loads(new['ConfigMap/prod-prometheus-config']['data']['prometheus.json'])
         self.assertEqual(before['scrape_configs'], after['scrape_configs'][:-1])
         dashboard = lambda x: json.loads(x['ConfigMap/prod-grafana-provisioning']['data']['qnap-nas.json'])['panels']
-        self.assertEqual(dashboard(old), dashboard(new)[:-3])
+        self.assertEqual(dashboard(old), dashboard(new)[:-8])
         self.assertEqual(len(dashboard(new)), len({p['id'] for p in dashboard(new)}))
         self.assertGreaterEqual(dashboard(new)[-3]['gridPos']['y'], max(p['gridPos']['y'] + p['gridPos']['h'] for p in dashboard(old)))
 
@@ -44,7 +44,7 @@ class IntegrationTests(unittest.TestCase):
         self.assertEqual({p['port'] for rule in policy['egress'] for p in rule['ports']}, {22, 53, 3100})
         self.assertEqual(policy['ingress'][0]['ports'], [{'port': 9188, 'protocol': 'TCP'}])
         code = data['ConfigMap/prod-nas-file-logs-config']['data']
-        self.assertEqual(set(code), {'nas_file_logs_collector.py', 'nas_file_logs_core.py', 'nas_log_normal_patterns.py', 'alerts.json'})
+        self.assertEqual(set(code), {'nas_file_logs_collector.py', 'nas_file_logs_core.py', 'nas_log_normal_patterns.py', 'nas_smart.py', 'alerts.json'})
 
     def test_filter_is_explicit_and_unknowns_are_not_dropped(self):
         self.assertNotIn('nas_normal_', alloy_config())
