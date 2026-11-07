@@ -31,7 +31,7 @@ class SmartTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.path = Path(self.tmp.name) / 'smart-state.json'
         self.payload = snapshot()
-        self.collector = smart.Collector(ssh_args('192.168.1.10'), self.path,
+        self.collector = smart.Collector(ssh_args('192.0.2.10'), self.path,
                                          reader=lambda _: smart.parse_snapshot(self.payload), clock=lambda: 10000)
 
     def test_initial_existing_error_is_baseline(self):
@@ -42,7 +42,7 @@ class SmartTests(unittest.TestCase):
         self.assertEqual(disk['increments']['188'], 0)
         self.assertEqual(self.path.stat().st_mode & 0o777, 0o600)
         self.assertEqual(self.collector.args[-1], 'nas-smart-v1')
-        self.assertEqual(self.collector.args[:-1], ssh_args('192.168.1.10')[:-1])
+        self.assertEqual(self.collector.args[:-1], ssh_args('192.0.2.10')[:-1])
 
     def test_unchanged_increment_reset_and_restart(self):
         for raw, expected in [(1, 0), (1, 0), (2, 1), (1, 1), (3, 3)]:
