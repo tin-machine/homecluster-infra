@@ -1,0 +1,246 @@
+{
+  "rule_files": [
+    "rules.json"
+  ],
+  "evaluation_interval": "1m",
+  "tests": [
+    {
+      "name": "baseline",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "up{job=\"qnap-nas-file-logs\",instance=\"nas\"}",
+          "values": "1+0x480"
+        },
+        {
+          "series": "nas_smart_collection_success{job=\"qnap-nas-file-logs\",instance=\"nas\"}",
+          "values": "1+0x480"
+        },
+        {
+          "series": "nas_smart_state_valid{job=\"qnap-nas-file-logs\",instance=\"nas\"}",
+          "values": "1+0x480"
+        },
+        {
+          "series": "nas_smart_last_success_timestamp_seconds{job=\"qnap-nas-file-logs\",instance=\"nas\"}",
+          "values": "0+60x480"
+        },
+        {
+          "series": "nas_smart_attribute_increments_total{job=\"qnap-nas-file-logs\",instance=\"nas\",bay=\"2\",disk_id=\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",attribute_id=\"188\"}",
+          "values": "0+0x480"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "121m",
+          "alertname": "NASSMARTAttributeIncreased",
+          "exp_alerts": []
+        }
+      ]
+    },
+    {
+      "name": "new-increment",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "up{job=\"qnap-nas-file-logs\",instance=\"nas\"}",
+          "values": "1+0x480"
+        },
+        {
+          "series": "nas_smart_collection_success{job=\"qnap-nas-file-logs\",instance=\"nas\"}",
+          "values": "1+0x480"
+        },
+        {
+          "series": "nas_smart_state_valid{job=\"qnap-nas-file-logs\",instance=\"nas\"}",
+          "values": "1+0x480"
+        },
+        {
+          "series": "nas_smart_last_success_timestamp_seconds{job=\"qnap-nas-file-logs\",instance=\"nas\"}",
+          "values": "0+60x480"
+        },
+        {
+          "series": "nas_smart_attribute_increments_total{job=\"qnap-nas-file-logs\",instance=\"nas\",bay=\"2\",disk_id=\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",attribute_id=\"188\"}",
+          "values": "0+0x119 1+0x360"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "121m",
+          "alertname": "NASSMARTAttributeIncreased",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "job": "qnap-nas-file-logs",
+                "instance": "nas",
+                "bay": "2",
+                "disk_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "attribute_id": "188",
+                "severity": "warning",
+                "scope": "nas-smart",
+                "source": "prod-outside-in"
+              },
+              "exp_annotations": {
+                "summary": "NAS SMART attribute increased: bay 2, attribute 188"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "failure",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "up{job=\"qnap-nas-file-logs\",instance=\"nas\"}",
+          "values": "1+0x480"
+        },
+        {
+          "series": "nas_smart_collection_success{job=\"qnap-nas-file-logs\",instance=\"nas\"}",
+          "values": "0+0x480"
+        },
+        {
+          "series": "nas_smart_state_valid{job=\"qnap-nas-file-logs\",instance=\"nas\"}",
+          "values": "1+0x480"
+        },
+        {
+          "series": "nas_smart_last_success_timestamp_seconds{job=\"qnap-nas-file-logs\",instance=\"nas\"}",
+          "values": "0+60x480"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "161m",
+          "alertname": "NASSMARTCollectionUnavailable",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "job": "qnap-nas-file-logs",
+                "instance": "nas",
+                "severity": "warning",
+                "scope": "nas-smart",
+                "source": "prod-outside-in"
+              },
+              "exp_annotations": {
+                "summary": "NAS SMART collection failed or is older than 2.5 hours"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "stale",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "up{job=\"qnap-nas-file-logs\",instance=\"nas\"}",
+          "values": "1+0x480"
+        },
+        {
+          "series": "nas_smart_collection_success{job=\"qnap-nas-file-logs\",instance=\"nas\"}",
+          "values": "1+0x480"
+        },
+        {
+          "series": "nas_smart_state_valid{job=\"qnap-nas-file-logs\",instance=\"nas\"}",
+          "values": "1+0x480"
+        },
+        {
+          "series": "nas_smart_last_success_timestamp_seconds{job=\"qnap-nas-file-logs\",instance=\"nas\"}",
+          "values": "0+0x480"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "161m",
+          "alertname": "NASSMARTCollectionUnavailable",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "job": "qnap-nas-file-logs",
+                "instance": "nas",
+                "severity": "warning",
+                "scope": "nas-smart",
+                "source": "prod-outside-in"
+              },
+              "exp_annotations": {
+                "summary": "NAS SMART collection failed or is older than 2.5 hours"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "missing",
+      "interval": "1m",
+      "input_series": [],
+      "alert_rule_test": [
+        {
+          "eval_time": "11m",
+          "alertname": "NASSMARTCollectionUnavailable",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "job": "qnap-nas-file-logs",
+                "severity": "warning",
+                "scope": "nas-smart",
+                "source": "prod-outside-in"
+              },
+              "exp_annotations": {
+                "summary": "NAS SMART collection failed or is older than 2.5 hours"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "unhealthy",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "up{job=\"qnap-nas-file-logs\",instance=\"nas\"}",
+          "values": "1+0x480"
+        },
+        {
+          "series": "nas_smart_collection_success{job=\"qnap-nas-file-logs\",instance=\"nas\"}",
+          "values": "1+0x480"
+        },
+        {
+          "series": "nas_smart_state_valid{job=\"qnap-nas-file-logs\",instance=\"nas\"}",
+          "values": "1+0x480"
+        },
+        {
+          "series": "nas_smart_last_success_timestamp_seconds{job=\"qnap-nas-file-logs\",instance=\"nas\"}",
+          "values": "0+60x480"
+        },
+        {
+          "series": "nas_smart_disk_healthy{job=\"qnap-nas-file-logs\",instance=\"nas\",bay=\"2\",disk_id=\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}",
+          "values": "0+0x480"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "6m",
+          "alertname": "NASSMARTDiskUnhealthy",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "job": "qnap-nas-file-logs",
+                "instance": "nas",
+                "bay": "2",
+                "disk_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "severity": "warning",
+                "scope": "nas-smart",
+                "source": "prod-outside-in"
+              },
+              "exp_annotations": {
+                "summary": "NAS SMART health is abnormal: bay 2"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -21,6 +21,17 @@ def rules():
         {'alert': 'NASFileLogsRotationGap', 'expr': 'increase(nas_file_logs_rotation_gaps_total{job="qnap-nas-file-logs"}[1h]) > 0',
          'for': '0m', 'labels': {'severity': 'warning', 'scope': 'nas-file-logs', 'source': 'prod-outside-in'},
          'annotations': {'summary': 'NAS log rotation exceeded the retained cursor history'}},
+        {'alert': 'NASSMARTAttributeIncreased',
+         'expr': 'increase(nas_smart_attribute_increments_total{job="qnap-nas-file-logs"}[6h]) > 0',
+         'for': '0m', 'labels': {'severity': 'warning', 'scope': 'nas-smart', 'source': 'prod-outside-in'},
+         'annotations': {'summary': 'NAS SMART attribute increased: bay {{ $labels.bay }}, attribute {{ $labels.attribute_id }}'}},
+        {'alert': 'NASSMARTDiskUnhealthy', 'expr': 'nas_smart_disk_healthy{job="qnap-nas-file-logs"} == 0',
+         'for': '5m', 'labels': {'severity': 'warning', 'scope': 'nas-smart', 'source': 'prod-outside-in'},
+         'annotations': {'summary': 'NAS SMART health is abnormal: bay {{ $labels.bay }}'}},
+        {'alert': 'NASSMARTCollectionUnavailable',
+         'expr': 'up{job="qnap-nas-file-logs"} == 0 or absent(nas_smart_collection_success{job="qnap-nas-file-logs"}) or nas_smart_collection_success{job="qnap-nas-file-logs"} == 0 or nas_smart_state_valid{job="qnap-nas-file-logs"} == 0 or (time()-nas_smart_last_success_timestamp_seconds{job="qnap-nas-file-logs"} > 9000)',
+         'for': '10m', 'labels': {'severity': 'warning', 'scope': 'nas-smart', 'source': 'prod-outside-in'},
+         'annotations': {'summary': 'NAS SMART collection failed or is older than 2.5 hours'}},
     ]}]}
 
 
@@ -36,7 +47,7 @@ def add_monitoring(manifest, address, node, image, filter_normal=False):
     prom = {'matchLabels': labels('prod-prometheus')}
     loki = {'matchLabels': labels('prod-loki')}
     data = {name: Path(__file__).with_name(name).read_text() for name in
-            ('nas_file_logs_collector.py', 'nas_file_logs_core.py', 'nas_log_normal_patterns.py')}
+            ('nas_file_logs_collector.py', 'nas_file_logs_core.py', 'nas_log_normal_patterns.py', 'nas_smart.py')}
     data['alerts.json'] = encode(rules())
     pod = {
         'automountServiceAccountToken': False,
@@ -79,7 +90,7 @@ def add_monitoring(manifest, address, node, image, filter_normal=False):
     cfg = json.loads(find('ConfigMap', 'prod-prometheus-config')['data']['prometheus.json'])
     cfg['scrape_configs'].append({'job_name': JOB, 'scrape_interval': '30s', 'scrape_timeout': '5s', 'sample_limit': 500,
         'static_configs': [{'targets': [NAME + ':9188']}],
-        'metric_relabel_configs': [{'action': 'keep', 'source_labels': ['__name__'], 'regex': 'nas_file_logs_.*'}]})
+        'metric_relabel_configs': [{'action': 'keep', 'source_labels': ['__name__'], 'regex': 'nas_file_logs_.*|nas_smart_.*'}]})
     cfg.setdefault('rule_files', []).append('/etc/prometheus/nas-file-log-rules/alerts.json')
     update_prometheus_config(manifest, cfg)
     pt = find('Deployment', 'prod-prometheus')['spec']['template']
@@ -98,11 +109,22 @@ def add_monitoring(manifest, address, node, image, filter_normal=False):
         item = panel(n + 1 + i, title, expr, 'short', kind='stat')
         item['gridPos'].update(x=12 * i, y=y)
         dashboard['panels'].append(item)
+    for i, (title, expr, unit, legend, kind) in enumerate([
+        ('NAS SMART attributes', 'nas_smart_attribute_raw{job="qnap-nas-file-logs"}', 'short', 'Bay {{bay}} / ID {{attribute_id}}', 'timeseries'),
+        ('NAS SMART increases (6h)', 'increase(nas_smart_attribute_increments_total{job="qnap-nas-file-logs"}[6h])', 'short', 'Bay {{bay}} / ID {{attribute_id}}', 'timeseries'),
+        ('NAS disk temperature', 'nas_smart_temperature_celsius{job="qnap-nas-file-logs"}', 'celsius', 'Bay {{bay}}', 'timeseries'),
+        ('NAS SMART collection success', 'nas_smart_collection_success{job="qnap-nas-file-logs"}', 'short', '', 'stat'),
+        ('NAS SMART collection age', 'time()-nas_smart_last_success_timestamp_seconds{job="qnap-nas-file-logs"}', 's', '', 'stat'),
+    ]):
+        item = panel(n + 4 + i, title, expr, unit, legend=legend, kind=kind)
+        item['gridPos'].update(x=12 * (i % 2), y=y + 8 + 8 * (i // 2))
+        item['description'] = '取得間隔は2時間。初回値を基準に同一ディスクの正の増分を計測し、交換・値の減少を新規エラーとして数えません。ID 5=代替処理、10=回転再試行、184=End-to-End、187=報告された訂正不能、188=コマンドタイムアウト、191=衝撃、197=保留、198=訂正不能、199=CRC。'
+        dashboard['panels'].append(item)
     dashboard['panels'].append({'id': n + 3, 'title': 'NAS file logs — non-normal / unclassified' if filter_normal else 'NAS file logs', 'type': 'logs',
         'description': 'Time column is observation time. JSON source_time is the original NAS time when available; bootstrap=true marks retained history at first collection.',
         'datasource': {'type': 'loki', 'uid': 'prod-loki'},
         'targets': [{'refId': 'A', 'expr': '{environment="production",source="qnap-filelog"} | json | line_format "{{.log_kind}} {{.source_time}} bootstrap={{.bootstrap}} {{.message}}"'}],
-        'gridPos': {'x': 0, 'y': y + 8, 'w': 24, 'h': 14},
+        'gridPos': {'x': 0, 'y': y + 32, 'w': 24, 'h': 14},
         'options': {'showTime': True, 'showLabels': False, 'enableLogDetails': True, 'wrapLogMessage': True, 'sortOrder': 'Descending'}})
     gd['qnap-nas.json'] = encode(dashboard)
     find('Deployment', 'prod-grafana')['spec']['template']['metadata']['annotations']['checksum/provisioning'] = hashlib.sha256(encode(gd).encode()).hexdigest()
