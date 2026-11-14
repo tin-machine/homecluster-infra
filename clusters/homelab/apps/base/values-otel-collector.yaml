@@ -7,6 +7,26 @@ image:
 # Chart-only upgrade: keep the pinned Collector's component names and telemetry.
 # Remove these compatibility settings together with a tested application upgrade.
 rewriteDeprecatedComponentNames: false
+
+# Chart 0.178.x builds internal telemetry resource attributes from a separate
+# values key, even when config.service.telemetry.resource is null. Disable its
+# defaults while the Collector application remains pinned to 0.102.1. This is
+# a chart-only upgrade; migrate the Collector and its telemetry separately.
+telemetry:
+  resourceAttributes:
+    default:
+      host.name:
+        enabled: false
+      k8s.namespace.name:
+        enabled: false
+      k8s.node.ip:
+        enabled: false
+      k8s.node.name:
+        enabled: false
+      k8s.pod.ip:
+        enabled: false
+      k8s.pod.name:
+        enabled: false
 config:
   service:
     telemetry:
