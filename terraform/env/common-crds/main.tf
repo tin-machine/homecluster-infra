@@ -88,7 +88,7 @@ resource "helm_release" "cert_manager" {
   repository = "https://charts.jetstack.io"
   chart      = "cert-manager"
   namespace  = kubernetes_namespace.cert_manager.metadata[0].name
-  version    = "v1.21.2"
+  version    = "v1.21.3"
   timeout    = 600
   wait       = true
 
