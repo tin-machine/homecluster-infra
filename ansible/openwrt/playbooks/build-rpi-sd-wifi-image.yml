@@ -1,0 +1,8 @@
+---
+- name: Build an isolated Pi4 SD Wi-Fi netboot candidate
+  hosts: rpi_sd_image_builders
+  gather_facts: false
+  become: true
+  roles:
+    - role: rpi_sd_wifi_image
+      tags: [rpi_sd_wifi_image]

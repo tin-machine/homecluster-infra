@@ -1,0 +1,14 @@
+[Unit]
+Description=Record entry into the selected operating system
+ConditionPathExists=!/etc/initrd-release
+ConditionPathExists=/run/sd-netboot-state/manifest.json
+
+[Service]
+Type=oneshot
+RootDirectory=/run/sd-netboot-runtime
+MountAPIVFS=yes
+BindPaths=/run/sd-netboot-state:/run/sd-netboot-state /run/sd-netboot-boot:/run/sd-netboot-boot
+ExecStart=/usr/bin/python3.14 /usr/lib/sd-netboot/boot.py userspace
+RemainAfterExit=yes
+StandardOutput=journal+console
+StandardError=null
