@@ -9,6 +9,7 @@ import io
 import json
 from pathlib import Path
 import shlex
+import stat
 import subprocess
 import sys
 import tempfile
@@ -109,6 +110,33 @@ class WorldUpdateContract(unittest.TestCase):
         self.assertEqual(self.commands, [])
         self.assertEqual(self.world.read_bytes(), before)
         self.assertIn("pinned", output.lower())
+
+    def test_source_declaration_uses_the_boot_contract(self):
+        valid = {
+            "schema": "homecluster-pxe-source-declaration-v1", "environment": "staging",
+            "build_id": "fixture_generation.1", "infra_revision": "a" * 40,
+        }
+        self.declaration.write_text(json.dumps(valid))
+        self.assertEqual(self.invoke()[0], 0)
+        for delta in ({"build_id": "a" * 129}, {"build_id": "../escape"},
+                      {"build_id": "a/b"}, {"infra_revision": "A" * 40},
+                      {"extra": True}, {"environment": "production"}):
+            with self.subTest(delta=delta):
+                self.declaration.write_text(json.dumps({**valid, **delta}))
+                self.assertNotEqual(self.invoke()[0], 0)
+                self.assertEqual(self.commands, [])
+        self.declaration.write_text(json.dumps(valid)[:-1] + ',"environment":"staging"}')
+        self.assertNotEqual(self.invoke()[0], 0)
+        self.declaration.write_text(" " * 4097 + json.dumps(valid))
+        self.assertNotEqual(self.invoke()[0], 0)
+
+    def test_world_mode_is_preserved_and_unchanged_world_is_not_replaced(self):
+        self.world.chmod(0o640)
+        self.assertEqual(self.invoke()[0], 0)
+        self.assertEqual(stat.S_IMODE(self.world.stat().st_mode), 0o640)
+        inode = self.world.stat().st_ino
+        self.assertEqual(self.invoke()[0], 0)
+        self.assertEqual(self.world.stat().st_ino, inode)
 
     def test_bad_source_declaration_fails_before_any_write(self):
         for body in ("", "{", "[]", '{"environment":"staging"}'):
