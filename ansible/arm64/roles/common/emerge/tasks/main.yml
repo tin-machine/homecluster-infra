@@ -77,6 +77,17 @@
   tags:
     - emerge_world_update
 
+- name: Install gentoo world update helper
+  become: true
+  ansible.builtin.copy:
+    src: gentoo-world-update.py
+    dest: /usr/local/sbin/gentoo-world-update
+    owner: root
+    group: root
+    mode: '0755'
+  tags:
+    - emerge_world_update
+
 - name: Install gentoo world update systemd service
   become: true
   ansible.builtin.copy:
@@ -93,12 +104,7 @@
       [Service]
       Type=oneshot
       WorkingDirectory=/root
-      ExecStart=/bin/sh -c 'sed -i "\\#^app-admin/ansible$#d" /var/lib/portage/world; for pkg in app-admin/ansible-core dev-vcs/git net-firewall/iptables net-firewall/nftables sys-fs/f2fs-tools; do grep -qxF "$pkg" /var/lib/portage/world || printf "%s\n" "$pkg" >> /var/lib/portage/world; done'
-      ExecStart=/usr/bin/emerge --sync
-      ExecStart=/usr/bin/emerge --noreplace app-admin/ansible-core dev-vcs/git net-firewall/iptables net-firewall/nftables sys-fs/f2fs-tools
-      ExecStart=/usr/bin/emerge {{ gentoo_world_update_exclude_args_resolved }} -uDN --with-bdeps=y --ask=n --verbose --backtrack=100 --keep-going @world
-      ExecStart=/usr/bin/emerge {{ gentoo_world_update_exclude_args_resolved }} @preserved-rebuild
-      ExecStart=/usr/bin/emerge {{ gentoo_world_update_exclude_args_resolved }} --depclean --ask=n
+      ExecStart=/usr/local/sbin/gentoo-world-update {{ gentoo_world_update_exclude_args_resolved }}
       StandardOutput=append:/var/log/gentoo-world-update.log
       StandardError=append:/var/log/gentoo-world-update.log
 
