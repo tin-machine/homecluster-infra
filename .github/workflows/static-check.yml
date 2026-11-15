@@ -45,6 +45,12 @@ jobs:
           terraform fmt -check -diff -recursive
           bash scripts/ci/static-check.sh
 
+      - name: Validate Cloudflare canonical redirects with mock provider
+        shell: bash
+        run: |
+          terraform -chdir=terraform/cloudflare/zone-redirects init -backend=false -input=false -lockfile=readonly
+          terraform -chdir=terraform/cloudflare/zone-redirects test -no-color
+
       - name: Validate PXE producer-consumer contracts
         shell: bash
         run: |
