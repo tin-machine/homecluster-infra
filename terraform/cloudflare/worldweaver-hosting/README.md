@@ -74,7 +74,7 @@ Cache-Control: public, max-age=31536000, immutable
 
 ## Provider
 
-Cloudflare provider は `~> 5.26.0` に固定します。
+Cloudflare provider は `~> 5.27.0` に固定します。
 
 利用 resource:
 
@@ -133,11 +133,11 @@ R2 backend bucket、endpoint、credential、state key は controller/operator �
 
 この source-only PR 自体は Cloudflare を変更しません。
 
-Cloudflare provider v5.26.0 では、Worker Custom Domain と R2 Custom Domain で adoption capability が異なります。
+Cloudflare provider v5.27.0 では、Worker Custom Domain と R2 Custom Domain で adoption capability が異なります。
 
 ### Worker Custom Domain
 
-`cloudflare_workers_custom_domain` は provider v5.26.0 で `terraform import` をサポートします。
+`cloudflare_workers_custom_domain` は provider v5.27.0 で `terraform import` をサポートします。
 
 ~~~text
 Worker Custom Domain already exists with the intended target
@@ -154,7 +154,7 @@ existing association の domain ID は read-only discovery で確認し、hostna
 
 ### R2 Custom Domain
 
-`cloudflare_r2_custom_domain` は provider v5.26.0 で **`terraform import` をサポートしません**。provider の generated resource documentation にも明示されています。
+`cloudflare_r2_custom_domain` は provider v5.27.0 で **`terraform import` をサポートしません**。provider の generated resource documentation にも明示されています。
 
 したがって、read-only discovery で対象 R2 Custom Domain が既に存在すると判明した場合、この root で adoption を続行してはいけません。
 

@@ -289,7 +289,8 @@ if [ "${RUN_TERRAFORM_VALIDATE:-0}" = "1" ]; then
     terraform/env/prod-grafana \
     terraform/cloudflare/dns \
     terraform/cloudflare/email-routing \
-    terraform/cloudflare/worldweaver-hosting
+    terraform/cloudflare/worldweaver-hosting \
+    terraform/cloudflare/zone-redirects
   do
     terraform_env_name="$(basename "${terraform_env}")"
     TF_DATA_DIR="${terraform_data_root}/${terraform_env_name}" \
