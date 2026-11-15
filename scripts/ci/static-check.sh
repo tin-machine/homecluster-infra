@@ -185,6 +185,11 @@ if ! python3 scripts/ci/check-openwrt-gentoo-binary-preseed.py --self-test; then
   fail=1
 fi
 
+print_section "Gentoo world update service/helper contract"
+if ! PYTHONDONTWRITEBYTECODE=1 python3 scripts/ci/test_gentoo_world_update_contract.py; then
+  fail=1
+fi
+
 print_section "ARM64 distcc client/server contract"
 if ! python3 scripts/ci/check-arm64-distcc-contract.py; then
   fail=1
