@@ -129,3 +129,11 @@ provider lock file は review 済みの `.terraform.lock.hcl` を使い、CI / c
 この root は、`common-crds`、`common-addons`、`common-certificates`、`staging` と state を共有しません。
 
 R2 bucket 自体はこの state から作成しません。backend bootstrap と credential 作成は state の外側で行い、既存 local state を R2 へ移行して no-op acceptance を得てから GitHub Actions の live workflow を有効化します。
+
+## Providerのrefresh互換性
+
+DNS rootはprovider `~> 5.28.1`を使います。
+[5.28.0の修正](https://github.com/cloudflare/terraform-provider-cloudflare/releases/tag/v5.28.0)により、
+古いstateに無い`include_shadow_metadata`をrefresh時にfalseへ補完し、不要な更新を防ぎます。
+lockで5.28.1を固定します。hosting・redirects・Email Routing rootのproviderは別のlockで管理します。
+既存recordの更新を許すための`ignore_changes`やstateの手編集は使いません。
