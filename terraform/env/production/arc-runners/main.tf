@@ -30,6 +30,16 @@ variable "runner_enabled" {
   default = false
 }
 
+variable "runner_runtime_class_name" {
+  description = "Optional pre-existing RuntimeClass. Non-default runtimes require preloaded images."
+  type        = string
+  default     = null
+  validation {
+    condition     = var.runner_runtime_class_name == null ? true : can(regex("^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$", var.runner_runtime_class_name))
+    error_message = "Use a Kubernetes RuntimeClass name or null for the default runtime."
+  }
+}
+
 variable "github_config_url" {
   type = string
   validation {
@@ -169,7 +179,7 @@ resource "helm_release" "runners" {
     }
     template = {
       metadata = { labels = { "runner-profile" = "ci-public-egress-only" } }
-      spec = {
+      spec = merge({
         automountServiceAccountToken = false
         serviceAccountName           = kubernetes_service_account_v1.runner.metadata[0].name
         nodeSelector                 = var.workload_node_selector
@@ -182,9 +192,10 @@ resource "helm_release" "runners" {
           seccompProfile = { type = "RuntimeDefault" }
         }
         containers = [{
-          name    = "runner"
-          image   = "ghcr.io/actions/actions-runner:2.337.0@sha256:e5496277be5d09bc968b3d64911b74e219ac4a3f2edce956a3ecf9271bea1ef4"
-          command = ["/home/runner/run.sh"]
+          name            = "runner"
+          image           = "ghcr.io/actions/actions-runner:2.337.0@sha256:e5496277be5d09bc968b3d64911b74e219ac4a3f2edce956a3ecf9271bea1ef4"
+          imagePullPolicy = var.runner_runtime_class_name == null ? "IfNotPresent" : "Never"
+          command         = ["/home/runner/run.sh"]
           securityContext = {
             allowPrivilegeEscalation = false
             capabilities             = { drop = ["ALL"] }
@@ -196,7 +207,7 @@ resource "helm_release" "runners" {
           volumeMounts = [{ name = "work", mountPath = "/home/runner/_work" }]
         }]
         volumes = [{ name = "work", emptyDir = { sizeLimit = "1536Mi" } }]
-      }
+      }, var.runner_runtime_class_name == null ? {} : { runtimeClassName = var.runner_runtime_class_name })
     }
   })]
   cleanup_on_fail = true
