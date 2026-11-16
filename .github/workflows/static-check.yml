@@ -51,6 +51,17 @@ jobs:
           terraform -chdir=terraform/cloudflare/zone-redirects init -backend=false -input=false -lockfile=readonly
           terraform -chdir=terraform/cloudflare/zone-redirects test -no-color
 
+      - name: Validate production ARC with mock providers
+        shell: bash
+        run: |
+          set -euo pipefail
+          for arc_root in arc-controller arc-runners; do
+            export TF_DATA_DIR="$RUNNER_TEMP/arc-provider-data/$arc_root"
+            mkdir -p "$TF_DATA_DIR"
+            terraform -chdir="terraform/env/production/$arc_root" init -backend=false -input=false -lockfile=readonly
+            terraform -chdir="terraform/env/production/$arc_root" test -no-color
+          done
+
       - name: Validate PXE producer-consumer contracts
         shell: bash
         run: |
