@@ -41,3 +41,25 @@ run "ci_only_registration" {
     error_message = "Keep the CI storage and privilege boundary when enabling registration."
   }
 }
+
+run "custom_runtime_uses_preloaded_image_only" {
+  command = plan
+  variables {
+    runner_enabled            = true
+    runner_runtime_class_name = "ci-overlayfs"
+  }
+  assert {
+    condition = (
+      yamldecode(helm_release.runners[0].values[0]).template.spec.runtimeClassName == "ci-overlayfs" &&
+      yamldecode(helm_release.runners[0].values[0]).template.spec.containers[0].imagePullPolicy == "Never" &&
+      yamldecode(helm_release.runners[0].values[0]).maxRunners == 1
+    )
+    error_message = "Custom runtimes must not fall back to the default image snapshotter on a cache miss."
+  }
+}
+
+run "reject_invalid_runtime_name" {
+  command = plan
+  variables { runner_runtime_class_name = "invalid/class" }
+  expect_failures = [var.runner_runtime_class_name]
+}

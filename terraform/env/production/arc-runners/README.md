@@ -1,0 +1,11 @@
+# Production ARC runners
+
+`runner_runtime_class_name`はrunner Podだけに既存RuntimeClassを指定する。
+既定値`null`ではclusterの標準runtimeを使う。
+
+指定時は`imagePullPolicy: Never`とする。job投入前に、そのruntimeのsnapshotterへ
+digest固定imageを展開し、canonical digest名をCRIへ登録する。
+cacheがなければ標準snapshotterへ展開せずPodが停止する。
+
+RuntimeClassの選択だけでは、Kubernetesのalpha機能`RuntimeClassInImageCriApi`は有効にならない。
+このrootはkubelet、containerdの既定値、既存RuntimeClass、他workloadを変更しない。
