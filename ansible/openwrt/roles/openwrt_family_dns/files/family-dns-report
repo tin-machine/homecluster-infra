@@ -1,0 +1,129 @@
+#!/usr/bin/python3
+"""Render one JST day's retained AGH queries. Read an administrator netrc on stdin."""
+import argparse
+import base64
+import ctypes
+import datetime as dt
+import hmac
+import json
+import netrc
+import sys
+from collections import Counter, defaultdict
+from dataclasses import dataclass, field
+from html import escape
+from urllib.parse import urlencode
+from urllib.request import ProxyHandler, Request, build_opener
+
+JST = dt.timezone(dt.timedelta(hours=9))
+PAGE_SIZE = 250
+SERVICES = {
+    "youtube.com": "YouTube", "youtu.be": "YouTube", "googlevideo.com": "YouTube",
+    "ytimg.com": "YouTube", "youtube-nocookie.com": "YouTube",
+    "tiktok.com": "TikTok", "tiktokcdn.com": "TikTok", "tiktokv.com": "TikTok",
+}
+BLOCKED = {"FilteredBlackList", "FilteredSafeBrowsing", "FilteredParental",
+           "FilteredInvalid", "FilteredBlockedService"}
+
+
+class PublicSuffixList:
+    def __init__(self):
+        self.lib = ctypes.CDLL("libpsl.so.5")
+        self.lib.psl_builtin.restype = ctypes.c_void_p
+        self.lib.psl_registrable_domain.argtypes = (ctypes.c_void_p, ctypes.c_char_p)
+        self.lib.psl_registrable_domain.restype = ctypes.c_char_p
+        self.context = self.lib.psl_builtin()
+        if not self.context or self.domain("foo.example.co.jp") != "example.co.jp":
+            raise RuntimeError("a built-in Public Suffix List is required")
+
+    def domain(self, name):
+        value = self.lib.psl_registrable_domain(self.context, name.encode("utf-8"))
+        return value.decode("utf-8") if value else name
+
+
+@dataclass
+class Counts:
+    total: int = 0
+    blocked: int = 0
+    first: str = ""
+    last: str = ""
+    names: Counter = field(default_factory=Counter)
+
+
+def records(start, end, auth):
+    opener = build_opener(ProxyHandler({}))
+    cursor = end.isoformat()
+    for _ in range(200):
+        args = urlencode({"limit": PAGE_SIZE, "older_than": cursor})
+        req = Request("http://127.0.0.1:3000/control/querylog?" + args,
+                      headers={"Authorization": auth})
+        with opener.open(req, timeout=10) as response:
+            page = json.load(response)
+        for item in page["data"]:
+            stamp = dt.datetime.fromisoformat(item["time"]).astimezone(JST)
+            if stamp < start:
+                return
+            if stamp < end:
+                yield stamp, item
+        next_cursor = page.get("oldest")
+        if not next_cursor:
+            return
+        if next_cursor == cursor:
+            raise RuntimeError("query log cursor stopped advancing")
+        cursor = next_cursor
+    raise RuntimeError("50,000-record scan budget reached; daily result is incomplete")
+
+
+def report(day, credentials):
+    user, _, password = credentials
+    key = password.encode()
+    auth = "Basic " + base64.b64encode(f"{user}:{password}".encode()).decode()
+    psl = PublicSuffixList()
+    start = dt.datetime.combine(day, dt.time.min, JST)
+    groups = defaultdict(Counts)
+    for stamp, item in records(start, start + dt.timedelta(days=1), auth):
+        name = item["question"]["name"].lower().rstrip(".")
+        if not name:
+            continue
+        domain = psl.domain(name)
+        matched = item.get("service_name")
+        service = {"youtube": "YouTube", "tiktok": "TikTok"}.get(matched, matched)
+        service = service or SERVICES.get(domain, "未分類")
+        alias = (item.get("client_info") or {}).get("name")
+        if not alias:
+            digest = hmac.digest(key, ("client:" + item["client"]).encode(), "sha256")
+            alias = "端末-" + digest.hex()[:12]
+        counts = groups[alias, service, domain]
+        counts.total += 1
+        counts.blocked += item["reason"] in BLOCKED
+        counts.names[name] += 1
+        seen = stamp.strftime("%H:%M:%S")
+        counts.first = min(counts.first or seen, seen)
+        counts.last = max(counts.last, seen)
+    print('<!doctype html><html lang="ja"><meta charset="utf-8"><title>DNS 日別集計</title>')
+    print('<style>body{font:1rem system-ui;margin:2rem}table{border-collapse:collapse}td,th{padding:.45rem;text-align:left;border-bottom:1px solid #ccc}</style>')
+    print(f"<h1>{day} の DNS 問い合わせ（日本時間）</h1>")
+    print(f"<p>保存済み {sum(c.total for c in groups.values())} 件。各端末の分類別上位20ドメイン。</p>")
+    for title, known in [("未知のサービス候補", False), ("既知のサービス", True)]:
+        print(f"<h2>{title}</h2><table><tr>")
+        for label in ["端末", "分類", "登録可能ドメイン", "最多の FQDN", "問い合わせ", "遮断", "最初", "最後"]:
+            print(f"<th>{label}</th>")
+        print("</tr>")
+        per_client = Counter()
+        for (alias, service, domain), c in sorted(groups.items(), key=lambda kv: (kv[0][0], -kv[1].total, kv[0])):
+            if (service != "未分類") != known or per_client[alias] >= 20:
+                continue
+            per_client[alias] += 1
+            cells = [alias, service, domain, c.names.most_common(1)[0][0], c.total, c.blocked, c.first, c.last]
+            print("<tr>" + "".join(f"<td>{escape(str(v))}</td>" for v in cells) + "</tr>")
+        print("</table>")
+    print("</html>")
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--day", type=dt.date.fromisoformat, default=dt.datetime.now(JST).date())
+    args = parser.parse_args()
+    credentials = netrc.netrc("/dev/stdin").authenticators("127.0.0.1")
+    if not credentials:
+        sys.exit("missing loopback netrc entry")
+    report(args.day, credentials)

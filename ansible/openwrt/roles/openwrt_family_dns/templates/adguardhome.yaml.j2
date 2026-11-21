@@ -1,0 +1,64 @@
+schema_version: 34
+http:
+  address: 127.0.0.1:3000
+users:
+  - name: admin
+    password: {{ openwrt_family_dns_admin_hash | to_json }}
+dns:
+  bind_hosts: {{ (['127.0.0.1', '::1', ansible_host] + ([openwrt_family_dns_lan_ipv6] if openwrt_family_dns_lan_ipv6 else [])) | to_json }}
+  port: {{ openwrt_family_dns_port | int }}
+  upstream_dns:
+    - {{ openwrt_family_dns_upstream | to_json }}
+    - '[/lan/]127.0.0.1:{{ 54 if openwrt_family_dns_port | int == 53 else 53 }}'
+  bootstrap_dns: []
+  fallback_dns: []
+  local_ptr_upstreams:
+    - '127.0.0.1:{{ 54 if openwrt_family_dns_port | int == 53 else 53 }}'
+  use_private_ptr_resolvers: true
+  anonymize_client_ip: false
+filtering:
+  protection_enabled: true
+  filtering_enabled: true
+  blocking_mode: nxdomain
+  blocked_services:
+    ids: []
+    schedule:
+      time_zone: Local
+filters: []
+whitelist_filters: []
+user_rules: []
+clients:
+  runtime_sources:
+    whois: false
+    rdns: false
+    arp: false
+    dhcp: false
+    hosts: false
+  persistent:
+{% if openwrt_family_dns_school_ips %}
+    - name: school-pc
+      ids: {{ openwrt_family_dns_school_ips | to_json }}
+      use_global_settings: true
+      use_global_blocked_services: false
+      blocked_services:
+        ids: [youtube, tiktok]
+        schedule:
+          time_zone: Asia/Tokyo
+{% for day in ['mon','tue','wed','thu','fri','sat','sun'] %}
+          {{ day }}: {start: 6h, end: 22h}
+{% endfor %}
+{% else %}
+    []
+{% endif %}
+dhcp:
+  enabled: false
+querylog:
+  enabled: true
+  file_enabled: true
+  interval: 24h
+  size_memory: 256
+statistics:
+  enabled: true
+  interval: 168h
+log:
+  verbose: false

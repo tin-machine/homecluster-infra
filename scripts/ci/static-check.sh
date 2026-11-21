@@ -9,7 +9,7 @@ strict_local_scan="${STATIC_CHECK_STRICT_LOCAL:-${STATIC_CHECK_SCAN_IGNORED:-0}}
 
 mapfile -t openwrt_playbooks < <(
   find ansible/openwrt -maxdepth 2 -type f \
-    \( -path '*/site.yml' -o -path '*/site.yaml' -o \
+    \( -path '*/site.yml' -o -path '*/site.yaml' -o -path 'ansible/openwrt/management.yml' -o \
        -path '*/playbooks/*.yml' -o -path '*/playbooks/*.yaml' \) -print | sort
 )
 mapfile -t arm64_playbooks < <(
@@ -347,6 +347,7 @@ if command -v python3 >/dev/null 2>&1; then
   python3 -m py_compile .agents/skills/homecluster-openwrt-package-boundary-auditor/scripts/check_openwrt_package_boundaries.py
   python3 -m py_compile .agents/skills/homecluster-openwrt-postupgrade-check/scripts/check_openwrt_postupgrade_source_contract.py
   python3 scripts/ci/check-openwrt-pxe-client-catalog.py
+  python3 -B ansible/openwrt/roles/openwrt_family_dns/tests/test_report.py
   python3 scripts/ci/check-host-tailscale.py
   python3 scripts/ci/check-k3s-converge-contract.py
   python3 -m unittest discover -s scripts/ci -p 'test_k3s_converge_contract.py'

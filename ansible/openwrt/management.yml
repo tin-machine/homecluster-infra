@@ -1,0 +1,26 @@
+---
+- name: Manage secondary OpenWrt appliances
+  hosts: openwrt_management:!openwrt
+  gather_facts: false
+  become: false
+  pre_tasks:
+    - name: Read management LAN identity
+      ansible.builtin.raw: cat /sys/class/net/br-lan/address && uci -q get network.lan.ipaddr
+      register: management_identity
+      changed_when: false
+      check_mode: false
+      tags: [always]
+
+    - name: Verify inventory binding before managing this appliance
+      ansible.builtin.assert:
+        that:
+          - management_identity.stdout_lines | map('trim') | list == [openwrt_management_lan_mac, ansible_host]
+          - openwrt_management_lan_mac | length == 17
+      tags: [always]
+  roles:
+    - role: openwrt_detect
+      tags: [always]
+    - role: bootstrap_python
+      tags: [never, bootstrap]
+    - role: openwrt_family_dns
+      tags: [never, family_dns]

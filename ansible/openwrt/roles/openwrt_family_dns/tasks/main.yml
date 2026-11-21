@@ -1,0 +1,139 @@
+---
+- name: Validate family DNS inputs
+  ansible.builtin.assert:
+    that:
+      - openwrt_pkg_manager == 'apk'
+      - owrt_device_raw == 'openwrt,one'
+      - openwrt_family_dns_port | int in [53, 5354]
+      - openwrt_family_dns_upstream is defined
+      - openwrt_family_dns_upstream not in [ansible_host, '127.0.0.1', '::1', openwrt_family_dns_lan_ipv6]
+      - openwrt_family_dns_admin_hash is match('^\$2[aby]\$[0-9]{2}\$.{53}$')
+      - openwrt_family_dns_school_ips | type_debug == 'list'
+    quiet: true
+  no_log: true
+
+- name: Require a distinct upstream IP and individual client addresses
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - -c
+      - |
+        import ipaddress
+        import json
+        import sys
+        upstream = ipaddress.ip_address(sys.argv[1])
+        local = {ipaddress.ip_address(ip) for ip in sys.argv[2:4] if ip}
+        clients = json.loads(sys.argv[4])
+        if upstream.is_loopback or upstream.is_unspecified or upstream.is_multicast or upstream in local:
+            sys.exit("upstream must be a distinct unicast resolver")
+        for client in clients:
+            if not isinstance(client, str):
+                sys.exit("client identifiers must be individual IP addresses")
+            address = ipaddress.ip_address(client)
+            if address.is_unspecified or address.is_multicast or address in local or address == upstream:
+                sys.exit("client must be a distinct unicast address")
+      - "{{ openwrt_family_dns_upstream }}"
+      - "{{ ansible_host }}"
+      - "{{ openwrt_family_dns_lan_ipv6 }}"
+      - "{{ openwrt_family_dns_school_ips | to_json }}"
+  changed_when: false
+  check_mode: false
+  no_log: true
+
+- name: Create private configuration staging directory
+  ansible.builtin.file:
+    path: /etc/family-dns
+    state: directory
+    mode: '0700'
+
+- name: Render authenticated DNS configuration
+  ansible.builtin.template:
+    src: adguardhome.yaml.j2
+    dest: /etc/family-dns/desired.yaml
+    mode: '0600'
+  register: family_dns_rendered
+  no_log: true
+  diff: false
+
+- name: Prepare authenticated first start on the commissioning port
+  ansible.builtin.shell: |
+    set -eu
+    if apk info -e adguardhome >/dev/null 2>&1; then
+      test -f /etc/family-dns/enrolled
+      exit 0
+    fi
+    if [ -f /etc/adguardhome/adguardhome.yaml ] && [ ! -f /etc/family-dns/enrolled ]; then
+      echo 'existing configuration requires explicit adoption' >&2
+      exit 1
+    fi
+    umask 077
+    mkdir -p /etc/adguardhome
+    sed 's/^  port: 53$/  port: 5354/' /etc/family-dns/desired.yaml > /etc/adguardhome/adguardhome.yaml
+    touch /etc/family-dns/enrolled
+    echo prepared
+  register: family_dns_seed
+  changed_when: "'prepared' in family_dns_seed.stdout"
+
+- name: Install resolver and on-device reporting dependencies
+  vars:
+    family_dns_packages: [adguardhome, zoneinfo-asia, libpsl5, bind-dig]
+  block:
+    - name: Check installed dependencies
+      ansible.builtin.command:
+        argv: "{{ ['apk', 'info', '-e'] + family_dns_packages }}"
+      register: family_dns_installed
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    - name: Install missing dependencies with the shared package role
+      ansible.builtin.include_role:
+        name: openwrt_package
+        apply:
+          tags: [family_dns]
+      vars:
+        openwrt_package_names: "{{ family_dns_packages }}"
+      when: family_dns_installed.rc != 0
+
+    - name: Confirm all package dependencies are present
+      ansible.builtin.command:
+        argv: "{{ ['apk', 'info', '-e'] + family_dns_packages }}"
+      changed_when: false
+      when: family_dns_installed.rc != 0
+
+- name: Make local time zone data available inside the resolver jail
+  ansible.builtin.shell: |
+    set -eu
+    case " $(uci -q get adguardhome.config.jail_mount || true) " in
+      *" /usr/share/zoneinfo "*) exit 0 ;;
+    esac
+    test -z "$(uci changes adguardhome)"
+    uci add_list adguardhome.config.jail_mount=/usr/share/zoneinfo
+    uci commit adguardhome
+    echo configured
+  register: family_dns_jail
+  changed_when: "'configured' in family_dns_jail.stdout"
+
+- name: Install DNS deployment helper
+  ansible.builtin.copy:
+    src: apply-dns
+    dest: /etc/family-dns/apply-dns
+    mode: '0700'
+
+- name: Activate and test resolver configuration
+  ansible.builtin.command:
+    argv:
+      - flock
+      - -x
+      - /var/lock/family-dns.lock
+      - /etc/family-dns/apply-dns
+      - "{{ openwrt_family_dns_port | string }}"
+      - "{{ family_dns_rendered.checksum }}"
+  register: family_dns_activate
+  changed_when: "'configuration-applied' in family_dns_activate.stdout"
+
+- name: Install on-demand local query log report
+  ansible.builtin.copy:
+    src: family-dns-report
+    dest: /usr/bin/family-dns-report
+    mode: '0700'

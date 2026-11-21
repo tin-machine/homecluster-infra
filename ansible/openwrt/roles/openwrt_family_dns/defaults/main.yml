@@ -1,0 +1,4 @@
+---
+openwrt_family_dns_port: 5354
+openwrt_family_dns_lan_ipv6: ""
+openwrt_family_dns_school_ips: []

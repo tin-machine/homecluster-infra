@@ -1,0 +1,65 @@
+#!/bin/sh
+set -eu
+umask 077
+port=$1
+case "$port" in 53|5354) ;; *) exit 2 ;; esac
+dir=/etc/family-dns
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+candidate=$tmp/candidate.yaml
+cp "$dir/desired.yaml" "$candidate"
+# Pin the exact result of this Ansible invocation across the service restart.
+python3 -c 'import hashlib, pathlib, sys
+digest = hashlib.sha1(pathlib.Path(sys.argv[1]).read_bytes()).hexdigest()
+sys.exit(0 if digest == sys.argv[2] else "staged configuration changed")' "$candidate" "$2"
+active=/etc/adguardhome/adguardhome.yaml
+agh=/etc/init.d/adguardhome
+dnsmasq=/etc/init.d/dnsmasq
+key='dhcp.@dnsmasq[0].port'
+old_port=$(uci -q get "$key" || true)
+want_local=53
+[ "$port" != 53 ] || want_local=54
+# This profile owns only the DNS listener. Preserve other pending UCI work.
+test -z "$(uci changes dhcp)"
+case "$old_port" in ''|53|54) ;; *) echo 'unexpected dnsmasq port' >&2; exit 1 ;; esac
+resolve() {
+    dig @127.0.0.1 -p "$1" example.org A +time=2 +tries=1 +short | grep -Eq '^[0-9]+\.'
+}
+if cmp -s "$candidate" "$dir/applied.yaml" &&
+   [ "${old_port:-53}" = "$want_local" ] && "$agh" enabled &&
+   (cd / && sha256sum -c "$dir/active.sha256" >/dev/null 2>&1) && resolve "$port"; then
+    exit 0
+fi
+/usr/bin/AdGuardHome --check-config -c "$candidate" -w /var/lib/adguardhome
+cp -p "$active" "$tmp/previous.yaml"
+was_running=0
+"$agh" running >/dev/null 2>&1 && was_running=1
+restore() {
+    "$agh" stop || true
+    cp -p "$tmp/previous.yaml" "$active"
+    if [ -n "$old_port" ]; then uci set "$key=$old_port"; else uci -q delete "$key" || true; fi
+    uci commit dhcp
+    "$dnsmasq" restart
+    if [ "$was_running" = 1 ]; then "$agh" start; fi
+}
+activate() {
+    "$agh" stop || return 1
+    if [ "${old_port:-53}" != "$want_local" ]; then
+        uci set "$key=$want_local" && uci commit dhcp && "$dnsmasq" restart || return 1
+    fi
+    cp "$candidate" "$active" && chown adguardhome:adguardhome "$active" &&
+        chmod 600 "$active" && "$agh" start || return 1
+    for attempt in $(seq 1 15); do
+        if resolve "$port"; then return 0; fi
+        sleep 1
+    done
+    return 1
+}
+if ! activate || ! "$agh" enable; then
+    restore
+    echo 'resolver activation failed, restored previous settings' >&2
+    exit 1
+fi
+cp "$candidate" "$dir/applied.yaml"
+sha256sum "$active" > "$dir/active.sha256"
+echo configuration-applied
