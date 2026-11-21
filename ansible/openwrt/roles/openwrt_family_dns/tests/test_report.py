@@ -45,6 +45,7 @@ class QueryLogReport(unittest.TestCase):
         entries = [
             row("a.example.co.jp", stamp), row("b.example.co.jp", stamp),
             row("youtube.com.example.org", stamp),
+            row("classroom.google.com", stamp), row("other.google.com", stamp),
             row("www.youtube.com", stamp, client_info={"name": "<device>"}),
             row("www.youtube.com", stamp, reason="FilteredBlockedService",
                 service_name="youtube", client_info={"name": "<device>"}),
@@ -55,11 +56,13 @@ class QueryLogReport(unittest.TestCase):
             with contextlib.redirect_stdout(result):
                 report(DAY, ("user", "", "test-credential"))
         html = result.getvalue()
-        self.assertIn("保存済み 5 件", html)
+        self.assertIn("保存済み 7 件", html)
         self.assertNotIn("192.0.2.1", html)
         self.assertNotIn("<device>", html)
         self.assertIn("<td>example.co.jp</td><td>a.example.co.jp</td><td>2</td>", html)
         self.assertIn("<td>未分類</td><td>example.org</td>", html)
+        self.assertIn("<td>Google Classroom</td><td>google.com</td><td>classroom.google.com</td>", html)
+        self.assertIn("<td>未分類</td><td>google.com</td><td>other.google.com</td>", html)
         self.assertIn("<td>&lt;device&gt;</td><td>YouTube</td><td>youtube.com</td>"
                       "<td>www.youtube.com</td><td>2</td><td>1</td>", html)
 
