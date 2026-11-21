@@ -15,7 +15,8 @@ from urllib.parse import urlencode
 from urllib.request import ProxyHandler, Request, build_opener
 
 JST = dt.timezone(dt.timedelta(hours=9))
-PAGE_SIZE = 250
+# A full page must reach past AGH's 256-entry memory buffer into the file.
+PAGE_SIZE = 500
 SERVICES = {
     "youtube.com": "YouTube", "youtu.be": "YouTube", "googlevideo.com": "YouTube",
     "ytimg.com": "YouTube", "youtube-nocookie.com": "YouTube",
@@ -51,9 +52,14 @@ class Counts:
 
 def records(start, end, auth):
     opener = build_opener(ProxyHandler({}))
-    cursor = end.isoformat()
-    for _ in range(200):
-        args = urlencode({"limit": PAGE_SIZE, "older_than": cursor})
+    cursor = None
+    for _ in range(100):
+        # In AGH 0.107.80 a synthetic initial cursor can skip a file record.
+        # Start at the latest query and use only the API's nanosecond cursors.
+        params = {"limit": PAGE_SIZE}
+        if cursor:
+            params["older_than"] = cursor
+        args = urlencode(params)
         req = Request("http://127.0.0.1:3000/control/querylog?" + args,
                       headers={"Authorization": auth})
         with opener.open(req, timeout=10) as response:

@@ -36,6 +36,7 @@ class QueryLogReport(unittest.TestCase):
         with patch.dict(records.__globals__, build_opener=Mock(return_value=opener)):
             rows = list(records(start, start + dt.timedelta(days=1), "Basic fixture"))
         self.assertEqual([r for _, r in rows], [first])
+        self.assertNotIn("older_than", opener.open.call_args_list[0].args[0].full_url)
         req = opener.open.call_args_list[1].args[0]
         self.assertIn("older_than=2026-01-01T15%3A00%3A00.000000123Z", req.full_url)
         self.assertEqual(req.get_header("Authorization"), "Basic fixture")
